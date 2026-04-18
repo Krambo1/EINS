@@ -1,0 +1,109 @@
+"use client";
+
+import { useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { STATS, TAB_DEFS, type Stat } from "@/lib/stats-data";
+import { Counter } from "@/components/ui/counter";
+import { StatViz } from "@/components/ui/stat-viz";
+
+export function TabExplorer() {
+  const [tab, setTab] = useState<Stat["tab"]>("conversion");
+  const stats = STATS.filter((s) => s.tab === tab);
+  const [activeId, setActiveId] = useState<string>(stats[0].id);
+  const active = stats.find((s) => s.id === activeId) ?? stats[0];
+
+  const handleTabChange = (next: string) => {
+    const nextTab = next as Stat["tab"];
+    setTab(nextTab);
+    const first = STATS.find((s) => s.tab === nextTab);
+    if (first) setActiveId(first.id);
+  };
+
+  return (
+    <div className="card-glow rounded-3xl border border-border bg-bg-secondary/60 p-6 backdrop-blur md:p-10">
+      <Tabs value={tab} onValueChange={handleTabChange}>
+        <div className="flex flex-col items-start gap-6 md:flex-row md:items-center md:justify-between">
+          <TabsList>
+            {TAB_DEFS.map((t) => (
+              <TabsTrigger key={t.id} value={t.id}>
+                {t.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+          {stats.length > 1 && (
+            <div className="flex items-center gap-3">
+              <span className="hidden font-mono text-base uppercase tracking-wider text-fg-secondary sm:inline">
+                Durchklicken
+              </span>
+              <svg
+                className="hidden h-3 w-3 text-accent sm:block"
+                viewBox="0 0 12 12"
+                fill="none"
+                aria-hidden
+              >
+                <path d="M2 6h8m0 0L7 3m3 3L7 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <div className="flex flex-wrap gap-2">
+                {stats.map((s, i) => {
+                  const isActive = s.id === active.id;
+                  return (
+                    <button
+                      key={s.id}
+                      onClick={() => setActiveId(s.id)}
+                      aria-pressed={isActive}
+                      aria-label={`Statistik ${i + 1} von ${stats.length} anzeigen`}
+                      className={`font-mono text-base font-medium px-4 py-2 rounded-full border transition-all duration-200 cursor-pointer active:scale-95 ${
+                        isActive
+                          ? "border-accent bg-accent text-bg-primary shadow-[0_0_20px_-4px_rgba(212,217,67,0.5)]"
+                          : "border-border-hover bg-bg-primary text-fg-primary hover:border-accent hover:bg-accent/10 hover:text-accent hover:scale-105"
+                      }`}
+                    >
+                      0{i + 1}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </Tabs>
+
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={active.id}
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+          className="mt-10 grid gap-10 md:grid-cols-2 md:items-center"
+        >
+          <div>
+            <div className="mb-2 font-mono text-base text-fg-secondary">
+              Kennzahl
+            </div>
+            <div className="font-display text-7xl font-semibold tracking-tightest text-accent-gradient md:text-8xl">
+              <Counter
+                to={active.bigNumber.value}
+                prefix={active.bigNumber.prefix}
+                suffix={active.bigNumber.suffix}
+                decimals={active.bigNumber.decimals}
+                duration={1400}
+              />
+            </div>
+            <div className="mt-4 text-lg leading-snug text-fg-primary">{active.headline}</div>
+            <div className="mt-6 border-l-2 border-accent/40 pl-4 text-base leading-relaxed text-fg-secondary">
+              {active.salesFrame}
+            </div>
+            <div className="mt-6 font-mono text-xs text-fg-secondary">
+              Quelle: {active.source}
+            </div>
+          </div>
+          <div className="min-h-[260px] rounded-2xl border border-border/60 bg-bg-primary/40 p-4 md:p-6">
+            <StatViz viz={active.viz} />
+          </div>
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  );
+}
