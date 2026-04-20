@@ -2,6 +2,7 @@ import { ArrowUpRight } from "lucide-react";
 import { ShinyButton } from "@/components/ui/shiny-button";
 import { Reveal } from "@/components/ui/reveal";
 import { ShimmerText } from "@/components/ui/shimmer-text";
+import { BackToTop } from "@/components/ui/back-to-top";
 import { CALENDLY_URL, CONTACT_EMAIL } from "@/lib/constants";
 
 export function FinalCta() {
@@ -33,6 +34,7 @@ export function FinalCta() {
             >
               Oder schreiben Sie uns: {CONTACT_EMAIL}
             </a>
+            <BackToTop />
           </div>
         </Reveal>
       </div>
