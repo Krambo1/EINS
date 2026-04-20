@@ -8,7 +8,8 @@ const config: Config = {
       padding: {
         DEFAULT: "0.25rem",
         sm: "1.5rem",
-        lg: "2rem",
+        md: "2.5rem",
+        lg: "3rem",
       },
       screens: { "2xl": "1240px" },
     },

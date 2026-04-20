@@ -1,16 +1,16 @@
 export const NOT_FOR_YOU = [
-  'Sie wollen "erstmal mit 100 € testen"',
-  'Werbung soll "irgendwann mal Ergebnisse bringen"',
-  "Der Entscheidungsträger ist nicht im Gespräch",
-  "Die Praxis führt ausschließlich Kassenleistungen durch",
-  "Sie mögen lieber Design statt Umsatz",
+  "Sie wollen erstmal nur mit 100 € testen.",
+  "Sie erwarten keine planbaren, messbaren Ergebnisse.",
+  "Der Entscheider ist beim Gespräch nicht dabei.",
+  "Ihre Praxis macht ausschließlich Kassenleistungen.",
+  "Ihnen ist Design wichtiger als Umsatz.",
 ];
 
 export const FOR_YOU = [
-  "Zahnarzt- oder Ästhetikpraxis mit > 150k Jahresumsatz",
-  "Hochpreisige Behandlungen im Angebot: 1.500 bis 20.000 €",
-  "Entscheider will Kontrolle über Werbung und Patientenfluss",
-  "Praxisinhaber, die abmahnsicher werben wollen",
-  'Bereit, in Wachstum zu investieren statt zu "testen"',
-  "Ziel: zahlungsfähige Patienten für hochpreisige Eingriffe",
+  "Sie führen eine Zahnarzt- oder Ästhetikpraxis mit mindestens 150.000 € Jahresumsatz.",
+  "Sie bieten hochpreisige Behandlungen an — Implantate, Veneers, Invisalign, All-on-4.",
+  "Sie wollen Kontrolle über Ihre Werbung und Ihren Patientenstrom.",
+  "Sie wollen rechtssicher werben, ohne Angst vor Abmahnungen.",
+  "Sie sind bereit, in echtes Wachstum zu investieren statt zu testen.",
+  "Sie wollen mehr Privatpatienten, die hochpreisige Behandlungen buchen.",
 ];

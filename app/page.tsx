@@ -19,10 +19,10 @@ export default function Page() {
       <Nav />
       <main>
         <Hero />
-        <StatsShowcase />
         <System />
-        <Offer />
         <Roi />
+        <Offer />
+        <StatsShowcase />
         <Guarantee />
         <Timeline />
         <FitCheck />

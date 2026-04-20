@@ -10,7 +10,7 @@ export function Roi() {
       <div className="container">
         <Reveal delay={0.08}>
           <h2 className="display-l mx-auto max-w-6xl text-center">
-            Realistischer Ertrag: <span className="text-accent-gradient">Ø +247 %</span> in{" "}
+            Realistischer Ertrag: <span className="whitespace-nowrap text-accent-gradient">Ø&nbsp;+247&nbsp;%</span> in{" "}
             <span className="relative inline-block whitespace-nowrap">
               90 Tagen
               <motion.svg
@@ -43,7 +43,7 @@ export function Roi() {
           </h2>
         </Reveal>
         <Reveal delay={0.2}>
-          <div className="mt-10">
+          <div className="mt-6 md:mt-10">
             <RoiSlider />
           </div>
         </Reveal>

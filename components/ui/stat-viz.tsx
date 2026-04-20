@@ -16,9 +16,9 @@ import {
 import type { Viz } from "@/lib/stats-data";
 import { formatEuro } from "@/lib/utils";
 
-const ACCENT = "#d4d943";
-const MUTED = "#27272a";
-const TEXT = "#a1a1aa";
+const ACCENT = "#58BAB5";
+const MUTED = "#e4e4e7";
+const TEXT = "#8a8a94";
 
 export function StatViz({ viz }: { viz: Viz }) {
   switch (viz.kind) {
@@ -133,12 +133,12 @@ function ComparativeBar({
           <YAxis type="category" dataKey="label" stroke={TEXT} fontSize={12} width={110} />
           <Tooltip
             cursor={{ fill: "rgba(255,255,255,0.03)" }}
-            contentStyle={{ background: "#111113", border: "1px solid #27272a", borderRadius: 8, fontSize: 12 }}
+            contentStyle={{ background: "#ffffff", border: "1px solid #e4e4e7", borderRadius: 8, fontSize: 12 }}
             formatter={(v: number) => [`${v} ${unit}`, ""]}
           />
           <Bar dataKey="value" radius={[0, 4, 4, 0]} animationDuration={1000}>
             {data.map((_, i) => (
-              <Cell key={i} fill={i === 1 ? ACCENT : "#3f3f46"} />
+              <Cell key={i} fill={i === 1 ? ACCENT : "#d1d1d6"} />
             ))}
           </Bar>
         </BarChart>
@@ -211,7 +211,7 @@ function LineGrowth({ points }: { points: { year: string; value: number }[] }) {
           <XAxis dataKey="year" stroke={TEXT} fontSize={12} />
           <YAxis stroke={TEXT} fontSize={12} />
           <Tooltip
-            contentStyle={{ background: "#111113", border: "1px solid #27272a", borderRadius: 8, fontSize: 12 }}
+            contentStyle={{ background: "#ffffff", border: "1px solid #e4e4e7", borderRadius: 8, fontSize: 12 }}
           />
           <Line
             type="monotone"

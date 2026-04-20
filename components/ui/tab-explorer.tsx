@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { STATS, TAB_DEFS, type Stat } from "@/lib/stats-data";
 import { Counter } from "@/components/ui/counter";
-import { StatViz } from "@/components/ui/stat-viz";
+import { md } from "@/lib/md";
 
 export function TabExplorer() {
   const [tab, setTab] = useState<Stat["tab"]>("conversion");
@@ -21,7 +21,7 @@ export function TabExplorer() {
   };
 
   return (
-    <div className="md:card-glow md:rounded-3xl md:border md:border-border md:bg-bg-secondary/60 md:p-10 md:backdrop-blur">
+    <div className="card-glow rounded-2xl border border-border bg-bg-secondary/60 px-3 py-6 backdrop-blur-sm md:rounded-3xl md:p-10">
       <Tabs value={tab} onValueChange={handleTabChange}>
         <div className="flex flex-col items-stretch gap-3 md:flex-row md:items-center md:justify-between md:gap-6">
           <TabsList className="flex w-full overflow-x-auto px-1 md:w-auto md:px-2">
@@ -59,7 +59,7 @@ export function TabExplorer() {
                       aria-label={`Statistik ${i + 1} von ${stats.length} anzeigen`}
                       className={`font-mono text-base font-medium px-4 py-2 rounded-full border transition-all duration-200 cursor-pointer active:scale-95 ${
                         isActive
-                          ? "border-accent bg-accent text-bg-primary shadow-[0_0_20px_-4px_rgba(212,217,67,0.5)]"
+                          ? "border-accent bg-accent text-fg-primary shadow-[0_0_20px_-4px_rgba(88,186,181,0.5)]"
                           : "border-border-hover bg-bg-primary text-fg-primary hover:border-accent hover:bg-accent/10 hover:text-accent hover:scale-105"
                       }`}
                     >
@@ -80,28 +80,20 @@ export function TabExplorer() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-          className="mt-6 grid gap-8 md:mt-10 md:grid-cols-2 md:items-center md:gap-10"
+          className="mt-6 md:mt-10"
         >
-          <div>
-            <div className="font-display text-7xl font-semibold tracking-tightest text-accent-gradient md:text-8xl">
-              <Counter
-                to={active.bigNumber.value}
-                prefix={active.bigNumber.prefix}
-                suffix={active.bigNumber.suffix}
-                decimals={active.bigNumber.decimals}
-                duration={1400}
-              />
-            </div>
-            <div className="mt-4 text-lg leading-snug text-fg-primary">{active.headline}</div>
-            <div className="mt-6 border-l-2 border-accent/40 pl-4 text-base leading-relaxed text-fg-secondary">
-              {active.salesFrame}
-            </div>
-            <div className="mt-6 font-mono text-xs text-fg-secondary">
-              Quelle: {active.source}
-            </div>
+          <div className="font-display text-7xl font-semibold tracking-tightest text-accent-gradient md:text-8xl">
+            <Counter
+              to={active.bigNumber.value}
+              prefix={active.bigNumber.prefix}
+              suffix={active.bigNumber.suffix}
+              decimals={active.bigNumber.decimals}
+              duration={1400}
+            />
           </div>
-          <div className="min-h-[260px] p-2 md:border-l md:border-border/60 md:p-0 md:pl-10">
-            <StatViz viz={active.viz} />
+          <div className="mt-4 max-w-3xl text-balance font-display text-2xl font-medium leading-tight text-fg-primary md:text-3xl">{md(active.headline)}</div>
+          <div className="mt-6 font-mono text-xs text-fg-secondary">
+            Quelle: {active.source}
           </div>
         </motion.div>
       </AnimatePresence>

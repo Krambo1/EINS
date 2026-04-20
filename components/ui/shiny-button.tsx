@@ -45,7 +45,7 @@ export function ShinyButton({
         }
         @property --gradient-percent {
           syntax: "<percentage>";
-          initial-value: 5%;
+          initial-value: 12%;
           inherits: false;
         }
         @property --gradient-shine {
@@ -55,11 +55,11 @@ export function ShinyButton({
         }
 
         .shiny-cta {
-          --shiny-cta-bg: #0a0a0b;
-          --shiny-cta-bg-subtle: #1a1a1d;
+          --shiny-cta-bg: #10101a;
+          --shiny-cta-bg-subtle: #2a2a34;
           --shiny-cta-fg: #ffffff;
-          --shiny-cta-highlight: #d4d943;
-          --shiny-cta-highlight-subtle: #eef08a;
+          --shiny-cta-highlight: #58BAB5;
+          --shiny-cta-highlight-subtle: #64CEC9;
           --animation: gradient-angle linear infinite;
           --duration: 6s;
           --shadow-size: 2px;
@@ -80,7 +80,7 @@ export function ShinyButton({
           line-height: 1.2;
           font-weight: 500;
           text-decoration: none;
-          border: 1px solid transparent;
+          border: 2px solid transparent;
           border-radius: 360px;
           color: var(--shiny-cta-fg);
           background:
@@ -154,7 +154,7 @@ export function ShinyButton({
             transparent
           );
           mask-image: radial-gradient(circle at bottom, transparent 40%, black);
-          opacity: 0.6;
+          opacity: 0.85;
         }
 
         .shiny-cta :global(span.shiny-label) {
@@ -185,7 +185,7 @@ export function ShinyButton({
         }
 
         .shiny-cta:is(:hover, :focus-visible) {
-          --gradient-percent: 20%;
+          --gradient-percent: 25%;
           --gradient-angle-offset: 95deg;
           --gradient-shine: var(--shiny-cta-highlight-subtle);
         }

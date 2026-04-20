@@ -6,39 +6,38 @@ export type Station = {
 
 export const STATIONS: Station[] = [
   {
-    when: "Woche 1 bis 2",
-    title: "Aufbau",
+    when: "Woche 1–2",
+    title: "Wir kommen zu Ihnen",
     bullets: [
-      "Videodreh und Foto-Shooting in Ihrer Praxis",
-      "Anbindung an Ihre bestehende Software",
-      "Rechtsprüfung Ihrer Werbebotschaften",
-      "Vorbereitung der Anzeigen",
+      "Videodreh und Fotoshooting in Ihrer Praxis",
+      "Anbindung an Ihre Praxis-Software",
+      "Rechtsprüfung aller Werbebotschaften",
     ],
   },
   {
     when: "Woche 3",
-    title: "Start",
+    title: "Anzeigen gehen live",
     bullets: [
-      "Anzeigen gehen live",
-      "Erste Anfragen innerhalb einer Woche",
-      "Tägliche Überwachung",
+      "Ihre Anzeigen laufen auf Instagram, Facebook und Google",
+      "Erste Patientenanfragen innerhalb weniger Tage",
+      "Wir überwachen täglich die Performance",
     ],
   },
   {
     when: "Ab Woche 6",
-    title: "Feinjustierung",
+    title: "Wir optimieren",
     bullets: [
-      "Anfragen werden weiter verbessert",
-      "Wir testen verschiedene Varianten",
-      "Fokus auf hochpreisige Behandlungen",
+      "Wir testen verschiedene Varianten, was am besten funktioniert",
+      "Fokus auf Ihre profitabelsten Behandlungen",
+      "Die Kosten pro Anfrage sinken kontinuierlich",
     ],
   },
   {
     when: "Tag 90",
-    title: "Auswertung",
+    title: "Bilanz ziehen",
     bullets: [
-      "Auswertung Ihrer Erträge",
-      "Bewertung Ihres Patienten-Stroms",
+      "Vollständige Auswertung Ihrer Ergebnisse",
+      "Konkrete Zahlen zu Anfragen, Patienten und Umsatz",
       "Wachstumsplan für die nächsten 9 Monate",
     ],
   },

@@ -89,14 +89,14 @@ export function Nav() {
         )}
       >
         <div className="container grid h-[72px] grid-cols-[1fr_auto_1fr] items-center">
-          {/* Mobile burger (left) */}
+          {/* Mobile burger (right) */}
           <button
             type="button"
             aria-label={open ? "Menü schließen" : "Menü öffnen"}
             aria-expanded={open}
             aria-controls="mobile-menu"
             onClick={() => setOpen((v) => !v)}
-            className="relative z-50 inline-flex h-[52px] w-[52px] items-center justify-center justify-self-start rounded-full border border-border bg-bg-primary/50 text-fg-primary transition-colors hover:border-accent/60 hover:text-accent md:hidden"
+            className="relative z-50 col-start-3 row-start-1 inline-flex h-12 w-12 items-center justify-center justify-self-end rounded-full border border-border bg-bg-primary/50 text-fg-primary transition-colors hover:border-accent/60 hover:text-accent md:hidden"
           >
             <span className="relative block h-5 w-5">
               <Menu
@@ -114,12 +114,12 @@ export function Nav() {
             </span>
           </button>
 
-          {/* Logo: left on desktop (always visible); on mobile it shares the right cell with the CTA
-             and only shows while a page CTA is on-screen. */}
+          {/* Logo: left on desktop and mobile (always visible on desktop);
+             on mobile shares the left cell with the CTA and only shows while a page CTA is on-screen. */}
           <Link
             href="/"
             className={cn(
-              "col-start-3 row-start-1 flex items-center justify-self-end pr-2 transition-opacity duration-300 md:col-start-1 md:row-start-1 md:justify-self-start md:pr-0 md:!pointer-events-auto md:!opacity-100",
+              "col-start-1 row-start-1 flex items-center justify-self-start pl-2 transition-opacity duration-300 md:pl-0 md:!pointer-events-auto md:!opacity-100",
               pageCtaVisible || open
                 ? "pointer-events-auto opacity-100"
                 : "pointer-events-none opacity-0"
@@ -128,11 +128,11 @@ export function Nav() {
             onClick={() => setOpen(false)}
           >
             <Image
-              src="/eins-logo-new.png"
+              src="/eins-logo.png"
               alt="EINS Visuals"
-              width={545}
-              height={212}
-              className="h-10 w-auto -translate-y-[2px]"
+              width={5311}
+              height={2119}
+              className="h-9 w-auto -translate-y-[2px] md:h-10"
               priority
             />
           </Link>
@@ -153,10 +153,10 @@ export function Nav() {
             ))}
           </nav>
 
-          {/* CTA (right). On mobile shares the right grid cell with the logo; on desktop always visible. */}
+          {/* CTA. On mobile shares the left grid cell with the logo; on desktop pinned right and always visible. */}
           <div
             className={cn(
-              "col-start-3 row-start-1 justify-self-end transition-opacity duration-300 md:!pointer-events-auto md:!opacity-100",
+              "col-start-1 row-start-1 justify-self-start transition-opacity duration-300 md:col-start-3 md:justify-self-end md:!pointer-events-auto md:!opacity-100",
               !pageCtaVisible || open
                 ? "pointer-events-auto opacity-100"
                 : "pointer-events-none opacity-0"
@@ -166,6 +166,7 @@ export function Nav() {
               href={CALENDLY_URL}
               target="_blank"
               rel="noopener noreferrer"
+              className="!px-5 !py-3 !text-[0.9rem] md:!px-8 md:!py-4 md:!text-base"
             >
               <span className="whitespace-nowrap">Strategie-Gespräch buchen</span>
               <ArrowUpRight className="h-4 w-4" />

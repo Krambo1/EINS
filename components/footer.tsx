@@ -7,7 +7,7 @@ export function Footer() {
     <footer className="border-t border-border bg-bg-primary py-10">
       <div className="container flex flex-col items-start gap-6 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-4">
-          <Image src="/eins-logo.png" alt="EINS Visuals" width={72} height={24} className="h-6 w-auto" />
+          <Image src="/eins-logo.png" alt="EINS Visuals" width={5311} height={2119} className="h-6 w-auto" />
           <div className="font-mono text-sm text-fg-secondary">
             EINS Visuals · Köln, DE ·{" "}
             <a href={`mailto:${CONTACT_EMAIL}`} className="hover:text-fg-secondary">

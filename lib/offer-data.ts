@@ -47,7 +47,7 @@ export const BASISPAKET: BasispaketItem[] = [
   {
     id: "hwg-zhg",
     number: "04",
-    title: "HWG & ZHG Rechtsbotschaftsprüfung",
+    title: "Rechtsprüfung der Werbung",
     value: 1500,
     bullets: [
       "Prüfung aller Werbebotschaften auf Konformität mit Heilmittelwerbegesetz und zahnärztlichem Berufsrecht.",

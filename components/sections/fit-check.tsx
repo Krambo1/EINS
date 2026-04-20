@@ -1,6 +1,7 @@
 import { Check, X } from "lucide-react";
 import { Reveal } from "@/components/ui/reveal";
 import { FOR_YOU, NOT_FOR_YOU } from "@/lib/fit-data";
+import { md } from "@/lib/md";
 
 export function FitCheck() {
   return (
@@ -10,11 +11,16 @@ export function FitCheck() {
           <h2 className="display-l mx-auto max-w-6xl text-center">
             Für wen das System passt.
             <br />
-            <span className="text-fg-secondary">Und für wen nicht.</span>
+            <span className="font-normal">Und für wen nicht.</span>
           </h2>
         </Reveal>
+        <Reveal delay={0.15}>
+          <p className="mt-5 mx-auto max-w-2xl text-center text-lg text-fg-primary md:text-xl">
+            Ehrlich gesagt: Wir arbeiten nicht mit jedem. Hier sehen Sie sofort, ob es für Ihre Praxis passt.
+          </p>
+        </Reveal>
 
-        <div className="mt-16 grid gap-6 md:grid-cols-2">
+        <div className="mt-10 grid gap-6 md:mt-16 md:grid-cols-2">
           <Reveal delay={0.1}>
             <div className="card-glow relative h-full overflow-hidden rounded-3xl border border-red-400/30 bg-gradient-to-br from-red-400/[0.05] to-white/[0.015] p-5 backdrop-blur-sm md:p-8">
               <div
@@ -29,7 +35,7 @@ export function FitCheck() {
                 {NOT_FOR_YOU.map((item) => (
                   <li key={item} className="flex items-start gap-3 text-lg leading-snug text-fg-primary md:text-xl">
                     <X className="mt-1 h-5 w-5 shrink-0 text-red-400" />
-                    <span>{item}</span>
+                    <span>{md(item)}</span>
                   </li>
                 ))}
               </ul>
@@ -50,7 +56,7 @@ export function FitCheck() {
                 {FOR_YOU.map((item) => (
                   <li key={item} className="flex items-start gap-3 text-lg leading-snug text-fg-primary md:text-xl">
                     <Check className="mt-1 h-5 w-5 shrink-0 text-accent" />
-                    <span>{item}</span>
+                    <span>{md(item)}</span>
                   </li>
                 ))}
               </ul>

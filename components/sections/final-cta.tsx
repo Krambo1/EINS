@@ -18,13 +18,20 @@ export function FinalCta() {
         </Reveal>
 
         <Reveal delay={0.25}>
-          <div id="final-cta" className="mt-12 flex flex-col items-center gap-6">
+          <div id="final-cta" className="mt-12 flex flex-col items-center gap-1">
             <ShinyButton href={CALENDLY_URL} target="_blank" rel="noopener noreferrer">
               Strategie-Gespräch buchen <ArrowUpRight className="h-5 w-5" />
             </ShinyButton>
+            <span className="inline-flex items-center gap-2 font-mono text-sm text-fg-primary">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="absolute inline-flex h-full w-full animate-[ping_2.5s_cubic-bezier(0,0,0.2,1)_infinite] rounded-full bg-green-500 opacity-75" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
+              </span>
+              Verfügbar · 30 Minuten
+            </span>
             <a
               href={`mailto:${CONTACT_EMAIL}`}
-              className="text-center font-mono text-base text-fg-secondary transition-colors hover:text-fg-primary"
+              className="mt-5 text-center font-mono text-base text-fg-secondary transition-colors hover:text-fg-primary"
             >
               Oder schreiben Sie uns: {CONTACT_EMAIL}
             </a>

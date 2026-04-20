@@ -10,7 +10,7 @@ export function StatsShowcase() {
             Die Zahlen hinter jeder Entscheidung Ihrer Patienten.
           </h2>
         </Reveal>
-        <div className="mt-12">
+        <div className="mt-8 md:mt-12">
           <TabExplorer />
         </div>
       </div>

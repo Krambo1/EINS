@@ -8,6 +8,7 @@ import {
 import { Reveal } from "@/components/ui/reveal";
 import { OBJECTIONS } from "@/lib/objections-data";
 import { CONTACT_EMAIL } from "@/lib/constants";
+import { md } from "@/lib/md";
 
 export function Objections() {
   return (
@@ -20,7 +21,7 @@ export function Objections() {
         </Reveal>
 
         <Reveal delay={0.15}>
-          <div className="mx-auto mt-12 max-w-3xl">
+          <div className="mx-auto mt-8 max-w-3xl md:mt-12">
             <Accordion type="single" collapsible>
               {OBJECTIONS.map((o, i) => (
                 <AccordionItem key={o.q} value={`obj-${i}`}>
@@ -28,7 +29,7 @@ export function Objections() {
                     <span className="font-display text-lg tracking-tight md:text-xl">{o.q}</span>
                   </AccordionTrigger>
                   <AccordionContent>
-                    <p className="max-w-2xl leading-relaxed">{o.a}</p>
+                    <p className="max-w-2xl leading-relaxed">{md(o.a)}</p>
                   </AccordionContent>
                 </AccordionItem>
               ))}
