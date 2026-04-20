@@ -202,6 +202,38 @@ body {
   font-weight: 600;
 }
 
+/* ROI slider thumb */
+.eins-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  outline: none;
+}
+.eins-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  box-shadow: 0 0 0 4px var(--accent-glow);
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.eins-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+}
+.eins-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 0 0 4px var(--accent-glow);
+}
+
 /* Horizontal scrollbar hidden (timeline) */
 .scrollbar-none {
   scrollbar-width: none;

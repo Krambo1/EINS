@@ -4,12 +4,10 @@ import { useState, useMemo } from "react";
 import { formatEuro } from "@/lib/utils";
 
 const AVG_LTV = 4500;
-const BASELINE_ADSPEND = 3000; // EUR / Monat
+const BASELINE_ADSPEND = 3000;
 
 type ScenarioKey = "garantie" | "durchschnitt" | "top";
 
-// Werte gelten bei BASELINE_ADSPEND (3.000 €/Monat) über 90 Tage.
-// Sie skalieren linear mit dem monatlichen Adspend.
 const SCENARIOS: Record<
   ScenarioKey,
   { label: string; baselineLeads: number; conversion: number }
@@ -34,8 +32,10 @@ export function RoiSlider() {
     return { leads: ls, patients: ps, revenue: rv };
   }, [adspend, scenario]);
 
+  const pct = ((adspend - 3000) / 17000) * 100;
+
   return (
-    <div className="card-glow rounded-2xl border border-border bg-bg-secondary/60 p-6 md:p-8">
+    <div className="card-glow rounded-2xl border border-border bg-bg-secondary/60 p-6 md:p-8" style={{ contain: "layout style" }}>
       <div className="flex flex-col gap-6">
         {/* Scenario toggle */}
         <div
@@ -80,6 +80,9 @@ export function RoiSlider() {
             value={adspend}
             onChange={(e) => setAdspend(Number(e.target.value))}
             className="eins-slider w-full"
+            style={{
+              background: `linear-gradient(to right, var(--accent) 0%, var(--accent) ${pct}%, var(--border) ${pct}%, var(--border) 100%)`,
+            }}
           />
           <div className="mt-1 flex justify-between font-mono text-xs text-fg-secondary">
             <span>3.000 €</span>
@@ -93,46 +96,6 @@ export function RoiSlider() {
           <Metric label="Ertrag / 90 Tage" value={formatEuro(revenue)} highlight />
         </div>
       </div>
-
-      <style jsx>{`
-        .eins-slider {
-          -webkit-appearance: none;
-          appearance: none;
-          height: 4px;
-          background: linear-gradient(
-            to right,
-            var(--accent) 0%,
-            var(--accent) ${((adspend - 3000) / 17000) * 100}%,
-            var(--border) ${((adspend - 3000) / 17000) * 100}%,
-            var(--border) 100%
-          );
-          border-radius: 999px;
-          outline: none;
-        }
-        .eins-slider::-webkit-slider-thumb {
-          -webkit-appearance: none;
-          appearance: none;
-          width: 20px;
-          height: 20px;
-          border-radius: 50%;
-          background: var(--accent);
-          cursor: pointer;
-          box-shadow: 0 0 0 4px var(--accent-glow);
-          transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .eins-slider::-webkit-slider-thumb:hover {
-          transform: scale(1.1);
-        }
-        .eins-slider::-moz-range-thumb {
-          width: 20px;
-          height: 20px;
-          border-radius: 50%;
-          background: var(--accent);
-          border: none;
-          cursor: pointer;
-          box-shadow: 0 0 0 4px var(--accent-glow);
-        }
-      `}</style>
     </div>
   );
 }
@@ -141,7 +104,7 @@ function Metric({ label, value, highlight }: { label: string; value: string; hig
   return (
     <div>
       <div className="mb-1 font-mono text-base text-fg-secondary">{label}</div>
-      <div className={`font-display text-2xl font-semibold tracking-tighter md:text-3xl ${highlight ? "text-accent-gradient" : "text-fg-primary"}`}>
+      <div className={`font-display text-xl font-semibold tracking-tighter tabular-nums whitespace-nowrap md:text-3xl ${highlight ? "text-accent-gradient" : "text-fg-primary"}`}>
         {value}
       </div>
     </div>
