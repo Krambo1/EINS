@@ -19,10 +19,18 @@
   border-color: var(--border);
 }
 
-/* Balance line breaks on every heading and display-class headline
-   so short words don't get orphaned on their own line. */
+/* Let headings wrap naturally on mobile (balance constrains every line
+   to the longest word's width, which on narrow viewports collapses
+   short phrases to one word per line). Use pretty to still guard
+   against last-line widows, and only balance on md+ where widths
+   are wide enough to produce genuinely balanced multi-line headlines. */
 h1, h2, h3, h4, h5, h6 {
-  text-wrap: balance;
+  text-wrap: pretty;
+}
+@media (min-width: 768px) {
+  h1, h2, h3, h4, h5, h6 {
+    text-wrap: balance;
+  }
 }
 
 html {
@@ -200,7 +208,7 @@ body {
   line-height: 0.95;
   letter-spacing: 0em;
   font-weight: 600;
-  text-wrap: balance;
+  text-wrap: pretty;
 }
 .display-l {
   font-family: var(--font-display), system-ui, sans-serif;
@@ -208,7 +216,7 @@ body {
   line-height: 1.02;
   letter-spacing: 0em;
   font-weight: 600;
-  text-wrap: balance;
+  text-wrap: pretty;
 }
 .display-m {
   font-family: var(--font-display), system-ui, sans-serif;
@@ -216,7 +224,12 @@ body {
   line-height: 1.05;
   letter-spacing: 0.005em;
   font-weight: 600;
-  text-wrap: balance;
+  text-wrap: pretty;
+}
+@media (min-width: 768px) {
+  .display-xl, .display-l, .display-m {
+    text-wrap: balance;
+  }
 }
 
 /* ROI slider thumb */
