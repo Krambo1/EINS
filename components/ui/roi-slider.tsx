@@ -1,23 +1,23 @@
 "use client";
 
-import { useState, useMemo, useRef, useLayoutEffect } from "react";
+import { useState, useMemo } from "react";
 import { formatEuro } from "@/lib/utils";
 
 const AVG_LTV = 4500;
 const BASELINE_ADSPEND = 3000;
 
-type ScenarioKey = "garantie" | "durchschnitt" | "top";
+type ScenarioKey = "untergrenze" | "durchschnitt" | "top";
 
 const SCENARIOS: Record<
   ScenarioKey,
   { label: string; baselineLeads: number; conversion: number }
 > = {
-  garantie:     { label: "Garantie",     baselineLeads: 90,  conversion: 0.15 },
+  untergrenze:  { label: "Untergrenze",  baselineLeads: 90,  conversion: 0.15 },
   durchschnitt: { label: "Durchschnitt", baselineLeads: 130, conversion: 0.30 },
   top:          { label: "Top",          baselineLeads: 170, conversion: 0.50 },
 };
 
-const SCENARIO_ORDER: ScenarioKey[] = ["garantie", "durchschnitt", "top"];
+const SCENARIO_ORDER: ScenarioKey[] = ["untergrenze", "durchschnitt", "top"];
 
 export function RoiSlider() {
   const [adspend, setAdspend] = useState(3000);
@@ -33,23 +33,6 @@ export function RoiSlider() {
   }, [adspend, scenario]);
 
   const pct = ((adspend - 3000) / 17000) * 100;
-
-  // Measure slider width so we can pixel-position the pulse overlay exactly on the thumb
-  const sliderRef = useRef<HTMLInputElement>(null);
-  const [thumbX, setThumbX] = useState(10);
-  useLayoutEffect(() => {
-    const el = sliderRef.current;
-    if (!el) return;
-    const THUMB = 20;
-    const update = () => {
-      const w = el.clientWidth;
-      setThumbX(THUMB / 2 + (pct / 100) * (w - THUMB));
-    };
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [pct]);
 
   return (
     <div className="card-glow rounded-2xl border border-border bg-bg-secondary/60 p-6 md:p-10" style={{ contain: "layout style" }}>
@@ -83,9 +66,9 @@ export function RoiSlider() {
                   role="tab"
                   aria-selected={active}
                   onClick={() => setScenario(key)}
-                  className={`rounded-full px-5 py-2 font-mono text-sm font-medium transition-colors md:text-base ${
+                  className={`rounded-full px-3 py-2 font-mono text-sm font-medium transition-colors md:px-5 md:text-base ${
                     active
-                      ? "bg-accent text-fg-primary"
+                      ? "bg-accent text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.25)]"
                       : "text-fg-primary hover:bg-bg-primary"
                   }`}
                 >
@@ -108,7 +91,6 @@ export function RoiSlider() {
           </div>
           <div className="relative">
             <input
-              ref={sliderRef}
               id="adspend"
               type="range"
               min={3000}
@@ -116,6 +98,7 @@ export function RoiSlider() {
               step={500}
               value={adspend}
               onChange={(e) => setAdspend(Number(e.target.value))}
+              aria-valuetext={`${formatEuro(adspend)} pro Monat`}
               className="eins-slider w-full"
               style={{
                 background: `linear-gradient(to right, var(--accent) 0%, var(--accent) ${pct}%, var(--border) ${pct}%, var(--border) 100%)`,
@@ -125,8 +108,8 @@ export function RoiSlider() {
               aria-hidden
               className="thumb-pulse-ring pointer-events-none absolute top-1/2 h-5 w-5 rounded-full"
               style={{
-                left: `${thumbX}px`,
-                transform: "translate(-50%, -50%)",
+                left: `calc(10px + ${pct / 100} * (100% - 20px))`,
+                transform: "translate(-50%, calc(-50% + 3px))",
               }}
             />
           </div>
@@ -141,10 +124,10 @@ export function RoiSlider() {
           <div className="mb-5 font-mono text-base font-medium text-fg-primary md:text-lg">
             3 · Ihr Ergebnis nach 90 Tagen
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
             <Metric label="Qualifizierte Anfragen" value={`${leads}`} />
             <Metric label="Neue Patienten" value={`${patients}`} />
-            <Metric label="Umsatz" value={formatEuro(revenue)} highlight />
+            <Metric label="Umsatz" value={formatEuro(revenue)} highlight className="col-span-2 md:col-span-1" />
           </div>
         </div>
       </div>
@@ -152,9 +135,9 @@ export function RoiSlider() {
   );
 }
 
-function Metric({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+function Metric({ label, value, highlight, className }: { label: string; value: string; highlight?: boolean; className?: string }) {
   return (
-    <div>
+    <div className={className}>
       <div className="mb-2 font-mono text-base text-fg-primary md:text-lg">{label}</div>
       <div className={`font-display text-2xl font-semibold tracking-tighter tabular-nums whitespace-nowrap md:text-4xl ${highlight ? "text-accent-gradient" : "text-fg-primary"}`}>
         {value}

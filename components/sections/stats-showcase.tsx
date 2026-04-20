@@ -7,7 +7,7 @@ export function StatsShowcase() {
       <div className="container">
         <Reveal delay={0.08}>
           <h2 className="display-l mx-auto max-w-6xl text-center">
-            Die Zahlen hinter jeder Entscheidung Ihrer Patienten.
+            Echte Statistiken aus echten Kliniken.
           </h2>
         </Reveal>
         <div className="mt-8 md:mt-12">

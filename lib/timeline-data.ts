@@ -20,7 +20,7 @@ export const STATIONS: Station[] = [
     bullets: [
       "Ihre Anzeigen laufen auf Instagram, Facebook und Google",
       "Erste Patientenanfragen innerhalb weniger Tage",
-      "Wir überwachen täglich die Performance",
+      "Wir überwachen täglich die Leistung",
     ],
   },
   {

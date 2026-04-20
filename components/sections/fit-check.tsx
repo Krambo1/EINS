@@ -28,7 +28,7 @@ export function FitCheck() {
                 style={{ background: "radial-gradient(circle, rgba(248,113,113,0.12), transparent 60%)" }}
               />
               <div className="font-mono text-lg text-red-400">
-                Nicht für Sie, wenn
+                Sie sind wahrscheinlich noch nicht bereit, wenn
               </div>
               <ul className="mt-8 space-y-5">
                 {NOT_FOR_YOU.map((item) => (

@@ -1,8 +1,7 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Menu, X } from "lucide-react";
 import { ShinyButton } from "@/components/ui/shiny-button";
 import { CALENDLY_URL } from "@/lib/constants";
@@ -23,6 +22,8 @@ export function Nav() {
   // While one of them is visible → show the logo, hide the nav CTA.
   // When neither is visible (or neither exists on non-home pages) → show the nav CTA, hide the logo.
   const [pageCtaVisible, setPageCtaVisible] = useState(true);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const burgerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24);
@@ -57,26 +58,62 @@ export function Nav() {
     return () => observer.disconnect();
   }, []);
 
-  // Lock body scroll when mobile menu is open
+  // Lock body scroll when mobile menu is open + toggle inert on the menu
+  // so closed-menu items aren't tabbable or announced to screen readers.
   useEffect(() => {
     if (open) {
       document.body.style.overflow = "hidden";
+      menuRef.current?.removeAttribute("inert");
     } else {
       document.body.style.overflow = "";
+      menuRef.current?.setAttribute("inert", "");
     }
     return () => {
       document.body.style.overflow = "";
     };
   }, [open]);
 
-  // Close on escape
+  // Close on escape + focus trap inside the open mobile menu
   useEffect(() => {
+    if (!open) return;
+
+    const getFocusable = () => {
+      const root = menuRef.current;
+      if (!root) return [] as HTMLElement[];
+      return Array.from(
+        root.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        )
+      ).filter((el) => !el.hasAttribute("aria-hidden"));
+    };
+
+    // Move focus into the menu on open
+    const focusables = getFocusable();
+    focusables[0]?.focus();
+
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key === "Escape") {
+        setOpen(false);
+        burgerRef.current?.focus();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const list = getFocusable();
+      if (list.length === 0) return;
+      const first = list[0];
+      const last = list[list.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [open]);
 
   return (
     <>
@@ -88,9 +125,10 @@ export function Nav() {
             : "border-b border-transparent"
         )}
       >
-        <div className="container grid h-[72px] grid-cols-[1fr_auto_1fr] items-center">
+        <div className="container grid h-[72px] grid-cols-[1fr_auto_1fr] items-center md:flex md:justify-between">
           {/* Mobile burger (right) */}
           <button
+            ref={burgerRef}
             type="button"
             aria-label={open ? "Menü schließen" : "Menü öffnen"}
             aria-expanded={open}
@@ -127,28 +165,30 @@ export function Nav() {
             aria-label="EINS Visuals"
             onClick={() => setOpen(false)}
           >
-            <Image
-              src="/eins-logo.png"
+            <img
+              src="/eins-logo.svg"
               alt="EINS Visuals"
-              width={5311}
-              height={2119}
+              width={600}
+              height={240}
+              fetchPriority="high"
+              decoding="async"
               className="h-9 w-auto -translate-y-[2px] md:h-10"
-              priority
             />
           </Link>
 
           {/* Desktop nav */}
           <nav
-            className="hidden justify-self-center gap-8 md:flex"
+            className="hidden justify-self-center gap-1 md:flex"
             aria-label="Primary"
           >
             {LINKS.map((l) => (
               <a
                 key={l.href}
                 href={l.href}
-                className="text-sm text-fg-secondary transition-colors hover:text-fg-primary"
+                className="group relative rounded-full px-4 py-2 text-base font-medium text-fg-primary transition-colors duration-200 hover:text-accent"
               >
                 {l.label}
+                <span className="pointer-events-none absolute inset-x-4 -bottom-0.5 h-px origin-center scale-x-0 bg-accent transition-transform duration-300 ease-expo group-hover:scale-x-100" />
               </a>
             ))}
           </nav>
@@ -164,9 +204,7 @@ export function Nav() {
           >
             <ShinyButton
               href={CALENDLY_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="!px-5 !py-3 !text-[0.9rem] md:!px-8 md:!py-4 md:!text-base"
+              className="!px-5 !py-3 !text-base md:!px-8 md:!py-4"
             >
               <span className="whitespace-nowrap">Strategie-Gespräch buchen</span>
               <ArrowUpRight className="h-4 w-4" />
@@ -178,6 +216,10 @@ export function Nav() {
       {/* Mobile menu overlay */}
       <div
         id="mobile-menu"
+        ref={menuRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Hauptmenü"
         className={cn(
           "fixed inset-0 z-40 flex flex-col bg-bg-primary transition-opacity duration-300 ease-expo will-change-[opacity] md:hidden",
           open

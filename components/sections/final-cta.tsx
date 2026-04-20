@@ -17,7 +17,7 @@ export function FinalCta() {
 
         <Reveal delay={0.25}>
           <div id="final-cta" className="mt-12 flex flex-col items-center gap-1">
-            <ShinyButton href={CALENDLY_URL} target="_blank" rel="noopener noreferrer">
+            <ShinyButton href={CALENDLY_URL}>
               Strategie-Gespräch buchen <ArrowUpRight className="h-5 w-5" />
             </ShinyButton>
             <span className="inline-flex items-center gap-2 font-mono text-sm text-fg-primary">
@@ -29,7 +29,7 @@ export function FinalCta() {
             </span>
             <a
               href={`mailto:${CONTACT_EMAIL}`}
-              className="mt-5 text-center font-mono text-base text-fg-secondary transition-colors hover:text-fg-primary"
+              className="mt-5 text-center font-mono text-base text-fg-primary transition-colors hover:text-accent"
             >
               Oder schreiben Sie uns: {CONTACT_EMAIL}
             </a>

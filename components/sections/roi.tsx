@@ -50,7 +50,7 @@ export function Roi() {
         </Reveal>
 
         <p className="mt-6 text-center font-mono text-base text-fg-secondary">
-          Basierend auf Ø LTV 4.500 € pro Implantat-Patient. Bei All-on-4 oder Vollsanierungen
+          Basierend auf einem durchschnittlichen langfristigen Kundenwert von 4.500 € pro Implantat-Patient. Bei All-on-4 oder Vollsanierungen
           oft 8.000 bis 20.000 € pro Patient.
         </p>
       </div>

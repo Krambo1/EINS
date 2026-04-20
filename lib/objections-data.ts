@@ -27,7 +27,7 @@ export const OBJECTIONS: Objection[] = [
   },
   {
     q: "Was ist mit unserer bestehenden Software (DS-WIN, Z1, VISIdent, Doctolib)?",
-    a: "Bleibt wie sie ist. Wir docken an Ihre bestehende Praxis-Software an. Einfache Anfragen wie Prophylaxe laufen direkt in Ihr Buchungssystem, hochpreisige Anfragen werden geprüft und gehen vorbereitet an Ihr Team.",
+    a: "Bleibt unverändert. Wir docken an Ihre bestehende Praxis-Software an. Einfache Anfragen wie Prophylaxe laufen direkt in Ihr Buchungssystem, hochpreisige Anfragen werden geprüft und gehen vorbereitet an Ihr Team.",
   },
   {
     q: "Können wir nur Videos oder nur Anzeigen buchen?",
@@ -43,6 +43,6 @@ export const OBJECTIONS: Objection[] = [
   },
   {
     q: "Was, wenn unser Team die vielen Anfragen nicht bewältigen kann?",
-    a: "Die KI nimmt Ihrem Team 60 bis 70 Prozent der Arbeit ab, weil nur ernsthafte Anfragen durchkommen. Zusätzlich bekommen Sie eine fertige Anleitung mit Gesprächsvorlagen, damit Ihre Mitarbeiter jede Anfrage in 8 bis 12 Minuten in einen Termin verwandeln.",
+    a: "Die KI nimmt Ihrem Team bis zu 60 Prozent der Arbeit ab, weil nur ernsthafte Anfragen durchkommen. Zusätzlich bekommen Sie eine fertige Anleitung mit Gesprächsvorlagen, damit Ihre Mitarbeiter jede Anfrage in 8 bis 12 Minuten in einen Termin verwandeln.",
   },
 ];

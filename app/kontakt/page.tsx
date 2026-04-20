@@ -3,10 +3,27 @@ import { ArrowLeft, ArrowUpRight, Mail, Calendar, Phone } from "lucide-react";
 import { ShinyButton } from "@/components/ui/shiny-button";
 import { CALENDLY_URL, CONTACT_EMAIL, CONTACT_PHONE } from "@/lib/constants";
 
-export const metadata = { title: "Kontakt · EINS Visuals" };
+export const metadata = {
+  title: "Kontakt · EINS Visuals",
+  alternates: { canonical: "/kontakt" },
+};
+
+const breadcrumbJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: [
+    { "@type": "ListItem", position: 1, name: "Start", item: "https://einsvisuals.com/" },
+    { "@type": "ListItem", position: 2, name: "Kontakt", item: "https://einsvisuals.com/kontakt" },
+  ],
+};
 
 export default function Kontakt() {
   return (
+    <>
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
+    />
     <main className="container flex min-h-screen flex-col justify-center py-24">
       <Link
         href="/"
@@ -46,7 +63,7 @@ export default function Kontakt() {
               wie das EINS-System für Ihre Klinik funktioniert.
             </p>
             <div className="mt-8">
-              <ShinyButton href={CALENDLY_URL} target="_blank" rel="noopener noreferrer">
+              <ShinyButton href={CALENDLY_URL}>
                 Termin auswählen <ArrowUpRight className="h-4 w-4" />
               </ShinyButton>
             </div>
@@ -91,5 +108,6 @@ export default function Kontakt() {
         </div>
       </div>
     </main>
+    </>
   );
 }

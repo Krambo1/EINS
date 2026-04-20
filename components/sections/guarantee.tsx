@@ -55,7 +55,7 @@ export function Guarantee() {
 
         <Reveal delay={0.15}>
           <div className="mt-8 grid gap-6 md:mt-12 md:grid-cols-[1.5fr_1fr]">
-            <div className="relative overflow-hidden rounded-3xl border border-accent/40 bg-gradient-to-br from-accent/[0.08] via-bg-secondary to-bg-secondary p-6 md:p-12">
+            <div className="relative overflow-hidden rounded-2xl border border-accent/40 bg-gradient-to-br from-accent/[0.08] via-bg-secondary to-bg-secondary p-6 md:p-12">
               <div
                 className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full"
                 style={{ background: "radial-gradient(circle, var(--accent-glow), transparent 60%)" }}
@@ -77,7 +77,7 @@ export function Guarantee() {
                 </li>
                 <li className="flex items-start gap-3">
                   <Check className="mt-[0.3em] h-6 w-6 shrink-0 text-accent" />
-                  <span>Wir produzieren 3 neue Videos für Sie, kostenlos.</span>
+                  <span>Wir erstellen 3 neue Werbemittel für Sie, kostenlos.</span>
                 </li>
               </ul>
             </div>
@@ -113,10 +113,10 @@ function QualifiedBullets() {
 function QualifiedRequestCard() {
   const title = `Was wir als „qualifizierte Anfrage" zählen:`;
   return (
-    <div className="card-glow rounded-3xl border border-border bg-bg-secondary/60 backdrop-blur-sm">
-      {/* Mobile: collapsible accordion, closed by default */}
+    <div className="card-glow rounded-2xl border border-border bg-bg-secondary/60 backdrop-blur-sm">
+      {/* Mobile: open by default so the guarantee terms are visible without tapping. */}
       <div className="md:hidden">
-        <Accordion type="single" collapsible>
+        <Accordion type="single" collapsible defaultValue="definition">
           <AccordionItem value="definition" className="border-b-0">
             <AccordionTrigger className="px-6 py-5 text-left hover:text-fg-primary">
               <span className="font-display text-xl font-semibold tracking-tight text-balance">

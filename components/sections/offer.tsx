@@ -27,7 +27,7 @@ function Cell({ v }: { v: string | boolean }) {
         <Minus className="h-4 w-4 text-fg-secondary md:h-5 md:w-5" />
       </div>
     );
-  return <span className="text-xs text-fg-primary md:text-lg">{v}</span>;
+  return <span className="text-sm text-fg-primary md:text-lg">{v}</span>;
 }
 
 export function Offer() {
@@ -37,11 +37,11 @@ export function Offer() {
         <Reveal delay={0.08}>
           <h2 className="display-l mx-auto max-w-6xl text-center">
             <span className="whitespace-nowrap">Das EINS</span>{" "}
-            <span className="whitespace-nowrap">Akquisitions-System.</span>
+            Akquisitions-System.
           </h2>
         </Reveal>
         <Reveal delay={0.15}>
-          <p className="mt-6 mx-auto max-w-2xl text-center text-lg text-fg-secondary">
+          <p className="mt-6 mx-auto max-w-2xl text-center text-lg text-fg-primary">
             Alles, was Sie brauchen, damit Patienten sich nicht mehr wegen des Preises entscheiden,
             sondern weil sie Ihnen vertrauen.
           </p>
@@ -49,7 +49,7 @@ export function Offer() {
 
         {/* Basispaket */}
         <Reveal delay={0.2}>
-          <div className="card-glow mt-10 rounded-3xl border border-border bg-bg-secondary/60 p-5 backdrop-blur-sm md:mt-16 md:p-10">
+          <div className="card-glow mt-10 rounded-2xl border border-border bg-bg-secondary/60 p-5 backdrop-blur-sm md:mt-16 md:p-10">
             <div className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-center">
               <div>
                 <h3 className="font-display text-4xl font-semibold tracking-tight md:text-5xl">
@@ -72,7 +72,7 @@ export function Offer() {
               </div>
             </div>
 
-            <Accordion type="single" collapsible defaultValue={BASISPAKET[0].id} className="mt-8">
+            <Accordion type="single" collapsible className="mt-8">
               {BASISPAKET.map((item) => (
                 <AccordionItem key={item.id} value={item.id}>
                   <AccordionTrigger className="group [&>svg]:hidden">
@@ -105,6 +105,28 @@ export function Offer() {
           </div>
         </Reveal>
 
+        {/* Ad budget notice, placed above the pricing table so the cost picture is honest up-front. */}
+        <Reveal delay={0.18}>
+          <div className="mt-6 flex flex-col items-start justify-between gap-6 rounded-2xl border border-accent/40 bg-accent/[0.06] p-6 backdrop-blur-sm md:mt-10 md:flex-row md:items-center md:gap-10 md:p-8">
+            <div>
+              <div className="font-mono text-base font-medium text-accent">
+                Wichtig zu wissen
+              </div>
+              <h4 className="mt-2 font-display text-3xl font-semibold tracking-tight md:text-4xl">
+                Werbebudget ist extra.
+              </h4>
+              <p className="mt-3 text-lg leading-relaxed text-fg-primary md:text-xl">
+                Sie zahlen Ihr Werbebudget direkt an Meta und Google, nicht an uns. Volle Transparenz über jeden Euro.
+              </p>
+            </div>
+            <div className="shrink-0 text-left md:text-right">
+              <div className="whitespace-nowrap font-display text-2xl font-semibold tracking-tight md:text-5xl">
+                min. 3.000 € / Monat
+              </div>
+            </div>
+          </div>
+        </Reveal>
+
         {/* Retainer comparison */}
         <Reveal delay={0.15}>
           <div className="mt-12">
@@ -118,29 +140,84 @@ export function Offer() {
               </span>
             </div>
 
-            <div className="mt-5 rounded-2xl border border-border">
+            {/* Mobile: two stacked cards. Keeps rows readable at 360px. */}
+            <div className="mt-8 grid gap-5 md:hidden">
+              {(["standard", "premium"] as const).map((tier) => {
+                const priceRow = RETAINER_ROWS[0];
+                const featureRows = RETAINER_ROWS.slice(1);
+                const price = priceRow[tier];
+                return (
+                  <div
+                    key={tier}
+                    className={`card-glow relative rounded-2xl border p-5 backdrop-blur-sm ${
+                      tier === "premium"
+                        ? "border-accent/50 bg-accent/[0.04]"
+                        : "border-border bg-bg-secondary/60"
+                    }`}
+                  >
+                    {tier === "premium" && (
+                      <span className="absolute -top-3 left-5 rounded-full bg-accent px-3 py-0.5 font-mono text-xs font-medium text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.25)]">
+                        Empfohlen
+                      </span>
+                    )}
+                    <div className="flex items-baseline justify-between gap-4">
+                      <div className="font-mono text-base font-semibold text-fg-primary">
+                        {tier === "premium" ? "Premium" : "Standard"}
+                      </div>
+                      {typeof price === "string" && (
+                        <div className="font-display text-xl font-semibold tracking-tight text-fg-primary">
+                          {price}
+                        </div>
+                      )}
+                    </div>
+                    <ul className="mt-4 space-y-3 text-base text-fg-primary">
+                      {featureRows.map((row) => {
+                        const v = row[tier];
+                        if (v === false) {
+                          return (
+                            <li key={row.label} className="flex items-start gap-3 text-fg-secondary">
+                              <Minus className="mt-1 h-4 w-4 shrink-0 text-fg-tertiary" />
+                              <span className="flex-1">{row.label}</span>
+                            </li>
+                          );
+                        }
+                        return (
+                          <li key={row.label} className="flex items-start gap-3">
+                            <Check className="mt-1 h-4 w-4 shrink-0 text-accent" />
+                            <span className="flex-1">
+                              {row.label}
+                              {typeof v === "string" && (
+                                <span className="block text-sm text-fg-secondary">{v}</span>
+                              )}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop: full comparison table. */}
+            <div className="mt-5 hidden rounded-2xl border border-border md:block">
               <table className="w-full table-fixed border-collapse text-left">
-                <colgroup>
-                  <col className="w-[52%] md:w-auto" />
-                  <col className="w-[24%] md:w-auto" />
-                  <col className="w-[24%] md:w-auto" />
-                </colgroup>
                 <thead>
-                  <tr className="border-b border-border bg-bg-secondary">
-                    <th className="px-3 py-3 font-mono text-sm font-normal text-fg-primary md:px-6 md:py-4 md:text-lg">
+                  <tr className="border-b border-border">
+                    <th className="rounded-tl-2xl bg-bg-secondary px-6 py-4 font-mono text-lg font-normal text-fg-primary">
                       Komponente
                     </th>
-                    <th className="px-3 py-3 text-center font-mono text-sm font-semibold text-fg-primary md:px-6 md:py-4 md:text-lg">
+                    <th className="bg-bg-secondary px-6 py-4 text-center font-mono text-lg font-semibold text-fg-primary border-l border-border">
                       Standard
                     </th>
-                    <th className="relative px-3 py-3 text-center md:px-6 md:py-4">
+                    <th className="relative rounded-tr-2xl bg-bg-secondary border-l border-border px-6 py-4 text-center">
                       <span
-                        className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-accent px-2.5 py-0.5 font-mono text-[10px] font-medium text-fg-primary md:-top-3.5 md:px-3 md:text-xs"
+                        className="absolute -top-3.5 left-1/2 -translate-x-1/2 rounded-full bg-accent px-3 py-0.5 font-mono text-xs font-medium text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.25)]"
                         aria-hidden
                       >
                         Empfohlen
                       </span>
-                      <span className="font-mono text-sm font-semibold text-fg-primary md:text-lg">
+                      <span className="font-mono text-lg font-semibold text-fg-primary">
                         Premium
                       </span>
                     </th>
@@ -154,41 +231,19 @@ export function Offer() {
                         i === 0 ? "bg-bg-secondary/50" : ""
                       }`}
                     >
-                      <td className="break-words px-3 py-3 text-base text-fg-primary md:px-6 md:py-4 md:text-lg">
+                      <td className="break-words px-6 py-4 text-lg text-fg-primary">
                         {row.label}
                       </td>
-                      <td className="break-words px-3 py-3 text-center text-base md:px-6 md:py-4 md:text-lg">
+                      <td className="border-l border-border px-6 py-4 text-center text-lg">
                         <Cell v={row.standard} />
                       </td>
-                      <td className="break-words px-3 py-3 text-center text-base md:px-6 md:py-4 md:text-lg">
+                      <td className="border-l border-border px-6 py-4 text-center text-lg">
                         <Cell v={row.premium} />
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
-          </div>
-        </Reveal>
-
-        {/* Ad budget notice — paired callout under the table */}
-        <Reveal delay={0.2}>
-          <div className="mt-6 flex flex-col items-start justify-between gap-6 rounded-2xl border border-accent/40 bg-accent/[0.06] p-6 backdrop-blur-sm md:flex-row md:items-center md:gap-10 md:p-8">
-            <div>
-              <div className="font-mono text-base font-medium text-accent">
-                Wichtig zu wissen
-              </div>
-              <h4 className="mt-2 font-display text-3xl font-semibold tracking-tight md:text-4xl">
-                Werbebudget ist extra.
-              </h4>
-              <p className="mt-3 text-lg leading-relaxed text-fg-primary md:text-xl">
-                Sie zahlen Ihr Werbebudget direkt an Meta und Google, nicht an uns. Volle Transparenz über jeden Euro.
-              </p>
-            </div>
-            <div className="shrink-0 text-left md:text-right">
-              <div className="whitespace-nowrap font-display text-3xl font-semibold tracking-tight md:text-5xl">
-                min. 3.000 € / Monat
-              </div>
             </div>
           </div>
         </Reveal>

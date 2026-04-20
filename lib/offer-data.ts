@@ -59,10 +59,10 @@ export const BASISPAKET: BasispaketItem[] = [
   {
     id: "landingpages",
     number: "05",
-    title: "Konvertierende Zielseiten",
+    title: "Konvertierende Ziel-Websites",
     value: 3000,
     bullets: [
-      "Eigene Zielseiten für hochpreisige Behandlungen, ausschließlich für bezahlte Anzeigen gebaut.",
+      "Eigene Ziel-Websites für hochpreisige Behandlungen, ausschließlich für bezahlte Anzeigen gebaut.",
       "Voroptimierte Vorlagen für Implantate, All-on-4, Invisalign, Veneers, Zahnersatz.",
       "Keine Navigation, kein Ablenkungsmenü, einziges Ziel: Beratungsanfrage.",
       "Vertrauenselemente sichtbar: Bewertungen, Zertifikate, Vorher-Nachher, Zahnarzt-Profil, Implantatsystem (Straumann, Nobel Biocare).",
@@ -107,7 +107,7 @@ export type Scenario = {
 };
 
 export const SCENARIOS: Scenario[] = [
-  { label: "Garantie", leads: 90, conversion: 15, patients: 13, returnEur: 58500 },
+  { label: "Untergrenze", leads: 90, conversion: 15, patients: 13, returnEur: 58500 },
   { label: "Konservativ", leads: 90, conversion: 20, patients: 18, returnEur: 81000 },
   { label: "Durchschnitt", leads: 130, conversion: 30, patients: 39, returnEur: 175500, highlight: true },
   { label: "Gut", leads: 130, conversion: 40, patients: 52, returnEur: 234000 },

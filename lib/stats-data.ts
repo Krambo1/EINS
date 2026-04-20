@@ -27,7 +27,7 @@ export const STATS: Stat[] = [
   {
     id: "video-conversion",
     tab: "conversion",
-    headline: "mehr Abschlüsse mit Video auf der Zielseite",
+    headline: "mehr Abschlüsse mit Video auf der Ziel-Website",
     bigNumber: { value: 86, suffix: "%" },
     salesFrame:
       "Ohne Video auf Ihrer Implantat-Seite verlieren Sie den Großteil der Besucher, für die Sie bezahlt haben. Ein einziges Erklärvideo kann die Kosten pro Anfrage halbieren.",
@@ -52,7 +52,7 @@ export const STATS: Stat[] = [
   {
     id: "landingpage-3x",
     tab: "conversion",
-    headline: "höhere Abschlussquote: Zielseite vs. Startseite bei bezahlten Anzeigen",
+    headline: "höhere Abschlussquote: Ziel-Website vs. Startseite bei bezahlten Anzeigen",
     bigNumber: { value: 3, suffix: "x" },
     salesFrame:
       "Wer bezahlte Anzeigen auf die Startseite schickt, verbrennt Geld. Jede Behandlung braucht eine eigene Seite mit nur einem Ziel: die Anfrage.",
@@ -60,7 +60,7 @@ export const STATS: Stat[] = [
     viz: {
       kind: "comparativeBar",
       a: { label: "Startseite", value: 2.5 },
-      b: { label: "Eigene Zielseite", value: 6.6 },
+      b: { label: "Eigene Ziel-Website", value: 6.6 },
       unit: "% Abschluss",
     },
   },
@@ -90,7 +90,7 @@ export const STATS: Stat[] = [
     headline: "der Suchenden vergleichen 2 bis 5 Anbieter vor der Entscheidung",
     bigNumber: { value: 70, suffix: "%" },
     salesFrame:
-      "Ihre Praxis wird fast nie isoliert betrachtet. Fotos, Videos, Bewertungen und Zielseite werden nebeneinander mit 2 bis 5 Mitbewerbern verglichen.",
+      "Ihre Praxis wird fast nie isoliert betrachtet. Fotos, Videos, Bewertungen und Ziel-Website werden nebeneinander mit 2 bis 5 Mitbewerbern verglichen.",
     source: "MyAdvice 2024 Dental Patient Survey Report",
     viz: { kind: "gauge", value: 70 },
   },
@@ -183,14 +183,14 @@ export const STATS: Stat[] = [
     id: "uk-case",
     tab: "case",
     headline: "neuer Implantat-Umsatz aus 3 Patienten in einem Monat",
-    bigNumber: { value: 70000, prefix: "£ ", suffix: "" },
+    bigNumber: { value: 80000, prefix: "", suffix: " €" },
     salesFrame:
       "Bei 3.000 bis 5.000 € pro Implantat-Patient reichen wenige ernsthafte Anfragen, um die gesamten Werbekosten mehrfach wieder einzuspielen.",
     source: "UK Dental Marketing Agency Case Study, 2024",
     viz: {
       kind: "bigNumber",
       value: "3 Patienten",
-      caption: "Facebook- und Instagram-Anzeigen, ein Monat, £ 70.000 Neuumsatz",
+      caption: "Facebook- und Instagram-Anzeigen, ein Monat, 80.000€ Neuumsatz",
     },
   },
 ];

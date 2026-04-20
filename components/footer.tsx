@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 import { CONTACT_EMAIL } from "@/lib/constants";
 
@@ -7,19 +6,19 @@ export function Footer() {
     <footer className="border-t border-border bg-bg-primary py-10">
       <div className="container flex flex-col items-start gap-6 md:flex-row md:items-center md:justify-between">
         <div className="flex items-center gap-4">
-          <Image src="/eins-logo.png" alt="EINS Visuals" width={5311} height={2119} className="h-6 w-auto" />
-          <div className="font-mono text-sm text-fg-secondary">
+          <img src="/eins-logo.svg" alt="EINS Visuals" width={600} height={240} className="h-6 w-auto" />
+          <div className="font-mono text-sm text-fg-primary">
             EINS Visuals · Köln, DE ·{" "}
-            <a href={`mailto:${CONTACT_EMAIL}`} className="hover:text-fg-secondary">
+            <a href={`mailto:${CONTACT_EMAIL}`} className="text-fg-primary transition-colors hover:text-accent">
               {CONTACT_EMAIL}
             </a>
           </div>
         </div>
-        <div className="flex items-center gap-6 font-mono text-sm text-fg-secondary">
-          <Link href="/impressum" className="hover:text-fg-secondary">
+        <div className="flex items-center gap-6 font-mono text-sm text-fg-primary">
+          <Link href="/impressum" className="transition-colors hover:text-accent">
             Impressum
           </Link>
-          <Link href="/datenschutz" className="hover:text-fg-secondary">
+          <Link href="/datenschutz" className="transition-colors hover:text-accent">
             Datenschutz
           </Link>
         </div>
