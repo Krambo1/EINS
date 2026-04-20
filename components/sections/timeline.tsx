@@ -12,11 +12,6 @@ export function Timeline() {
             Von Tag&nbsp;1 bis zur ersten Anfrage.
           </h2>
         </Reveal>
-        <Reveal delay={0.15}>
-          <p className="mt-5 text-balance text-center font-display text-xl font-medium tracking-tight text-fg-primary md:text-4xl">
-            So sieht Ihr Start mit uns aus.
-          </p>
-        </Reveal>
 
         <div className="relative mt-10 md:mt-16">
           {/* Connector line */}
