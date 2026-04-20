@@ -56,7 +56,7 @@ export function RoiSlider() {
       <div className="flex flex-col gap-8">
         {/* Card intro */}
         <div>
-          <h3 className="font-display text-2xl font-semibold tracking-tight text-fg-primary md:text-3xl">
+          <h3 className="font-display text-3xl font-semibold tracking-tight text-fg-primary md:text-4xl">
             Ihr Ertrag in 90 Tagen, live berechnet.
           </h3>
           <p className="mt-3 max-w-2xl text-base text-fg-secondary md:text-lg">

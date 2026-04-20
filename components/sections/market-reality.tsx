@@ -13,9 +13,8 @@ export function MarketReality() {
       <div className="container">
         <Reveal delay={0.08}>
           <h2 className="display-l mx-auto max-w-6xl text-center">
-            Der Markt ist nicht überfüllt.
-            <br />
-            Er ist visuell schwach.
+            <span className="block">Der Markt ist nicht überfüllt.</span>
+            <span className="block">Er ist visuell schwach.</span>
           </h2>
         </Reveal>
 

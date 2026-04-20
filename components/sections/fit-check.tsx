@@ -9,9 +9,8 @@ export function FitCheck() {
       <div className="container">
         <Reveal delay={0.08}>
           <h2 className="display-l mx-auto max-w-6xl text-center">
-            Für wen das System passt.
-            <br />
-            <span className="font-normal">Und für wen nicht.</span>
+            <span className="block">Für wen das System passt.</span>
+            <span className="block font-normal">Und für wen nicht.</span>
           </h2>
         </Reveal>
         <Reveal delay={0.15}>

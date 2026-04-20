@@ -16,39 +16,40 @@ export function Guarantee() {
       <div className="container">
         <Reveal delay={0.08}>
           <h2 className="display-l mx-auto max-w-6xl text-center">
-            Sie zahlen für{" "}
-            <span className="relative inline-block whitespace-nowrap">
-              Ergebnisse
-              <motion.svg
-                aria-hidden
-                className="pointer-events-none absolute -bottom-2 left-0 h-[0.4em] w-full text-accent md:-bottom-3"
-                viewBox="0 0 200 20"
-                preserveAspectRatio="none"
-                initial={{ pathLength: 0, opacity: 0 }}
-                whileInView={{ pathLength: 1, opacity: 1 }}
-                viewport={{ once: true, margin: "-80px" }}
-                transition={{ duration: 1.2, delay: 0.4, ease: [0.16, 1, 0.3, 1] }}
-              >
-                <motion.path
-                  d="M 4 13 Q 100 7, 196 13"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="3.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  style={{ filter: "url(#pencil-roughen-2)" }}
-                />
-                <defs>
-                  <filter id="pencil-roughen-2">
-                    <feTurbulence type="fractalNoise" baseFrequency="2.1" numOctaves="2" seed="7" />
-                    <feDisplacementMap in="SourceGraphic" scale="2" />
-                  </filter>
-                </defs>
-              </motion.svg>
+            <span className="block">
+              Sie zahlen für{" "}
+              <span className="relative inline-block whitespace-nowrap">
+                Ergebnisse
+                <motion.svg
+                  aria-hidden
+                  className="pointer-events-none absolute -bottom-2 left-0 h-[0.4em] w-full text-accent md:-bottom-3"
+                  viewBox="0 0 200 20"
+                  preserveAspectRatio="none"
+                  initial={{ pathLength: 0, opacity: 0 }}
+                  whileInView={{ pathLength: 1, opacity: 1 }}
+                  viewport={{ once: true, margin: "-80px" }}
+                  transition={{ duration: 1.2, delay: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <motion.path
+                    d="M 4 13 Q 100 7, 196 13"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="3.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    style={{ filter: "url(#pencil-roughen-2)" }}
+                  />
+                  <defs>
+                    <filter id="pencil-roughen-2">
+                      <feTurbulence type="fractalNoise" baseFrequency="2.1" numOctaves="2" seed="7" />
+                      <feDisplacementMap in="SourceGraphic" scale="2" />
+                    </filter>
+                  </defs>
+                </motion.svg>
+              </span>
+              ,
             </span>
-            ,
-            <br />
-            <span className="font-normal">nicht für Aktivität.</span>
+            <span className="block font-normal">nicht für Aktivität.</span>
           </h2>
         </Reveal>
 
@@ -63,7 +64,7 @@ export function Guarantee() {
               <div className="font-mono text-base font-medium text-accent">
                 90-Tage-Garantie
               </div>
-              <h3 className="mt-4 font-display text-3xl font-semibold leading-tight tracking-tight md:text-4xl">
+              <h3 className="mt-4 font-display text-4xl font-semibold leading-tight tracking-tight md:text-5xl">
                 Kommen nicht genug Anfragen, zahlen wir drauf.
               </h3>
               <p className="mt-4 text-lg leading-relaxed text-fg-primary md:text-xl">
@@ -130,7 +131,7 @@ function QualifiedRequestCard() {
       </div>
       {/* Desktop: always-visible static card */}
       <div className="hidden p-8 md:block">
-        <h4 className="font-display text-2xl font-semibold tracking-tight text-balance">
+        <h4 className="font-display text-3xl font-semibold tracking-tight text-balance">
           {title}
         </h4>
         <div className="mt-6">

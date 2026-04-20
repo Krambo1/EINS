@@ -9,11 +9,11 @@ export function Timeline() {
       <div className="container">
         <Reveal delay={0.08}>
           <h2 className="display-l mx-auto max-w-6xl text-center">
-            Von Tag 1 bis zur ersten Anfrage.
+            Von Tag&nbsp;1 bis zur ersten Anfrage.
           </h2>
         </Reveal>
         <Reveal delay={0.15}>
-          <p className="mt-5 text-balance text-center font-display text-2xl font-medium tracking-tight text-fg-primary md:text-3xl">
+          <p className="mt-5 text-balance text-center font-display text-xl font-medium tracking-tight text-fg-primary md:text-4xl">
             So sieht Ihr Start mit uns aus.
           </p>
         </Reveal>
@@ -42,7 +42,7 @@ export function Timeline() {
                         {s.when}
                       </span>
                     </div>
-                    <h3 className="mt-3 font-display text-2xl font-semibold tracking-tight md:text-3xl">
+                    <h3 className="mt-3 font-display text-3xl font-semibold tracking-tight md:text-4xl">
                       {s.title}
                     </h3>
                     <ul className="mt-4 space-y-3 text-base leading-relaxed text-fg-primary md:text-lg">

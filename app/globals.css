@@ -196,7 +196,7 @@ body {
 /* Headline tokens */
 .display-xl {
   font-family: var(--font-display), system-ui, sans-serif;
-  font-size: clamp(2.875rem, 8vw, 6.75rem);
+  font-size: clamp(2.75rem, 8.5vw, 7.5rem);
   line-height: 0.95;
   letter-spacing: 0em;
   font-weight: 600;
@@ -204,15 +204,15 @@ body {
 }
 .display-l {
   font-family: var(--font-display), system-ui, sans-serif;
-  font-size: clamp(2.5rem, 6.8vw, 5.75rem);
-  line-height: 1;
+  font-size: clamp(2.375rem, 7.2vw, 6.5rem);
+  line-height: 1.02;
   letter-spacing: 0em;
   font-weight: 600;
   text-wrap: balance;
 }
 .display-m {
   font-family: var(--font-display), system-ui, sans-serif;
-  font-size: clamp(2rem, 4.5vw, 3.5rem);
+  font-size: clamp(2rem, 5vw, 4rem);
   line-height: 1.05;
   letter-spacing: 0.005em;
   font-weight: 600;
@@ -261,6 +261,36 @@ body {
   }
   100% {
     box-shadow: 0 0 0 16px rgba(88, 186, 181, 0);
+  }
+}
+
+/* Shimmer sweep across mint text (hero "Mehr Sicherheit.") */
+.shimmer-text {
+  -webkit-text-fill-color: transparent;
+  background-image: linear-gradient(
+    110deg,
+    #58BAB5 0%,
+    #58BAB5 42%,
+    #9ed9d4 50%,
+    #58BAB5 58%,
+    #58BAB5 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  background-size: 200% 100%;
+  background-repeat: no-repeat;
+  background-position: 100% 0;
+  animation: shimmer-pan 4s ease-in-out 0.6s infinite;
+}
+@keyframes shimmer-pan {
+  0% { background-position: 100% 0; }
+  55% { background-position: 0% 0; }
+  100% { background-position: 0% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text {
+    animation: none;
+    background-position: 50% 0;
   }
 }
 

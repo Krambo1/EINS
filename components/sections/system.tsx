@@ -1,5 +1,6 @@
 import { Camera, TrendingUp, Bot } from "lucide-react";
 import { Reveal } from "@/components/ui/reveal";
+import { ShimmerText } from "@/components/ui/shimmer-text";
 import { LAYERS } from "@/lib/system-data";
 import { md } from "@/lib/md";
 
@@ -11,12 +12,13 @@ export function System() {
       <div className="container">
         <Reveal delay={0.08}>
           <h2 className="display-l mx-auto max-w-6xl text-center">
-            <span className="text-accent-gradient">Marketing</span> für Ihre Klinik.
+            <ShimmerText className="block md:inline">Marketing</ShimmerText>{" "}
+            <span className="block whitespace-nowrap md:inline">für Ihre Klinik.</span>
           </h2>
         </Reveal>
         <Reveal delay={0.15}>
-          <p className="mt-5 text-balance text-center font-display text-3xl font-semibold tracking-tight text-fg-primary md:text-4xl">
-            Werden Sie zur EINS in Ihrer Region.
+          <p className="mt-5 text-balance text-center font-display text-2xl font-semibold tracking-tight text-fg-primary md:text-5xl">
+            Werden Sie zur&nbsp;EINS in Ihrer Region.
           </p>
         </Reveal>
 
@@ -30,7 +32,7 @@ export function System() {
                 <div className="flex items-start">
                   <Icon className="h-11 w-11 text-accent" strokeWidth={1.75} />
                 </div>
-                <h3 className="mt-8 font-display text-3xl font-semibold tracking-tight md:text-4xl">{layer.title}</h3>
+                <h3 className="mt-8 font-display text-4xl font-semibold tracking-tight md:text-5xl">{layer.title}</h3>
                 <ul className="mt-6 space-y-4 text-lg leading-relaxed text-fg-primary md:text-xl">
                   {layer.bullets.map((b) => (
                     <li key={b} className="flex gap-3">

@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 import { Reveal } from "@/components/ui/reveal";
 import { RoiSlider } from "@/components/ui/roi-slider";
+import { ShimmerText } from "@/components/ui/shimmer-text";
 
 export function Roi() {
   return (
@@ -10,7 +11,7 @@ export function Roi() {
       <div className="container">
         <Reveal delay={0.08}>
           <h2 className="display-l mx-auto max-w-6xl text-center">
-            Realistischer Ertrag: <span className="whitespace-nowrap text-accent-gradient">Ø&nbsp;+247&nbsp;%</span> in{" "}
+            Realistischer Ertrag: <ShimmerText className="whitespace-nowrap">Ø&nbsp;+247&nbsp;%</ShimmerText> in{" "}
             <span className="relative inline-block whitespace-nowrap">
               90 Tagen
               <motion.svg

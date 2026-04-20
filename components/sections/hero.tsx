@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { ArrowUpRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ShinyButton } from "@/components/ui/shiny-button";
+import { ShimmerText } from "@/components/ui/shimmer-text";
 import { CALENDLY_URL } from "@/lib/constants";
 
 export function Hero() {
@@ -17,17 +18,13 @@ export function Hero() {
           className="max-w-7xl mx-auto text-center"
         >
           <h1 className="display-xl leading-[1.05]">
-            Mehr Patienten.
-            <br />
-            Mehr Umsatz.
-            <br />
-            <span className="text-accent-gradient">Mehr Sicherheit.</span>
+            <span className="block whitespace-nowrap">Mehr Patienten.</span>
+            <span className="block whitespace-nowrap">Mehr Umsatz.</span>
+            <ShimmerText className="block whitespace-nowrap">Mehr Sicherheit.</ShimmerText>
           </h1>
 
-          <p className="mt-6 mx-auto max-w-[52ch] text-xl leading-snug text-fg-primary md:mt-10 md:text-2xl lg:text-3xl">
-            Medienproduktion, bezahlte Anzeigen und
-            <br />
-            KI-gestütztes Anfrage-System für Kliniken.
+          <p className="mt-6 mx-auto max-w-[34ch] text-balance text-xl leading-snug text-fg-primary md:mt-10 md:max-w-[52ch] md:text-2xl lg:text-3xl">
+            Medienproduktion, bezahlte Anzeigen und KI-gestütztes Anfrage-System für Kliniken.
           </p>
 
           <div id="hero-cta" className="mt-6 flex flex-wrap items-start justify-center gap-4 md:mt-10">

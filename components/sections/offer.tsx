@@ -35,7 +35,10 @@ export function Offer() {
     <section id="angebot" className="section relative">
       <div className="container">
         <Reveal delay={0.08}>
-          <h2 className="display-l mx-auto max-w-6xl text-center">Das EINS Akquisitions-System.</h2>
+          <h2 className="display-l mx-auto max-w-6xl text-center">
+            <span className="whitespace-nowrap">Das EINS</span>{" "}
+            <span className="whitespace-nowrap">Akquisitions-System.</span>
+          </h2>
         </Reveal>
         <Reveal delay={0.15}>
           <p className="mt-6 mx-auto max-w-2xl text-center text-lg text-fg-secondary">
@@ -49,7 +52,7 @@ export function Offer() {
           <div className="card-glow mt-10 rounded-3xl border border-border bg-bg-secondary/60 p-5 backdrop-blur-sm md:mt-16 md:p-10">
             <div className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-center">
               <div>
-                <h3 className="font-display text-3xl font-semibold tracking-tight md:text-4xl">
+                <h3 className="font-display text-4xl font-semibold tracking-tight md:text-5xl">
                   Professioneller Praxis-Auftritt
                 </h3>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -105,7 +108,7 @@ export function Offer() {
         {/* Retainer comparison */}
         <Reveal delay={0.15}>
           <div className="mt-12">
-            <h3 className="text-center font-display text-3xl font-semibold tracking-tight md:text-4xl">
+            <h3 className="text-center font-display text-4xl font-semibold tracking-tight md:text-5xl">
               Standard vs. Premium
             </h3>
             <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
@@ -175,7 +178,7 @@ export function Offer() {
               <div className="font-mono text-base font-medium text-accent">
                 Wichtig zu wissen
               </div>
-              <h4 className="mt-2 font-display text-2xl font-semibold tracking-tight md:text-3xl">
+              <h4 className="mt-2 font-display text-3xl font-semibold tracking-tight md:text-4xl">
                 Werbebudget ist extra.
               </h4>
               <p className="mt-3 text-lg leading-relaxed text-fg-primary md:text-xl">
@@ -183,8 +186,7 @@ export function Offer() {
               </p>
             </div>
             <div className="shrink-0 text-left md:text-right">
-              <div className="font-mono text-base text-fg-primary">Empfehlung</div>
-              <div className="mt-1 whitespace-nowrap font-display text-3xl font-semibold tracking-tight md:text-4xl">
+              <div className="whitespace-nowrap font-display text-3xl font-semibold tracking-tight md:text-5xl">
                 min. 3.000 € / Monat
               </div>
             </div>

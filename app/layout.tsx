@@ -48,6 +48,11 @@ export const metadata: Metadata = {
     type: "website",
   },
   robots: { index: true, follow: true },
+  icons: {
+    icon: "/eins-mark.png",
+    shortcut: "/eins-mark.png",
+    apple: "/eins-mark.png",
+  },
 };
 
 export default function RootLayout({

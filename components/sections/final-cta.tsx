@@ -1,6 +1,7 @@
 import { ArrowUpRight } from "lucide-react";
 import { ShinyButton } from "@/components/ui/shiny-button";
 import { Reveal } from "@/components/ui/reveal";
+import { ShimmerText } from "@/components/ui/shimmer-text";
 import { CALENDLY_URL, CONTACT_EMAIL } from "@/lib/constants";
 
 export function FinalCta() {
@@ -9,11 +10,8 @@ export function FinalCta() {
       <div className="container relative">
         <Reveal>
           <h2 className="display-l mx-auto max-w-6xl text-center">
-            Nichts zu ändern ist
-            <br />
-            auch eine Entscheidung.
-            <br />
-            <span className="text-accent-gradient">Meist die teuerste.</span>
+            <span className="block">Nichts zu ändern ist auch eine Entscheidung.</span>
+            <ShimmerText className="block">Meist die teuerste.</ShimmerText>
           </h2>
         </Reveal>
 

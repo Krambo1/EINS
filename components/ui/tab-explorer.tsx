@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { STATS, TAB_DEFS, type Stat } from "@/lib/stats-data";
 import { Counter } from "@/components/ui/counter";
+import { ShimmerText } from "@/components/ui/shimmer-text";
 import { md } from "@/lib/md";
 
 export function TabExplorer() {
@@ -23,8 +24,8 @@ export function TabExplorer() {
   return (
     <div className="card-glow rounded-2xl border border-border bg-bg-secondary/60 px-3 py-6 backdrop-blur-sm md:rounded-3xl md:p-10">
       <Tabs value={tab} onValueChange={handleTabChange}>
-        <div className="flex flex-col items-stretch gap-3 md:flex-row md:items-center md:justify-between md:gap-6">
-          <TabsList className="flex w-full overflow-x-auto px-1 md:w-auto md:px-2">
+        <div className="flex flex-col items-start gap-3 md:flex-row md:items-center md:justify-between md:gap-6">
+          <TabsList className="max-w-full overflow-x-auto px-1 md:px-2">
             {TAB_DEFS.map((t) => (
               <TabsTrigger
                 key={t.id}
@@ -82,16 +83,18 @@ export function TabExplorer() {
           transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
           className="mt-6 md:mt-10"
         >
-          <div className="font-display text-7xl font-semibold tracking-tightest text-accent-gradient md:text-8xl">
-            <Counter
-              to={active.bigNumber.value}
-              prefix={active.bigNumber.prefix}
-              suffix={active.bigNumber.suffix}
-              decimals={active.bigNumber.decimals}
-              duration={1400}
-            />
+          <div className="font-display text-7xl font-semibold tracking-tightest md:text-8xl">
+            <ShimmerText>
+              <Counter
+                to={active.bigNumber.value}
+                prefix={active.bigNumber.prefix}
+                suffix={active.bigNumber.suffix}
+                decimals={active.bigNumber.decimals}
+                duration={1400}
+              />
+            </ShimmerText>
           </div>
-          <div className="mt-4 max-w-3xl text-balance font-display text-2xl font-medium leading-tight text-fg-primary md:text-3xl">{md(active.headline)}</div>
+          <div className="mt-4 max-w-3xl text-balance font-display text-3xl font-medium leading-tight text-fg-primary md:text-4xl">{md(active.headline)}</div>
           <div className="mt-6 font-mono text-xs text-fg-secondary">
             Quelle: {active.source}
           </div>
