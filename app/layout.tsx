@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { SpeedInsights } from "@vercel/speed-insights/next";
+import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
 import { CONTACT_EMAIL, CONTACT_PHONE } from "@/lib/constants";
 
@@ -86,6 +88,8 @@ export default function RootLayout({
           Zum Inhalt springen
         </a>
         <div id="main-content">{children}</div>
+        <SpeedInsights />
+        <Analytics />
       </body>
     </html>
   );
