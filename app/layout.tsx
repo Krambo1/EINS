@@ -20,14 +20,14 @@ const SITE_URL = "https://einsvisuals.com";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "EINS Visuals, Akquisitions-System für Zahn- & Ästhetikkliniken",
+  title: "EINS Visuals, Akquisitions-System für Ästhetikkliniken",
   description:
-    "Mehr Patienten. Höhere Margen. Planbares Wachstum. Das komplette Akquisitions-System für Kliniken im DACH-Raum. Video, bezahlte Anzeigen und KI-gestütztes Anfrage-System als integriertes Produkt.",
+    "Mehr Selbstzahler. Höhere Margen. Planbares Wachstum. Das komplette Akquisitions-System für Ästhetik- und Schönheitskliniken im DACH-Raum. Video, bezahlte Anzeigen und KI-gestütztes Anfrage-System als integriertes Produkt.",
   alternates: { canonical: "/" },
   openGraph: {
     title: "EINS Visuals",
     description:
-      "Akquisitions-System für Zahn- & Ästhetikkliniken im DACH-Raum.",
+      "Akquisitions-System für Ästhetikkliniken im DACH-Raum.",
     url: SITE_URL,
     siteName: "EINS Visuals",
     locale: "de_DE",
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "EINS Visuals",
-    description: "Akquisitions-System für Zahn- & Ästhetikkliniken im DACH-Raum.",
+    description: "Akquisitions-System für Ästhetikkliniken im DACH-Raum.",
     images: ["/og-image.png"],
   },
   robots: { index: true, follow: true },

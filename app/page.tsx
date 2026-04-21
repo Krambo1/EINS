@@ -21,7 +21,7 @@ const localBusinessJsonLd = {
   url: SITE_URL,
   image: `${SITE_URL}/eins-logo.png`,
   description:
-    "Akquisitions-System für Zahn- & Ästhetikkliniken im DACH-Raum. Medienproduktion, bezahlte Anzeigen und KI-gestütztes Anfrage-System.",
+    "Akquisitions-System für Ästhetikkliniken im DACH-Raum. Medienproduktion, bezahlte Anzeigen und KI-gestütztes Anfrage-System.",
   address: {
     "@type": "PostalAddress",
     addressLocality: "Köln",

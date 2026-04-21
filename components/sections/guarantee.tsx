@@ -91,7 +91,7 @@ export function Guarantee() {
 }
 
 const QUALIFIED_BULLETS = [
-  "Ausgefülltes Formular mit konkretem Behandlungswunsch (Implantat, Invisalign, Zahnersatz).",
+  "Ausgefülltes Formular mit konkretem Behandlungswunsch (Faltenbehandlung, Liposuktion, Facelift, Laser).",
   "Patient hat ein realistisches Budget angegeben.",
   "Bereit für ein Beratungsgespräch innerhalb der nächsten 30 Tage.",
   "Die KI hat die Anfrage als ernsthaft eingestuft.",

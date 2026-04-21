@@ -15,7 +15,7 @@ export function FitCheck() {
         </Reveal>
         <Reveal delay={0.15}>
           <p className="mt-5 mx-auto max-w-2xl text-center text-lg text-fg-primary md:text-xl">
-            Ehrlich gesagt: Wir arbeiten nicht mit jedem. Hier sehen Sie sofort, ob es für Ihre Praxis passt.
+            Ehrlich gesagt: Wir arbeiten nicht mit jedem. Hier sehen Sie sofort, ob es für Ihre Klinik passt.
           </p>
         </Reveal>
 

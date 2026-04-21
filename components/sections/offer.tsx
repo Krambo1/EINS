@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Minus } from "lucide-react";
+import { Check, Minus } from "lucide-react";
 import {
   Accordion,
   AccordionContent,
@@ -6,13 +6,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Reveal } from "@/components/ui/reveal";
-import {
-  BASISPAKET,
-  BASISPAKET_PRICE,
-  BASISPAKET_VALUE,
-  RETAINER_ROWS,
-} from "@/lib/offer-data";
-import { formatEuro } from "@/lib/utils";
+import { BASISPAKET, RETAINER_ROWS } from "@/lib/offer-data";
 
 function Cell({ v }: { v: string | boolean }) {
   if (v === true)
@@ -50,43 +44,27 @@ export function Offer() {
         {/* Basispaket */}
         <Reveal delay={0.2}>
           <div className="card-glow mt-10 rounded-2xl border border-border bg-bg-secondary/60 p-5 backdrop-blur-sm md:mt-16 md:p-10">
-            <div className="flex flex-col items-start justify-between gap-6 md:flex-row md:items-center">
-              <div>
-                <h3 className="font-display text-4xl font-semibold tracking-tight md:text-5xl">
-                  Professioneller Praxis-Auftritt
-                </h3>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <span className="font-mono text-base text-fg-primary">Basispaket</span>
-                  <span className="rounded-full border border-accent/40 bg-accent/10 px-3.5 py-1 font-mono text-base font-semibold text-accent">
-                    Einmalzahlung
-                  </span>
-                </div>
-              </div>
-              <div className="text-left md:text-right">
-                <div className="font-display text-4xl font-semibold tracking-tightest text-accent-gradient md:text-5xl">
-                  {formatEuro(BASISPAKET_PRICE)}
-                </div>
-                <div className="font-mono text-base text-fg-secondary">
-                  Kommunizierter Wert: {formatEuro(BASISPAKET_VALUE)}
-                </div>
+            <div>
+              <h3 className="font-display text-4xl font-semibold tracking-tight md:text-5xl">
+                Professioneller Klinik-Auftritt
+              </h3>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="font-mono text-base text-fg-primary">Basispaket</span>
+                <span className="rounded-full border border-accent/40 bg-accent/10 px-3.5 py-1 font-mono text-base font-semibold text-accent">
+                  Einmalzahlung
+                </span>
               </div>
             </div>
 
             <Accordion type="single" collapsible className="mt-8">
               {BASISPAKET.map((item) => (
                 <AccordionItem key={item.id} value={item.id}>
-                  <AccordionTrigger className="group [&>svg]:hidden">
+                  <AccordionTrigger>
                     <div className="flex min-w-0 flex-1 items-center gap-6">
                       <span className="hidden font-mono text-base text-fg-secondary md:inline">{item.number}</span>
                       <span className="font-display text-lg tracking-tight md:text-xl">
                         {item.title}
                       </span>
-                    </div>
-                    <div className="ml-3 flex shrink-0 flex-col items-end gap-1.5 md:ml-4 md:flex-row md:items-center md:gap-4">
-                      <span className="whitespace-nowrap font-mono text-sm text-fg-secondary md:text-base">
-                        Wert: {formatEuro(item.value)}
-                      </span>
-                      <ChevronDown className="h-4 w-4 text-fg-secondary transition-transform duration-300 ease-expo group-data-[state=open]:rotate-180" />
                     </div>
                   </AccordionTrigger>
                   <AccordionContent>
@@ -143,9 +121,6 @@ export function Offer() {
             {/* Mobile: two stacked cards. Keeps rows readable at 360px. */}
             <div className="mt-8 grid gap-5 md:hidden">
               {(["standard", "premium"] as const).map((tier) => {
-                const priceRow = RETAINER_ROWS[0];
-                const featureRows = RETAINER_ROWS.slice(1);
-                const price = priceRow[tier];
                 return (
                   <div
                     key={tier}
@@ -160,18 +135,11 @@ export function Offer() {
                         Empfohlen
                       </span>
                     )}
-                    <div className="flex items-baseline justify-between gap-4">
-                      <div className="font-mono text-base font-semibold text-fg-primary">
-                        {tier === "premium" ? "Premium" : "Standard"}
-                      </div>
-                      {typeof price === "string" && (
-                        <div className="font-display text-xl font-semibold tracking-tight text-fg-primary">
-                          {price}
-                        </div>
-                      )}
+                    <div className="font-mono text-base font-semibold text-fg-primary">
+                      {tier === "premium" ? "Premium" : "Standard"}
                     </div>
                     <ul className="mt-4 space-y-3 text-base text-fg-primary">
-                      {featureRows.map((row) => {
+                      {RETAINER_ROWS.map((row) => {
                         const v = row[tier];
                         if (v === false) {
                           return (
@@ -224,12 +192,10 @@ export function Offer() {
                   </tr>
                 </thead>
                 <tbody>
-                  {RETAINER_ROWS.map((row, i) => (
+                  {RETAINER_ROWS.map((row) => (
                     <tr
                       key={row.label}
-                      className={`border-b border-border last:border-b-0 ${
-                        i === 0 ? "bg-bg-secondary/50" : ""
-                      }`}
+                      className="border-b border-border last:border-b-0"
                     >
                       <td className="break-words px-6 py-4 text-lg text-fg-primary">
                         {row.label}

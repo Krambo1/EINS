@@ -11,7 +11,7 @@ export const OBJECTIONS: Objection[] = [
   },
   {
     q: "Können wir erstmal klein anfangen, mit 500 bis 1.000 € Werbebudget?",
-    a: "Nein. Damit Instagram und Google Ihre besten Patienten finden, brauchen die Plattformen genug Daten. Unter 3.000 € im Monat lernen sie nicht genug und jede Anfrage wird teuer. Ein einziger Implantat-Patient deckt das Werbebudget bereits ab.",
+    a: "Nein. Damit Instagram und Google Ihre besten Patienten finden, brauchen die Plattformen genug Daten. Unter 3.000 € im Monat lernen sie nicht genug und jede Anfrage wird teuer. Ein einziger Premium-Patient (Facelift, Liposuktion, Brust) deckt das Werbebudget bereits ab.",
   },
   {
     q: "Was, wenn es nicht funktioniert?",
@@ -23,11 +23,11 @@ export const OBJECTIONS: Objection[] = [
   },
   {
     q: "Sind Sie DSGVO-konform?",
-    a: "Ja, vollständig. Wir prüfen außerdem jede Werbebotschaft auf das Heilmittelwerbegesetz und das zahnärztliche Berufsrecht, damit es keine Abmahnungen gibt.",
+    a: "Ja, vollständig. Wir prüfen außerdem jede Werbebotschaft auf das Heilmittelwerbegesetz und das ärztliche Berufsrecht, damit es keine Abmahnungen gibt.",
   },
   {
-    q: "Was ist mit unserer bestehenden Software (DS-WIN, Z1, VISIdent, Doctolib)?",
-    a: "Bleibt unverändert. Wir docken an Ihre bestehende Praxis-Software an. Einfache Anfragen wie Prophylaxe laufen direkt in Ihr Buchungssystem, hochpreisige Anfragen werden geprüft und gehen vorbereitet an Ihr Team.",
+    q: "Was ist mit unserer bestehenden Software (Doctolib, samedi, CGM, MedITEX)?",
+    a: "Bleibt unverändert. Wir docken an Ihre bestehende Klinik-Software an. Einfache Anfragen wie Folgetermine für Botox oder Laser laufen direkt in Ihr Buchungssystem, hochpreisige Anfragen werden geprüft und gehen vorbereitet an Ihr Team.",
   },
   {
     q: "Können wir nur Videos oder nur Anzeigen buchen?",

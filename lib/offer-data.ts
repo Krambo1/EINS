@@ -2,7 +2,6 @@ export type BasispaketItem = {
   id: string;
   number: string;
   title: string;
-  value: number;
   bullets: string[];
 };
 
@@ -11,23 +10,21 @@ export const BASISPAKET: BasispaketItem[] = [
     id: "haupt-asset",
     number: "01",
     title: "Haupt-Medien Produktion",
-    value: 8000,
     bullets: [
-      "Voller Produktionstag für Ihre profitabelste Behandlung (z. B. Implantate, All-on-4, Vollkeramik, Invisalign).",
+      "Voller Produktionstag für Ihre profitabelste Behandlung (z. B. Facelift, Liposuktion, Lippenunterspritzung, Kryolipolyse).",
       "Exklusives Strategie-Meeting: Zielgruppen, Positionierung, USPs und Tonalität.",
       "Hochauflösendes Video mit medizinischer Videoanimation.",
-      "Erklärt komplexe Eingriffe verständlich und vertrauensbildend: Knochenstatus, Einheilzeit, Vorher-Nachher.",
-      "Fokus: hohe Marge, emotionale Sicherheit, zahnmedizinisch seriös.",
+      "Erklärt komplexe Eingriffe verständlich und vertrauensbildend: Ablauf, Ausfallzeit, realistische Ergebnisse.",
+      "Fokus: hohe Marge, emotional, medizinisch seriös.",
     ],
   },
   {
     id: "foto-suite",
     number: "02",
     title: "Foto-Suite",
-    value: 3500,
     bullets: [
       "20 hochwertige Fotos für Website, Anzeigen und soziale Medien.",
-      "Praxis, Team, Behandlungsräume, Technologie, alles was Vertrauen schafft.",
+      "Klinik, Team, Behandlungsräume, Technologie, alles was Vertrauen schafft.",
       "Professionelle Nachbearbeitung auf Premium-Niveau.",
       "Sofort einsetzbar für alle Werbekanäle.",
     ],
@@ -35,24 +32,22 @@ export const BASISPAKET: BasispaketItem[] = [
   {
     id: "motion-archiv",
     number: "03",
-    title: "Dental Motion Archiv",
-    value: 3000,
+    title: "Behandlungs-Motion-Archiv",
     bullets: [
-      "Bibliothek an 2D-Animationen, maßgeschneidert auf Ihre Praxis.",
-      "Abgedeckt: Implantate, Knochenaufbau, Zahnersatz, Invisalign, Bleaching, Wurzelkanal, Veneers, Parodontitis-Therapie.",
+      "Bibliothek an 2D-Animationen, maßgeschneidert auf Ihre Klinik.",
+      "Abgedeckt: Faltenunterspritzung, Lippenunterspritzung, Botox, Hyaluron-Filler, Kryolipolyse, HIFU, Laser-Behandlungen, Body Contouring.",
       "Reduziert Patientenangst vor dem ersten Kontakt durch visuelle Aufklärung der Behandlungsschritte.",
-      "Besonders wirksam für erklärungsbedürftige Eingriffe wie Sofortimplantation oder All-on-4.",
+      "Besonders wirksam für erklärungsbedürftige Eingriffe wie Facelift, Liposuktion oder Kryolipolyse.",
     ],
   },
   {
     id: "hwg-zhg",
     number: "04",
     title: "Rechtsprüfung der Werbung",
-    value: 1500,
     bullets: [
-      "Prüfung aller Werbebotschaften auf Konformität mit Heilmittelwerbegesetz und zahnärztlichem Berufsrecht.",
+      "Prüfung aller Werbebotschaften auf Konformität mit Heilmittelwerbegesetz und ärztlichem Berufsrecht.",
       "Schutz vor Abmahnungen und Berufsrechtsverstößen.",
-      "Dokumentierte Rechtssicherheit für Zahnärzte und Praxisinhaber.",
+      "Dokumentierte Rechtssicherheit für ärztliche Leitung und Klinikinhaber.",
       "Besonders relevant: Vorher-Nachher-Darstellungen, Preisangaben, Erfolgsversprechen.",
     ],
   },
@@ -60,19 +55,15 @@ export const BASISPAKET: BasispaketItem[] = [
     id: "landingpages",
     number: "05",
     title: "Konvertierende Ziel-Websites",
-    value: 3000,
     bullets: [
       "Eigene Ziel-Websites für hochpreisige Behandlungen, ausschließlich für bezahlte Anzeigen gebaut.",
-      "Voroptimierte Vorlagen für Implantate, All-on-4, Invisalign, Veneers, Zahnersatz.",
+      "Voroptimierte Vorlagen für Faltenbehandlung, Lippenunterspritzung, Kryolipolyse, Laser-Behandlungen, Facelift.",
       "Keine Navigation, kein Ablenkungsmenü, einziges Ziel: Beratungsanfrage.",
-      "Vertrauenselemente sichtbar: Bewertungen, Zertifikate, Vorher-Nachher, Zahnarzt-Profil, Implantatsystem (Straumann, Nobel Biocare).",
+      "Vertrauenselemente sichtbar: Bewertungen, Zertifikate, HWG-konforme Vorher-Nachher-Dokumentation, Arzt-Profil, verwendete Technologien und Produkte.",
       "DSGVO-konforme Formularlogik mit maximal 5 Feldern. Mobiloptimiert, unter 2 Sekunden Ladezeit.",
     ],
   },
 ];
-
-export const BASISPAKET_PRICE = 12999;
-export const BASISPAKET_VALUE = 19000;
 
 export type RetainerRow = {
   label: string;
@@ -81,15 +72,14 @@ export type RetainerRow = {
 };
 
 export const RETAINER_ROWS: RetainerRow[] = [
-  { label: "Monatliche Investition", standard: "2.600 € / Monat", premium: "3.900 € / Monat" },
   { label: "Kampagnensteuerung & Optimierung", standard: true, premium: true },
   { label: "Werbebudget-Kontrolle", standard: true, premium: true },
   { label: "Strecken-Optimierung", standard: true, premium: true },
   { label: "Organische Beiträge auf sozialen Medien", standard: true, premium: true },
   { label: "KI-Vorqualifizierung und automatische Verteilung", standard: true, premium: true },
   { label: "Monatliche Auswertung", standard: true, premium: true },
-  { label: "Praxis-Reputationssystem (Google-Bewertungen, Patientenstimmen)", standard: true, premium: true },
-  { label: "Vertriebsleitfaden für Ihr Praxisteam", standard: true, premium: true },
+  { label: "Klinik-Reputationssystem (Google-Bewertungen, Patientenstimmen)", standard: true, premium: true },
+  { label: "Vertriebsleitfaden für Ihr Klinikteam", standard: true, premium: true },
   { label: "Technischer Support", standard: "Standard", premium: "Priorität < 3h" },
   { label: "Strategie-Meetings", standard: "Monatlich", premium: "2x monatlich" },
   { label: "Neue Medien", standard: false, premium: "1 / Quartal" },
@@ -107,9 +97,9 @@ export type Scenario = {
 };
 
 export const SCENARIOS: Scenario[] = [
-  { label: "Untergrenze", leads: 90, conversion: 15, patients: 13, returnEur: 58500 },
-  { label: "Konservativ", leads: 90, conversion: 20, patients: 18, returnEur: 81000 },
-  { label: "Durchschnitt", leads: 130, conversion: 30, patients: 39, returnEur: 175500, highlight: true },
-  { label: "Gut", leads: 130, conversion: 40, patients: 52, returnEur: 234000 },
-  { label: "Top", leads: 170, conversion: 50, patients: 85, returnEur: 382500 },
+  { label: "Untergrenze", leads: 90, conversion: 15, patients: 13, returnEur: 39000 },
+  { label: "Konservativ", leads: 90, conversion: 20, patients: 18, returnEur: 54000 },
+  { label: "Durchschnitt", leads: 130, conversion: 30, patients: 39, returnEur: 117000, highlight: true },
+  { label: "Gut", leads: 130, conversion: 40, patients: 52, returnEur: 156000 },
+  { label: "Top", leads: 170, conversion: 50, patients: 85, returnEur: 255000 },
 ];
