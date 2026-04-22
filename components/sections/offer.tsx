@@ -68,7 +68,7 @@ export function Offer() {
                     </div>
                   </AccordionTrigger>
                   <AccordionContent>
-                    <ul className="space-y-3 pl-[60px] text-base leading-relaxed">
+                    <ul className="space-y-3 text-base leading-relaxed md:pl-[60px]">
                       {item.bullets.map((b) => (
                         <li key={b} className="flex gap-3">
                           <span className="mt-2 h-1 w-1 shrink-0 rounded-full bg-accent" aria-hidden />
@@ -120,51 +120,74 @@ export function Offer() {
 
             {/* Mobile: two stacked cards. Keeps rows readable at 360px. */}
             <div className="mt-8 grid gap-5 md:hidden">
-              {(["standard", "premium"] as const).map((tier) => {
-                return (
-                  <div
-                    key={tier}
-                    className={`card-glow relative rounded-2xl border p-5 backdrop-blur-sm ${
-                      tier === "premium"
-                        ? "border-accent/50 bg-accent/[0.04]"
-                        : "border-border bg-bg-secondary/60"
-                    }`}
-                  >
-                    {tier === "premium" && (
-                      <span className="absolute -top-3 left-5 rounded-full bg-accent px-3 py-0.5 font-mono text-xs font-medium text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.25)]">
-                        Empfohlen
-                      </span>
-                    )}
-                    <div className="font-mono text-base font-semibold text-fg-primary">
-                      {tier === "premium" ? "Premium" : "Standard"}
-                    </div>
-                    <ul className="mt-4 space-y-3 text-base text-fg-primary">
-                      {RETAINER_ROWS.map((row) => {
-                        const v = row[tier];
-                        if (v === false) {
-                          return (
-                            <li key={row.label} className="flex items-start gap-3 text-fg-secondary">
-                              <Minus className="mt-1 h-4 w-4 shrink-0 text-fg-tertiary" />
-                              <span className="flex-1">{row.label}</span>
-                            </li>
-                          );
-                        }
-                        return (
-                          <li key={row.label} className="flex items-start gap-3">
-                            <Check className="mt-1 h-4 w-4 shrink-0 text-accent" />
-                            <span className="flex-1">
-                              {row.label}
-                              {typeof v === "string" && (
-                                <span className="block text-sm text-fg-secondary">{v}</span>
-                              )}
-                            </span>
-                          </li>
-                        );
-                      })}
-                    </ul>
-                  </div>
-                );
-              })}
+              {/* Standard: full list */}
+              <div className="card-glow relative rounded-2xl border border-border bg-bg-secondary/60 p-5 backdrop-blur-sm">
+                <div className="font-mono text-base font-semibold text-fg-primary">
+                  Standard
+                </div>
+                <ul className="mt-4 space-y-3 text-base text-fg-primary">
+                  {RETAINER_ROWS.map((row) => {
+                    const v = row.standard;
+                    if (v === false) {
+                      return (
+                        <li key={row.label} className="flex items-start gap-3 text-fg-secondary">
+                          <Minus className="mt-1 h-4 w-4 shrink-0 text-fg-tertiary" />
+                          <span className="flex-1">{row.label}</span>
+                        </li>
+                      );
+                    }
+                    return (
+                      <li key={row.label} className="flex items-start gap-3">
+                        <Check className="mt-1 h-4 w-4 shrink-0 text-accent" />
+                        <span className="flex-1">
+                          {row.label}
+                          {typeof v === "string" && (
+                            <span className="block text-sm text-fg-secondary">{v}</span>
+                          )}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+
+              {/* Premium: "Alles in Standard" + only the extras/upgrades */}
+              <div className="card-glow relative rounded-2xl border border-accent/50 bg-accent/[0.04] p-5 backdrop-blur-sm">
+                <span className="absolute -top-3 left-5 rounded-full bg-accent px-3 py-0.5 font-mono text-xs font-medium text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.25)]">
+                  Empfohlen
+                </span>
+                <div className="font-mono text-base font-semibold text-fg-primary">
+                  Premium
+                </div>
+                <ul className="mt-4 space-y-3 text-base text-fg-primary">
+                  <li className="flex items-start gap-3">
+                    <Check className="mt-1 h-4 w-4 shrink-0 text-accent" />
+                    <span className="flex-1 font-semibold">Alles in Standard</span>
+                  </li>
+                  {RETAINER_ROWS.filter((row) => row.standard !== row.premium).map((row) => {
+                    const v = row.premium;
+                    if (v === false) {
+                      return (
+                        <li key={row.label} className="flex items-start gap-3 text-fg-secondary">
+                          <Minus className="mt-1 h-4 w-4 shrink-0 text-fg-tertiary" />
+                          <span className="flex-1">{row.label}</span>
+                        </li>
+                      );
+                    }
+                    return (
+                      <li key={row.label} className="flex items-start gap-3">
+                        <Check className="mt-1 h-4 w-4 shrink-0 text-accent" />
+                        <span className="flex-1">
+                          {row.label}
+                          {typeof v === "string" && (
+                            <span className="block text-sm text-fg-secondary">{v}</span>
+                          )}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
             </div>
 
             {/* Desktop: full comparison table. */}

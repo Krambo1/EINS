@@ -1,14 +1,9 @@
 "use client";
 
+import Image from "next/image";
 import { Check } from "lucide-react";
 import { motion } from "framer-motion";
 import { Reveal } from "@/components/ui/reveal";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 
 export function Guarantee() {
   return (
@@ -54,35 +49,55 @@ export function Guarantee() {
         </Reveal>
 
         <Reveal delay={0.15}>
-          <div className="mt-8 grid gap-6 md:mt-12 md:grid-cols-[1.5fr_1fr]">
-            <div className="relative overflow-hidden rounded-2xl border border-accent/40 bg-gradient-to-br from-accent/[0.08] via-bg-secondary to-bg-secondary p-6 md:p-12">
-              <div
-                className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full"
-                style={{ background: "radial-gradient(circle, var(--accent-glow), transparent 60%)" }}
-                aria-hidden
-              />
-              <div className="font-mono text-base font-medium text-accent">
-                90-Tage-Garantie
+          <div className="relative mt-8 overflow-hidden rounded-2xl border border-accent/40 bg-gradient-to-br from-accent/[0.08] via-bg-secondary to-bg-secondary p-6 md:mt-12 md:p-12">
+            <div
+              className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full"
+              style={{ background: "radial-gradient(circle, var(--accent-glow), transparent 60%)" }}
+              aria-hidden
+            />
+            <div className="relative md:grid md:grid-cols-[1fr_auto] md:items-center md:gap-10 lg:gap-14">
+              <div>
+                <div className="font-mono text-base font-medium text-accent">
+                  90-Tage-Garantie
+                </div>
+                <h3 className="mt-4 font-display text-4xl font-semibold leading-tight tracking-tight md:text-5xl">
+                  Kommen nicht genug Anfragen, zahlen wir drauf.
+                </h3>
+                <p className="mt-4 text-lg leading-relaxed text-fg-primary md:text-xl">
+                  Unser Versprechen: Mindestens 10 ernsthafte Patientenanfragen pro 1.000 € Werbebudget innerhalb von 90 Tagen. Halten wir das nicht ein:
+                </p>
+                <ul className="mt-7 space-y-4 text-lg text-fg-primary md:text-xl">
+                  <li className="flex items-start gap-3">
+                    <Check className="mt-[0.3em] h-6 w-6 shrink-0 text-accent" />
+                    <span>Monat 4 geht auf uns. Sie zahlen keine Gebühren.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <Check className="mt-[0.3em] h-6 w-6 shrink-0 text-accent" />
+                    <span>Wir erstellen 3 neue Werbemittel für Sie, kostenlos.</span>
+                  </li>
+                </ul>
               </div>
-              <h3 className="mt-4 font-display text-4xl font-semibold leading-tight tracking-tight md:text-5xl">
-                Kommen nicht genug Anfragen, zahlen wir drauf.
-              </h3>
-              <p className="mt-4 text-lg leading-relaxed text-fg-primary md:text-xl">
-                Unser Versprechen: Mindestens 10 ernsthafte Patientenanfragen pro 1.000 € Werbebudget innerhalb von 90 Tagen. Halten wir das nicht ein:
-              </p>
-              <ul className="mt-7 space-y-4 text-lg text-fg-primary md:text-xl">
-                <li className="flex items-start gap-3">
-                  <Check className="mt-[0.3em] h-6 w-6 shrink-0 text-accent" />
-                  <span>Monat 4 geht auf uns. Sie zahlen keine Gebühren.</span>
-                </li>
-                <li className="flex items-start gap-3">
-                  <Check className="mt-[0.3em] h-6 w-6 shrink-0 text-accent" />
-                  <span>Wir erstellen 3 neue Werbemittel für Sie, kostenlos.</span>
-                </li>
-              </ul>
-            </div>
 
-            <QualifiedRequestCard />
+              <div className="mt-8 flex w-full max-w-[220px] flex-col self-center md:mt-0 md:w-[220px] md:max-w-none lg:w-[240px]">
+                <div className="relative aspect-[3/4] overflow-hidden rounded-xl border border-border bg-bg-secondary/80 backdrop-blur-sm">
+                  <Image
+                    src="/headshot.webp"
+                    alt="Karam Issa, Gründer EINS Visuals"
+                    fill
+                    sizes="240px"
+                    className="object-contain"
+                  />
+                </div>
+                <div className="mt-3 px-1">
+                  <div className="font-display text-base font-semibold text-fg-primary md:text-lg">
+                    Karam Issa
+                  </div>
+                  <div className="text-sm text-fg-secondary">
+                    Gründer, EINS Visuals
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </Reveal>
       </div>
@@ -90,54 +105,3 @@ export function Guarantee() {
   );
 }
 
-const QUALIFIED_BULLETS = [
-  "Ausgefülltes Formular mit konkretem Behandlungswunsch (Faltenbehandlung, Liposuktion, Facelift, Laser).",
-  "Patient hat ein realistisches Budget angegeben.",
-  "Bereit für ein Beratungsgespräch innerhalb der nächsten 30 Tage.",
-  "Die KI hat die Anfrage als ernsthaft eingestuft.",
-];
-
-function QualifiedBullets() {
-  return (
-    <ul className="space-y-4 text-base leading-relaxed text-fg-primary md:text-lg">
-      {QUALIFIED_BULLETS.map((b) => (
-        <li key={b} className="flex gap-3">
-          <span className="mt-[0.55em] h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden />
-          <span>{b}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function QualifiedRequestCard() {
-  const title = `Was wir als „qualifizierte Anfrage" zählen:`;
-  return (
-    <div className="card-glow rounded-2xl border border-border bg-bg-secondary/60 backdrop-blur-sm">
-      {/* Mobile: open by default so the guarantee terms are visible without tapping. */}
-      <div className="md:hidden">
-        <Accordion type="single" collapsible defaultValue="definition">
-          <AccordionItem value="definition" className="border-b-0">
-            <AccordionTrigger className="px-6 py-5 text-left hover:text-fg-primary">
-              <span className="font-display text-xl font-semibold tracking-tight text-balance">
-                {title}
-              </span>
-            </AccordionTrigger>
-            <AccordionContent className="px-6 pb-6">
-              <QualifiedBullets />
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-      </div>
-      {/* Desktop: always-visible static card */}
-      <div className="hidden p-8 md:block">
-        <h4 className="font-display text-3xl font-semibold tracking-tight text-balance">
-          {title}
-        </h4>
-        <div className="mt-6">
-          <QualifiedBullets />
-        </div>
-      </div>
-    </div>
-  );
-}
