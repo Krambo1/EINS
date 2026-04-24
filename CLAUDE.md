@@ -90,8 +90,7 @@ Accent gradient (for large text, readable on light bg):
    - "Testimonials" → "Patientenstimmen"
    - "Marketing" → "Werbung" (sometimes Marketing is fine — judgment call)
    - Proper nouns (Instagram, Facebook, Google, Meta, Invisalign, All-on-4) stay.
-4. **No "Premium"** as a label. User explicitly asked to strip it. (Once used in product tiers; renamed to "Erweitert".)
-5. **"€" not "EUR"** for currency display.
+4. 5. **"€" not "EUR"** for currency display.
 6. **Copy style:** Direct. Clinic owner must understand in 10 seconds. Every card should have a clear headline, a plain-language explanation, then details. Avoid abstract nouns.
 7. **Section headlines often have a H2 + subtitle pattern**:
    ```tsx

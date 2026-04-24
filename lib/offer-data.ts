@@ -45,10 +45,10 @@ export const BASISPAKET: BasispaketItem[] = [
     number: "04",
     title: "Rechtsprüfung der Werbung",
     bullets: [
-      "Prüfung aller Werbebotschaften auf Konformität mit Heilmittelwerbegesetz und ärztlichem Berufsrecht.",
-      "Schutz vor Abmahnungen und Berufsrechtsverstößen.",
-      "Dokumentierte Rechtssicherheit für ärztliche Leitung und Klinikinhaber.",
-      "Besonders relevant: Vorher-Nachher-Darstellungen, Preisangaben, Erfolgsversprechen.",
+      "KI-gestützte Prüfung aller Werbebotschaften, Anzeigentexte und Video-Scripts gegen die typischen HWG-Abmahnmuster.",
+      "Erfasst Vorher-Nachher-Logik, Heilsversprechen, Lockangebote, Superlative und Verharmlosung.",
+      "Schutz vor den häufigsten Abmahnfallen des Heilmittelwerbegesetzes und ärztlichen Berufsrechts.",
+      "Grenzfälle werden zur anwaltlichen Einzelfallprüfung eskaliert. Ersetzt keine Prüfung durch einen Fachanwalt.",
     ],
   },
   {

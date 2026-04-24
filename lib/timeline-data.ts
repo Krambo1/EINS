@@ -11,7 +11,7 @@ export const STATIONS: Station[] = [
     bullets: [
       "Videodreh und Fotoshooting in Ihrer Klinik",
       "Anbindung an Ihre Klinik-Software",
-      "Rechtsprüfung aller Werbebotschaften",
+      "KI-Rechtsprüfung aller Werbebotschaften",
     ],
   },
   {

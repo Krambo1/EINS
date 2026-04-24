@@ -20,29 +20,57 @@ const SITE_URL = "https://einsvisuals.com";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
-  title: "EINS Visuals, Akquisitions-System für Ästhetikkliniken",
+  title: {
+    default: "EINS Visuals | Akquise-System für Ästhetikkliniken",
+    template: "%s | EINS Visuals",
+  },
   description:
-    "Mehr Selbstzahler. Höhere Margen. Planbares Wachstum. Das komplette Akquisitions-System für Ästhetik- und Schönheitskliniken im DACH-Raum. Video, bezahlte Anzeigen und KI-gestütztes Anfrage-System als integriertes Produkt.",
+    "Mehr Selbstzahler für Ihre Ästhetikklinik: Video, bezahlte Anzeigen und KI-gestütztes Anfrage-System als integriertes Akquise-System im DACH-Raum.",
+  applicationName: "EINS Visuals",
+  keywords: [
+    "Ästhetikklinik Marketing",
+    "Patientenakquise",
+    "Selbstzahler gewinnen",
+    "Klinik Werbung",
+    "Medizin Video Produktion",
+    "Meta Ads Klinik",
+    "EINS Visuals",
+  ],
+  authors: [{ name: "EINS Visuals", url: SITE_URL }],
+  creator: "EINS Visuals",
+  publisher: "EINS Visuals",
   alternates: { canonical: "/" },
   openGraph: {
-    title: "EINS Visuals",
+    title: "EINS Visuals | Akquise-System für Ästhetikkliniken",
     description:
-      "Akquisitions-System für Ästhetikkliniken im DACH-Raum.",
+      "Mehr Selbstzahler für Ihre Ästhetikklinik: Video, bezahlte Anzeigen und KI-gestütztes Anfrage-System. DACH-Raum.",
     url: SITE_URL,
     siteName: "EINS Visuals",
     locale: "de_DE",
     type: "website",
-    images: [{ url: "/og-image.png", width: 1200, height: 630, alt: "EINS Visuals" }],
+    images: [{ url: "/eins-logo.png", width: 1200, height: 630, alt: "EINS Visuals" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "EINS Visuals",
-    description: "Akquisitions-System für Ästhetikkliniken im DACH-Raum.",
-    images: ["/og-image.png"],
+    title: "EINS Visuals | Akquise-System für Ästhetikkliniken",
+    description: "Mehr Selbstzahler für Ihre Ästhetikklinik. Video, bezahlte Anzeigen, KI-Anfrage-System.",
+    images: ["/eins-logo.png"],
   },
-  robots: { index: true, follow: true },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-snippet": -1,
+      "max-image-preview": "large",
+      "max-video-preview": -1,
+    },
+  },
   icons: {
-    icon: "/eins-mark.png",
+    icon: [
+      { url: "/eins-mark.png", type: "image/png", sizes: "any" },
+    ],
     shortcut: "/eins-mark.png",
     apple: "/eins-mark.png",
   },
@@ -52,8 +80,13 @@ const organizationJsonLd = {
   "@context": "https://schema.org",
   "@type": "Organization",
   name: "EINS Visuals",
+  alternateName: "EINS",
   url: SITE_URL,
   logo: `${SITE_URL}/eins-logo.png`,
+  image: `${SITE_URL}/eins-logo.png`,
+  description:
+    "Akquise-System für Ästhetikkliniken im DACH-Raum. Video, bezahlte Anzeigen und KI-gestütztes Anfrage-System als integriertes Produkt.",
+  slogan: "Mehr Selbstzahler. Mehr Umsatz. Mehr Sicherheit.",
   email: CONTACT_EMAIL,
   telephone: CONTACT_PHONE,
   address: {
@@ -63,6 +96,37 @@ const organizationJsonLd = {
   },
   areaServed: ["DE", "AT", "CH"],
   sameAs: [],
+};
+
+const websiteJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: "EINS Visuals",
+  url: SITE_URL,
+  inLanguage: "de-DE",
+  publisher: { "@type": "Organization", name: "EINS Visuals" },
+};
+
+const serviceJsonLd = {
+  "@context": "https://schema.org",
+  "@type": "ProfessionalService",
+  name: "EINS Visuals",
+  url: SITE_URL,
+  image: `${SITE_URL}/eins-logo.png`,
+  description:
+    "Akquise-System für Ästhetikkliniken: Medienproduktion, bezahlte Anzeigen und KI-gestütztes Anfrage-System.",
+  areaServed: [
+    { "@type": "Country", name: "Deutschland" },
+    { "@type": "Country", name: "Österreich" },
+    { "@type": "Country", name: "Schweiz" },
+  ],
+  serviceType: [
+    "Patientenakquise",
+    "Medienproduktion für Kliniken",
+    "Bezahlte Anzeigen",
+    "KI-gestütztes Anfrage-System",
+  ],
+  priceRange: "€€€",
 };
 
 export default function RootLayout({
@@ -78,6 +142,14 @@ export default function RootLayout({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteJsonLd) }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(serviceJsonLd) }}
         />
       </head>
       <body>

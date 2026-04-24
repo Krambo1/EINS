@@ -19,11 +19,11 @@ export const OBJECTIONS: Objection[] = [
   },
   {
     q: "Wie lange dauert der Start?",
-    a: "Woche 1 bis 2: Videos, Software-Anbindung, Rechtsprüfung. Woche 3: Anzeigen gehen live. Ab Woche 6: Feinjustierung. Tag 90: Auswertung. Ihr Aufwand: einmalig 4 bis 6 Stunden Drehtag plus 90 Minuten Einführungsgespräch.",
+    a: "Woche 1 bis 2: Videos, Software-Anbindung, KI-Rechtsprüfung. Woche 3: Anzeigen gehen live. Ab Woche 6: Feinjustierung. Tag 90: Auswertung. Ihr Aufwand: einmalig 4 bis 6 Stunden Drehtag plus 90 Minuten Einführungsgespräch.",
   },
   {
     q: "Sind Sie DSGVO-konform?",
-    a: "Ja, vollständig. Wir prüfen außerdem jede Werbebotschaft auf das Heilmittelwerbegesetz und das ärztliche Berufsrecht, damit es keine Abmahnungen gibt.",
+    a: "Ja, vollständig. Zusätzlich prüfen wir jede Werbebotschaft KI-gestützt gegen die typischen HWG-Abmahnmuster. Grenzfälle gehen zur anwaltlichen Einzelprüfung, bevor sie live gehen.",
   },
   {
     q: "Was ist mit unserer bestehenden Software (Doctolib, samedi, CGM, MedITEX)?",
