@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { Badge } from "@eins/ui";
 import { requireAdmin } from "@/auth/admin-guards";
 import { db, schema } from "@/db/client";
@@ -19,6 +19,10 @@ import {
   globalLeads,
   type AdminLeadFilters,
 } from "@/server/queries/admin";
+import {
+  getAdminClinicById,
+  getAdminClinicCounts,
+} from "@/server/queries/admin-shared";
 import { ClinicTabsNav } from "./_components/ClinicTabsNav";
 import { OverviewTab } from "./_components/OverviewTab";
 import { LeistungTab } from "./_components/LeistungTab";
@@ -72,41 +76,14 @@ export default async function AdminClinicDetailPage({
   const tab: TabKey = (TABS.find((t) => t.key === tabParam)?.key ??
     "uebersicht") as TabKey;
 
-  const [clinic] = await db
-    .select()
-    .from(schema.clinics)
-    .where(eq(schema.clinics.id, params.id))
-    .limit(1);
+  const clinic = await getAdminClinicById(params.id);
   if (!clinic) notFound();
-
-  // Load just-enough data for the active tab. Header + counts are always
-  // fetched so the chrome stays informative.
-  const baseFetch = Promise.all([
-    db
-      .select({
-        requests: sql<number>`(
-          select count(*)::int from ${schema.requests}
-          where ${schema.requests.clinicId} = ${clinic.id}
-        )`,
-        documents: sql<number>`(
-          select count(*)::int from ${schema.documents}
-          where ${schema.documents.clinicId} = ${clinic.id}
-        )`,
-        assets: sql<number>`(
-          select count(*)::int from ${schema.assets}
-          where ${schema.assets.clinicId} = ${clinic.id}
-        )`,
-      })
-      .from(schema.clinics)
-      .where(eq(schema.clinics.id, clinic.id))
-      .limit(1),
-  ]);
 
   let renderedTab: React.ReactNode;
 
   if (tab === "uebersicht") {
     const [counts, perf] = await Promise.all([
-      baseFetch.then(([c]) => c[0] ?? { requests: 0, documents: 0, assets: 0 }),
+      getAdminClinicCounts(clinic.id),
       clinicPerformance(clinic.id, 90),
     ]);
     renderedTab = <OverviewTab clinic={clinic} totals={counts} perf={perf} />;
