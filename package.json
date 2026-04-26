@@ -1,40 +1,43 @@
 {
-  "name": "eins-visuals",
+  "name": "eins-monorepo",
   "version": "1.0.0",
   "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+  "packageManager": "pnpm@10.33.2",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
   },
-  "dependencies": {
-    "@radix-ui/react-accordion": "^1.2.1",
-    "@radix-ui/react-slot": "^1.1.0",
-    "@radix-ui/react-tabs": "^1.1.1",
-    "@radix-ui/react-tooltip": "^1.1.3",
-    "@vercel/analytics": "^2.0.1",
-    "@vercel/speed-insights": "^2.0.0",
-    "class-variance-authority": "^0.7.0",
-    "clsx": "^2.1.1",
-    "framer-motion": "^11.11.0",
-    "lottie-react": "^2.4.1",
-    "lucide-react": "^0.456.0",
-    "next": "^14.2.33",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "tailwind-merge": "^2.5.4"
+  "scripts": {
+    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "dev:website": "pnpm --filter website dev",
+    "dev:portal": "pnpm --filter portal dev",
+    "dev:worker": "pnpm --filter portal worker",
+    "build": "pnpm -r build",
+    "build:website": "pnpm --filter website build",
+    "build:portal": "pnpm --filter portal build",
+    "start:website": "pnpm --filter website start",
+    "start:portal": "pnpm --filter portal start",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:e2e": "pnpm --filter portal test:e2e",
+    "db:up": "docker compose up -d postgres redis",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres redis",
+    "db:migrate": "pnpm --filter portal db:migrate",
+    "db:seed": "pnpm --filter portal db:seed",
+    "db:studio": "pnpm --filter portal db:studio",
+    "db:reset": "docker compose down -v && docker compose up -d postgres redis && sleep 3 && pnpm db:migrate && pnpm db:seed",
+    "clean": "pnpm -r exec rm -rf .next dist .turbo && rm -rf node_modules"
   },
   "devDependencies": {
-    "@types/node": "^22.9.0",
-    "@types/react": "^18.3.12",
-    "@types/react-dom": "^18.3.1",
-    "autoprefixer": "^10.4.20",
-    "eslint": "^8.57.1",
-    "eslint-config-next": "14.2.18",
-    "postcss": "^8.4.47",
-    "tailwindcss": "^3.4.14",
+    "prettier": "^3.3.3",
     "typescript": "^5.6.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "@types/react": "19.0.0",
+      "@types/react-dom": "19.0.0"
+    }
   }
 }

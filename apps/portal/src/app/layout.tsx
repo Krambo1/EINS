@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
+import { WebVitalsReporter } from "./_components/WebVitalsReporter";
 
 const display = localFont({
   src: [
@@ -38,6 +39,7 @@ export default function RootLayout({
   return (
     <html lang="de" className={display.variable} suppressHydrationWarning>
       <body className="min-h-dvh bg-bg-primary text-fg-primary antialiased">
+        <WebVitalsReporter />
         {children}
       </body>
     </html>
