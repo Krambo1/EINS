@@ -14,7 +14,11 @@ const Query = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
-export const GET = withApi({}, async ({ session, request }) => {
+export const GET = withApi(
+  // Polled by the shell every few seconds. A short browser-private cache
+  // collapses bursts without hiding fresh notifications for long.
+  { cacheControl: "max-age=10, stale-while-revalidate=60" },
+  async ({ session, request }) => {
   const url = new URL(request.url);
   const q = Query.parse(Object.fromEntries(url.searchParams));
 

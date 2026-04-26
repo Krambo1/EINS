@@ -1,12 +1,10 @@
-"use client";
-
 import * as React from "react";
 import { cn } from "@eins/ui";
 
 /**
  * Small co-located helpers for Auswertung Detail mode. Kept inside the page
  * folder to avoid bloating @eins/ui until we've used the same shape on
- * three different pages.
+ * three different pages. Server components — no hooks, no events, no state.
  */
 
 // ---------- BreakdownBars: horizontal-bar visualization ----------

@@ -39,6 +39,10 @@ async function main() {
       (await sql`SELECT version FROM schema_migrations`).map((r) => r.version)
     );
 
+    // CREATE INDEX CONCURRENTLY (and a few other DDL statements) refuses to
+    // run inside a transaction. Detect those and apply the body bare.
+    const NO_TX_PATTERN = /\bcreate\s+index\s+concurrently\b|\bcreate\s+unique\s+index\s+concurrently\b|\bdrop\s+index\s+concurrently\b|\breindex\s+concurrently\b/i;
+
     let appliedCount = 0;
     for (const file of files) {
       const version = file.replace(/\.sql$/, "");
@@ -50,10 +54,17 @@ async function main() {
       const body = await readFile(fullPath, "utf8");
 
       console.log(`→ apply ${version}`);
-      await sql.begin(async (tx) => {
-        await tx.unsafe(body);
-        await tx`INSERT INTO schema_migrations(version) VALUES (${version})`;
-      });
+      if (NO_TX_PATTERN.test(body)) {
+        // Run unwrapped. If the body fails midway we rely on IF NOT EXISTS
+        // so a re-run is safe.
+        await sql.unsafe(body);
+        await sql`INSERT INTO schema_migrations(version) VALUES (${version})`;
+      } else {
+        await sql.begin(async (tx) => {
+          await tx.unsafe(body);
+          await tx`INSERT INTO schema_migrations(version) VALUES (${version})`;
+        });
+      }
       appliedCount += 1;
     }
 

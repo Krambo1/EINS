@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { requireAdmin } from "@/auth/admin-guards";
@@ -57,6 +57,7 @@ export async function resolveUpgradeRequestAction(formData: FormData) {
       .update(schema.clinics)
       .set({ plan: "erweitert", planStartedAt: new Date() })
       .where(eq(schema.clinics.id, req.clinicId));
+    revalidateTag(`clinic:${req.clinicId}`);
   }
 
   await writeAudit({

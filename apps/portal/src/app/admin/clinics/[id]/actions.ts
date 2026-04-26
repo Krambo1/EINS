@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -65,6 +65,7 @@ export async function updateClinicAction(formData: FormData) {
     },
   });
 
+  revalidateTag(`clinic:${d.id}`);
   revalidatePath(`/admin/clinics/${d.id}`);
   revalidatePath("/admin/clinics");
 }
@@ -87,6 +88,7 @@ export async function archiveClinicAction(formData: FormData) {
     diff: { archived: true },
   });
 
+  revalidateTag(`clinic:${id}`);
   revalidatePath("/admin/clinics");
   redirect("/admin/clinics");
 }
@@ -109,6 +111,7 @@ export async function unarchiveClinicAction(formData: FormData) {
     diff: { archived: false },
   });
 
+  revalidateTag(`clinic:${id}`);
   revalidatePath(`/admin/clinics/${id}`);
   revalidatePath("/admin/clinics");
 }
@@ -153,6 +156,7 @@ export async function overrideClinicPlanAction(formData: FormData) {
     diff: { plan: { from: before.plan, to: plan }, reason },
   });
 
+  revalidateTag(`clinic:${id}`);
   revalidatePath(`/admin/clinics/${id}`);
   revalidatePath("/admin/clinics");
   revalidatePath("/admin");

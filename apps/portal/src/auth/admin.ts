@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
 import { and, eq, isNull } from "drizzle-orm";
@@ -126,8 +127,11 @@ export async function markAdminSessionMfaVerified(sessionId: string): Promise<vo
 /**
  * Resolve the current admin session (if any). Returns null when unauthenticated
  * or when the IP allowlist blocks the request.
+ *
+ * Wrapped in React.cache below so duplicate calls inside a single render
+ * (admin layout + admin page + permission checks) share one DB lookup.
  */
-export async function getAdminSession(): Promise<ResolvedAdmin | null> {
+async function getAdminSessionImpl(): Promise<ResolvedAdmin | null> {
   const hdrs = await headers();
   const ip = (hdrs.get("x-forwarded-for") ?? hdrs.get("x-real-ip") ?? "").split(",")[0]?.trim() || null;
   if (!isAllowedAdminIp(ip)) return null;
@@ -176,6 +180,8 @@ export async function getAdminSession(): Promise<ResolvedAdmin | null> {
     mfaVerified: row.mfaVerifiedSession,
   };
 }
+
+export const getAdminSession = cache(getAdminSessionImpl);
 
 export async function destroyAdminSession(): Promise<void> {
   const jar = await cookies();

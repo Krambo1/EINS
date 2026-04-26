@@ -1,6 +1,6 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { requireSession } from "@/auth/guards";
@@ -242,6 +242,7 @@ export async function updateClinicSettingsAction(formData: FormData) {
     },
   });
 
+  revalidateTag(`clinic:${session.clinicId}`);
   revalidatePath("/einstellungen");
 }
 

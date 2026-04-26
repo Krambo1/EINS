@@ -510,6 +510,14 @@ export const requestActivities = pgTable(
   },
   (t) => ({
     requestIdx: index("request_activities_request_idx").on(t.requestId),
+    // Supports the stale-detection subquery in listRequests:
+    //   (SELECT max(created_at) FROM request_activities WHERE request_id = ?)
+    // Without this composite, the MAX requires a heap scan of all activities
+    // for that request. With it, MAX is an index lookup of the last leaf.
+    requestCreatedIdx: index("request_activities_request_created_idx").on(
+      t.requestId,
+      t.createdAt
+    ),
     kindCheck: check(
       "request_activities_kind_check",
       sql`${t.kind} IN ('note','call','email','whatsapp','status_change','ai_rescore','assignment')`

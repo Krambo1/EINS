@@ -6,7 +6,11 @@ const config: NextConfig = {
   // Share the @eins/ui source package across apps without a build step.
   transpilePackages: ["@eins/ui"],
   experimental: {
-    // Typed routes + server actions are on by default in 15; leave room for tuning.
+    // Tree-shake barrel imports from these packages.
+    // - lucide-react: 16 import sites in portal pages, ~hundreds of icons total.
+    // - recharts: 3 chart wrappers, only a handful of named imports each.
+    // - date-fns: defensive — server-only utility imports.
+    optimizePackageImports: ["lucide-react", "recharts", "date-fns"],
   },
   // Security headers — HSTS is added at edge (Cloudflare), these harden everything else.
   async headers() {

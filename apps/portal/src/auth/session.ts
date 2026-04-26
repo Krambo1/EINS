@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
 import { and, eq, isNull, sql as dsql } from "drizzle-orm";
@@ -133,8 +134,14 @@ export async function markSessionMfaVerified(sessionId: string): Promise<void> {
     .where(eq(schema.sessions.id, sessionId));
 }
 
-/** Look up the current session and its user. Returns null if unauthenticated. */
-export async function getSession(): Promise<ResolvedSession | null> {
+/**
+ * Look up the current session and its user. Returns null if unauthenticated.
+ *
+ * Wrapped in `React.cache` so duplicate calls inside one render share a single
+ * DB lookup + lastSeenAt update -- e.g. layout + page + a permission check
+ * all calling requireSession() now hit the DB once, not three times.
+ */
+async function getSessionImpl(): Promise<ResolvedSession | null> {
   const jar = await cookies();
   const raw = jar.get(SESSION_COOKIE)?.value;
   if (!raw) return null;
@@ -197,6 +204,8 @@ export async function getSession(): Promise<ResolvedSession | null> {
     impersonatedByAdminId: row.impersonatedByAdminId,
   };
 }
+
+export const getSession = cache(getSessionImpl);
 
 /** Revoke the active session (logout). Tolerates missing cookie. */
 export async function destroySession(): Promise<void> {

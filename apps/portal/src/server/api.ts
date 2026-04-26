@@ -42,6 +42,12 @@ export interface ApiOptions {
   audit?: Omit<AuditInput, "clinicId" | "actorId" | "actorEmail">;
   /** Skip MFA check — used only by the MFA step-up endpoint itself. */
   allowMfaPending?: boolean;
+  /**
+   * Optional Cache-Control header to set on a successful response. Use only
+   * for endpoints that return per-user-safe payloads — the helper enforces
+   * `private` so the response never goes into a shared cache.
+   */
+  cacheControl?: string;
 }
 
 type Handler<T> = (ctx: ApiContext) => Promise<T>;
@@ -75,7 +81,15 @@ export function withApi<T>(options: ApiOptions, handler: Handler<T>) {
         });
       }
 
-      return NextResponse.json(result);
+      const response = NextResponse.json(result);
+      if (options.cacheControl) {
+        // Force `private` so a shared cache (proxy / CDN) never stores it.
+        const cc = options.cacheControl.includes("private")
+          ? options.cacheControl
+          : `private, ${options.cacheControl}`;
+        response.headers.set("Cache-Control", cc);
+      }
+      return response;
     } catch (err) {
       return mapError(err);
     }

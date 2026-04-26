@@ -90,9 +90,6 @@ importers:
       drizzle-orm:
         specifier: ^0.36.4
         version: 0.36.4(@types/pg@8.20.0)(@types/react@19.0.0)(pg@8.20.0)(postgres@3.4.9)(react@19.2.5)
-      framer-motion:
-        specifier: ^11.11.0
-        version: 11.18.2(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       ioredis:
         specifier: ^5.4.1
         version: 5.10.1
@@ -8152,15 +8149,6 @@ snapshots:
     optionalDependencies:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
-
-  framer-motion@11.18.2(react-dom@19.2.5(react@19.2.5))(react@19.2.5):
-    dependencies:
-      motion-dom: 11.18.1
-      motion-utils: 11.18.1
-      tslib: 2.8.1
-    optionalDependencies:
-      react: 19.2.5
-      react-dom: 19.2.5(react@19.2.5)
 
   fs.realpath@1.0.0: {}
 

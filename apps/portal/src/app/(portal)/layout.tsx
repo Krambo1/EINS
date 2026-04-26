@@ -1,23 +1,11 @@
 import type { ReactNode } from "react";
 import { requireSession } from "@/auth/guards";
 import { PortalShell } from "./_components/PortalShell";
-import { eq } from "drizzle-orm";
-import { db, schema } from "@/db/client";
+import { getClinicHeader } from "@/server/queries/clinic";
 
 export default async function PortalLayout({ children }: { children: ReactNode }) {
   const session = await requireSession();
-
-  // Clinic data for the header — small, cached-per-request.
-  const [clinic] = await db
-    .select({
-      id: schema.clinics.id,
-      displayName: schema.clinics.displayName,
-      plan: schema.clinics.plan,
-      logoUrl: schema.clinics.logoUrl,
-    })
-    .from(schema.clinics)
-    .where(eq(schema.clinics.id, session.clinicId))
-    .limit(1);
+  const clinic = await getClinicHeader(session.clinicId);
 
   return (
     <PortalShell
