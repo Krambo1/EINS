@@ -1,5 +1,6 @@
 import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { invalidateClinicKpiCache } from "@/server/queries/_cache";
 
 /**
  * Rebuild kpi_daily rows for a clinic over [from, to].
@@ -83,6 +84,9 @@ export async function processKpiRebuild(job: KpiRebuildJob): Promise<void> {
     byDate.set(r.date, ex);
   }
 
+  // Track whether at least one row was upserted so we know to invalidate.
+  let didWrite = false;
+
   // Upsert each day.
   for (const [date, m] of byDate) {
     const cpql = m.qualifiedLeads > 0 ? (m.totalSpendEur / m.qualifiedLeads).toFixed(2) : null;
@@ -116,6 +120,14 @@ export async function processKpiRebuild(job: KpiRebuildJob): Promise<void> {
           updatedAt: new Date(),
         },
       });
+    didWrite = true;
+  }
+
+  // Flush the request-path cache for this clinic so /auswertung sees the
+  // fresh aggregations on the next render. Best-effort across processes —
+  // see invalidateClinicKpiCache for details.
+  if (didWrite) {
+    await invalidateClinicKpiCache(clinicId);
   }
 }
 

@@ -1,6 +1,7 @@
 import "server-only";
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { withClinicContext, schema, db } from "@/db/client";
+import { cacheClinicQuery } from "./_cache";
 
 /**
  * Query helpers that produce the numbers shown on the Dashboard,
@@ -34,8 +35,13 @@ const emptySummary = (): KpiSummary => ({
   costPerQualifiedLead: null,
 });
 
-/** Return sum of KPI rows in [from, to]. Inclusive bounds. */
-export async function kpiSummary(
+/**
+ * Uncached KPI summary. Called directly by `currentMonthSummary` and
+ * `lastNDaysSummary` (both hit the live "as of right now" path — see the
+ * cache-strategy notes in _cache.ts). The cached export `kpiSummary` is
+ * the wrapper used by /auswertung's detail bundle.
+ */
+export async function kpiSummaryUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -78,9 +84,17 @@ export async function kpiSummary(
 }
 
 /**
- * Daily rows for charts. Sorted ascending.
+ * Cached version — read from /auswertung's detail bundle. Tagged
+ * `kpi:<clinicId>`; flushed when the kpi-rebuild worker finishes.
  */
-export async function kpiDailySeries(
+export const kpiSummary = cacheClinicQuery(
+  "kpiSummary",
+  kpiSummaryUncached,
+  { dateArgs: [0, 1] }
+);
+
+/** Daily rows for charts. Sorted ascending. Uncached implementation. */
+async function kpiDailySeriesUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -100,6 +114,17 @@ export async function kpiDailySeries(
       .orderBy(schema.kpiDaily.date);
   });
 }
+
+/**
+ * Cached version — used by /auswertung. The only callers today live in
+ * /auswertung and the auswertung detail bundle, both of which are happy
+ * with worker-bounded freshness.
+ */
+export const kpiDailySeries = cacheClinicQuery(
+  "kpiDailySeries",
+  kpiDailySeriesUncached,
+  { dateArgs: [0, 1] }
+);
 
 export interface CampaignLiveSummary {
   platform: "meta" | "google";
@@ -172,16 +197,23 @@ export async function currentGoals(clinicId: string, userId: string) {
 
 /**
  * Convenience: "current month so far" summary for the dashboard.
+ *
+ * NOTE: deliberately calls the uncached path — the dashboard is the
+ * highest-trust freshness surface; user expects today's numbers within
+ * seconds of a request landing, and the brief explicitly excludes this
+ * from the cache list.
  */
 export async function currentMonthSummary(clinicId: string, userId: string) {
   const now = new Date();
   const from = new Date(now.getFullYear(), now.getMonth(), 1);
   const to = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  return kpiSummary(clinicId, userId, from, to);
+  return kpiSummaryUncached(clinicId, userId, from, to);
 }
 
 /**
  * Last-N-days summary, used on the Auswertung "Letzte 30 Tage" toggle.
+ * Uses the cached path — the auswertung surface is analytical and tolerant
+ * of worker-bounded freshness.
  */
 export async function lastNDaysSummary(
   clinicId: string,
@@ -234,11 +266,11 @@ function buildDelta(cur: KpiSummary, prior: KpiSummary): KpiDelta {
 }
 
 /**
- * KPI summary AND prior-period summary for delta chips.
+ * KPI summary AND prior-period summary for delta chips. Uncached body.
  * Period length is matched: prior covers the same number of days immediately
  * before `from`.
  */
-export async function kpiSummaryWithComparison(
+async function kpiSummaryWithComparisonUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -255,6 +287,12 @@ export async function kpiSummaryWithComparison(
   return { current, prior, delta: buildDelta(current, prior) };
 }
 
+export const kpiSummaryWithComparison = cacheClinicQuery(
+  "kpiSummaryWithComparison",
+  kpiSummaryWithComparisonUncached,
+  { dateArgs: [0, 1] }
+);
+
 export interface KpiSparklines {
   qualifiedLeads: number[];
   casesWon: number[];
@@ -265,12 +303,12 @@ export interface KpiSparklines {
 }
 
 /**
- * Daily series + flat number arrays for fast sparkline rendering.
+ * Daily series + flat number arrays for fast sparkline rendering. Uncached body.
  * Returns the same row shape as kpiDailySeries plus an `aggregated.sparklines`
  * structure with one number array per metric, dense across the date range
  * (missing days fill with 0).
  */
-export async function kpiDailySeriesWithSparkline(
+async function kpiDailySeriesWithSparklineUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -306,6 +344,12 @@ export async function kpiDailySeriesWithSparkline(
 
   return { rows, sparklines };
 }
+
+export const kpiDailySeriesWithSparkline = cacheClinicQuery(
+  "kpiDailySeriesWithSparkline",
+  kpiDailySeriesWithSparklineUncached,
+  { dateArgs: [0, 1] }
+);
 
 /** No-show rate daily series — one row per day in range. Missing days = 0. */
 export async function noShowRateSeries(

@@ -1,6 +1,7 @@
 import "server-only";
 import { and, eq, gte, lte, sql, isNotNull } from "drizzle-orm";
 import { withClinicContext, schema } from "@/db/client";
+import { cacheClinicQuery } from "./_cache";
 
 /**
  * Lifecycle helpers: response time, AI score distribution, weekday/hour
@@ -20,7 +21,7 @@ export interface ResponseTimeStats {
 
 const SLA_BREACH_MINUTES = 60 * 24; // 24h is the default SLA we measure against.
 
-export async function responseTimeStats(
+async function responseTimeStatsUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -58,8 +59,14 @@ export async function responseTimeStats(
   });
 }
 
+export const responseTimeStats = cacheClinicQuery(
+  "responseTimeStats",
+  responseTimeStatsUncached,
+  { dateArgs: [0, 1] }
+);
+
 /** Daily mean response time in minutes. Missing days drop out. */
-export async function responseTimeSeries(
+async function responseTimeSeriesUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -86,6 +93,12 @@ export async function responseTimeSeries(
   });
 }
 
+export const responseTimeSeries = cacheClinicQuery(
+  "responseTimeSeries",
+  responseTimeSeriesUncached,
+  { dateArgs: [0, 1] }
+);
+
 export interface AiScoreBucket {
   label: string;
   min: number;
@@ -93,7 +106,7 @@ export interface AiScoreBucket {
   count: number;
 }
 
-export async function aiScoreDistribution(
+async function aiScoreDistributionUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -125,6 +138,12 @@ export async function aiScoreDistribution(
   });
 }
 
+export const aiScoreDistribution = cacheClinicQuery(
+  "aiScoreDistribution",
+  aiScoreDistributionUncached,
+  { dateArgs: [0, 1] }
+);
+
 export interface WeekdayBucket {
   /** 0=Sun … 6=Sat (matches PG dow). */
   dow: number;
@@ -134,7 +153,7 @@ export interface WeekdayBucket {
 
 const WEEKDAY_LABELS = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
 
-export async function weekdayHeatmap(
+async function weekdayHeatmapUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -165,12 +184,18 @@ export async function weekdayHeatmap(
   });
 }
 
+export const weekdayHeatmap = cacheClinicQuery(
+  "weekdayHeatmap",
+  weekdayHeatmapUncached,
+  { dateArgs: [0, 1] }
+);
+
 export interface HourBucket {
   hour: number;
   count: number;
 }
 
-export async function hourlyHeatmap(
+async function hourlyHeatmapUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -199,6 +224,12 @@ export async function hourlyHeatmap(
   });
 }
 
+export const hourlyHeatmap = cacheClinicQuery(
+  "hourlyHeatmap",
+  hourlyHeatmapUncached,
+  { dateArgs: [0, 1] }
+);
+
 export interface CohortRow {
   /** ISO week (e.g. "2026-W17"). */
   cohort: string;
@@ -212,7 +243,7 @@ export interface CohortRow {
   wonRateW8: number | null;
 }
 
-export async function cohortRetention(
+async function cohortRetentionUncached(
   clinicId: string,
   userId: string,
   weeks = 8
@@ -268,6 +299,11 @@ export async function cohortRetention(
     });
   });
 }
+
+export const cohortRetention = cacheClinicQuery(
+  "cohortRetention",
+  cohortRetentionUncached
+);
 
 export interface StaffPerformanceRow {
   userId: string;

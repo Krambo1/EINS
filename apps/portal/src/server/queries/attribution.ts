@@ -1,6 +1,7 @@
 import "server-only";
 import { and, eq, gte, lte, sql, isNotNull } from "drizzle-orm";
 import { withClinicContext, schema } from "@/db/client";
+import { cacheClinicQuery } from "./_cache";
 
 /**
  * Attribution helpers — break leads/revenue/spend down by source, channel,
@@ -66,7 +67,7 @@ const SOURCE_TO_PLATFORM: Record<string, "meta" | "google" | null> = {
 };
 
 /** Per-source breakdown of leads, conversions, and (best-effort) spend. */
-export async function bySource(
+async function bySourceUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -129,6 +130,10 @@ export async function bySource(
   });
 }
 
+export const bySource = cacheClinicQuery("bySource", bySourceUncached, {
+  dateArgs: [0, 1],
+});
+
 const CHANNEL_FOR_SOURCE: Record<string, string> = {
   meta: "meta",
   meta_lead_form: "meta",
@@ -141,7 +146,7 @@ const CHANNEL_FOR_SOURCE: Record<string, string> = {
 };
 
 /** Per-channel breakdown (meta / google / direkt / empfehlung). */
-export async function byChannel(
+async function byChannelUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -183,6 +188,10 @@ export async function byChannel(
   }));
 }
 
+export const byChannel = cacheClinicQuery("byChannel", byChannelUncached, {
+  dateArgs: [0, 1],
+});
+
 export interface CampaignBreakdownRow {
   campaignId: string;
   /** Best-effort campaign name from raw_payload, else campaign id. */
@@ -194,7 +203,7 @@ export interface CampaignBreakdownRow {
 }
 
 /** Top campaigns by lead count. */
-export async function byCampaign(
+async function byCampaignUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -235,6 +244,10 @@ export async function byCampaign(
   });
 }
 
+export const byCampaign = cacheClinicQuery("byCampaign", byCampaignUncached, {
+  dateArgs: [0, 1],
+});
+
 export interface TreatmentBreakdownRow {
   treatmentId: string | null;
   treatmentName: string;
@@ -246,7 +259,7 @@ export interface TreatmentBreakdownRow {
 }
 
 /** Per-treatment-category breakdown. NULL treatment_id rolls up to "Sonstige". */
-export async function byTreatment(
+async function byTreatmentUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -291,6 +304,10 @@ export async function byTreatment(
   });
 }
 
+export const byTreatment = cacheClinicQuery("byTreatment", byTreatmentUncached, {
+  dateArgs: [0, 1],
+});
+
 export interface LocationBreakdownRow {
   locationId: string | null;
   locationName: string;
@@ -301,7 +318,7 @@ export interface LocationBreakdownRow {
 }
 
 /** Per-location breakdown. Returns single row when only one location is registered. */
-export async function byLocation(
+async function byLocationUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -342,3 +359,7 @@ export async function byLocation(
     }));
   });
 }
+
+export const byLocation = cacheClinicQuery("byLocation", byLocationUncached, {
+  dateArgs: [0, 1],
+});
