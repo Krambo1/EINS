@@ -90,8 +90,18 @@ export async function listRequests(
       );
     }
     if (filters.staleOnly) {
+      // "No activity in the last 14 days" = no recent activity row exists.
+      // NOT EXISTS hits the (request_id, created_at) compound index added
+      // in migration 0005 — index-only scan, short-circuits on the first
+      // matching row instead of computing MAX over the heap. Replaces a
+      // pair of correlated subqueries that ORed "max(created_at) < N days
+      // ago" with "count(*) = 0".
       predicates.push(
-        sql`(SELECT max(created_at) FROM request_activities WHERE request_id = ${schema.requests.id}) < now() - interval '14 days' OR (SELECT count(*) FROM request_activities WHERE request_id = ${schema.requests.id}) = 0`
+        sql`NOT EXISTS (
+          SELECT 1 FROM request_activities ra
+          WHERE ra.request_id = ${schema.requests.id}
+            AND ra.created_at >= now() - interval '14 days'
+        )`
       );
     }
 
