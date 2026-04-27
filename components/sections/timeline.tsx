@@ -61,7 +61,7 @@ function TimelineCard({
           type="button"
           onClick={() => setOpen((v) => !v)}
           aria-expanded={open}
-          className="group flex w-full items-start justify-between gap-3 text-left"
+          className="group flex w-full items-start justify-between gap-3 text-left md:pointer-events-none"
         >
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-3 md:block">
@@ -79,32 +79,42 @@ function TimelineCard({
           <ChevronDown
             aria-hidden
             className={cn(
-              "mt-2 h-5 w-5 shrink-0 text-fg-secondary transition-transform duration-300 ease-expo group-hover:text-fg-primary",
+              "mt-2 h-5 w-5 shrink-0 text-fg-secondary transition-transform duration-300 ease-expo group-hover:text-fg-primary md:hidden",
               open && "rotate-180"
             )}
           />
         </button>
-        <AnimatePresence initial={false}>
-          {open && (
-            <motion.div
-              key="content"
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-              className="overflow-hidden"
-            >
-              <ul className="mt-4 space-y-3 text-base leading-relaxed text-fg-primary md:text-lg">
-                {station.bullets.map((b) => (
-                  <li key={b} className="flex gap-3">
-                    <span className="mt-[0.55em] h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden />
-                    <span>{md(b)}</span>
-                  </li>
-                ))}
-              </ul>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <div className="md:hidden">
+          <AnimatePresence initial={false}>
+            {open && (
+              <motion.div
+                key="content"
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+                className="overflow-hidden"
+              >
+                <ul className="mt-4 space-y-3 text-base leading-relaxed text-fg-primary">
+                  {station.bullets.map((b) => (
+                    <li key={b} className="flex gap-3">
+                      <span className="mt-[0.55em] h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden />
+                      <span>{md(b)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+        <ul className="mt-4 hidden space-y-3 text-lg leading-relaxed text-fg-primary md:block">
+          {station.bullets.map((b) => (
+            <li key={b} className="flex gap-3">
+              <span className="mt-[0.55em] h-1.5 w-1.5 shrink-0 rounded-full bg-accent" aria-hidden />
+              <span>{md(b)}</span>
+            </li>
+          ))}
+        </ul>
       </div>
       {/* Vertical connector arrow between cards on mobile */}
       {!isLast && (
