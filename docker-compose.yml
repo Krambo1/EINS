@@ -1,0 +1,53 @@
+name: eins-portal-local
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: eins-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: eins
+      POSTGRES_PASSWORD: eins_dev_password
+      POSTGRES_DB: eins_portal
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U eins -d eins_portal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: eins-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mailhog:
+    # optional — local SMTP catcher for testing real email rendering
+    # access UI at http://localhost:8025
+    image: mailhog/mailhog:latest
+    container_name: eins-mailhog
+    restart: unless-stopped
+    ports:
+      - "1025:1025"   # SMTP
+      - "8025:8025"   # Web UI
+
+volumes:
+  postgres_data:
+    name: eins-postgres-data
+  redis_data:
+    name: eins-redis-data
