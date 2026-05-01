@@ -15,7 +15,7 @@ export function Hero() {
                 <span className="absolute inline-flex h-full w-full animate-[ping_2.5s_cubic-bezier(0,0,0.2,1)_infinite] rounded-full bg-accent opacity-75" />
                 <span className="relative inline-flex h-3 w-3 rounded-full bg-accent" />
               </span>
-              Q3 2026 · Noch 2 Mandate frei
+              Q3 2026 · Noch 2 Plätze frei
             </span>
           </div>
 

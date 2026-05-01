@@ -65,8 +65,8 @@ export function System() {
                   </div>
                 )}
                 {i === 2 && (
-                  <div className="flex items-start overflow-hidden">
-                    <AiIcon className="h-44 w-44 md:h-56 md:w-56 -m-12 md:-m-16 translate-x-2 md:translate-x-3" />
+                  <div className="-mx-6 -mt-6 -mb-9 md:-mx-10 md:-mt-10 md:-mb-11">
+                    <AiIcon className="mx-auto aspect-[16/9] w-[83%]" />
                   </div>
                 )}
                 <h3 className="mt-8 font-display text-4xl font-semibold tracking-tight md:text-5xl">{layer.title}</h3>

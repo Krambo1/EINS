@@ -65,26 +65,69 @@ export const BASISPAKET: BasispaketItem[] = [
   },
 ];
 
+export type Tier = {
+  id: "standard" | "erweitert" | "premium";
+  name: string;
+  price: string;
+  priceSuffix: string;
+  description: string;
+  badge?: string;
+  highlight?: boolean;
+};
+
+export const TIERS: Tier[] = [
+  {
+    id: "standard",
+    name: "Standard",
+    price: "2.600 €",
+    priceSuffix: "/ Monat",
+    description: "Für kleine oder neue Klinikteams.",
+  },
+  {
+    id: "erweitert",
+    name: "Erweitert",
+    price: "3.900 €",
+    priceSuffix: "/ Monat",
+    badge: "Für die meisten Praxen",
+    highlight: true,
+    description: "Engere Steuerung, zwei Strategie-Meetings pro Monat.",
+  },
+  {
+    id: "premium",
+    name: "Premium",
+    price: "7.900 €",
+    priceSuffix: "/ Monat",
+    description: "Für Klinikgruppen mit mehreren Standorten.",
+  },
+];
+
 export type RetainerRow = {
   label: string;
   standard: string | boolean;
+  erweitert: string | boolean;
   premium: string | boolean;
 };
 
 export const RETAINER_ROWS: RetainerRow[] = [
-  { label: "Kampagnensteuerung & Optimierung", standard: true, premium: true },
-  { label: "Werbebudget-Kontrolle", standard: true, premium: true },
-  { label: "Strecken-Optimierung", standard: true, premium: true },
-  { label: "Organische Beiträge auf sozialen Medien", standard: true, premium: true },
-  { label: "KI-Vorqualifizierung und automatische Verteilung", standard: true, premium: true },
-  { label: "Monatliche Auswertung", standard: true, premium: true },
-  { label: "Klinik-Reputationssystem (Google-Bewertungen, Patientenstimmen)", standard: true, premium: true },
-  { label: "Vertriebsleitfaden für Ihr Klinikteam", standard: true, premium: true },
-  { label: "Technischer Support", standard: "Standard", premium: "Priorität < 3h" },
-  { label: "Strategie-Meetings", standard: "Monatlich", premium: "2x monatlich" },
-  { label: "Neue Medien", standard: false, premium: "1 / Quartal" },
-  { label: "Auswertungs-Übersicht", standard: "Standard", premium: "Erweitert" },
-  { label: "Account Management", standard: "Team", premium: "Manager" },
+  { label: "Standorte inklusive", standard: "1", erweitert: "1", premium: "bis zu 3" },
+  { label: "Kampagnensteuerung & Optimierung", standard: true, erweitert: true, premium: true },
+  { label: "Werbebudget-Kontrolle", standard: true, erweitert: true, premium: true },
+  { label: "Strecken-Optimierung", standard: true, erweitert: true, premium: true },
+  { label: "Organische Beiträge auf sozialen Medien", standard: true, erweitert: true, premium: true },
+  { label: "KI-Vorqualifizierung und automatische Verteilung", standard: true, erweitert: true, premium: true },
+  { label: "Monatliche Auswertung", standard: true, erweitert: true, premium: true },
+  { label: "Klinik-Reputationssystem (Google-Bewertungen, Patientenstimmen)", standard: true, erweitert: true, premium: true },
+  { label: "Vertriebsleitfaden für Ihr Klinikteam", standard: true, erweitert: true, premium: true },
+  { label: "EINS Portal-Zugang (24/7 Live-Dashboard)", standard: true, erweitert: true, premium: true },
+  { label: "Technischer Support", standard: "Standard", erweitert: "Priorität < 3h", premium: "Priorität < 1h" },
+  { label: "Strategie-Meetings", standard: "Monatlich", erweitert: "2x monatlich", premium: "Wöchentlich" },
+  { label: "Neue Medien", standard: false, erweitert: "1 / Quartal", premium: "1 / Monat" },
+  { label: "Auswertungs-Übersicht", standard: "Standard", erweitert: "Erweitert", premium: "Erweitert + Standort-Drilldown" },
+  { label: "Account Management", standard: "Team", erweitert: "Manager", premium: "Account Director" },
+  { label: "Standortspezifische Kampagnen mit eigenem Werbekonto", standard: false, erweitert: false, premium: true },
+  { label: "Patienten-Routing zum nächstgelegenen Standort", standard: false, erweitert: false, premium: true },
+  { label: "Lokale Wettbewerbsbeobachtung pro Standort", standard: false, erweitert: false, premium: true },
+  { label: "Erfolgreiche Methoden zwischen Standorten teilen", standard: false, erweitert: false, premium: true },
 ];
 
 export type Scenario = {

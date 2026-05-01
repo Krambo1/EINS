@@ -77,10 +77,10 @@ export default function Page() {
       <main>
         <Hero />
         <System />
-        <Roi />
         <Offer />
-        <StatsShowcase />
         <Guarantee />
+        <StatsShowcase />
+        <Roi />
         <Timeline />
         <FitCheck />
         <Objections />
