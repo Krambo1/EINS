@@ -1,0 +1,57 @@
+/* EINS Visuals brand tokens — shared between website + portal.
+   Source of truth. Do not override in app-level CSS. */
+
+:root {
+  /* Surface */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f7;
+  --bg-tertiary: #ebebef;
+
+  /* Foreground — Opa-proof rule: never use --fg-secondary for body copy */
+  --fg-primary: #10101a;
+  --fg-secondary: #4a4a52;
+  --fg-tertiary: #6a6a74;
+
+  /* Brand accent */
+  --accent: #58BAB5;
+  --accent-hover: #4da8a3;
+  --accent-pressed: #3f938f;
+  --accent-glow: rgba(88, 186, 181, 0.3);
+  --accent-soft: rgba(88, 186, 181, 0.1);
+
+  /* Borders */
+  --border: #e4e4e7;
+  --border-hover: #d1d1d6;
+
+  /* Semantic (traffic-light) — Opa-proof grün/gelb/rot */
+  --tone-good: #19a36a;
+  --tone-good-bg: rgba(25, 163, 106, 0.08);
+  --tone-good-border: rgba(25, 163, 106, 0.25);
+
+  --tone-warn: #d68902;
+  --tone-warn-bg: rgba(214, 137, 2, 0.08);
+  --tone-warn-border: rgba(214, 137, 2, 0.28);
+
+  --tone-bad: #c9352b;
+  --tone-bad-bg: rgba(201, 53, 43, 0.08);
+  --tone-bad-border: rgba(201, 53, 43, 0.25);
+
+  --tone-neutral: #4a4a52;
+  --tone-neutral-bg: rgba(74, 74, 82, 0.05);
+  --tone-neutral-border: rgba(74, 74, 82, 0.15);
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+
+  /* Typography — Opa-proof sizes.
+     Dashboard metric numbers must be LARGE. */
+  --metric-size-mobile: clamp(2.75rem, 12vw, 3.5rem);  /* 44–56 px */
+  --metric-size-desktop: clamp(3.75rem, 6vw, 5rem);    /* 60–80 px */
+
+  /* Spacing rhythm */
+  --tap-min: 56px;   /* Opa-proof minimum tap-target */
+}

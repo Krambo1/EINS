@@ -1,8 +1,45 @@
+# deps
 node_modules
+.pnpm-store
+
+# build artifacts
 .next
 out
-.env*.local
-.DS_Store
+dist
+.turbo
 *.tsbuildinfo
-next-env.d.ts
+
+# runtime
+storage/
+*.log
+
+# env
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# editor / OS
+.DS_Store
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+
+# claude local state
 .claude
+
+# next generated
+next-env.d.ts
+
+# docker volumes (if anyone maps locally)
+.docker-data/
+
+# testing
+coverage/
+test-results/
+playwright-report/
+playwright/.cache/
+
+# pdf generation cache
+.pdf-cache/
