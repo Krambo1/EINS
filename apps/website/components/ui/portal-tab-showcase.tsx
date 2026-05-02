@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -276,6 +277,11 @@ const MAX_OVERZOOM = 1.5;
 // Multiplier per +/- button click and per double-tap.
 const ZOOM_STEP = 1.6;
 
+// Transform-based zoom + pan. The image is loaded ONCE at the natural
+// resolution and never resized — every zoom/pan update is a single
+// `transform` write on a wrapper div. This is GPU-composited (no layout,
+// no image refetch, no scroll thrash), which is the difference between
+// chunky and smooth on every wheel/pinch tick.
 function ZoomLightbox({
   tab,
   onClose,
@@ -284,152 +290,144 @@ function ZoomLightbox({
   onClose: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [fitSize, setFitSize] = useState<{ w: number; h: number } | null>(null);
-  // Scale is relative to fit size: 1 = whole image visible, > 1 = zoomed in.
-  // We render the image at fitSize * scale so the scroll container's
-  // scrollWidth/Height grows naturally and native panning works.
-  const [scale, setScale] = useState(1);
+  const [container, setContainer] = useState<{ w: number; h: number } | null>(
+    null,
+  );
 
-  // Compute fit-to-viewport size on open + viewport resize.
-  useEffect(() => {
-    const compute = () => {
-      const vw = Math.max(0, window.innerWidth - LIGHTBOX_PAD * 2);
-      const vh = Math.max(0, window.innerHeight - LIGHTBOX_PAD * 2);
-      const aspect = tab.width / tab.height;
-      const w = vw / vh > aspect ? vh * aspect : vw;
-      const h = vw / vh > aspect ? vh : vw / aspect;
-      setFitSize({ w, h });
-    };
-    compute();
-    window.addEventListener("resize", compute);
-    window.addEventListener("orientationchange", compute);
-    return () => {
-      window.removeEventListener("resize", compute);
-      window.removeEventListener("orientationchange", compute);
-    };
-  }, [tab.width, tab.height]);
+  // Track the lightbox container size so fit math reacts to viewport
+  // changes (rotation, mobile URL bar collapse, devtools opening).
+  useLayoutEffect(() => {
+    const c = containerRef.current;
+    if (!c) return;
+    const update = () =>
+      setContainer({ w: c.clientWidth, h: c.clientHeight });
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(c);
+    return () => ro.disconnect();
+  }, []);
+
+  // Fit-to-container size at scale=1 (whole image visible with padding).
+  const fit = useMemo(() => {
+    if (!container) return null;
+    const cw = Math.max(1, container.w - LIGHTBOX_PAD * 2);
+    const ch = Math.max(1, container.h - LIGHTBOX_PAD * 2);
+    const aspect = tab.width / tab.height;
+    if (cw / ch > aspect) return { w: ch * aspect, h: ch };
+    return { w: cw, h: cw / aspect };
+  }, [container, tab.width, tab.height]);
 
   const minScale = 1;
-  const maxScale = fitSize
-    ? Math.max(2, (tab.width / fitSize.w) * MAX_OVERZOOM)
-    : 4;
+  const maxScale = fit ? Math.max(2, (tab.width / fit.w) * MAX_OVERZOOM) : 4;
 
-  // When the scale changes, we want the point under the user's gesture
-  // (cursor / pinch midpoint / button-press = viewport center) to stay put.
-  // The sequence is: set the new scale via React state, then on the very
-  // next layout, adjust scrollLeft/Top so the anchor point lines up again.
-  const pendingAnchor = useRef<{
-    imgX: number;
-    imgY: number;
-    screenX: number;
-    screenY: number;
-  } | null>(null);
+  // Transform state: scale + translation (px) of the image's center
+  // relative to the container's center. (0,0) means perfectly centered.
+  const [view, setView] = useState({ s: 1, tx: 0, ty: 0 });
 
+  // Clamp translation so the image edges can't be dragged past the
+  // viewport edges. When the image is smaller than the viewport (at
+  // fit scale), it locks to centered.
+  const clampView = useCallback(
+    (s: number, tx: number, ty: number) => {
+      if (!fit || !container) return { s, tx, ty };
+      const w = fit.w * s;
+      const h = fit.h * s;
+      const maxTx = Math.max(0, (w - container.w) / 2);
+      const maxTy = Math.max(0, (h - container.h) / 2);
+      return {
+        s,
+        tx: Math.max(-maxTx, Math.min(maxTx, tx)),
+        ty: Math.max(-maxTy, Math.min(maxTy, ty)),
+      };
+    },
+    [fit, container],
+  );
+
+  // Apply a target scale anchored at a screen point. The math: with the
+  // wrapper at the container's center and `transform: translate(tx,ty)
+  // scale(s)`, an image-local point P projects to `tx + P*s` relative to
+  // container center. To keep P under the cursor when scale changes, solve
+  // for the new (tx', ty').
   const setScaleAt = useCallback(
     (rawScale: number, anchorClientX?: number, anchorClientY?: number) => {
       const c = containerRef.current;
       if (!c) return;
-      setScale((prev) => {
+      setView((prev) => {
         const next = Math.max(minScale, Math.min(maxScale, rawScale));
-        if (Math.abs(next - prev) < 0.001) return prev;
+        if (Math.abs(next - prev.s) < 0.0005) return prev;
         const rect = c.getBoundingClientRect();
-        const cx = anchorClientX ?? rect.left + rect.width / 2;
-        const cy = anchorClientY ?? rect.top + rect.height / 2;
-        const screenX = cx - rect.left;
-        const screenY = cy - rect.top;
-        pendingAnchor.current = {
-          imgX: (c.scrollLeft + screenX) / prev,
-          imgY: (c.scrollTop + screenY) / prev,
-          screenX,
-          screenY,
-        };
-        return next;
+        const cx =
+          (anchorClientX ?? rect.left + rect.width / 2) - rect.left;
+        const cy =
+          (anchorClientY ?? rect.top + rect.height / 2) - rect.top;
+        const dx = cx - rect.width / 2;
+        const dy = cy - rect.height / 2;
+        const px = (dx - prev.tx) / prev.s;
+        const py = (dy - prev.ty) / prev.s;
+        return clampView(next, dx - px * next, dy - py * next);
       });
     },
-    [maxScale],
+    [maxScale, clampView],
   );
 
-  // Restore scroll anchor right after the new size paints. useLayoutEffect
-  // runs after DOM update but before the browser paints, so the user sees
-  // a single coherent frame instead of the image jumping then snapping.
-  useLayoutEffect(() => {
-    const a = pendingAnchor.current;
-    const c = containerRef.current;
-    if (a && c) {
-      c.scrollLeft = a.imgX * scale - a.screenX;
-      c.scrollTop = a.imgY * scale - a.screenY;
-      pendingAnchor.current = null;
-    }
-  }, [scale]);
+  // Re-clamp translation if the viewport shrinks (e.g. window resize)
+  // so an image already panned to an edge doesn't end up off-screen.
+  useEffect(() => {
+    setView((prev) => clampView(prev.s, prev.tx, prev.ty));
+  }, [clampView]);
 
-  // Initial centering: when fitSize first becomes available, center scroll
-  // so the image (which is exactly viewport-fit) sits squarely in view.
-  useLayoutEffect(() => {
-    const c = containerRef.current;
-    if (!c || !fitSize) return;
-    c.scrollLeft = (c.scrollWidth - c.clientWidth) / 2;
-    c.scrollTop = (c.scrollHeight - c.clientHeight) / 2;
-  }, [fitSize]);
-
-  // Wheel-to-zoom on desktop. We attach via ref + addEventListener with
-  // {passive: false} because React's onWheel is passive in React 17+ and
-  // can't preventDefault — without that the page scrolls instead of zooming.
+  // Wheel-to-zoom. addEventListener with {passive:false} because React's
+  // onWheel is passive and can't preventDefault.
   useEffect(() => {
     const c = containerRef.current;
     if (!c) return;
     const onWheel = (e: WheelEvent) => {
-      // Trackpads on macOS report ctrlKey for pinch-to-zoom gestures; we
-      // also accept plain wheel rotation since users expect that to zoom
-      // inside an image viewer.
       e.preventDefault();
       const factor = Math.exp(-e.deltaY * 0.0015);
-      setScaleAt(scale * factor, e.clientX, e.clientY);
+      setScaleAt(view.s * factor, e.clientX, e.clientY);
     };
     c.addEventListener("wheel", onWheel, { passive: false });
     return () => c.removeEventListener("wheel", onWheel);
-  }, [scale, setScaleAt]);
+  }, [view.s, setScaleAt]);
 
-  // Pointer state — we track all active pointers so we can detect a
-  // two-finger pinch. One finger = native scroll handles pan. Two fingers =
-  // we drive the scale ourselves anchored to the midpoint between fingers.
+  // Pointer / pinch / drag state.
   const pointers = useRef<Map<number, { x: number; y: number }>>(new Map());
-  const pinch = useRef<{ startDist: number; startScale: number } | null>(null);
-  // Mouse drag-to-pan when zoomed in (touch devices use native scroll).
+  const pinch = useRef<{
+    startDist: number;
+    startScale: number;
+    lastMid: { x: number; y: number };
+  } | null>(null);
   const drag = useRef<{
     x: number;
     y: number;
-    sl: number;
-    st: number;
+    tx: number;
+    ty: number;
     moved: boolean;
   } | null>(null);
 
   const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.current.size === 2) {
-      // Second finger landed: cancel any drag and capture the pinch baseline.
       drag.current = null;
       const [p1, p2] = Array.from(pointers.current.values());
       pinch.current = {
         startDist: Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1,
-        startScale: scale,
+        startScale: view.s,
+        lastMid: { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 },
       };
       return;
     }
-    if (e.pointerType === "mouse") {
-      const c = containerRef.current;
-      if (!c) return;
-      drag.current = {
-        x: e.clientX,
-        y: e.clientY,
-        sl: c.scrollLeft,
-        st: c.scrollTop,
-        moved: false,
-      };
-      try {
-        e.currentTarget.setPointerCapture(e.pointerId);
-      } catch {
-        // Pointer capture is best-effort — synthesized events can reject ids.
-      }
+    drag.current = {
+      x: e.clientX,
+      y: e.clientY,
+      tx: view.tx,
+      ty: view.ty,
+      moved: false,
+    };
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      // Pointer capture is best-effort — synthesized ids can reject.
     }
   };
 
@@ -442,22 +440,47 @@ function ZoomLightbox({
       const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
       const midX = (p1.x + p2.x) / 2;
       const midY = (p1.y + p2.y) / 2;
-      setScaleAt(
-        pinch.current.startScale * (dist / pinch.current.startDist),
-        midX,
-        midY,
+      // Pinch = zoom anchored at the new midpoint AND translate by the
+      // midpoint delta so users can pan and zoom in one gesture. Both
+      // updates fold into a single setView call so the anchor math is
+      // computed against the freshly-translated state.
+      const dxMid = midX - pinch.current.lastMid.x;
+      const dyMid = midY - pinch.current.lastMid.y;
+      pinch.current.lastMid = { x: midX, y: midY };
+      const targetScale = Math.max(
+        minScale,
+        Math.min(
+          maxScale,
+          pinch.current.startScale * (dist / pinch.current.startDist),
+        ),
       );
+      setView((prev) => {
+        const tx1 = prev.tx + dxMid;
+        const ty1 = prev.ty + dyMid;
+        const c = containerRef.current;
+        if (!c || Math.abs(targetScale - prev.s) < 0.0005) {
+          return clampView(prev.s, tx1, ty1);
+        }
+        const rect = c.getBoundingClientRect();
+        const dx = midX - rect.left - rect.width / 2;
+        const dy = midY - rect.top - rect.height / 2;
+        const px = (dx - tx1) / prev.s;
+        const py = (dy - ty1) / prev.s;
+        return clampView(targetScale, dx - px * targetScale, dy - py * targetScale);
+      });
       return;
     }
 
     const d = drag.current;
-    const c = containerRef.current;
-    if (d && c) {
+    if (d) {
       const dx = e.clientX - d.x;
       const dy = e.clientY - d.y;
       if (!d.moved && Math.hypot(dx, dy) > 4) d.moved = true;
-      c.scrollLeft = d.sl - dx;
-      c.scrollTop = d.st - dy;
+      // Only pan when zoomed in — otherwise drag does nothing (and
+      // single-finger touch slides on the fit image are no-ops, not jank).
+      if (view.s > 1.001) {
+        setView((prev) => clampView(prev.s, d.tx + dx, d.ty + dy));
+      }
     }
   };
 
@@ -470,12 +493,10 @@ function ZoomLightbox({
       } catch {
         // Releasing a non-captured pointer can throw — safe to ignore.
       }
-      // Defer clearing so the click handler that fires next can still see
-      // the moved flag and suppress backdrop close after a drag.
+      // Keep `moved` visible for the click handler that fires next, then
+      // clear on the next tick.
       const wasMoved = drag.current.moved;
-      drag.current = wasMoved
-        ? { ...drag.current, x: 0, y: 0 } // keep `moved` true for the click
-        : null;
+      drag.current = wasMoved ? { ...drag.current, x: 0, y: 0 } : null;
       window.setTimeout(() => {
         drag.current = null;
       }, 0);
@@ -484,11 +505,8 @@ function ZoomLightbox({
 
   const onDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault();
-    if (scale > 1.05) {
-      setScaleAt(1);
-    } else {
-      setScaleAt(scale * ZOOM_STEP * 1.5, e.clientX, e.clientY);
-    }
+    if (view.s > 1.05) setScaleAt(1);
+    else setScaleAt(view.s * ZOOM_STEP * 1.5, e.clientX, e.clientY);
   };
 
   // ESC + body scroll lock.
@@ -505,34 +523,53 @@ function ZoomLightbox({
     };
   }, [onClose]);
 
-  const closeIfBackdrop = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (drag.current?.moved) return; // click that finished a drag
-    if (e.target === e.currentTarget) onClose();
-  };
+  if (typeof document === "undefined") return null;
 
-  if (!fitSize || typeof document === "undefined") return null;
-
-  const imgW = fitSize.w * scale;
-  const imgH = fitSize.h * scale;
-  const canZoomIn = scale < maxScale - 0.01;
-  const canZoomOut = scale > minScale + 0.01;
+  const canZoomIn = view.s < maxScale - 0.01;
+  const canZoomOut = view.s > minScale + 0.01;
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm"
+      ref={containerRef}
+      className="fixed inset-0 z-[100] overflow-hidden bg-black/90 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label={tab.alt}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onDoubleClick={onDoubleClick}
+      onClick={(e) => {
+        if (drag.current?.moved) return;
+        // Background click (target = container itself) closes the lightbox.
+        if (e.target === e.currentTarget) onClose();
+      }}
+      style={{
+        // touchAction: none means we own all touch gestures (one-finger pan,
+        // pinch, double-tap). Without this, mobile browsers swallow the
+        // second touchpoint as page-zoom and our pinch handler never fires.
+        touchAction: "none",
+        cursor:
+          view.s > 1
+            ? drag.current
+              ? "grabbing"
+              : "grab"
+            : canZoomIn
+              ? "zoom-in"
+              : "default",
+      }}
     >
-      {/* Top-right control cluster: −, %, +, X. Stops propagation so clicks
-          on the buttons never bubble to the backdrop close. */}
+      {/* Top-right control cluster: −, %, +, X. Stops pointer events so
+          button presses never start a drag or trigger background close. */}
       <div
         className="absolute right-3 top-3 z-20 flex items-center gap-1.5 sm:right-4 sm:top-4"
+        onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
       >
         <button
           type="button"
-          onClick={() => setScaleAt(scale / ZOOM_STEP)}
+          onClick={() => setScaleAt(view.s / ZOOM_STEP)}
           disabled={!canZoomOut}
           className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black text-white shadow-lg ring-1 ring-white/10 transition hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-40"
           aria-label="Verkleinern"
@@ -541,15 +578,15 @@ function ZoomLightbox({
         </button>
         <button
           type="button"
-          onClick={() => setScale(1)}
+          onClick={() => setView({ s: 1, tx: 0, ty: 0 })}
           className="hidden h-10 min-w-[3.5rem] items-center justify-center rounded-full bg-black px-3 font-mono text-xs font-medium text-white shadow-lg ring-1 ring-white/10 transition hover:bg-neutral-900 sm:inline-flex"
           aria-label="Auf Bildschirmgröße zurücksetzen"
         >
-          {Math.round(scale * 100)}%
+          {Math.round(view.s * 100)}%
         </button>
         <button
           type="button"
-          onClick={() => setScaleAt(scale * ZOOM_STEP)}
+          onClick={() => setScaleAt(view.s * ZOOM_STEP)}
           disabled={!canZoomIn}
           className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-black text-white shadow-lg ring-1 ring-white/10 transition hover:bg-neutral-900 disabled:cursor-not-allowed disabled:opacity-40"
           aria-label="Vergrößern"
@@ -573,65 +610,31 @@ function ZoomLightbox({
         Pinch · Doppeltippen · Scrollen · ESC
       </div>
 
-      <div
-        ref={containerRef}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onDoubleClick={onDoubleClick}
-        onClick={closeIfBackdrop}
-        className="absolute inset-0 select-none overflow-auto overscroll-contain"
-        style={{
-          // pan-x pan-y lets the browser handle one-finger panning via
-          // native scroll while still firing pointer events for our pinch
-          // detection (two-finger gestures aren't covered by pan-* tokens
-          // so they reach our handlers).
-          touchAction: "pan-x pan-y",
-          cursor:
-            scale > 1
-              ? drag.current
-                ? "grabbing"
-                : "grab"
-              : canZoomIn
-                ? "zoom-in"
-                : "default",
-        }}
-      >
+      {fit && (
         <div
+          className="pointer-events-none absolute left-1/2 top-1/2 select-none"
+          style={{
+            width: fit.w,
+            height: fit.h,
+            // translate(-50%,-50%) anchors the wrapper at the container's
+            // center; the second translate is our pan offset; scale then
+            // grows around the wrapper's own center (transformOrigin).
+            transform: `translate(-50%, -50%) translate(${view.tx}px, ${view.ty}px) scale(${view.s})`,
+            transformOrigin: "center center",
+            willChange: "transform",
+          }}
           onClick={(e) => {
-            // Suppress the click that follows a drag so panning doesn't
-            // accidentally trigger zoom or close.
             if (drag.current?.moved) {
               e.stopPropagation();
               return;
             }
-            const onImage = (e.target as HTMLElement).tagName === "IMG";
-            if (!onImage) {
-              // Click on the dark margin around a fit-sized image —
-              // standard lightbox UX is "click outside = close".
-              onClose();
-              return;
-            }
-            // Click on the image: zoom in one step at fit, no-op when
-            // already zoomed (drag-pan handles interaction at that point).
             e.stopPropagation();
-            if (scale <= 1.05 && canZoomIn) {
-              setScaleAt(scale * ZOOM_STEP, e.clientX, e.clientY);
+            // Tap/click on the image at fit zoom = step in (matches the
+            // "zoom-in" cursor we show in that state). When already zoomed,
+            // taps do nothing — drag handles interaction.
+            if (view.s <= 1.05 && canZoomIn) {
+              setScaleAt(view.s * ZOOM_STEP, e.clientX, e.clientY);
             }
-          }}
-          style={{
-            width: imgW,
-            height: imgH,
-            // Center the image inside the container when it's smaller than
-            // the viewport (i.e. at fit scale). When zoomed in, the wrapper
-            // is larger than the container and these auto margins collapse.
-            margin: "auto",
-            minWidth: "100%",
-            minHeight: "100%",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
           }}
         >
           <Image
@@ -639,18 +642,16 @@ function ZoomLightbox({
             alt={tab.alt}
             width={tab.width}
             height={tab.height}
-            // Drives Next.js to pick a srcset variant proportional to the
-            // displayed size — zoom past the loaded variant and the browser
-            // upgrades to a sharper one.
-            sizes={`${Math.max(1, Math.round(imgW))}px`}
+            // Constant — sized for the maximum zoom level so we never
+            // refetch a different srcset variant during interaction.
+            sizes={`${Math.round(tab.width * MAX_OVERZOOM)}px`}
             priority
             draggable={false}
             decoding="async"
-            style={{ width: imgW, height: imgH, maxWidth: "none" }}
-            className="block select-none"
+            className="pointer-events-auto block h-full w-full select-none"
           />
         </div>
-      </div>
+      )}
     </div>,
     document.body,
   );
