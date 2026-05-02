@@ -36,6 +36,10 @@ class ConsoleEmailSender implements EmailSender {
     console.log(`     Subject: ${input.subject}`);
     console.log(banner);
     console.log(input.text);
+    const urlMatch = input.text.match(/https?:\/\/[^\s<>"]+/);
+    if (urlMatch) {
+      console.log(`\n  🔗 ${urlMatch[0]}\n`);
+    }
     console.log(`${banner}\n`);
   }
 }
@@ -151,6 +155,44 @@ export async function sendMagicLinkEmail(opts: {
     </p>`);
   const text = [heading, "", intro, "", opts.url, "", "Der Link ist 15 Minuten gültig."].join("\n");
   await sender.send({ to: opts.to, subject: heading, html, text });
+}
+
+export async function sendFeedbackEmail(opts: {
+  to: string;
+  clinicName: string;
+  submittedBy: string;
+  categoryLabel: string;
+  message: string;
+  pageUrl?: string;
+}): Promise<void> {
+  const sender = getEmailSender();
+  const subject = `Feedback (${opts.categoryLabel}): ${opts.clinicName}`;
+  const escapedMessage = opts.message
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br>");
+  const html = layoutHtml(`
+    <h1 style="font-size:22px; font-weight:600; margin:0 0 16px 0;">${subject}</h1>
+    <p style="font-size:14px; color:#4a4a52; margin:0 0 16px 0;">
+      Von <strong>${opts.submittedBy}</strong> · Praxis <strong>${opts.clinicName}</strong>
+      ${opts.pageUrl ? ` · Seite <code>${opts.pageUrl}</code>` : ""}
+    </p>
+    <blockquote style="border-left:3px solid #58BAB5; padding-left:16px; margin:16px 0; color:#10101a; font-size:15px; line-height:1.5;">
+      ${escapedMessage}
+    </blockquote>`);
+  const text = [
+    subject,
+    "",
+    `Von: ${opts.submittedBy}`,
+    `Praxis: ${opts.clinicName}`,
+    opts.pageUrl ? `Seite: ${opts.pageUrl}` : "",
+    "",
+    opts.message,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  await sender.send({ to: opts.to, subject, html, text });
 }
 
 export async function sendUpgradeRequestEmail(opts: {

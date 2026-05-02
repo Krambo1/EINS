@@ -252,110 +252,125 @@ export default async function AnfragenPage({
       ) : (
         <Card>
           <CardContent className="p-0">
-            <ul className="divide-y divide-border">
-              {items.map((r) => {
-                const slaBreached =
-                  !r.firstContactedAt &&
-                  r.slaRespondBy &&
-                  r.slaRespondBy.getTime() < Date.now();
-                const ageMs = Date.now() - r.createdAt.getTime();
-                const stale =
-                  isDetail && ageMs > 14 * 24 * 60 * 60 * 1000 && !r.firstContactedAt;
-                const responseMs =
-                  r.firstContactedAt && r.createdAt
-                    ? r.firstContactedAt.getTime() - r.createdAt.getTime()
-                    : null;
-                return (
-                  <li key={r.id}>
-                    <Link
-                      href={`/anfragen/${r.id}`}
-                      className={`grid gap-4 p-4 transition hover:bg-bg-secondary md:p-5 ${
-                        isDetail
-                          ? "grid-cols-[1fr_auto] md:grid-cols-[2fr_1fr_8rem_8rem_8rem_auto]"
-                          : "grid-cols-[1fr_auto] md:grid-cols-[2fr_1fr_1fr_auto]"
-                      }`}
-                    >
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="truncate text-base font-semibold text-fg-primary md:text-lg">
-                            {r.contactName ?? "Unbekannt"}
-                          </span>
-                          {r.aiCategory && (
-                            <Badge
-                              tone={
-                                r.aiCategory === "hot"
-                                  ? "accent"
-                                  : r.aiCategory === "warm"
-                                  ? "warn"
-                                  : "neutral"
-                              }
-                            >
-                              {r.aiCategory === "hot"
-                                ? "Sehr heiß"
-                                : r.aiCategory === "warm"
-                                ? "Warm"
-                                : "Kalt"}
-                            </Badge>
-                          )}
-                          {stale && (
-                            <Badge tone="warn">
-                              Stagniert
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="mt-0.5 truncate text-sm text-fg-secondary">
-                          {r.treatmentName ?? r.treatmentWish ?? "Keine Angabe zur Behandlung"}
-                          {r.contactEmail ? ` · ${r.contactEmail}` : ""}
-                        </div>
-                      </div>
+            {(() => {
+              const gridCols = isDetail
+                ? "md:grid-cols-[minmax(0,1.5fr)_10rem_5rem_7rem_11rem_8rem]"
+                : "md:grid-cols-[minmax(0,1.5fr)_10rem_11rem_8rem]";
+              return (
+                <>
+                  <div
+                    className={`hidden border-b border-border px-5 py-3 text-xs font-medium uppercase tracking-wide text-fg-tertiary md:grid md:items-center md:gap-4 ${gridCols}`}
+                  >
+                    <div>Anfrage</div>
+                    <div>Quelle</div>
+                    {isDetail && <div className="tabular-nums">Score</div>}
+                    {isDetail && <div>Reaktion</div>}
+                    <div>Status</div>
+                    <div className="text-right">Datum</div>
+                  </div>
 
-                      <div className="hidden text-sm text-fg-primary md:block">
-                        {SOURCE_LABELS[r.source as keyof typeof SOURCE_LABELS] ?? r.source}
-                      </div>
+                  <ul
+                    className={`grid grid-cols-[minmax(0,1fr)_auto] divide-y divide-border px-4 md:gap-x-4 md:px-5 ${gridCols}`}
+                  >
+                    {items.map((r) => {
+                      const slaBreached =
+                        !r.firstContactedAt &&
+                        r.slaRespondBy &&
+                        r.slaRespondBy.getTime() < Date.now();
+                      const ageMs = Date.now() - r.createdAt.getTime();
+                      const stale =
+                        isDetail && ageMs > 14 * 24 * 60 * 60 * 1000 && !r.firstContactedAt;
+                      const responseMs =
+                        r.firstContactedAt && r.createdAt
+                          ? r.firstContactedAt.getTime() - r.createdAt.getTime()
+                          : null;
+                      return (
+                        <li
+                          key={r.id}
+                          className="col-span-full grid grid-cols-subgrid"
+                        >
+                          <Link
+                            href={`/anfragen/${r.id}`}
+                            className="col-span-full grid grid-cols-subgrid items-center gap-4 py-4 transition hover:bg-bg-secondary md:py-5"
+                          >
+                            <div className="min-w-0">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="truncate text-base font-semibold text-fg-primary md:text-lg">
+                                  {r.contactName ?? "Unbekannt"}
+                                </span>
+                                {r.aiCategory && (
+                                  <Badge
+                                    tone={
+                                      r.aiCategory === "hot"
+                                        ? "accent"
+                                        : r.aiCategory === "warm"
+                                        ? "warn"
+                                        : "neutral"
+                                    }
+                                  >
+                                    {r.aiCategory === "hot"
+                                      ? "Sehr heiß"
+                                      : r.aiCategory === "warm"
+                                      ? "Warm"
+                                      : "Kalt"}
+                                  </Badge>
+                                )}
+                                {stale && <Badge tone="warn">Stagniert</Badge>}
+                              </div>
+                              <div className="mt-0.5 truncate text-sm text-fg-secondary">
+                                {r.treatmentName ?? r.treatmentWish ?? "Keine Angabe zur Behandlung"}
+                                {r.contactEmail ? ` · ${r.contactEmail}` : ""}
+                              </div>
+                            </div>
 
-                      {isDetail && (
-                        <div className="hidden text-sm tabular-nums md:block">
-                          <span className="inline-flex items-center gap-1 text-fg-secondary">
-                            <Sparkles className="h-3.5 w-3.5" />
-                            {r.aiScore ?? "–"}
-                          </span>
-                        </div>
-                      )}
-                      {isDetail && (
-                        <div className="hidden text-sm md:block">
-                          <span className="text-xs text-fg-tertiary">Reaktion</span>
-                          <div className="tabular-nums text-fg-secondary">
-                            {responseMs == null
-                              ? "—"
-                              : responseMs < 60_000
-                              ? "< 1 Min"
-                              : responseMs < 3600_000
-                              ? `${Math.round(responseMs / 60_000)} Min`
-                              : `${(responseMs / 3600_000).toFixed(1).replace(".", ",")} Std`}
-                          </div>
-                        </div>
-                      )}
+                            <div className="hidden min-w-0 truncate text-sm text-fg-primary md:block">
+                              {SOURCE_LABELS[r.source as keyof typeof SOURCE_LABELS] ?? r.source}
+                            </div>
 
-                      <div className="hidden text-sm md:block">
-                        <StatusPill status={r.status} />
-                      </div>
+                            {isDetail && (
+                              <div className="hidden items-center gap-1 text-sm tabular-nums text-fg-secondary md:flex">
+                                <Sparkles className="h-3.5 w-3.5" />
+                                {r.aiScore ?? "–"}
+                              </div>
+                            )}
+                            {isDetail && (
+                              <div className="hidden text-sm tabular-nums text-fg-secondary md:block">
+                                {responseMs == null
+                                  ? "—"
+                                  : responseMs < 60_000
+                                  ? "< 1 Min"
+                                  : responseMs < 3600_000
+                                  ? `${Math.round(responseMs / 60_000)} Min`
+                                  : `${(responseMs / 3600_000).toFixed(1).replace(".", ",")} Std`}
+                              </div>
+                            )}
 
-                      <div className="text-right">
-                        <div className="text-sm text-fg-secondary">
-                          {formatRelative(r.createdAt)}
-                        </div>
-                        {slaBreached && (
-                          <div className="mt-1 flex items-center justify-end gap-1 text-xs text-tone-bad">
-                            <AlertTriangle className="h-3.5 w-3.5" />
-                            Überfällig seit {formatDateTime(r.slaRespondBy)}
-                          </div>
-                        )}
-                      </div>
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
+                            <div className="hidden md:block">
+                              <StatusPill status={r.status} />
+                            </div>
+
+                            <div className="text-right">
+                              <div className="text-sm tabular-nums text-fg-secondary">
+                                {formatRelative(r.createdAt)}
+                              </div>
+                              {slaBreached && (
+                                <div
+                                  className="mt-1 inline-flex items-center justify-end gap-1 text-xs text-tone-bad"
+                                  title={`Überfällig seit ${formatDateTime(r.slaRespondBy)}`}
+                                >
+                                  <AlertTriangle className="h-3.5 w-3.5" />
+                                  Überfällig
+                                </div>
+                              )}
+                            </div>
+                          </Link>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </>
+              );
+            })()}
           </CardContent>
         </Card>
       )}

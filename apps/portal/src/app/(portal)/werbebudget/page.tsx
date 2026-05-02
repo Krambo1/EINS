@@ -558,7 +558,7 @@ function MiniSparkline({
       <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
         {label}
       </div>
-      <Sparkline values={values} tone={tone} height={36} />
+      <Sparkline values={values} tone={tone} />
     </div>
   );
 }

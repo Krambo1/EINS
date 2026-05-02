@@ -11,7 +11,7 @@ const STACK = [
   {
     n: 1,
     title: "100 % Geld zurück bei verfehltem Ziel",
-    body: "Erreichen wir die vereinbarte Anfragen-Schwelle in 90 Tagen nicht, erstatten wir alle bis dahin gezahlten Gebühren. Vollständig, ohne Diskussion.",
+    body: "Erreichen wir die vereinbarte Anfragen-Schwelle in 90 Tagen nicht, erstatten wir alle bis dahin gezahlten Gebühren an EINS. Vollständig, ohne Diskussion.",
   },
   {
     n: 2,

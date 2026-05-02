@@ -838,6 +838,44 @@ export const hwgChecks = pgTable("hwg_checks", {
 });
 
 // ---------------------------------------------------------------
+// FEEDBACK (clinic-user feedback inbox — UI/feature/bug/praise)
+// ---------------------------------------------------------------
+export const feedback = pgTable(
+  "feedback",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    submittedBy: uuid("submitted_by")
+      .notNull()
+      .references(() => clinicUsers.id),
+    category: text("category").notNull(),
+    message: text("message").notNull(),
+    pageUrl: text("page_url"),
+    submittedAt: timestamp("submitted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    status: text("status").notNull().default("offen"),
+    karamNote: text("karam_note"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedByAdminEmail: text("resolved_by_admin_email"),
+  },
+  (t) => ({
+    clinicIdx: index("feedback_clinic_idx").on(t.clinicId, t.submittedAt),
+    statusIdx: index("feedback_status_idx").on(t.status, t.submittedAt),
+    categoryCheck: check(
+      "feedback_category_check",
+      sql`${t.category} IN ('verbesserung','fehler','lob','frage','sonstiges')`
+    ),
+    statusCheck: check(
+      "feedback_status_check",
+      sql`${t.status} IN ('offen','gesehen','bearbeitet','verworfen')`
+    ),
+  })
+);
+
+// ---------------------------------------------------------------
 // Admin users — Karam's super-admin identity (NOT a clinic_user).
 // Access governed by ADMIN_EMAILS env + optional IP allowlist.
 // ---------------------------------------------------------------

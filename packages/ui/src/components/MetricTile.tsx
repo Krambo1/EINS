@@ -95,7 +95,6 @@ export function MetricTile({
           <Sparkline
             values={sparkline}
             tone={sparklineTone ?? toneToSparklineTone(tone)}
-            height={36}
           />
         </div>
       )}

@@ -146,6 +146,38 @@ export const ANIMATION_STATE_LABELS: Record<AnimationState, string> = {
   ready: "Bereit",
 };
 
+export const FEEDBACK_CATEGORIES = [
+  "verbesserung",
+  "fehler",
+  "lob",
+  "frage",
+  "sonstiges",
+] as const;
+export type FeedbackCategory = (typeof FEEDBACK_CATEGORIES)[number];
+
+export const FEEDBACK_CATEGORY_LABELS: Record<FeedbackCategory, string> = {
+  verbesserung: "Verbesserungsvorschlag",
+  fehler: "Fehler / Bug",
+  lob: "Lob",
+  frage: "Frage",
+  sonstiges: "Sonstiges",
+};
+
+export const FEEDBACK_STATUSES = [
+  "offen",
+  "gesehen",
+  "bearbeitet",
+  "verworfen",
+] as const;
+export type FeedbackStatus = (typeof FEEDBACK_STATUSES)[number];
+
+export const FEEDBACK_STATUS_LABELS: Record<FeedbackStatus, string> = {
+  offen: "Offen",
+  gesehen: "Gesehen",
+  bearbeitet: "Bearbeitet",
+  verworfen: "Verworfen",
+};
+
 /** Session cookie */
 export const SESSION_COOKIE = "eins_session";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8; // 8h idle timeout

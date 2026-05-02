@@ -15,8 +15,8 @@ import {
   BookOpen,
   Gem,
   Settings,
-  ShieldCheck,
   Calculator,
+  MessageSquare,
   LogOut,
 } from "lucide-react";
 import { ROLE_LABELS, PLAN_LABELS, type Role } from "@/lib/constants";
@@ -41,8 +41,8 @@ const NAV: NavItem[] = [
   { href: "/dokumente", label: "Dokumente", icon: FileText, permission: "documents.view.all_roles" },
   { href: "/leitfaden", label: "Vertriebsleitfaden", icon: BookOpen, permission: "documents.view.marketing" },
   { href: "/plan", label: "Paket", icon: Gem, permission: "plan.view" },
-  { href: "/hwg-check", label: "HWG-Check", icon: ShieldCheck, permission: "tools.hwg_check" },
   { href: "/was-waere-wenn", label: "Was-wäre-wenn", icon: Calculator, permission: "tools.what_if" },
+  { href: "/feedback", label: "Feedback", icon: MessageSquare, permission: "feedback.submit" },
   { href: "/einstellungen", label: "Einstellungen", icon: Settings, permission: "settings.team" },
 ];
 

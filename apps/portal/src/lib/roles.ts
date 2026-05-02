@@ -9,38 +9,41 @@ import type { Role } from "./constants";
 export const PERMISSIONS = {
   // Dashboard / KPIs
   "dashboard.view": ["inhaber", "marketing", "frontdesk"],
-  "dashboard.view.full": ["inhaber", "marketing"],
+  "dashboard.view.full": ["inhaber", "marketing", "frontdesk"],
   // Anfragen
   "requests.view": ["inhaber", "marketing", "frontdesk"],
   "requests.update": ["inhaber", "marketing", "frontdesk"],
-  "requests.bulk_assign": ["inhaber", "marketing"],
+  "requests.bulk_assign": ["inhaber", "marketing", "frontdesk"],
   "requests.create_manual": ["inhaber", "marketing", "frontdesk"],
   // Medien
-  "assets.view": ["inhaber", "marketing"],
-  "assets.download": ["inhaber", "marketing"],
+  "assets.view": ["inhaber", "marketing", "frontdesk"],
+  "assets.download": ["inhaber", "marketing", "frontdesk"],
   "assets.upload": [] as Role[], // nur Karam (super-admin)
   // Animationen
-  "animations.view": ["inhaber", "marketing"],
-  "animations.request_customization": ["inhaber", "marketing"],
+  "animations.view": ["inhaber", "marketing", "frontdesk"],
+  "animations.request_customization": ["inhaber", "marketing", "frontdesk"],
   // Auswertung
-  "reports.view": ["inhaber", "marketing"],
+  "reports.view": ["inhaber", "marketing", "frontdesk"],
   // Werbebudget Live
-  "campaigns.live": ["inhaber", "marketing"],
+  "campaigns.live": ["inhaber", "marketing", "frontdesk"],
   // Dokumente
-  "documents.view.all": ["inhaber"],
-  "documents.view.marketing": ["inhaber", "marketing"],
+  "documents.view.all": ["inhaber"], // Verträge, AVV — owner only
+  "documents.view.marketing": ["inhaber", "marketing", "frontdesk"],
   "documents.view.all_roles": ["inhaber", "marketing", "frontdesk"],
-  // Plan & Upgrade
+  // Plan & Upgrade — owner only (financial commitment)
   "plan.view": ["inhaber"],
   "plan.request_upgrade": ["inhaber"],
-  // Einstellungen
+  // Einstellungen — owner only (team, OAuth tokens, audit log)
   "settings.team": ["inhaber"],
   "settings.integrations": ["inhaber"],
   "audit.view": ["inhaber"],
   // Tools
-  "tools.hwg_check": ["inhaber", "marketing"],
-  "tools.what_if": ["inhaber", "marketing"],
-  // Onboarding
+  "tools.hwg_check": ["inhaber", "marketing", "frontdesk"],
+  "tools.what_if": ["inhaber", "marketing", "frontdesk"],
+  // Feedback — anyone in the clinic can send feedback to EINS
+  "feedback.submit": ["inhaber", "marketing", "frontdesk"],
+  "feedback.view": ["inhaber", "marketing", "frontdesk"],
+  // Onboarding — owner only (initial setup)
   "onboarding.complete": ["inhaber"],
 } as const satisfies Record<string, readonly Role[] | Role[]>;
 

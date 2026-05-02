@@ -98,6 +98,11 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
   const dir = searchParams.dir === "asc" ? "asc" : "desc";
   const sorted = [...filtered].sort((a, b) => sortRows(a, b, sortKey, dir));
 
+  const baseQuery: Record<string, string> = {};
+  for (const [k, v] of Object.entries(searchParams)) {
+    if (typeof v === "string") baseQuery[k] = v;
+  }
+
   // Aggregate cards
   const totalSpend = sorted.reduce((acc, r) => acc + r.spendEur, 0);
   const totalRevenue = sorted.reduce((acc, r) => acc + r.revenueEur, 0);
@@ -201,7 +206,7 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
                     sortKey="name"
                     current={sortKey}
                     dir={dir}
-                    searchParams={searchParams}
+                    baseQuery={baseQuery}
                   />
                   <th className="px-3 py-2">Plan</th>
                   <th className="px-3 py-2 text-right">MRR</th>
@@ -210,7 +215,7 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
                     sortKey="spend"
                     current={sortKey}
                     dir={dir}
-                    searchParams={searchParams}
+                    baseQuery={baseQuery}
                     align="right"
                   />
                   <SortableTh
@@ -218,7 +223,7 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
                     sortKey="revenue"
                     current={sortKey}
                     dir={dir}
-                    searchParams={searchParams}
+                    baseQuery={baseQuery}
                     align="right"
                   />
                   <SortableTh
@@ -226,7 +231,7 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
                     sortKey="roas"
                     current={sortKey}
                     dir={dir}
-                    searchParams={searchParams}
+                    baseQuery={baseQuery}
                     align="right"
                   />
                   <SortableTh
@@ -234,7 +239,7 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
                     sortKey="leads"
                     current={sortKey}
                     dir={dir}
-                    searchParams={searchParams}
+                    baseQuery={baseQuery}
                     align="right"
                   />
                   <SortableTh
@@ -242,7 +247,7 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
                     sortKey="cases"
                     current={sortKey}
                     dir={dir}
-                    searchParams={searchParams}
+                    baseQuery={baseQuery}
                     align="right"
                   />
                   <th className="px-3 py-2 text-right">No-Show</th>
@@ -251,7 +256,7 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
                     sortKey="lastActivity"
                     current={sortKey}
                     dir={dir}
-                    searchParams={searchParams}
+                    baseQuery={baseQuery}
                     align="right"
                   />
                   <th className="px-3 py-2">Health</th>
@@ -385,14 +390,14 @@ function SortableTh({
   sortKey,
   current,
   dir,
-  searchParams,
+  baseQuery,
   align,
 }: {
   label: string;
   sortKey: SortKey;
   current: SortKey;
   dir: "asc" | "desc";
-  searchParams: PageProps["searchParams"];
+  baseQuery: Record<string, string>;
   align?: "right";
 }) {
   const isActive = sortKey === current;
@@ -405,7 +410,7 @@ function SortableTh({
       <Link
         href={{
           pathname: "/admin/clinics",
-          query: { ...searchParams, sort: sortKey, dir: nextDir },
+          query: { ...baseQuery, sort: sortKey, dir: nextDir },
         }}
         className={`hover:text-accent ${isActive ? "text-accent" : ""}`}
       >
