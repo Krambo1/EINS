@@ -6,19 +6,83 @@ import { cn } from "@/lib/utils";
 
 export const Tabs = TabsPrimitive.Root;
 
+function findHorizontalScroller(el: HTMLElement): HTMLElement | null {
+  let cur: HTMLElement | null = el.parentElement;
+  while (cur && cur !== document.body) {
+    const overflowX = getComputedStyle(cur).overflowX;
+    if (overflowX === "auto" || overflowX === "scroll") return cur;
+    cur = cur.parentElement;
+  }
+  return null;
+}
+
+function centerActiveTab(list: HTMLElement, smooth: boolean) {
+  const scroller = findHorizontalScroller(list);
+  if (!scroller) return;
+  if (scroller.scrollWidth <= scroller.clientWidth) return;
+  const active = list.querySelector<HTMLElement>('[data-state="active"]');
+  if (!active) return;
+  const sRect = scroller.getBoundingClientRect();
+  const aRect = active.getBoundingClientRect();
+  const offsetWithin = aRect.left - sRect.left + scroller.scrollLeft;
+  const desired =
+    offsetWithin - (scroller.clientWidth - active.clientWidth) / 2;
+  const max = scroller.scrollWidth - scroller.clientWidth;
+  const clamped = Math.max(0, Math.min(max, desired));
+  if (Math.abs(clamped - scroller.scrollLeft) < 1) return;
+  scroller.scrollTo({ left: clamped, behavior: smooth ? "smooth" : "auto" });
+}
+
 export const TabsList = React.forwardRef<
   React.ElementRef<typeof TabsPrimitive.List>,
   React.ComponentPropsWithoutRef<typeof TabsPrimitive.List>
->(({ className, ...props }, ref) => (
-  <TabsPrimitive.List
-    ref={ref}
-    className={cn(
-      "inline-flex items-center gap-1 rounded-full border border-border bg-bg-secondary p-1",
-      className
-    )}
-    {...props}
-  />
-));
+>(({ className, ...props }, ref) => {
+  const innerRef = React.useRef<HTMLDivElement | null>(null);
+  React.useImperativeHandle(
+    ref,
+    () => innerRef.current as React.ElementRef<typeof TabsPrimitive.List>,
+    [],
+  );
+
+  React.useEffect(() => {
+    const list = innerRef.current;
+    if (!list) return;
+
+    // Center on mount once layout is settled (covers deep-link / restored state).
+    const raf = requestAnimationFrame(() => centerActiveTab(list, false));
+
+    const observer = new MutationObserver((mutations) => {
+      for (const m of mutations) {
+        if (m.type !== "attributes" || m.attributeName !== "data-state") continue;
+        const t = m.target as HTMLElement;
+        if (t.getAttribute("data-state") === "active") {
+          centerActiveTab(list, true);
+          return;
+        }
+      }
+    });
+    observer.observe(list, {
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["data-state"],
+    });
+    return () => {
+      cancelAnimationFrame(raf);
+      observer.disconnect();
+    };
+  }, []);
+
+  return (
+    <TabsPrimitive.List
+      ref={innerRef}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border border-border bg-transparent p-1",
+        className
+      )}
+      {...props}
+    />
+  );
+});
 TabsList.displayName = "TabsList";
 
 export const TabsTrigger = React.forwardRef<

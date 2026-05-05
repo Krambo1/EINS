@@ -74,7 +74,7 @@ export async function updateAnimationStateAction(formData: FormData) {
       await enqueueEmail({
         to: requester.email,
         subject: "Ihre angepasste Animation ist bereit",
-        text: `Hallo${requester.fullName ? " " + requester.fullName : ""},\n\nIhre angeforderte Animation „${row.library?.title ?? ""}" ist fertig und steht unter /animationen im Portal bereit.\n\nViele Grüße\nEINS Visuals`,
+        text: `Hallo${requester.fullName ? " " + requester.fullName : ""},\n\nIhre angeforderte Animation „${row.library?.title ?? ""}" ist fertig und steht unter /medien?kind=animationen im Portal bereit.\n\nViele Grüße\nEINS Visuals`,
       });
     }
   }

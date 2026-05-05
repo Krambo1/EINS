@@ -47,6 +47,10 @@ const config: Config = {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
+        "fade-slide-in": {
+          from: { opacity: "0", transform: "translateY(-6px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
         shine: {
           "0%": { backgroundPosition: "200% 0" },
           "100%": { backgroundPosition: "-200% 0" },
@@ -55,6 +59,7 @@ const config: Config = {
       animation: {
         "accordion-down": "accordion-down 300ms cubic-bezier(0.16, 1, 0.3, 1)",
         "accordion-up": "accordion-up 200ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "fade-slide-in": "fade-slide-in 350ms cubic-bezier(0.16, 1, 0.3, 1)",
       },
     },
   },

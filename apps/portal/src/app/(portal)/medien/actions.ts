@@ -105,5 +105,5 @@ export async function requestAnimationCustomizationAction(formData: FormData) {
     // Swallow — the request is persisted.
   }
 
-  revalidatePath("/animationen");
+  revalidatePath("/medien");
 }

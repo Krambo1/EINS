@@ -10,10 +10,10 @@ export function Hero() {
       <div className="container">
         <div className="hero-fade-in max-w-7xl mx-auto text-center">
           <div className="mb-6 flex justify-center md:mb-8">
-            <span className="inline-flex items-center gap-3 rounded-full border border-accent/40 bg-accent/10 px-6 py-3 font-mono text-base text-fg-primary backdrop-blur-sm md:gap-3.5 md:px-8 md:py-4 md:text-lg">
-              <span className="relative flex h-3 w-3">
+            <span className="inline-flex items-center gap-2.5 rounded-full border border-accent/40 bg-accent/10 px-5 py-2.5 font-mono text-sm text-fg-primary backdrop-blur-sm md:gap-3 md:px-6 md:py-3 md:text-base">
+              <span className="relative flex h-2.5 w-2.5">
                 <span className="absolute inline-flex h-full w-full animate-[ping_2.5s_cubic-bezier(0,0,0.2,1)_infinite] rounded-full bg-accent opacity-75" />
-                <span className="relative inline-flex h-3 w-3 rounded-full bg-accent" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-accent" />
               </span>
               Q3 2026 · Noch 2 Plätze frei
             </span>
@@ -25,7 +25,7 @@ export function Hero() {
             <ShimmerText className="block whitespace-nowrap">Mehr Sicherheit.</ShimmerText>
           </h1>
 
-          <p className="mt-6 mx-auto max-w-[34ch] text-balance text-xl leading-snug text-fg-primary md:mt-10 md:max-w-[52ch] md:text-2xl lg:text-3xl">
+          <p className="mt-6 mx-auto max-w-[34ch] text-balance text-lg leading-snug text-fg-primary md:mt-10 md:max-w-[52ch] md:text-xl lg:text-2xl">
             Medienproduktion, bezahlte Anzeigen und ein durch Künstliche Intelligenz gestütztes System für Kliniken.
           </p>
 

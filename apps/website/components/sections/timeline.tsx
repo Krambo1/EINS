@@ -72,7 +72,7 @@ function TimelineCard({
                 {station.when}
               </span>
             </div>
-            <h3 className="mt-3 font-display text-3xl font-semibold tracking-tight md:text-4xl">
+            <h3 className="mt-3 font-display text-2xl font-semibold tracking-tight md:text-4xl">
               {station.title}
             </h3>
           </div>

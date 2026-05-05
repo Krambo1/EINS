@@ -15,26 +15,16 @@ const STACK = [
   },
   {
     n: 2,
-    title: "Kein Aufbau-Risiko",
-    body: "Sie zahlen für die Aufbauarbeit erst, wenn die ersten qualifizierten Anfragen bei Ihnen liegen. Vorab kein Setup-Betrag fällig.",
-  },
-  {
-    n: 3,
     title: "Wir arbeiten kostenlos weiter, bis das Ziel steht",
     body: "Falls 90 Tage nicht reichen, betreuen wir Sie so lange unentgeltlich, bis die Schwelle erreicht ist.",
   },
   {
-    n: 4,
-    title: "Geschwindigkeits-Garantie: erste Anfragen in 21 Tagen",
-    body: "Liegt nach drei Wochen ab Kampagnen-Launch keine einzige qualifizierte Anfrage vor, erlassen wir den nächsten Monat komplett.",
-  },
-  {
-    n: 5,
+    n: 3,
     title: "Frei kündbar, jederzeit",
     body: "Sie können monatlich kündigen, vom ersten Tag an. Keine 12-Monats-Bindung, keine Mindestlaufzeit.",
   },
   {
-    n: 6,
+    n: 4,
     title: "Direkt vom Gründer betreut",
     body: "Kein Junior-Account-Manager, kein Praktikant, keine Outsourcing-Schiene. Sie arbeiten persönlich mit dem Gründer an Ihrer Kampagne.",
   },
@@ -92,17 +82,13 @@ export function Guarantee() {
               aria-hidden
             />
 
-            <div className="relative md:grid md:grid-cols-[1fr_auto] md:items-start md:gap-x-10 lg:gap-x-14">
-              <div className="md:col-span-2">
+            <div className="relative md:flex md:items-start md:gap-x-10 lg:gap-x-14">
+              <div className="md:flex-1">
                 <h3 className="font-display text-2xl font-semibold leading-tight tracking-tight md:text-3xl">
                   100&nbsp;% Geld-zurück-Garantie.
                 </h3>
-                <p className="mt-5 max-w-2xl text-lg leading-relaxed text-fg-primary md:text-xl">
-                  Die ersten zwei Kliniken, mit denen wir in Q3 2026 starten, bekommen die stärkste Garantie, die wir je geben werden. Mehrfach abgesichert, ohne Vorleistung Ihrerseits.
-                </p>
-              </div>
 
-              <ul className="mt-8 flex flex-col gap-0 md:mt-12 md:grid md:grid-cols-2 md:gap-x-10 md:gap-y-8">
+                <ul className="mt-8 flex flex-col gap-0 md:mt-12 md:grid md:grid-cols-2 md:gap-x-10 md:gap-y-8">
                   {STACK.map((item) => {
                     const isOpen = openId === item.n;
                     return (
@@ -152,10 +138,11 @@ export function Guarantee() {
                     );
                   })}
                 </ul>
+              </div>
 
-              <div className="mt-3 self-start md:mt-12 md:w-[240px] lg:w-[260px]">
+              <div className="mt-3 self-start md:-mt-4 md:w-[240px] md:shrink-0 lg:w-[260px]">
                 {/* Mobile: image bleeds to bottom-left edge of outer card */}
-                <div className="-mx-6 -mb-6 flex md:hidden">
+                <div className="-mr-6 -mb-6 flex md:hidden">
                   <div className="relative aspect-[3/4] w-44 shrink-0 self-end overflow-hidden">
                     <Image
                       src="/headshot.webp"
@@ -165,7 +152,7 @@ export function Guarantee() {
                       className="object-contain object-bottom"
                     />
                   </div>
-                  <div className="flex flex-1 flex-col justify-center py-5 pl-5 pr-6">
+                  <div className="flex flex-1 flex-col justify-center py-5 pl-6 pr-6">
                     <div className="font-mono text-xs uppercase tracking-wide text-accent">
                       Kapazität
                     </div>
