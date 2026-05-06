@@ -84,7 +84,7 @@ export function Guarantee() {
 
             <div className="relative md:flex md:items-start md:gap-x-10 lg:gap-x-14">
               <div className="md:flex-1">
-                <h3 className="font-display text-2xl font-semibold leading-tight tracking-tight md:text-3xl">
+                <h3 className="font-display text-2xl font-semibold leading-tight tracking-tight md:text-4xl lg:text-5xl">
                   100&nbsp;% Geld-zurück-Garantie.
                 </h3>
 
@@ -96,7 +96,7 @@ export function Guarantee() {
                         key={item.n}
                         className="border-b border-border/60 last:border-b-0 md:flex md:gap-4 md:border-0"
                       >
-                        <div className="hidden font-mono text-sm font-medium text-accent md:block md:text-base">
+                        <div className="hidden font-mono text-sm font-medium text-accent md:block md:text-lg">
                           {item.n}.
                         </div>
                         <div className="flex-1">
@@ -120,7 +120,7 @@ export function Guarantee() {
                               aria-hidden
                             />
                           </button>
-                          <div className="hidden font-display text-xl font-semibold leading-snug tracking-tight text-fg-primary md:block">
+                          <div className="hidden font-display text-xl font-semibold leading-snug tracking-tight text-fg-primary md:block md:text-2xl">
                             {item.title}
                           </div>
                           <div
@@ -129,7 +129,7 @@ export function Guarantee() {
                               isOpen ? "block" : "hidden"
                             )}
                           >
-                            <p className="pb-4 pl-7 text-base leading-relaxed text-fg-primary md:mt-2 md:pb-0 md:pl-0 md:text-lg">
+                            <p className="pb-4 pl-7 text-base leading-relaxed text-fg-primary md:mt-2 md:pb-0 md:pl-0 md:text-xl">
                               {item.body}
                             </p>
                           </div>

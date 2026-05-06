@@ -7,7 +7,6 @@ export const NOT_FOR_YOU = [
 ];
 
 export const FOR_YOU = [
-  "Sie führen eine Ästhetik-, Schönheits- oder dermatologische Klinik mit mindestens 150.000 € Jahresumsatz.",
   "Sie bieten hochpreisige Behandlungen an: Faltenunterspritzung, Lippenunterspritzung, Laser, Kryolipolyse, HIFU, Body Contouring.",
   "Sie wollen Kontrolle über Ihre Werbung und Ihren Patientenstrom.",
   "Sie wollen rechtssicher werben, ohne Angst vor Abmahnungen.",

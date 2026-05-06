@@ -1,5 +1,4 @@
 import { ArrowUpRight } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { ShinyButton } from "@/components/ui/shiny-button";
 import { ShimmerText } from "@/components/ui/shimmer-text";
 import { CALENDLY_URL } from "@/lib/constants";
@@ -25,8 +24,8 @@ export function Hero() {
             <ShimmerText className="block whitespace-nowrap">Mehr Sicherheit.</ShimmerText>
           </h1>
 
-          <p className="mt-6 mx-auto max-w-[34ch] text-balance text-lg leading-snug text-fg-primary md:mt-10 md:max-w-[52ch] md:text-xl lg:text-2xl">
-            Medienproduktion, bezahlte Anzeigen und ein durch Künstliche Intelligenz gestütztes System für Kliniken.
+          <p className="mt-6 mx-auto max-w-[34ch] text-balance font-display text-2xl font-semibold leading-tight tracking-tight text-fg-primary md:mt-10 md:max-w-[52ch] md:text-4xl lg:text-5xl">
+            Marketing für Ihre Klinik.
           </p>
 
           <div id="hero-cta" className="mt-6 flex flex-wrap items-start justify-center gap-4 md:mt-10">
@@ -42,9 +41,6 @@ export function Hero() {
                 Verfügbar · 30 Minuten
               </span>
             </div>
-            <Button asChild size="lg" variant="outline" className="hidden md:inline-flex">
-              <a href="#system">System ansehen</a>
-            </Button>
           </div>
         </div>
       </div>

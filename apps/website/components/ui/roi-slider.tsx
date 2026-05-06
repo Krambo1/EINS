@@ -6,33 +6,50 @@ import { formatEuro } from "@/lib/utils";
 const AVG_LTV = 4500;
 const BASELINE_ADSPEND = 3000;
 
-type ScenarioKey = "untergrenze" | "durchschnitt" | "top";
+type ScenarioKey = "konservativ" | "realistisch" | "top";
 
 const SCENARIOS: Record<
   ScenarioKey,
-  { label: string; baselineLeads: number; conversion: number }
+  { label: string; description: string; baselineLeads: number; conversion: number }
 > = {
-  untergrenze:  { label: "Untergrenze",  baselineLeads: 90,  conversion: 0.15 },
-  durchschnitt: { label: "Durchschnitt", baselineLeads: 130, conversion: 0.30 },
-  top:          { label: "Top",          baselineLeads: 170, conversion: 0.50 },
+  konservativ: {
+    label: "Konservativ",
+    description: "Untergrenze unserer aktuellen Kunden — mit Sicherheitspuffer kalkuliert.",
+    baselineLeads: 90,
+    conversion: 0.15,
+  },
+  realistisch: {
+    label: "Realistisch",
+    description: "Was unsere Kunden im Durchschnitt nach 90 Tagen erreichen.",
+    baselineLeads: 130,
+    conversion: 0.30,
+  },
+  top: {
+    label: "Top-Performer",
+    description: "Was unsere stärksten Kampagnen in 90 Tagen liefern.",
+    baselineLeads: 170,
+    conversion: 0.50,
+  },
 };
 
-const SCENARIO_ORDER: ScenarioKey[] = ["untergrenze", "durchschnitt", "top"];
+const SCENARIO_ORDER: ScenarioKey[] = ["konservativ", "realistisch", "top"];
 
 export function RoiSlider() {
   const [adspend, setAdspend] = useState(3000);
-  const [scenario, setScenario] = useState<ScenarioKey>("durchschnitt");
+  const [scenario, setScenario] = useState<ScenarioKey>("realistisch");
 
-  const { leads, patients, revenue } = useMemo(() => {
+  const { leads, patients, revenue, investment } = useMemo(() => {
     const cfg = SCENARIOS[scenario];
     const scale = adspend / BASELINE_ADSPEND;
     const ls = Math.round(cfg.baselineLeads * scale);
     const ps = Math.round(ls * cfg.conversion);
     const rv = ps * AVG_LTV;
-    return { leads: ls, patients: ps, revenue: rv };
+    const inv = adspend * 3;
+    return { leads: ls, patients: ps, revenue: rv, investment: inv };
   }, [adspend, scenario]);
 
   const pct = ((adspend - 3000) / 17000) * 100;
+  const activeScenario = SCENARIOS[scenario];
 
   return (
     <div className="card-glow rounded-2xl border border-border bg-bg-secondary/60 p-6 md:p-10" style={{ contain: "layout style" }}>
@@ -42,15 +59,15 @@ export function RoiSlider() {
           <h3 className="font-display text-2xl font-semibold tracking-tight text-fg-primary md:text-4xl">
             Ihr Ertrag in 90 Tagen, live berechnet.
           </h3>
-          <p className="mt-3 max-w-2xl text-base text-fg-secondary md:text-lg">
-            Wählen Sie ein Szenario und stellen Sie Ihr monatliches Werbebudget ein. Die Zahlen unten aktualisieren sich in Echtzeit.
+          <p className="mt-3 hidden max-w-2xl text-base text-fg-secondary md:block md:text-lg">
+            In drei Schritten: Szenario wählen, monatliches Werbebudget einstellen — Sie sehen sofort, wie viele qualifizierte Anfragen, neue Patienten und welchen Umsatz Sie nach 90 Tagen erwarten dürfen.
           </p>
         </div>
 
         {/* Scenario toggle */}
         <div className="flex flex-col gap-3">
           <label className="font-mono text-base font-medium text-fg-primary md:text-lg">
-            1 · Szenario
+            1 · Welches Szenario passt zu Ihnen?
           </label>
           <div
             role="tablist"
@@ -77,13 +94,16 @@ export function RoiSlider() {
               );
             })}
           </div>
+          <p className="text-sm leading-relaxed text-fg-secondary md:text-base">
+            {activeScenario.description}
+          </p>
         </div>
 
         {/* Budget slider */}
         <div className="flex flex-col gap-3">
           <div className="flex items-baseline justify-between">
             <label htmlFor="adspend" className="font-mono text-base font-medium text-fg-primary md:text-lg">
-              2 · Monatliches Werbebudget
+              2 · Ihr monatliches Werbebudget
             </label>
             <span className="font-display text-2xl font-semibold text-accent md:text-3xl">
               {formatEuro(adspend)}
@@ -128,6 +148,34 @@ export function RoiSlider() {
             <Metric label="Qualifizierte Anfragen" value={`${leads}`} />
             <Metric label="Neue Patienten" value={`${patients}`} />
             <Metric label="Umsatz" value={formatEuro(revenue)} highlight className="col-span-2 md:col-span-1" />
+          </div>
+
+          {/* Investment vs. revenue comparison */}
+          <div className="mt-6 hidden flex-col gap-3 rounded-xl border border-accent/40 bg-accent/[0.06] p-5 md:mt-8 md:flex md:flex-row md:items-center md:justify-between md:gap-6 md:p-6">
+            <div className="flex items-center gap-4 md:gap-6">
+              <div>
+                <div className="font-mono text-xs uppercase tracking-wide text-fg-secondary md:text-sm">
+                  Sie investieren (90 Tage)
+                </div>
+                <div className="mt-1 font-display text-xl font-semibold tabular-nums text-fg-primary md:text-3xl">
+                  {formatEuro(investment)}
+                </div>
+              </div>
+              <div className="font-display text-2xl text-fg-secondary md:text-3xl" aria-hidden>
+                →
+              </div>
+              <div>
+                <div className="font-mono text-xs uppercase tracking-wide text-fg-secondary md:text-sm">
+                  Sie erwirtschaften
+                </div>
+                <div className="mt-1 font-display text-xl font-semibold tabular-nums text-accent md:text-3xl">
+                  {formatEuro(revenue)}
+                </div>
+              </div>
+            </div>
+            <p className="text-sm leading-relaxed text-fg-secondary md:max-w-xs md:text-right md:text-base">
+              Werbebudget × 3 Monate gegen den realisierbaren Umsatz aus den neugewonnenen Patienten.
+            </p>
           </div>
         </div>
       </div>

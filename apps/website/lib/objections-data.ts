@@ -11,11 +11,11 @@ export const OBJECTIONS: Objection[] = [
   },
   {
     q: "Können wir erstmal klein anfangen, mit 500 bis 1.000 € Werbebudget?",
-    a: "Nein. Damit Instagram und Google Ihre besten Patienten finden, brauchen die Plattformen genug Daten. Unter 3.000 € im Monat lernen sie nicht genug und jede Anfrage wird teuer. Ein einziger Premium-Patient (Facelift, Liposuktion, Brust) deckt das Werbebudget bereits ab.",
+    a: "Nein. 3.000 € pro Monat sind das Minimum, mit dem wir starten. Darunter bekommen die Algorithmen von Meta und Google nicht genug Daten, um Ihre besten Patienten zu finden, und jede Anfrage wird unverhältnismäßig teuer. Zur Einordnung: 3.000 € Werbebudget liegen unter dem Honorar eines einzigen Selbstzahler-Eingriffs wie Facelift, Liposuktion oder Brustchirurgie.",
   },
   {
     q: "Was, wenn es nicht funktioniert?",
-    a: "Wenn Sie nach 90 Tagen nicht mindestens 10 ernsthafte Anfragen pro 1.000 € Werbebudget haben, erlassen wir die Gebühren für Monat 4 und produzieren ein zusätzliches Video kostenfrei. Sie zahlen für Ergebnisse, nicht für Aktivität.",
+    a: "Erreichen wir die im Strategie-Call vereinbarte Anfragen-Schwelle nicht innerhalb von 90 Tagen, bekommen Sie alle bis dahin gezahlten Gebühren vollständig zurück. Reichen 90 Tage nicht aus, arbeiten wir kostenlos weiter, bis das Ziel steht. Sie können außerdem jederzeit monatlich kündigen, vom ersten Tag an. Die konkreten Garantie-Bedingungen werden vor Beauftragung schriftlich fixiert.",
   },
   {
     q: "Wie lange dauert der Start?",
@@ -35,14 +35,10 @@ export const OBJECTIONS: Objection[] = [
   },
   {
     q: "Wie genau arbeitet die KI bei der Patienten-Filterung?",
-    a: "Die KI prüft jede Anfrage sofort: Welche Behandlung wird gesucht, ist das Budget realistisch, wie ernst ist die Anfrage. Preisjäger und Spam werden aussortiert. Nur ernsthafte Patienten erreichen Ihr Team, inklusive passendem Terminvorschlag.",
-  },
-  {
-    q: "Arbeiten Sie exklusiv in unserer Region?",
-    a: "Ja. Wir nehmen pro Einzugsgebiet nur eine Klinik pro Behandlungsschwerpunkt auf. Das schützt Sie davor, direkt gegen einen Mitbewerber von uns anzutreten. Verfügbarkeit klären wir im Strategie-Gespräch.",
+    a: "Die KI prüft jede Anfrage sofort auf gewünschte Behandlung, Budget-Indikation und Ernsthaftigkeit. Anfragen für niedrigpreisige Standardbehandlungen wie Botox-Auffrischungen oder Laser-Termine bekommen direkt einen Buchungslink in Ihr bestehendes System (Doctolib, samedi, CGM). Hochpreisige Beratungs-Anfragen werden vorqualifiziert und vorbereitet an Ihr Team weitergeleitet, telefonisch oder per WhatsApp. Preisjäger und Spam werden aussortiert, bevor jemand Ihr Team erreicht.",
   },
   {
     q: "Was, wenn unser Team die vielen Anfragen nicht bewältigen kann?",
-    a: "Die KI nimmt Ihrem Team bis zu 60 Prozent der Arbeit ab, weil nur ernsthafte Anfragen durchkommen. Zusätzlich bekommen Sie eine fertige Anleitung mit Gesprächsvorlagen, damit Ihre Mitarbeiter jede Anfrage in 8 bis 12 Minuten in einen Termin verwandeln.",
+    a: "Die Vorqualifizierung filtert Preisjäger und unpassende Anfragen automatisch aus, sodass nur ernsthafte Patienten an Ihr Team gehen. Zusätzlich enthalten ist ein Sales-Playbook mit Antwort-SLAs, WhatsApp-Skripten, Telefonleitfäden und CRM-Anleitung, damit Ihr Team jede Anfrage strukturiert und ohne zusätzlichen Schulungsaufwand verarbeitet.",
   },
 ];

@@ -25,83 +25,126 @@ function CardVisual({ id }: { id: OfferCard["id"] }) {
   }
   if (id === "rechtspruefung") {
     return (
-      <div className="flex h-20 w-20 items-center justify-center rounded-full border-2 border-accent/50 bg-accent/10 sm:h-24 sm:w-24 md:h-32 md:w-32">
-        <div className="flex flex-col items-center text-accent">
-          <span className="font-mono text-[10px] font-bold tracking-tight leading-none sm:text-xs md:text-sm">
-            HWG
-          </span>
-          <Check
-            className="my-0.5 h-5 w-5 sm:h-6 sm:w-6 md:my-1 md:h-8 md:w-8"
-            strokeWidth={3}
-          />
-          <span className="font-mono text-[10px] font-bold tracking-tight leading-none sm:text-xs md:text-sm">
-            ZHG
-          </span>
-        </div>
-      </div>
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={0.9}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+        className="h-24 w-24 translate-y-1.5 text-fg-primary sm:h-24 sm:w-24 sm:translate-y-1 md:h-32 md:w-32 md:translate-y-0"
+      >
+        <path d="M4 4h9l4 4v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z" />
+        <polyline points="13 4 13 8 17 8" />
+        <line x1="6" y1="11" x2="14" y2="11" />
+        <line x1="6" y1="13.5" x2="11" y2="13.5" />
+        <g transform="rotate(-12 17 17)">
+          <rect x="13.5" y="14" width="7" height="6" rx="1" fill="#FFFFFF" stroke="#58BAB5" />
+          <text
+            x="17"
+            y="18.7"
+            fontSize="5.5"
+            fontWeight="700"
+            fill="#58BAB5"
+            stroke="none"
+            textAnchor="middle"
+          >
+            §
+          </text>
+        </g>
+      </svg>
     );
   }
   if (id === "landingpages") {
     return (
-      <div className="w-32 overflow-hidden rounded-md border border-border bg-bg-primary shadow-xl sm:w-40 md:w-52">
-        <div className="flex items-center gap-1 border-b border-border bg-bg-secondary/60 px-2 py-1.5">
-          <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary/40" />
-          <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary/40" />
-          <span className="h-1.5 w-1.5 rounded-full bg-fg-secondary/40" />
-        </div>
-        <div className="space-y-1.5 p-2.5 md:space-y-2 md:p-3">
-          <div className="h-2.5 w-4/5 rounded bg-fg-primary/70 md:h-2 md:w-2/3 md:bg-fg-secondary/40" />
-          <div className="h-1 w-full rounded bg-fg-secondary/30 md:h-1.5 md:bg-fg-secondary/20" />
-          <div className="h-1 w-5/6 rounded bg-fg-secondary/30 md:h-1.5 md:bg-fg-secondary/20" />
-          <div className="hidden md:mt-3 md:grid md:grid-cols-2 md:gap-1.5">
-            <div className="md:h-1.5 md:rounded md:bg-fg-secondary/20" />
-            <div className="md:h-1.5 md:rounded md:bg-fg-secondary/20" />
-          </div>
-          <div className="mt-2.5 h-5 w-3/5 rounded bg-accent md:mt-3 md:w-24" />
-        </div>
-      </div>
+      <svg
+        viewBox="0 0 240 180"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2.4}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+        className="w-32 translate-y-1 text-fg-primary sm:w-40 sm:translate-y-1 md:w-52 md:translate-y-0"
+      >
+        <rect x="20" y="20" width="200" height="140" rx="6" />
+        <line x1="20" y1="42" x2="220" y2="42" />
+        <circle cx="32" cy="31" r="2.4" fill="currentColor" stroke="none" />
+        <circle cx="40" cy="31" r="2.4" fill="currentColor" stroke="none" />
+        <circle cx="48" cy="31" r="2.4" fill="currentColor" stroke="none" />
+        <rect x="62" y="25" width="148" height="12" rx="3" />
+        <text
+          x="70"
+          y="34.4"
+          fontSize="9"
+          fontWeight="700"
+          fill="currentColor"
+          stroke="none"
+        >
+          www.
+        </text>
+        <line x1="36" y1="68" x2="180" y2="68" strokeWidth={3.2} />
+        <line x1="36" y1="84" x2="148" y2="84" strokeWidth={3.2} />
+        <line x1="36" y1="98" x2="128" y2="98" strokeWidth={2} />
+        <rect
+          x="36"
+          y="118"
+          width="92"
+          height="22"
+          rx="11"
+          fill="#58BAB5"
+          stroke="#58BAB5"
+        />
+        <path
+          d="M118 130 L138 144 L128.6 146.5 L133.6 156.4 L128 158.6 L123 148.6 L116 152.6 Z"
+          fill="currentColor"
+          stroke="#ffffff"
+          strokeWidth={1.4}
+        />
+      </svg>
     );
   }
   if (id === "social-ads") {
     return (
-      <div className="flex flex-wrap items-center justify-center gap-1.5 sm:gap-3 md:gap-5">
+      <div className="flex translate-y-1.5 flex-wrap items-center justify-center gap-1.5 sm:translate-y-1 sm:gap-3 md:translate-y-0 md:gap-5">
         <Image
           src="/Facebook_Logo_(2019).png"
           alt="Facebook"
           width={120}
           height={120}
-          className="h-9 w-9 object-contain sm:h-14 sm:w-14 md:h-20 md:w-20"
+          className="h-10 w-10 object-contain sm:h-14 sm:w-14 md:h-20 md:w-20"
         />
         <Image
           src="/Instagram_icon.png"
           alt="Instagram"
           width={120}
           height={120}
-          className="h-9 w-9 object-contain sm:h-14 sm:w-14 md:h-20 md:w-20"
+          className="h-10 w-10 object-contain sm:h-14 sm:w-14 md:h-20 md:w-20"
         />
         <Image
           src="/tiktok-icon-free-png.webp"
           alt="TikTok"
           width={120}
           height={120}
-          className="h-9 w-9 object-contain sm:h-14 sm:w-14 md:h-20 md:w-20"
+          className="h-10 w-10 object-contain sm:h-14 sm:w-14 md:h-20 md:w-20"
         />
       </div>
     );
   }
   if (id === "ki-sortier") {
     return (
-      <AiIcon className="aspect-[16/9] w-full max-w-[140px] sm:max-w-[200px] md:max-w-[280px]" />
+      <AiIcon className="aspect-[16/9] w-full max-w-[140px] translate-y-1.5 sm:max-w-[200px] sm:translate-y-1 md:max-w-[280px] md:translate-y-0" />
     );
   }
   if (id === "reputation") {
     return (
-      <div className="flex flex-col items-center gap-2 sm:gap-3">
+      <div className="flex translate-y-1.5 flex-col items-center gap-2 sm:translate-y-1 sm:gap-3 md:translate-y-0">
         <div className="flex items-center gap-0.5 sm:gap-1">
           {Array.from({ length: 5 }).map((_, i) => (
             <Star
               key={i}
-              className="h-5 w-5 fill-yellow-400 text-yellow-400 sm:h-7 sm:w-7 md:h-9 md:w-9"
+              className="h-6 w-6 fill-yellow-400 text-yellow-400 sm:h-7 sm:w-7 md:h-9 md:w-9"
               strokeWidth={1.5}
             />
           ))}
@@ -112,7 +155,7 @@ function CardVisual({ id }: { id: OfferCard["id"] }) {
             alt="Google"
             width={20}
             height={20}
-            className="h-4 w-4 sm:h-5 sm:w-5 md:h-6 md:w-6"
+            className="h-5 w-5 sm:h-5 sm:w-5 md:h-6 md:w-6"
           />
           <span className="font-mono text-[10px] font-semibold tracking-wider text-fg-secondary sm:text-xs md:text-sm">
             ·
@@ -122,7 +165,7 @@ function CardVisual({ id }: { id: OfferCard["id"] }) {
             alt="Jameda"
             width={2895}
             height={600}
-            className="h-3 w-auto sm:h-4 md:h-5"
+            className="h-4 w-auto sm:h-4 md:h-5"
           />
         </div>
       </div>
@@ -130,12 +173,27 @@ function CardVisual({ id }: { id: OfferCard["id"] }) {
   }
   if (id === "begleitung") {
     return (
-      <div className="flex h-20 w-20 items-center justify-center rounded-full border-2 border-accent/50 bg-accent/10 sm:h-24 sm:w-24 md:h-32 md:w-32">
-        <LifeBuoy
-          className="h-10 w-10 text-accent sm:h-12 sm:w-12 md:h-16 md:w-16"
-          strokeWidth={1.75}
-        />
-      </div>
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={0.9}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+        className="h-24 w-24 translate-y-1.5 text-fg-primary sm:h-24 sm:w-24 sm:translate-y-1 md:h-32 md:w-32 md:translate-y-0"
+      >
+        <circle cx="12" cy="12" r="8.5" />
+        <line x1="12" y1="3.5" x2="12" y2="4.6" />
+        <line x1="12" y1="19.4" x2="12" y2="20.5" />
+        <line x1="3.5" y1="12" x2="4.6" y2="12" />
+        <line x1="19.4" y1="12" x2="20.5" y2="12" />
+        <g transform="rotate(45 12 12)">
+          <path d="M12 7.4 L13.55 12 L10.45 12 Z" fill="#58BAB5" stroke="#58BAB5" />
+          <path d="M12 16.6 L13.55 12 L10.45 12 Z" fill="currentColor" stroke="currentColor" />
+        </g>
+        <circle cx="12" cy="12" r="0.9" fill="#fff" stroke="currentColor" />
+      </svg>
     );
   }
   return null;
@@ -175,7 +233,11 @@ function ExpandableCard({ card, index }: { card: OfferCard; index: number }) {
               />
             </button>
           </div>
-          <div className="order-2 flex w-36 shrink-0 flex-col sm:w-44 md:order-3 md:w-72 lg:w-80">
+          <div
+            className={`order-2 flex w-36 shrink-0 flex-col sm:w-44 md:order-3 md:w-72 lg:w-80 ${
+              isFullBleed ? "" : "pt-5 sm:pt-6 md:pt-0"
+            }`}
+          >
             <div
               className={`relative flex h-28 w-full items-center justify-center overflow-hidden sm:h-32 md:h-auto md:flex-1 ${
                 isFullBleed ? "" : "px-1.5 py-2 sm:px-3 sm:py-3 md:px-8 md:py-8"
@@ -234,9 +296,17 @@ export function System() {
             </span>
           </div>
           <h2 className="display-l mx-auto mt-4 max-w-6xl text-center">
-            <ShimmerText className="block md:inline">Marketing</ShimmerText>{" "}
-            <span className="block whitespace-nowrap md:inline">
-              für Ihre Klinik.
+            <span className="block md:inline">Das</span>{" "}
+            <span className="block md:inline md:whitespace-nowrap">
+              <Image
+                src="/eins-logo.svg"
+                alt="EINS"
+                width={1275}
+                height={513}
+                priority
+                className="inline-block h-[1em] w-auto align-baseline"
+              />{" "}
+              <ShimmerText className="inline">Wachstumssystem.</ShimmerText>
             </span>
           </h2>
         </Reveal>
