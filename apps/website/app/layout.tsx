@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import { SpeedInsights } from "@vercel/speed-insights/next";
-import { Analytics } from "@vercel/analytics/next";
 import "./globals.css";
+import { CookieConsent } from "@/components/cookie-consent";
 import { CONTACT_EMAIL, CONTACT_PHONE } from "@/lib/constants";
 
 const display = localFont({
@@ -16,44 +15,44 @@ const display = localFont({
   display: "swap",
 });
 
-const SITE_URL = "https://einsvisuals.com";
+const SITE_URL = "https://eins.ag";
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "EINS Visuals | Akquise-System für Ästhetikkliniken",
-    template: "%s | EINS Visuals",
+    default: "EINS | Wachstumssystem für Ästhetik-Praxen",
+    template: "%s | EINS",
   },
   description:
-    "Mehr Selbstzahler für Ihre Ästhetikklinik: Video, bezahlte Anzeigen und KI-gestütztes Anfrage-System als integriertes Akquise-System im DACH-Raum.",
-  applicationName: "EINS Visuals",
+    "Mehr Selbstzahler für Ihre Ästhetik-Praxis: Video, bezahlte Anzeigen und KI-gestütztes Anfrage-System als integriertes Wachstumssystem im DACH-Raum.",
+  applicationName: "EINS",
   keywords: [
-    "Ästhetikklinik Marketing",
+    "Ästhetik-Praxis Marketing",
     "Patientenakquise",
     "Selbstzahler gewinnen",
-    "Klinik Werbung",
+    "Praxis-Werbung",
     "Medizin Video Produktion",
-    "Meta Ads Klinik",
-    "EINS Visuals",
+    "Meta Ads Ästhetik-Praxis",
+    "EINS",
   ],
-  authors: [{ name: "EINS Visuals", url: SITE_URL }],
-  creator: "EINS Visuals",
-  publisher: "EINS Visuals",
+  authors: [{ name: "EINS", url: SITE_URL }],
+  creator: "EINS",
+  publisher: "EINS",
   alternates: { canonical: "/" },
   openGraph: {
-    title: "EINS Visuals | Akquise-System für Ästhetikkliniken",
+    title: "EINS | Wachstumssystem für Ästhetik-Praxen",
     description:
-      "Mehr Selbstzahler für Ihre Ästhetikklinik: Video, bezahlte Anzeigen und KI-gestütztes Anfrage-System. DACH-Raum.",
+      "Mehr Selbstzahler für Ihre Ästhetik-Praxis: Video, bezahlte Anzeigen und KI-gestütztes Anfrage-System. DACH-Raum.",
     url: SITE_URL,
-    siteName: "EINS Visuals",
+    siteName: "EINS",
     locale: "de_DE",
     type: "website",
-    images: [{ url: "/eins-logo.png", width: 1200, height: 630, alt: "EINS Visuals" }],
+    images: [{ url: "/eins-logo.png", width: 1200, height: 630, alt: "EINS" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "EINS Visuals | Akquise-System für Ästhetikkliniken",
-    description: "Mehr Selbstzahler für Ihre Ästhetikklinik. Video, bezahlte Anzeigen, KI-Anfrage-System.",
+    title: "EINS | Wachstumssystem für Ästhetik-Praxen",
+    description: "Mehr Selbstzahler für Ihre Ästhetik-Praxis. Video, bezahlte Anzeigen, KI-Anfrage-System.",
     images: ["/eins-logo.png"],
   },
   robots: {
@@ -79,13 +78,12 @@ export const metadata: Metadata = {
 const organizationJsonLd = {
   "@context": "https://schema.org",
   "@type": "Organization",
-  name: "EINS Visuals",
-  alternateName: "EINS",
+  name: "EINS",
   url: SITE_URL,
   logo: `${SITE_URL}/eins-logo.png`,
   image: `${SITE_URL}/eins-logo.png`,
   description:
-    "Akquise-System für Ästhetikkliniken im DACH-Raum. Video, bezahlte Anzeigen und KI-gestütztes Anfrage-System als integriertes Produkt.",
+    "Wachstumssystem für Ästhetik-Praxen im DACH-Raum. Video, bezahlte Anzeigen und KI-gestütztes Anfrage-System als integriertes Produkt.",
   slogan: "Mehr Selbstzahler. Mehr Umsatz. Mehr Sicherheit.",
   email: CONTACT_EMAIL,
   telephone: CONTACT_PHONE,
@@ -101,20 +99,20 @@ const organizationJsonLd = {
 const websiteJsonLd = {
   "@context": "https://schema.org",
   "@type": "WebSite",
-  name: "EINS Visuals",
+  name: "EINS",
   url: SITE_URL,
   inLanguage: "de-DE",
-  publisher: { "@type": "Organization", name: "EINS Visuals" },
+  publisher: { "@type": "Organization", name: "EINS" },
 };
 
 const serviceJsonLd = {
   "@context": "https://schema.org",
   "@type": "ProfessionalService",
-  name: "EINS Visuals",
+  name: "EINS",
   url: SITE_URL,
   image: `${SITE_URL}/eins-logo.png`,
   description:
-    "Akquise-System für Ästhetikkliniken: Medienproduktion, bezahlte Anzeigen und KI-gestütztes Anfrage-System.",
+    "Wachstumssystem für Ästhetik-Praxen: Medienproduktion, bezahlte Anzeigen und KI-gestütztes Anfrage-System.",
   areaServed: [
     { "@type": "Country", name: "Deutschland" },
     { "@type": "Country", name: "Österreich" },
@@ -122,7 +120,7 @@ const serviceJsonLd = {
   ],
   serviceType: [
     "Patientenakquise",
-    "Medienproduktion für Kliniken",
+    "Medienproduktion für Praxen",
     "Bezahlte Anzeigen",
     "KI-gestütztes Anfrage-System",
   ],
@@ -137,8 +135,6 @@ export default function RootLayout({
   return (
     <html lang="de" className={display.variable}>
       <head>
-        <link rel="preconnect" href="https://calendly.com" />
-        <link rel="dns-prefetch" href="https://calendly.com" />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
@@ -160,8 +156,7 @@ export default function RootLayout({
           Zum Inhalt springen
         </a>
         <div id="main-content">{children}</div>
-        <SpeedInsights />
-        <Analytics />
+        <CookieConsent />
       </body>
     </html>
   );

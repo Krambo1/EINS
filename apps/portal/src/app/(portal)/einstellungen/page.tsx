@@ -42,6 +42,8 @@ import {
 import { listTreatments } from "@/server/queries/treatments";
 import { listLocations } from "@/server/queries/locations";
 import { listReviews } from "@/server/queries/reviews";
+import { Brand } from "@/app/_components/Brand";
+import { platformLabelNode, type Platform } from "../bewertungen/_lib/platforms";
 
 export const metadata = { title: "Einstellungen" };
 
@@ -359,7 +361,7 @@ export default async function EinstellungenPage() {
           <CardContent className="space-y-4">
             <IntegrationRow
               platform="meta"
-              label="Meta · Facebook & Instagram"
+              label={<Brand brand="meta">Meta · Facebook & Instagram</Brand>}
               connected={!!metaCred}
               accountId={metaCred?.accountId ?? null}
               lastSyncedAt={metaCred?.lastSyncedAt ?? null}
@@ -367,7 +369,7 @@ export default async function EinstellungenPage() {
             />
             <IntegrationRow
               platform="google"
-              label="Google Ads"
+              label={<Brand brand="google">Google Ads</Brand>}
               connected={!!googleCred}
               accountId={googleCred?.accountId ?? null}
               lastSyncedAt={googleCred?.lastSyncedAt ?? null}
@@ -420,7 +422,7 @@ export default async function EinstellungenPage() {
                   </div>
                   <div>
                     <label className="mb-1 block text-xs font-medium text-fg-secondary">
-                      Recall (Monate)
+                      Folgetermin (Monate)
                     </label>
                     <Input
                       name="defaultRecallMonths"
@@ -447,7 +449,7 @@ export default async function EinstellungenPage() {
                         </span>
                         {t.defaultRecallMonths != null && (
                           <Badge tone="neutral">
-                            Recall: {t.defaultRecallMonths} Mon
+                            Folgetermin: {t.defaultRecallMonths} Mon
                           </Badge>
                         )}
                         {t.keywords && (
@@ -535,7 +537,7 @@ export default async function EinstellungenPage() {
               <CardContent className="space-y-4">
                 <p className="text-sm text-fg-secondary">
                   Eine Momentaufnahme der Bewertungen pro Plattform manuell
-                  erfassen. Wird im Dashboard und in der Auswertung angezeigt.
+                  erfassen. Wird in der Übersicht und in der Auswertung angezeigt.
                 </p>
                 <form
                   action={logReviewSnapshotAction}
@@ -597,8 +599,8 @@ export default async function EinstellungenPage() {
                         className="flex items-center justify-between py-2 text-sm"
                       >
                         <span>
-                          <span className="font-medium capitalize text-fg-primary">
-                            {r.platform}
+                          <span className="font-medium text-fg-primary">
+                            {platformLabelNode(r.platform as Platform)}
                           </span>
                           <span className="ml-2 tabular-nums">
                             {r.rating.toFixed(1).replace(".", ",")} ★
@@ -665,11 +667,8 @@ export default async function EinstellungenPage() {
                   <code className="font-mono">{clinic.id}</code>
                 </div>
                 <div>
-                  <span className="text-fg-secondary">Plan:</span> {clinic.plan}
-                </div>
-                <div>
                   <span className="text-fg-secondary">Kunde seit:</span>{" "}
-                  {formatDateTime(clinic.planStartedAt)}
+                  {formatDateTime(clinic.createdAt)}
                 </div>
                 <div>
                   <span className="text-fg-secondary">Ihr Nutzer-ID:</span>{" "}
@@ -693,7 +692,7 @@ function IntegrationRow({
   available,
 }: {
   platform: "meta" | "google";
-  label: string;
+  label: React.ReactNode;
   connected: boolean;
   accountId: string | null;
   lastSyncedAt: Date | null;

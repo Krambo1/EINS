@@ -6,7 +6,7 @@ export interface EmptyStateProps {
   icon?: React.ReactNode;
   title: string;
   /** One sentence, Klartext. */
-  description?: string;
+  description?: React.ReactNode;
   /** Optional primary action */
   action?: React.ReactNode;
   className?: string;

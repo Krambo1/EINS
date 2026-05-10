@@ -2,7 +2,7 @@ import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
-import { SLA_HOURS, type Plan, type RequestSource } from "@/lib/constants";
+import { SLA_HOURS, type RequestSource } from "@/lib/constants";
 import { decryptString } from "@/lib/crypto";
 
 /**
@@ -52,23 +52,21 @@ export interface LeadInput {
 }
 
 /**
- * Persist an incoming lead. SLA respond-by is computed from the clinic's plan.
- * Returns the new request id. Callers must verify HMAC first.
+ * Persist an incoming lead. Returns the new request id.
+ * Callers must verify HMAC first.
  */
 export async function persistLead(
   clinicId: string,
   input: LeadInput
 ): Promise<string> {
-  // Plan → SLA.
   const [clinic] = await db
-    .select({ plan: schema.clinics.plan })
+    .select({ id: schema.clinics.id })
     .from(schema.clinics)
     .where(eq(schema.clinics.id, clinicId))
     .limit(1);
   if (!clinic) throw new Error("clinic_not_found");
 
-  const slaHours = SLA_HOURS[clinic.plan as Plan] ?? 24;
-  const slaRespondBy = new Date(Date.now() + slaHours * 60 * 60 * 1000);
+  const slaRespondBy = new Date(Date.now() + SLA_HOURS * 60 * 60 * 1000);
 
   const [row] = await db
     .insert(schema.requests)

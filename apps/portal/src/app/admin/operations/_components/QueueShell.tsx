@@ -11,7 +11,7 @@ interface Props {
   emptyMessage?: string;
 }
 
-const GLOW_CARD = "card-glow !bg-bg-secondary/60 backdrop-blur-sm scroll-mt-28";
+const GLOW_CARD = "!bg-bg-secondary/60 scroll-mt-28";
 
 export function QueueShell({
   id,

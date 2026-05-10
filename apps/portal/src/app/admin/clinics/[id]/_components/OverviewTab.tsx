@@ -16,7 +16,7 @@ import { MetricTile } from "@eins/ui";
 
 type Clinic = typeof schema.clinics.$inferSelect;
 
-const GLOW_CARD = "card-glow !bg-bg-secondary/60 backdrop-blur-sm";
+const GLOW_CARD = "!bg-bg-secondary/60";
 
 export function OverviewTab({
   clinic,
@@ -100,10 +100,6 @@ export function OverviewTab({
           <h2 className="font-display text-xl font-semibold">Stammdaten</h2>
           <dl className="grid gap-4 sm:grid-cols-2">
             <Field label="Slug" value={clinic.slug} mono />
-            <Field
-              label="Plan-Beginn"
-              value={formatDateTime(clinic.planStartedAt)}
-            />
             <Field
               label="Standard-Behandler"
               value={clinic.defaultDoctorEmail ?? "–"}

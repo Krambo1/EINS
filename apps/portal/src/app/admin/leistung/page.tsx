@@ -20,10 +20,11 @@ import {
 } from "@/server/queries/admin";
 import { AdminPageHeader } from "../_components/AdminPageHeader";
 import { LineChart } from "../_charts/LineChart";
+import { Brand } from "@/app/_components/Brand";
 
 export const metadata = { title: "Leistung · Admin" };
 
-const GLOW_CARD = "card-glow !bg-bg-secondary/60 backdrop-blur-sm";
+const GLOW_CARD = "!bg-bg-secondary/60";
 
 interface PageProps {
   searchParams: { period?: string };
@@ -157,7 +158,11 @@ export default async function AdminLeistungPage({ searchParams }: PageProps) {
               <CardContent className="space-y-3 pt-6">
                 <header className="flex items-center justify-between">
                   <h2 className="font-display text-xl font-semibold">
-                    {platform === "meta" ? "Meta / Instagram" : "Google Ads"}
+                    {platform === "meta" ? (
+                      <Brand brand="meta">Meta / Instagram</Brand>
+                    ) : (
+                      <Brand brand="google">Google Ads</Brand>
+                    )}
                   </h2>
                   <Badge tone={m ? "good" : "neutral"}>
                     {m ? "Aktiv" : "Keine Daten"}

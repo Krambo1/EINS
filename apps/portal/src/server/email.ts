@@ -110,14 +110,14 @@ export function getEmailSender(): EmailSender {
 // ---------------------------------------------------------------------------
 
 function layoutHtml(innerHtml: string): string {
-  return `<!doctype html><html lang="de"><head><meta charset="utf-8"><title>EINS Visuals</title></head>
+  return `<!doctype html><html lang="de"><head><meta charset="utf-8"><title>EINS</title></head>
 <body style="font-family: -apple-system, Helvetica, Arial, sans-serif; color:#10101a; background:#f5f5f7; margin:0; padding:32px;">
   <div style="max-width:560px; margin:0 auto; background:#ffffff; border:1px solid #e4e4e7; border-radius:16px; padding:32px;">
-    <div style="font-size:14px; letter-spacing:0.04em; color:#4a4a52; margin-bottom:24px;">EINS Visuals Portal</div>
+    <div style="font-size:14px; letter-spacing:0.04em; color:#4a4a52; margin-bottom:24px;">EINS Portal</div>
     ${innerHtml}
     <hr style="border:none; border-top:1px solid #e4e4e7; margin:32px 0;">
     <div style="font-size:12px; color:#8a8a94;">
-      Sie erhalten diese E-Mail, weil jemand einen Zugang zum EINS Visuals Portal angefordert hat.
+      Sie erhalten diese E-Mail, weil jemand einen Zugang zum EINS Portal angefordert hat.
       Wurden Sie das nicht, ignorieren Sie bitte diese Nachricht.
     </div>
   </div>
@@ -133,8 +133,8 @@ export async function sendMagicLinkEmail(opts: {
   const sender = getEmailSender();
   const heading =
     opts.intent === "invite"
-      ? `Ihr Zugang zum EINS Visuals Portal${opts.clinicName ? ` für ${opts.clinicName}` : ""}`
-      : "Ihr Anmelde-Link für das EINS Visuals Portal";
+      ? `Ihr Zugang zum EINS Portal${opts.clinicName ? ` für ${opts.clinicName}` : ""}`
+      : "Ihr Anmelde-Link für das EINS Portal";
   const intro =
     opts.intent === "invite"
       ? "Klicken Sie auf den folgenden Link, um Ihren Zugang einzurichten. Der Link ist 15 Minuten gültig und kann nur einmal verwendet werden."
@@ -195,28 +195,3 @@ export async function sendFeedbackEmail(opts: {
   await sender.send({ to: opts.to, subject, html, text });
 }
 
-export async function sendUpgradeRequestEmail(opts: {
-  to: string;
-  clinicName: string;
-  requestedBy: string;
-  currentPlan: string;
-  note?: string;
-}): Promise<void> {
-  const sender = getEmailSender();
-  const subject = `Upgrade-Anfrage: ${opts.clinicName}`;
-  const html = layoutHtml(`
-    <h1 style="font-size:22px; font-weight:600; margin:0 0 16px 0;">${subject}</h1>
-    <p style="font-size:16px; line-height:1.5;">
-      <strong>${opts.requestedBy}</strong> möchte für <strong>${opts.clinicName}</strong> auf das Erweitert-Paket wechseln.
-    </p>
-    <p style="font-size:14px; color:#4a4a52;">Aktuelles Paket: ${opts.currentPlan}</p>
-    ${opts.note ? `<blockquote style="border-left:3px solid #58BAB5; padding-left:16px; margin:16px 0; color:#10101a;">${opts.note}</blockquote>` : ""}`);
-  const text = [
-    subject,
-    "",
-    `${opts.requestedBy} möchte für ${opts.clinicName} auf das Erweitert-Paket wechseln.`,
-    `Aktuelles Paket: ${opts.currentPlan}`,
-    opts.note ? `\nNotiz: ${opts.note}` : "",
-  ].join("\n");
-  await sender.send({ to: opts.to, subject, html, text });
-}

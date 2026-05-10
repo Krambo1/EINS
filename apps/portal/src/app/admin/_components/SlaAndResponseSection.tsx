@@ -7,7 +7,7 @@ import type {
 } from "@/server/queries/admin";
 import { KPI_THRESHOLDS, toneForLowerBetter } from "@/server/constants/admin";
 
-const GLOW_CARD = "card-glow !bg-bg-secondary/60 backdrop-blur-sm";
+const GLOW_CARD = "!bg-bg-secondary/60";
 
 export function SlaAndResponseSection({
   sla,

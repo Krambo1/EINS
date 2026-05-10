@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Menu, X } from "lucide-react";
@@ -10,7 +11,6 @@ import { cn } from "@/lib/utils";
 const LINKS = [
   { href: "/#system", label: "System" },
   { href: "/#ergebnisse", label: "Ergebnisse" },
-  { href: "/#angebot", label: "Angebot" },
   { href: "/#faq", label: "FAQ" },
   { href: "/kontakt", label: "Kontakt" },
 ];
@@ -125,7 +125,7 @@ export function Nav() {
             : "border-b border-transparent"
         )}
       >
-        <div className="container grid h-[72px] grid-cols-[1fr_auto_1fr] items-center md:flex md:justify-between">
+        <div className="container grid h-[72px] grid-cols-[1fr_auto_1fr] items-center md:flex md:justify-start md:gap-8">
           {/* Mobile burger (right) */}
           <button
             ref={burgerRef}
@@ -162,16 +162,15 @@ export function Nav() {
                 ? "pointer-events-auto opacity-100"
                 : "pointer-events-none opacity-0"
             )}
-            aria-label="EINS Visuals"
+            aria-label="EINS"
             onClick={() => setOpen(false)}
           >
-            <img
+            <Image
               src="/eins-logo.svg"
-              alt="EINS Visuals"
+              alt="EINS"
               width={600}
               height={240}
-              fetchPriority="high"
-              decoding="async"
+              priority
               className="h-9 w-auto -translate-y-[2px] md:h-10"
             />
           </Link>
@@ -196,7 +195,7 @@ export function Nav() {
           {/* CTA. On mobile shares the left grid cell with the logo; on desktop pinned right and always visible. */}
           <div
             className={cn(
-              "col-start-1 row-start-1 justify-self-start transition-opacity duration-300 md:col-start-3 md:justify-self-end md:!pointer-events-auto md:!opacity-100",
+              "col-start-1 row-start-1 justify-self-start transition-opacity duration-300 md:col-start-3 md:ml-auto md:justify-self-end md:!pointer-events-auto md:!opacity-100",
               !pageCtaVisible || open
                 ? "pointer-events-auto opacity-100"
                 : "pointer-events-none opacity-0"
@@ -263,7 +262,7 @@ export function Nav() {
             }}
           >
             <p className="text-center font-mono text-xs text-fg-tertiary">
-              EINS Visuals, Premium Akquisitions-System
+              EINS, EINS-Wachstumssystem
             </p>
           </div>
         </div>

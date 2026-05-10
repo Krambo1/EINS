@@ -8,7 +8,6 @@ import {
   MetricTile,
 } from "@eins/ui";
 import { requireAdmin } from "@/auth/admin-guards";
-import { PLAN_LABELS, type Plan } from "@/lib/constants";
 import {
   formatEuro,
   formatNumber,
@@ -23,7 +22,7 @@ import { AdminPageHeader } from "../_components/AdminPageHeader";
 
 export const metadata = { title: "Kliniken" };
 
-const GLOW_CARD = "card-glow !bg-bg-secondary/60 backdrop-blur-sm";
+const GLOW_CARD = "!bg-bg-secondary/60";
 
 const SORT_KEYS = [
   "name",
@@ -38,7 +37,6 @@ type SortKey = (typeof SORT_KEYS)[number];
 
 interface PageProps {
   searchParams: {
-    plan?: string;
     status?: string;
     health?: string;
     activity?: string;
@@ -68,9 +66,6 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
 
   // Apply filters
   const filtered = all.filter((c) => {
-    if (searchParams.plan && searchParams.plan !== "alle") {
-      if (c.plan !== searchParams.plan) return false;
-    }
     if (searchParams.status === "active" && c.archivedAt) return false;
     if (searchParams.status === "archived" && !c.archivedAt) return false;
     if (searchParams.health && searchParams.health !== "alle") {
@@ -143,21 +138,12 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
 
       <Card className={GLOW_CARD}>
         <CardContent className="pt-6">
-          <form className="grid gap-3 md:grid-cols-[2fr_repeat(4,1fr)_auto]" method="get">
+          <form className="grid gap-3 md:grid-cols-[2fr_repeat(3,1fr)_auto]" method="get">
             <Input
               name="search"
               placeholder="Suche: Klinikname oder Slug"
               defaultValue={searchParams.search ?? ""}
             />
-            <select
-              name="plan"
-              defaultValue={searchParams.plan ?? "alle"}
-              className="rounded-md border border-border bg-bg-primary px-3 py-2 text-sm"
-            >
-              <option value="alle">Plan: alle</option>
-              <option value="standard">Standard</option>
-              <option value="erweitert">Erweitert</option>
-            </select>
             <select
               name="status"
               defaultValue={searchParams.status ?? "active"}
@@ -208,8 +194,6 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
                     dir={dir}
                     baseQuery={baseQuery}
                   />
-                  <th className="px-3 py-2">Plan</th>
-                  <th className="px-3 py-2 text-right">MRR</th>
                   <SortableTh
                     label="Spend"
                     sortKey="spend"
@@ -280,14 +264,6 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
                         {c.slug}
                       </div>
                     </td>
-                    <td className="px-3 py-2">
-                      <Badge tone={c.plan === "erweitert" ? "good" : "neutral"}>
-                        {PLAN_LABELS[c.plan as Plan] ?? c.plan}
-                      </Badge>
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums">
-                      {c.mrrEur > 0 ? formatEuro(c.mrrEur) : "–"}
-                    </td>
                     <td className="px-3 py-2 text-right font-mono tabular-nums">
                       {formatEuro(c.spendEur)}
                     </td>
@@ -332,7 +308,7 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
                 {sorted.length === 0 && (
                   <tr>
                     <td
-                      colSpan={12}
+                      colSpan={10}
                       className="px-4 py-10 text-center text-fg-secondary"
                     >
                       Keine Klinik passt zu den aktuellen Filtern.

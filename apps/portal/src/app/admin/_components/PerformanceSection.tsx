@@ -23,7 +23,7 @@ interface Props {
   monthCasesWon: number;
 }
 
-const GLOW_CARD = "card-glow !bg-bg-secondary/60 backdrop-blur-sm";
+const GLOW_CARD = "!bg-bg-secondary/60";
 
 export function PerformanceSection({
   daily,
@@ -115,17 +115,17 @@ export function PerformanceSection({
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
           <SubMetric
-            label="Cost per Patient"
+            label="Kosten pro Patient"
             value={cpp == null ? "–" : formatEuro(cpp)}
             sub={`${formatNumber(monthCasesWon)} gewonnen · Monat`}
           />
           <SubMetric
-            label="Conversion (Lead → Patient)"
+            label="Abschlussquote (Anfrage → Patient)"
             value={conversion == null ? "–" : `${conversion.toFixed(1)} %`}
-            sub={`${formatNumber(monthLeads)} qual. Leads`}
+            sub={`${formatNumber(monthLeads)} qual. Anfragen`}
           />
           <SubMetric
-            label="Net Margin"
+            label="Nettomarge"
             value={
               monthRevenue > 0
                 ? `${((1 - monthSpend / Math.max(monthRevenue, 1)) * 100).toFixed(0)} %`

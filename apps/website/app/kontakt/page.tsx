@@ -4,7 +4,7 @@ import { ShinyButton } from "@/components/ui/shiny-button";
 import { CALENDLY_URL, CONTACT_EMAIL, CONTACT_PHONE } from "@/lib/constants";
 
 export const metadata = {
-  title: "Kontakt · EINS Visuals",
+  title: "Kontakt · EINS",
   alternates: { canonical: "/kontakt" },
 };
 
@@ -12,8 +12,8 @@ const breadcrumbJsonLd = {
   "@context": "https://schema.org",
   "@type": "BreadcrumbList",
   itemListElement: [
-    { "@type": "ListItem", position: 1, name: "Start", item: "https://einsvisuals.com/" },
-    { "@type": "ListItem", position: 2, name: "Kontakt", item: "https://einsvisuals.com/kontakt" },
+    { "@type": "ListItem", position: 1, name: "Start", item: "https://eins.ag/" },
+    { "@type": "ListItem", position: 2, name: "Kontakt", item: "https://eins.ag/kontakt" },
   ],
 };
 
@@ -40,8 +40,8 @@ export default function Kontakt() {
             <span className="text-accent-gradient">sprechen.</span>
           </h1>
           <p className="mt-6 max-w-prose text-lg text-fg-secondary">
-            Sie haben Fragen zum System, zur Zusammenarbeit oder wollen direkt einen
-            Strategie-Gespräch vereinbaren. Wählen Sie den Weg, der für Sie am besten passt.
+            Sie haben Fragen zum System, zur Zusammenarbeit oder wollen direkt ein
+            Strategie-Gespräch buchen. Wählen Sie den Weg, der für Sie am besten passt.
           </p>
         </div>
 
@@ -60,11 +60,11 @@ export default function Kontakt() {
             <h2 className="font-display text-2xl md:text-3xl font-medium leading-tight tracking-tight mt-3">30 Minuten, kostenlos.</h2>
             <p className="mt-4 text-fg-secondary">
               Wir analysieren Ihre aktuelle Akquise-Situation und zeigen Ihnen, ob und
-              wie das EINS-System für Ihre Klinik funktioniert.
+              wie das EINS-System für Ihre Praxis funktioniert.
             </p>
             <div className="mt-8">
               <ShinyButton href={CALENDLY_URL}>
-                Termin auswählen <ArrowUpRight className="h-4 w-4" />
+                Strategie-Gespräch buchen <ArrowUpRight className="h-4 w-4" />
               </ShinyButton>
             </div>
           </div>

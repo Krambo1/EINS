@@ -19,6 +19,9 @@ html {
   color-scheme: light;
   -webkit-text-size-adjust: 100%;
 }
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
 
 body {
   background: var(--bg-primary);
@@ -118,9 +121,7 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 1.5rem;
-  box-shadow:
-    0 1px 2px rgba(16, 16, 26, 0.04),
-    0 8px 24px -6px rgba(16, 16, 26, 0.08);
+  box-shadow: var(--shadow-card);
 }
 @media (min-width: 768px) {
   .opa-card {
@@ -294,17 +295,52 @@ body {
 
 /* Layered soft shadow for important cards */
 .card-glow {
-  box-shadow:
-    0 1px 2px rgba(16, 16, 26, 0.06),
-    0 6px 20px -4px rgba(16, 16, 26, 0.09),
-    0 28px 56px -20px rgba(16, 16, 26, 0.12);
+  box-shadow: var(--shadow-card-strong);
   transition: box-shadow 400ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 .card-glow:hover {
-  box-shadow:
-    0 2px 4px rgba(16, 16, 26, 0.07),
-    0 10px 28px -4px rgba(16, 16, 26, 0.12),
-    0 32px 64px -20px rgba(16, 16, 26, 0.14);
+  box-shadow: var(--shadow-card-strong-hover);
+}
+
+/* ---------------------------------------------------------------
+   DARK-MODE CARD GLOW
+   — In dark mode, the drop shadows that lift cards in light mode
+     are invisible against the dark canvas. Apply a subtle white
+     outer glow to (a) every Tailwind shadow utility, so floating
+     surfaces (Dialog, Popover, Dropdown, Select, Toast, …) stay
+     elevated, and (b) any bordered+backgrounded container — the
+     ubiquitous portal "card" pattern — even when no shadow class
+     is present.
+
+     Specificity is zeroed via :where() so any explicit shadow
+     class on a card (.opa-card, .card-glow, shadow-[var(--…)] …)
+     still takes precedence.
+
+     Single-layer box-shadows, no transitions, no animation — paint
+     cost is negligible even with many cards on a page.
+--------------------------------------------------------------- */
+
+/* (a) Tailwind shadow utilities — override --tw-shadow so the existing
+   composed box-shadow declaration uses our glow instead of the dark default. */
+:where(html[data-theme="dark"]) :where(.shadow-sm) {
+  --tw-shadow: var(--shadow-card-sm);
+  --tw-shadow-colored: var(--shadow-card-sm);
+}
+:where(html[data-theme="dark"]) :where(.shadow, .shadow-md) {
+  --tw-shadow: var(--shadow-card);
+  --tw-shadow-colored: var(--shadow-card);
+}
+:where(html[data-theme="dark"]) :where(.shadow-lg, .shadow-xl, .shadow-2xl) {
+  --tw-shadow: var(--shadow-card-strong);
+  --tw-shadow-colored: var(--shadow-card-strong);
+}
+
+/* (b) Auto-glow any bordered+backgrounded container. Restricted to
+   container tags so inputs (<input>, <textarea>, <select>) and
+   buttons never pick up a halo. */
+:where(html[data-theme="dark"])
+  :where(div, section, article, li, aside, header, footer, dl, main, nav, ul, ol)[class*="border-border"][class*="bg-bg-"] {
+  box-shadow: var(--shadow-card);
 }
 
 /* Ambient accent glow — used as decorative background in dashboards */
@@ -315,6 +351,18 @@ body {
     transparent 60%
   );
 }
+
+/* EINS wordmark theme swap — render both variants, hide the wrong one.
+   `display: none` removes the hidden one from the a11y tree, so each img
+   safely keeps `alt="EINS"` without screen readers announcing it twice. */
+.eins-logo-dark { display: none; }
+html[data-theme="dark"] .eins-logo-light { display: none; }
+html[data-theme="dark"] .eins-logo-dark { display: inline-block; }
+
+/* Brand-logo theming used by the portal's inline <Brand> component. */
+.brand-meta-dark { display: none !important; }
+html[data-theme="dark"] .brand-meta-light { display: none !important; }
+html[data-theme="dark"] .brand-meta-dark { display: inline-block !important; }
 
 /* Subtle noise overlay */
 .bg-noise {
@@ -340,6 +388,10 @@ body {
 @keyframes opa-slide-in-top {
   from { opacity: 0; transform: translateY(-8px) }
   to   { opacity: 1; transform: translateY(0) }
+}
+@keyframes opa-topbar {
+  0%   { transform: translateX(-100%) }
+  100% { transform: translateX(400%) }
 }
 
 /* Focus ring helper — applied to interactive elements by default in shadcn primitives */

@@ -443,4 +443,5 @@ export async function logReviewSnapshotAction(formData: FormData) {
   revalidatePath("/einstellungen");
   revalidatePath("/dashboard");
   revalidatePath("/auswertung");
+  revalidatePath("/bewertungen");
 }

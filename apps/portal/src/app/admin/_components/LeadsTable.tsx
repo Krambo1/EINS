@@ -12,8 +12,9 @@ import {
   type RequestSource,
 } from "@/lib/constants";
 import type { AdminLeadRow } from "@/server/queries/admin";
+import { withBrandLogos } from "@/app/_components/Brand";
 
-const GLOW_CARD = "card-glow !bg-bg-secondary/60 backdrop-blur-sm";
+const GLOW_CARD = "!bg-bg-secondary/60";
 
 interface Props {
   rows: AdminLeadRow[];
@@ -55,7 +56,7 @@ export function LeadsTable({
                 <th className="px-4 py-2">Kontakt</th>
                 <th className="px-4 py-2">Quelle</th>
                 <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2 text-right">KI-Score</th>
+                <th className="px-4 py-2 text-right">KI-Bewertung</th>
                 <th className="px-4 py-2 text-right">SLA</th>
                 <th className="px-4 py-2 text-right">Erstkontakt</th>
                 <th className="px-4 py-2 text-right">Erstellt</th>
@@ -102,7 +103,7 @@ export function LeadsTable({
                     )}
                   </td>
                   <td className="px-4 py-2 text-xs">
-                    {SOURCE_LABELS[r.source as RequestSource] ?? r.source}
+                    {withBrandLogos(SOURCE_LABELS[r.source as RequestSource] ?? r.source)}
                   </td>
                   <td className="px-4 py-2">
                     <Badge tone={statusTone(r.status)}>

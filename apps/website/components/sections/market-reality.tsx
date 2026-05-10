@@ -1,10 +1,17 @@
 import { Counter } from "@/components/ui/counter";
 import { Reveal } from "@/components/ui/reveal";
+import { STATS } from "@/lib/stats-data";
 
-const STATS = [
-  { value: 90, label: "der Kliniken wirken online wie Behandler, nicht wie Premium-Marken" },
-  { value: 55, label: "der deutschen Patienten recherchieren online, bevor sie buchen" },
-  { value: 70, label: "vergleichen 2 bis 5 Anbieter vor der Entscheidung" },
+const statValue = (id: string) => {
+  const s = STATS.find((s) => s.id === id);
+  if (!s) throw new Error(`Stat not found: ${id}`);
+  return s.bigNumber.value;
+};
+
+const MARKET_STATS = [
+  { value: 90, label: "der Praxen wirken online wie Behandler, nicht wie Premium-Marken" },
+  { value: statValue("germans-research"), label: "der deutschen Patienten recherchieren online, bevor sie buchen" },
+  { value: statValue("compare-providers"), label: "vergleichen 2 bis 5 Anbieter vor der Entscheidung" },
 ];
 
 export function MarketReality() {
@@ -19,7 +26,7 @@ export function MarketReality() {
         </Reveal>
 
         <div className="mt-16 grid gap-10 border-t border-border pt-12 md:grid-cols-3 md:gap-16">
-          {STATS.map((s, i) => (
+          {MARKET_STATS.map((s, i) => (
             <Reveal key={s.value} delay={0.1 + i * 0.1}>
               <div className="flex flex-col items-center text-center">
                 <div className="font-display text-6xl font-semibold tracking-tightest text-fg-primary md:text-7xl">

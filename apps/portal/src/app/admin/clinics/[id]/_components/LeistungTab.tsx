@@ -18,9 +18,10 @@ import {
 import type { ClinicPerformance } from "@/server/queries/admin";
 import { AreaChart } from "../../../_charts/AreaChart";
 import { Donut } from "../../../_charts/Donut";
+import { withBrandLogos } from "@/app/_components/Brand";
 import { FunnelBar } from "../../../_charts/FunnelBar";
 
-const GLOW_CARD = "card-glow !bg-bg-secondary/60 backdrop-blur-sm";
+const GLOW_CARD = "!bg-bg-secondary/60";
 const PERIOD_OPTIONS: { key: string; label: string; days: number }[] = [
   { key: "30d", label: "30 Tage", days: 30 },
   { key: "90d", label: "90 Tage", days: 90 },
@@ -141,7 +142,7 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
                   {bySource.map((s) => (
                     <tr key={s.source} className="border-t border-border">
                       <td className="py-2">
-                        {SOURCE_LABELS[s.source as RequestSource] ?? s.source}
+                        {withBrandLogos(SOURCE_LABELS[s.source as RequestSource] ?? s.source)}
                       </td>
                       <td className="py-2 text-right font-mono tabular-nums">
                         {formatNumber(s.leads)}

@@ -17,7 +17,7 @@ import { AuditOverviewPanel } from "./_components/AuditOverview";
 
 export const metadata = { title: "Audit-Log" };
 
-const GLOW_CARD = "card-glow !bg-bg-secondary/60 backdrop-blur-sm";
+const GLOW_CARD = "!bg-bg-secondary/60";
 
 const TABS = [
   { key: "uebersicht", label: "Übersicht" },

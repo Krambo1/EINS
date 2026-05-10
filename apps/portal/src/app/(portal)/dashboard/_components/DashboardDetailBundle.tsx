@@ -7,7 +7,9 @@ import {
   CardHeader,
   CardTitle,
   TrafficLightCard,
-  Sparkline,
+  TrendChart,
+  type TrendChartTone,
+  type TrendChartValueFormat,
   Badge,
 } from "@eins/ui";
 import { db, schema } from "@/db/client";
@@ -28,12 +30,15 @@ import {
   formatMinutes,
   formatPercent,
 } from "@/lib/formatting";
+import { zipSeries } from "@/lib/chart-data";
 import {
   SOURCE_LABELS,
   type RequestSource,
 } from "@/lib/constants";
 import { BreakdownBars } from "../../auswertung/_components/detail-helpers";
 import type { KpiSummary } from "@/server/queries/kpis";
+import { Brand, withBrandLogos } from "@/app/_components/Brand";
+import { platformLabelNode, type Platform } from "../../bewertungen/_lib/platforms";
 
 /**
  * Async server component rendered inside a <Suspense>. Fetches the deep-dive
@@ -90,13 +95,27 @@ export async function DashboardDetailBundle({
           <CardTitle>Tagesverlauf · 14 Tage</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 md:grid-cols-3">
-          <DailyMini label="Anfragen" values={spark.qualifiedLeads.slice(-14)} tone="accent" />
+          <DailyMini
+            label="Anfragen"
+            dates={spark.dates.slice(-14)}
+            values={spark.qualifiedLeads.slice(-14)}
+            tone="accent"
+            valueFormat="number"
+          />
           <DailyMini
             label="Behandlungen gewonnen"
+            dates={spark.dates.slice(-14)}
             values={spark.casesWon.slice(-14)}
             tone="good"
+            valueFormat="number"
           />
-          <DailyMini label="Umsatz" values={spark.revenueEur.slice(-14)} tone="accent" />
+          <DailyMini
+            label="Umsatz"
+            dates={spark.dates.slice(-14)}
+            values={spark.revenueEur.slice(-14)}
+            tone="accent"
+            valueFormat="euro"
+          />
         </CardContent>
       </Card>
 
@@ -109,7 +128,7 @@ export async function DashboardDetailBundle({
             {sourceBreakdown.length > 0 ? (
               <BreakdownBars
                 rows={sourceBreakdown.slice(0, 6).map((c) => ({
-                  label: SOURCE_LABELS[c.source as RequestSource] ?? c.source,
+                  label: withBrandLogos(SOURCE_LABELS[c.source as RequestSource] ?? c.source),
                   value: c.leads,
                   hint: (
                     <>
@@ -157,7 +176,7 @@ export async function DashboardDetailBundle({
                   ? "Noch keine Reaktionsdaten im Monat."
                   : `${formatNumber(responseTime.totalAnswered)} Antworten · P90 ${formatMinutes(
                       responseTime.p90Minutes
-                    )} · ${formatPercent(responseTime.slaBreachRate ?? 0)} SLA-Bruch`
+                    )} · ${formatPercent(responseTime.slaBreachRate ?? 0)} Frist verpasst`
               }
             />
           </CardContent>
@@ -167,7 +186,7 @@ export async function DashboardDetailBundle({
       {staff.length > 0 && (
         <Card className="print:break-inside-avoid">
           <CardHeader>
-            <CardTitle>Mitarbeiter-Performance · diesen Monat</CardTitle>
+            <CardTitle>Mitarbeiter-Leistung · diesen Monat</CardTitle>
           </CardHeader>
           <CardContent>
             <ul className="divide-y divide-border">
@@ -211,7 +230,7 @@ export async function DashboardDetailBundle({
       <div className="grid gap-6 lg:grid-cols-3">
         <Card className="print:break-inside-avoid">
           <CardHeader>
-            <CardTitle>Werbe-Sync</CardTitle>
+            <CardTitle>Werbe-Abgleich</CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
             {creds.length === 0 && (
@@ -219,30 +238,32 @@ export async function DashboardDetailBundle({
                 Noch keine Werbekonten verbunden.
               </p>
             )}
-            {creds.map((c) => (
-              <div
-                key={c.platform}
-                className="flex items-center justify-between rounded-md border border-border bg-bg-secondary/40 p-3"
-              >
-                <div>
-                  <div className="text-sm font-medium capitalize text-fg-primary">
-                    {c.platform === "meta" ? "Meta" : "Google"}
+            <ul className="divide-y divide-border">
+              {creds.map((c) => (
+                <li
+                  key={c.platform}
+                  className="flex items-center justify-between py-2 first:pt-0 last:pb-0"
+                >
+                  <div>
+                    <div className="text-sm font-medium text-fg-primary">
+                      {c.platform === "meta" ? <Brand brand="meta" /> : <Brand brand="google" />}
+                    </div>
+                    <div className="text-xs text-fg-secondary">
+                      {c.lastSyncedAt
+                        ? `Letzter Abgleich: ${formatRelativeMins(c.lastSyncedAt)}`
+                        : "noch nie"}
+                    </div>
                   </div>
-                  <div className="text-xs text-fg-secondary">
-                    {c.lastSyncedAt
-                      ? `Letzter Abgleich: ${formatRelativeMins(c.lastSyncedAt)}`
-                      : "noch nie"}
-                  </div>
-                </div>
-                {c.lastSyncError ? (
-                  <Badge tone="bad">Fehler</Badge>
-                ) : c.lastSyncedAt ? (
-                  <Badge tone="good">OK</Badge>
-                ) : (
-                  <Badge tone="neutral">Wartet</Badge>
-                )}
-              </div>
-            ))}
+                  {c.lastSyncError ? (
+                    <Badge tone="bad">Fehler</Badge>
+                  ) : c.lastSyncedAt ? (
+                    <Badge tone="good">OK</Badge>
+                  ) : (
+                    <Badge tone="neutral">Wartet</Badge>
+                  )}
+                </li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
 
@@ -261,7 +282,7 @@ export async function DashboardDetailBundle({
                   key={r.id}
                   className="flex items-center justify-between text-sm"
                 >
-                  <span className="capitalize text-fg-primary">{r.platform}</span>
+                  <span className="text-fg-primary">{platformLabelNode(r.platform as Platform)}</span>
                   <span className="flex items-center gap-1 font-medium tabular-nums">
                     {r.rating.toFixed(1).replace(".", ",")}
                     <Star className="h-3.5 w-3.5 text-tone-warn" />
@@ -277,12 +298,12 @@ export async function DashboardDetailBundle({
 
         <Card className="print:break-inside-avoid">
           <CardHeader>
-            <CardTitle>Recalls fällig</CardTitle>
+            <CardTitle>Folgetermine fällig</CardTitle>
           </CardHeader>
           <CardContent>
             {recalls.length === 0 ? (
               <p className="text-sm text-fg-secondary">
-                Keine Recalls in den nächsten 30 Tagen.
+                Keine Folgetermine in den nächsten 30 Tagen.
               </p>
             ) : (
               <ul className="space-y-2 text-sm">
@@ -362,9 +383,9 @@ export async function DashboardDetailBundle({
 function recallKindLabel(kind: string): string {
   switch (kind) {
     case "recall":
-      return "Recall";
+      return "Folgetermin";
     case "followup":
-      return "Followup";
+      return "Nachfass";
     case "review_request":
       return "Bewertung";
     default:
@@ -381,12 +402,16 @@ function formatRelativeMins(d: Date): string {
 
 function DailyMini({
   label,
+  dates,
   values,
   tone,
+  valueFormat,
 }: {
   label: string;
+  dates: string[];
   values: number[];
-  tone: "accent" | "good" | "warn" | "bad" | "neutral";
+  tone: TrendChartTone;
+  valueFormat?: TrendChartValueFormat;
 }) {
   const total = values.reduce((s, v) => s + v, 0);
   return (
@@ -397,7 +422,13 @@ function DailyMini({
       <div className="mt-1 font-display text-2xl font-semibold tabular-nums">
         {formatNumber(total)}
       </div>
-      <Sparkline values={values} tone={tone} height={56} />
+      <TrendChart
+        data={zipSeries(dates, values)}
+        tone={tone}
+        height={56}
+        label={label}
+        valueFormat={valueFormat}
+      />
     </div>
   );
 }

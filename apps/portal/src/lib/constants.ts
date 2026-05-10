@@ -47,14 +47,6 @@ export const ROLE_LABELS: Record<Role, string> = {
   frontdesk: "Frontdesk",
 };
 
-export const PLAN_TIERS = ["standard", "erweitert"] as const;
-export type Plan = (typeof PLAN_TIERS)[number];
-
-export const PLAN_LABELS: Record<Plan, string> = {
-  standard: "Standard",
-  erweitert: "Erweitert",
-};
-
 export const REQUEST_SOURCES = [
   "meta",
   "google",
@@ -81,11 +73,8 @@ export const AI_CATEGORY_LABELS: Record<AiCategory, string> = {
   cold: "Kalt",
 };
 
-/** SLA respond-by-time in hours, per plan. */
-export const SLA_HOURS: Record<Plan, number> = {
-  standard: 24,
-  erweitert: 3,
-};
+/** SLA respond-by-time in hours for new leads. */
+export const SLA_HOURS = 3;
 
 export const ACTIVITY_KINDS = [
   "note",
@@ -104,7 +93,7 @@ export const ACTIVITY_KIND_LABELS: Record<ActivityKind, string> = {
   email: "E-Mail",
   whatsapp: "WhatsApp",
   status_change: "Status-Änderung",
-  ai_rescore: "KI-Score aktualisiert",
+  ai_rescore: "KI-Bewertung aktualisiert",
   assignment: "Zuweisung",
 };
 
@@ -125,7 +114,7 @@ export const DOCUMENT_KIND_LABELS: Record<DocumentKind, string> = {
   vertrag: "Vertrag",
   avv: "Auftragsverarbeitungsvertrag",
   auswertung_monatlich: "Monats-Auswertung",
-  vertriebsleitfaden: "Vertriebsleitfaden",
+  vertriebsleitfaden: "Leitfaden",
   hwg_pruefung: "HWG-Prüfung",
   sonstiges: "Sonstiges",
 };
@@ -176,6 +165,20 @@ export const FEEDBACK_STATUS_LABELS: Record<FeedbackStatus, string> = {
   gesehen: "Gesehen",
   bearbeitet: "Bearbeitet",
   verworfen: "Verworfen",
+};
+
+/** Clinic-facing "Fortschritt" timeline entries — admin-authored milestones. */
+export const TIMELINE_STATUSES = [
+  "geplant",
+  "laeuft",
+  "abgeschlossen",
+] as const;
+export type TimelineStatus = (typeof TIMELINE_STATUSES)[number];
+
+export const TIMELINE_STATUS_LABELS: Record<TimelineStatus, string> = {
+  geplant: "Geplant",
+  laeuft: "Läuft",
+  abgeschlossen: "Abgeschlossen",
 };
 
 /** Session cookie */

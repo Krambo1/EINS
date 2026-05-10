@@ -26,7 +26,7 @@ export const env = createEnv({
 
     // Email
     RESEND_API_KEY: z.string().optional(),
-    EMAIL_FROM: z.string().default("EINS Visuals <portal@einsvisuals.com>"),
+    EMAIL_FROM: z.string().default("EINS <team@eins.ag>"),
     EMAIL_DRIVER: z.enum(["console", "resend", "mailhog"]).default("console"),
 
     // Storage
@@ -61,7 +61,7 @@ export const env = createEnv({
     // Admin
     ADMIN_EMAILS: z
       .string()
-      .default("karam@einsvisuals.com")
+      .default("team@eins.ag")
       .transform((v) =>
         v
           .split(",")

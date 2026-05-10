@@ -9,7 +9,7 @@ export default async function MagicLinkSentPage({
 }) {
   const { email } = await searchParams;
   return (
-    <div className="w-full rounded-2xl border border-border bg-bg-primary p-8 text-center shadow-sm">
+    <div className="w-full rounded-2xl border border-border bg-bg-primary p-8 text-center shadow-[var(--shadow-card-sm)]">
       <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-accent/15 text-2xl">
         ✉
       </div>

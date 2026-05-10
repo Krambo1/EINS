@@ -11,7 +11,7 @@ export default async function MfaPage() {
   if (session.mfaVerified) redirect("/dashboard");
 
   return (
-    <div className="w-full rounded-2xl border border-border bg-bg-primary p-8 shadow-sm">
+    <div className="w-full rounded-2xl border border-border bg-bg-primary p-8 shadow-[var(--shadow-card-sm)]">
       <h1 className="text-2xl font-semibold">Zweite Bestätigung.</h1>
       <p className="mt-2 text-base text-fg-secondary">
         Wir möchten kurz sicherstellen, dass Sie es sind.

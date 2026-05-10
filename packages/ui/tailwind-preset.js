@@ -4,10 +4,15 @@
  *
  * Does NOT include a `content` array — each app must provide its own
  * so purging works correctly.
+ *
+ * NOTE: ESM (`export default`) is required because @eins/ui's package.json
+ * sets `"type": "module"`. Webpack tolerates a CJS `module.exports` here via
+ * interop, but Turbopack is stricter and refuses to fabricate a default
+ * export from a `module.exports` assignment in an ESM-typed package.
  */
 
 /** @type {import('tailwindcss').Config} */
-module.exports = {
+export default {
   theme: {
     container: {
       center: true,

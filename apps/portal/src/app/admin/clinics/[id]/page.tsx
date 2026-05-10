@@ -5,11 +5,9 @@ import { Badge } from "@eins/ui";
 import { requireAdmin } from "@/auth/admin-guards";
 import { db, schema } from "@/db/client";
 import {
-  PLAN_LABELS,
   REQUEST_STATUSES,
   REQUEST_SOURCES,
   AI_CATEGORIES,
-  type Plan,
   type RequestSource,
   type RequestStatus,
 } from "@/lib/constants";
@@ -32,6 +30,7 @@ import { TeamTab } from "./_components/TeamTab";
 import { StammdatenTab } from "./_components/StammdatenTab";
 import { IntegrationenTab } from "./_components/IntegrationenTab";
 import { VerwaltungTab } from "./_components/VerwaltungTab";
+import { FortschrittTab } from "./_components/FortschrittTab";
 
 export const metadata = { title: "Klinik-Details" };
 
@@ -40,6 +39,7 @@ const TABS = [
   { key: "leistung", label: "Leistung" },
   { key: "leads", label: "Leads" },
   { key: "aktivitaet", label: "Aktivität" },
+  { key: "fortschritt", label: "Fortschritt" },
   { key: "team", label: "Team" },
   { key: "stammdaten", label: "Stammdaten" },
   { key: "integrationen", label: "Integrationen" },
@@ -131,6 +131,13 @@ export default async function AdminClinicDetailPage({
   } else if (tab === "aktivitaet") {
     const data = await clinicActivity(clinic.id, 30);
     renderedTab = <ActivityTab data={data} />;
+  } else if (tab === "fortschritt") {
+    const entries = await db
+      .select()
+      .from(schema.clinicTimelineEntries)
+      .where(eq(schema.clinicTimelineEntries.clinicId, clinic.id))
+      .orderBy(desc(schema.clinicTimelineEntries.eventDate));
+    renderedTab = <FortschrittTab clinicId={clinic.id} entries={entries} />;
   } else if (tab === "team") {
     const team = await db
       .select()
@@ -187,9 +194,6 @@ export default async function AdminClinicDetailPage({
           <p className="text-lg text-fg-primary">{clinic.legalName}</p>
         </div>
         <div className="flex items-center gap-2">
-          <Badge tone={clinic.plan === "erweitert" ? "good" : "neutral"}>
-            Plan: {PLAN_LABELS[clinic.plan as Plan] ?? clinic.plan}
-          </Badge>
           {isArchived ? (
             <Badge tone="bad">Archiviert</Badge>
           ) : (

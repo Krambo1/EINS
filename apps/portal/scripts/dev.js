@@ -7,7 +7,16 @@
 const { spawn } = require("node:child_process");
 const readline = require("node:readline");
 
-const child = spawn("next", ["dev", "-p", "3001"], {
+// `--turbopack` is a 5–10× win for first-nav-per-route compile in this app
+// (the dependency graph here — recharts, radix × 13, lazy AWS SDK, drizzle
+// — makes webpack's first-touch compile of an unvisited route 3–10s; Turbo
+// reduces it to sub-second). Set DISABLE_TURBOPACK=1 to fall back if Turbo
+// ever breaks on a dependency upgrade.
+const useTurbo = process.env.DISABLE_TURBOPACK !== "1";
+const args = ["dev", "-p", "3001"];
+if (useTurbo) args.push("--turbopack");
+
+const child = spawn("next", args, {
   stdio: ["inherit", "pipe", "inherit"],
   shell: true,
   env: { ...process.env, FORCE_COLOR: "1" },

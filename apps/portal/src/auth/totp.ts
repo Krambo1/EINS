@@ -24,7 +24,7 @@ import { decryptString, encryptString, generateToken } from "../lib/crypto";
  *    decrypted secret (±1 window for drift) OR burns a backup code.
  */
 
-const ISSUER = "EINS Visuals";
+const ISSUER = "EINS";
 const DIGITS = 6;
 const PERIOD = 30;
 

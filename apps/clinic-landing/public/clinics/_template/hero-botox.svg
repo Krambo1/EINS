@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1200" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Platzhalter: Faltenbehandlung">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#eef2f7"/>
+      <stop offset="1" stop-color="#cfd9e6"/>
+    </linearGradient>
+    <pattern id="grid" width="120" height="120" patternUnits="userSpaceOnUse">
+      <path d="M 120 0 L 0 0 0 120" stroke="#ffffff" stroke-opacity="0.4" stroke-width="1" fill="none"/>
+    </pattern>
+  </defs>
+  <rect width="1800" height="1200" fill="url(#bg)"/>
+  <rect width="1800" height="1200" fill="url(#grid)"/>
+  <g transform="translate(900 600)" font-family="Inter, system-ui, sans-serif" text-anchor="middle">
+    <text y="-30" font-size="78" font-weight="600" fill="#1e3a5f">Faltenbehandlung</text>
+    <text y="40" font-size="34" fill="#555560">Hero-Bild der Praxis (1800 × 1200 WebP)</text>
+  </g>
+</svg>

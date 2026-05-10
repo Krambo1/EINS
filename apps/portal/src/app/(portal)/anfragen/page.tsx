@@ -10,8 +10,9 @@ import {
   EmptyState,
   Button,
   Input,
-  Sparkline,
+  TrendChart,
 } from "@eins/ui";
+import { isoDateRangeEndingToday, zipSeries } from "@/lib/chart-data";
 import {
   REQUEST_STATUS_LABELS,
   REQUEST_SOURCES,
@@ -24,6 +25,7 @@ import {
 } from "@/lib/constants";
 import { formatDateTime, formatNumber, formatRelative } from "@/lib/formatting";
 import { AlertTriangle, Inbox, Sparkles } from "lucide-react";
+import { withBrandLogos } from "@/app/_components/Brand";
 
 export const metadata = { title: "Anfragen" };
 
@@ -107,7 +109,16 @@ export default async function AnfragenPage({
               </div>
             </div>
             <div className="w-1/2">
-              <Sparkline values={inboundSeries} tone="accent" height={56} />
+              <TrendChart
+                data={zipSeries(
+                  isoDateRangeEndingToday(inboundSeries.length),
+                  inboundSeries
+                )}
+                tone="accent"
+                height={56}
+                label="Anfragen"
+                valueFormat="number"
+              />
             </div>
           </CardContent>
         </Card>
@@ -177,14 +188,14 @@ export default async function AnfragenPage({
                       : "border-border text-fg-secondary hover:bg-bg-secondary"
                   }`}
                 >
-                  {SOURCE_LABELS[s as RequestSource] ?? s}
+                  {withBrandLogos(SOURCE_LABELS[s as RequestSource] ?? s)}
                 </Link>
               );
             })}
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
-              KI-Score:
+              KI-Bewertung:
             </span>
             {AI_CATEGORIES.map((c) => {
               const active = aiFilter?.includes(c);
@@ -263,7 +274,7 @@ export default async function AnfragenPage({
                   >
                     <div>Anfrage</div>
                     <div>Quelle</div>
-                    {isDetail && <div className="tabular-nums">Score</div>}
+                    {isDetail && <div className="tabular-nums">Bewertung</div>}
                     {isDetail && <div>Reaktion</div>}
                     <div>Status</div>
                     <div className="text-right">Datum</div>
@@ -324,7 +335,7 @@ export default async function AnfragenPage({
                             </div>
 
                             <div className="hidden min-w-0 truncate text-sm text-fg-primary md:block">
-                              {SOURCE_LABELS[r.source as keyof typeof SOURCE_LABELS] ?? r.source}
+                              {withBrandLogos(SOURCE_LABELS[r.source as keyof typeof SOURCE_LABELS] ?? r.source)}
                             </div>
 
                             {isDetail && (

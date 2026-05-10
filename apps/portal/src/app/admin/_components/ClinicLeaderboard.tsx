@@ -6,10 +6,9 @@ import {
   formatPercent,
   formatRelative,
 } from "@/lib/formatting";
-import { PLAN_LABELS } from "@/lib/constants";
 import type { ClinicLeaderboardRow } from "@/server/queries/admin";
 
-const GLOW_CARD = "card-glow !bg-bg-secondary/60 backdrop-blur-sm";
+const GLOW_CARD = "!bg-bg-secondary/60";
 
 const TONE_DOT: Record<ClinicLeaderboardRow["healthTone"], string> = {
   good: "bg-tone-good",
@@ -52,7 +51,6 @@ export function ClinicLeaderboard({ rows }: { rows: ClinicLeaderboardRow[] }) {
             <thead className="border-y border-border bg-bg-secondary/40 text-left text-xs text-fg-secondary">
               <tr>
                 <th className="px-6 py-2">Klinik</th>
-                <th className="px-3 py-2">Plan</th>
                 <th className="px-3 py-2 text-right">Spend</th>
                 <th className="px-3 py-2 text-right">Umsatz</th>
                 <th className="px-3 py-2 text-right">ROAS</th>
@@ -67,7 +65,7 @@ export function ClinicLeaderboard({ rows }: { rows: ClinicLeaderboardRow[] }) {
               {sorted.length === 0 && (
                 <tr>
                   <td
-                    colSpan={10}
+                    colSpan={9}
                     className="px-6 py-10 text-center text-fg-secondary"
                   >
                     Noch keine Klinik angelegt.
@@ -91,11 +89,6 @@ export function ClinicLeaderboard({ rows }: { rows: ClinicLeaderboardRow[] }) {
                         <Badge tone="bad">Archiviert</Badge>
                       </span>
                     )}
-                  </td>
-                  <td className="px-3 py-2">
-                    <Badge tone={r.plan === "erweitert" ? "good" : "neutral"}>
-                      {PLAN_LABELS[r.plan]}
-                    </Badge>
                   </td>
                   <td className="px-3 py-2 text-right font-mono tabular-nums">
                     {formatEuro(r.spendEur)}

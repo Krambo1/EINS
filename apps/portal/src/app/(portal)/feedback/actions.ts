@@ -27,7 +27,7 @@ export type SubmitFeedbackState =
 
 /**
  * Submit feedback to the EINS team. Persists a row in `feedback` and emails
- * Karam best-effort. Available to every clinic role.
+ * the team best-effort. Available to every clinic role.
  */
 export async function submitFeedbackAction(
   _prev: SubmitFeedbackState | undefined,
@@ -80,7 +80,7 @@ export async function submitFeedbackAction(
     diff: { category, length: message.length, pageUrl },
   });
 
-  // Best-effort notification to Karam.
+  // Best-effort notification to the team inbox.
   try {
     const [clinic] = await db
       .select({ displayName: schema.clinics.displayName })
@@ -88,7 +88,7 @@ export async function submitFeedbackAction(
       .where(eq(schema.clinics.id, session.clinicId))
       .limit(1);
     await sendFeedbackEmail({
-      to: "karam@einsvisuals.com",
+      to: "team@eins.ag",
       clinicName: clinic?.displayName ?? "Unbekannte Praxis",
       submittedBy: session.email,
       categoryLabel: FEEDBACK_CATEGORY_LABELS[category as FeedbackCategory],

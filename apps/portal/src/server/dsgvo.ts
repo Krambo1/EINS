@@ -20,7 +20,6 @@ export interface DsgvoExport {
   exportedAt: string;
   clinic: unknown;
   users: unknown[];
-  upgradeRequests: unknown[];
   requests: unknown[];
   requestActivities: unknown[];
   assets: unknown[];
@@ -80,7 +79,6 @@ export async function exportClinicData(clinicId: string): Promise<DsgvoExport> {
     : [];
 
   const [
-    upgradeRequests,
     assets,
     animationInstances,
     documents,
@@ -92,10 +90,6 @@ export async function exportClinicData(clinicId: string): Promise<DsgvoExport> {
     platformCredentials,
     auditLog,
   ] = await Promise.all([
-    db
-      .select()
-      .from(schema.upgradeRequests)
-      .where(eq(schema.upgradeRequests.clinicId, clinicId)),
     db.select().from(schema.assets).where(eq(schema.assets.clinicId, clinicId)),
     db
       .select()
@@ -147,7 +141,6 @@ export async function exportClinicData(clinicId: string): Promise<DsgvoExport> {
     exportedAt: new Date().toISOString(),
     clinic,
     users,
-    upgradeRequests,
     requests,
     requestActivities: activities,
     assets,
@@ -188,9 +181,6 @@ export async function eraseClinicData(clinicId: string): Promise<void> {
   // 2) clinic-scoped rows (no inter-dependencies between these)
   await Promise.all([
     db.delete(schema.requests).where(eq(schema.requests.clinicId, clinicId)),
-    db
-      .delete(schema.upgradeRequests)
-      .where(eq(schema.upgradeRequests.clinicId, clinicId)),
     db.delete(schema.assets).where(eq(schema.assets.clinicId, clinicId)),
     db
       .delete(schema.animationInstances)

@@ -1,6 +1,9 @@
 "use client";
 
-import Link from "next/link";
+import { ArrowUpRight } from "lucide-react";
+import { ShinyButton } from "@/components/ui/shiny-button";
+import { Button } from "@/components/ui/button";
+import { CONTACT_EMAIL } from "@/lib/constants";
 
 export default function Error({ reset }: { error: Error; reset: () => void }) {
   return (
@@ -8,22 +11,19 @@ export default function Error({ reset }: { error: Error; reset: () => void }) {
       <div className="eyebrow">Fehler</div>
       <h1 className="display-m mt-6 max-w-2xl">Da ist etwas schiefgelaufen.</h1>
       <p className="mt-4 max-w-prose text-lg text-fg-primary">
-        Bitte laden Sie die Seite neu. Besteht das Problem, schreiben Sie uns an team@einsvisuals.com.
+        Bitte laden Sie die Seite neu. Besteht das Problem, schreiben Sie uns an{" "}
+        <a href={`mailto:${CONTACT_EMAIL}`} className="text-accent underline-offset-4 hover:underline">
+          {CONTACT_EMAIL}
+        </a>
+        .
       </p>
-      <div className="mt-8 flex gap-3">
-        <button
-          type="button"
-          onClick={reset}
-          className="rounded-full border border-border bg-bg-secondary px-5 py-2.5 font-mono text-base text-fg-primary transition-colors hover:border-accent hover:text-accent"
-        >
+      <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+        <Button variant="outline" size="lg" onClick={reset}>
           Erneut versuchen
-        </button>
-        <Link
-          href="/"
-          className="rounded-full bg-accent px-5 py-2.5 font-mono text-base text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.25)]"
-        >
-          Zur Startseite
-        </Link>
+        </Button>
+        <ShinyButton href="/">
+          Zur Startseite <ArrowUpRight className="h-4 w-4" />
+        </ShinyButton>
       </div>
     </main>
   );

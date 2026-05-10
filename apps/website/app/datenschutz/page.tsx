@@ -2,7 +2,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { CONTACT_EMAIL, CONTACT_PHONE } from "@/lib/constants";
 
-export const metadata = { title: "Datenschutz · EINS Visuals" };
+export const metadata = { title: "Datenschutz · EINS" };
 
 function Section({
   label,
@@ -101,10 +101,35 @@ export default function Datenschutz() {
           der keine Identifizierung einzelner Personen erlaubt.
         </p>
         <p>
-          Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO. Unser berechtigtes
-          Interesse besteht darin, die Nutzung unserer Website statistisch auszuwerten
-          und ihre Performance zu verbessern. Anbieter ist die Vercel Inc. (USA),
-          zertifiziert unter dem EU-U.S. Data Privacy Framework.
+          Rechtsgrundlage ist Ihre Einwilligung gemäß Art. 6 Abs. 1 lit. a
+          DSGVO in Verbindung mit § 25 Abs. 1 TTDSG, die Sie über unseren
+          Cookie-Banner erteilen und jederzeit widerrufen können. Anbieter ist
+          die Vercel Inc. (USA), zertifiziert unter dem EU-U.S. Data Privacy
+          Framework.
+        </p>
+      </Section>
+
+      <Section label="Art. 6 Abs. 1 lit. a DSGVO · § 25 TTDSG" heading="Cookies und Einwilligung">
+        <p>
+          Wir setzen auf dieser Website ausschließlich technisch erforderliche
+          Speicherzugriffe ein, die für den Betrieb der Seite zwingend
+          notwendig sind und keiner Einwilligung bedürfen (§ 25 Abs. 2 Nr. 2
+          TTDSG). Dazu zählt insbesondere die lokale Speicherung Ihrer
+          Cookie-Entscheidung selbst.
+        </p>
+        <p>
+          Nicht erforderliche Dienste – die Reichweitenmessung über Vercel
+          Analytics und Vercel Speed Insights sowie die technische
+          Vorbereitung der Verbindung zu Calendly (Preconnect/DNS-Prefetch) –
+          werden erst nach Ihrer ausdrücklichen Einwilligung über unseren
+          Cookie-Banner geladen. Rechtsgrundlage ist Art. 6 Abs. 1 lit. a
+          DSGVO in Verbindung mit § 25 Abs. 1 TTDSG.
+        </p>
+        <p>
+          Sie können Ihre Einwilligung jederzeit mit Wirkung für die Zukunft
+          widerrufen, indem Sie im Footer auf „Cookie-Einstellungen" klicken
+          und „Nur erforderliche" auswählen. Die Rechtmäßigkeit der bis zum
+          Widerruf erfolgten Verarbeitung bleibt davon unberührt.
         </p>
       </Section>
 
@@ -133,7 +158,7 @@ export default function Datenschutz() {
           ein Strategie-Gespräch buchen können. Wenn Sie auf den Calendly-Button
           klicken, werden Sie auf die Website von Calendly weitergeleitet. Erst ab
           diesem Zeitpunkt werden Ihre Daten durch Calendly verarbeitet. Auf der
-          Website einsvisuals.com selbst findet keine Datenübermittlung an
+          Website eins.ag selbst findet keine Datenübermittlung an
           Calendly statt.
         </p>
         <p>

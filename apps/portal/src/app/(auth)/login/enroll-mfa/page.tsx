@@ -17,7 +17,7 @@ export default async function EnrollMfaPage() {
   const offer = await enrollmentOffer(session.email);
 
   return (
-    <div className="w-full rounded-2xl border border-border bg-bg-primary p-8 shadow-sm">
+    <div className="w-full rounded-2xl border border-border bg-bg-primary p-8 shadow-[var(--shadow-card-sm)]">
       <h1 className="text-2xl font-semibold">Einmal einrichten, danach nie wieder.</h1>
       <p className="mt-2 text-base text-fg-secondary">
         Wir sichern Ihr Konto mit einem zweiten Faktor. Dauert ca. 2 Minuten.

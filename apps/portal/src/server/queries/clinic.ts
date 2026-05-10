@@ -7,7 +7,7 @@ import { db, schema } from "@/db/client";
  * Header data for the portal shell -- displayed on every page in the (portal)
  * group. Cached because:
  *   - It runs on every navigation (layout-level fetch).
- *   - The fields rarely change (displayName, logo, plan).
+ *   - The fields rarely change (displayName, logo).
  *   - The query is keyed by clinicId, so cross-tenant leak is impossible.
  *
  * Invalidation: every mutation that touches schema.clinics calls
@@ -19,7 +19,6 @@ import { db, schema } from "@/db/client";
 export type ClinicHeader = {
   id: string;
   displayName: string;
-  plan: string;
   logoUrl: string | null;
 };
 
@@ -28,7 +27,6 @@ async function fetchClinicHeader(clinicId: string): Promise<ClinicHeader | null>
     .select({
       id: schema.clinics.id,
       displayName: schema.clinics.displayName,
-      plan: schema.clinics.plan,
       logoUrl: schema.clinics.logoUrl,
     })
     .from(schema.clinics)

@@ -1,4 +1,5 @@
 import "server-only";
+import type { ReactNode } from "react";
 import { Star } from "lucide-react";
 import {
   Accordion,
@@ -10,7 +11,9 @@ import {
   CardHeader,
   CardTitle,
   EmptyState,
-  Sparkline,
+  TrendChart,
+  type TrendChartTone,
+  type TrendChartValueFormat,
 } from "@eins/ui";
 import { BarChart3 } from "lucide-react";
 import {
@@ -49,6 +52,7 @@ import {
   formatMinutes,
   formatDeltaPct,
 } from "@/lib/formatting";
+import { mapSeries, zipSeries } from "@/lib/chart-data";
 import {
   SOURCE_LABELS,
   type RequestSource,
@@ -62,6 +66,7 @@ import {
   DataTable,
 } from "./detail-helpers";
 import type { KpiSummary } from "@/server/queries/kpis";
+import { Brand, withBrandLogos } from "@/app/_components/Brand";
 
 /**
  * Heavy detail bundle for /auswertung — 18 parallel queries fetched here so
@@ -152,25 +157,38 @@ export async function AuswertungDetailBundle({
               <div className="grid gap-4 md:grid-cols-3">
                 <DailyMiniChart
                   label="Qualifizierte Anfragen"
+                  dates={sparklines.dates}
                   values={sparklines.qualifiedLeads}
                   tone="accent"
+                  valueFormat="number"
                 />
                 <DailyMiniChart
                   label="Behandlungen gewonnen"
+                  dates={sparklines.dates}
                   values={sparklines.casesWon}
                   tone="good"
+                  valueFormat="number"
                 />
                 <DailyMiniChart
                   label="Werbebudget pro Tag"
+                  dates={sparklines.dates}
                   values={sparklines.spendEur}
                   tone="neutral"
+                  valueFormat="euro"
                 />
               </div>
               <div>
                 <div className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-secondary">
                   Werbeertrag (ROAS)
                 </div>
-                <Sparkline values={sparklines.roas} tone="accent" height={80} />
+                <TrendChart
+                  data={zipSeries(sparklines.dates, sparklines.roas)}
+                  tone="accent"
+                  height={120}
+                  showAxes
+                  label="ROAS"
+                  valueFormat="roas"
+                />
               </div>
 
               <Accordion type="single" collapsible>
@@ -188,11 +206,9 @@ export async function AuswertungDetailBundle({
 
       {/* Trichter-Quoten with delta */}
       {summary.qualifiedLeads > 0 && (
-        <Card className="print:break-inside-avoid">
-          <CardHeader>
-            <CardTitle>Trichter-Quoten (mit Vergleich)</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-3">
+        <section className="print:break-inside-avoid">
+          <h3 className="opa-h3 mb-4 text-fg-primary">Trichter-Quoten (mit Vergleich)</h3>
+          <div className="grid gap-4 md:grid-cols-3">
             <FunnelStat
               label="Anfrage → Termin"
               value={formatPercent(summary.appointments / summary.qualifiedLeads)}
@@ -215,8 +231,8 @@ export async function AuswertungDetailBundle({
               }
               hint={deltaHint(comparison.delta.casesWonPct)}
             />
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       )}
 
       {/* Funnel visualization */}
@@ -271,7 +287,7 @@ export async function AuswertungDetailBundle({
               {
                 key: "source",
                 header: "Quelle",
-                render: (r) => SOURCE_LABELS[r.source as RequestSource] ?? r.source,
+                render: (r) => withBrandLogos(SOURCE_LABELS[r.source as RequestSource] ?? r.source),
               },
               {
                 key: "leads",
@@ -383,7 +399,7 @@ export async function AuswertungDetailBundle({
                 {
                   key: "source",
                   header: "Quelle",
-                  render: (r) => SOURCE_LABELS[r.source as RequestSource] ?? r.source,
+                  render: (r) => withBrandLogos(SOURCE_LABELS[r.source as RequestSource] ?? r.source),
                 },
                 {
                   key: "leads",
@@ -475,7 +491,7 @@ export async function AuswertungDetailBundle({
               value={formatMinutes(responseTime.p90Minutes)}
             />
             <FunnelStat
-              label="SLA-Bruch"
+              label="Frist verpasst"
               value={
                 responseTime.slaBreachRate != null
                   ? formatPercent(responseTime.slaBreachRate)
@@ -488,10 +504,13 @@ export async function AuswertungDetailBundle({
               <div className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-secondary">
                 Tagesverlauf (Ø Minuten)
               </div>
-              <Sparkline
-                values={responseTimeSeriesRows.map((r) => r.avgMinutes)}
+              <TrendChart
+                data={mapSeries(responseTimeSeriesRows, (r) => r.avgMinutes)}
                 tone="warn"
-                height={64}
+                height={100}
+                showAxes
+                label="Ø Reaktion"
+                valueFormat="minutes"
               />
             </div>
           )}
@@ -511,10 +530,13 @@ export async function AuswertungDetailBundle({
                 )
               : "–"}
           </div>
-          <Sparkline
-            values={noShowSeries.map((r) => r.rate * 100)}
+          <TrendChart
+            data={mapSeries(noShowSeries, (r) => r.rate * 100)}
             tone="bad"
-            height={56}
+            height={100}
+            showAxes
+            label="No-Show"
+            valueFormat="percent1"
           />
           <p className="text-xs text-fg-tertiary">
             Anteil der vereinbarten Termine, zu denen Patienten nicht erschienen sind.
@@ -525,7 +547,7 @@ export async function AuswertungDetailBundle({
       {/* AI score distribution */}
       <Card className="print:break-inside-avoid">
         <CardHeader>
-          <CardTitle>Verteilung KI-Score</CardTitle>
+          <CardTitle>Verteilung der KI-Bewertung</CardTitle>
         </CardHeader>
         <CardContent>
           <ScoreDistribution buckets={aiBuckets} />
@@ -609,7 +631,7 @@ export async function AuswertungDetailBundle({
       {/* Staff performance */}
       <Card className="print:break-inside-avoid">
         <CardHeader>
-          <CardTitle>Mitarbeiter-Performance</CardTitle>
+          <CardTitle>Mitarbeiter-Leistung</CardTitle>
         </CardHeader>
         <CardContent>
           <DataTable
@@ -749,7 +771,7 @@ export async function AuswertungDetailBundle({
                   className="rounded-xl border border-border bg-bg-secondary/40 p-4"
                 >
                   <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
-                    {platformLabel(r.platform)}
+                    {platformLabelNode(r.platform)}
                   </div>
                   <div className="mt-2 flex items-baseline gap-1.5 font-display text-3xl font-semibold tabular-nums">
                     {r.rating.toFixed(1).replace(".", ",")}
@@ -766,10 +788,16 @@ export async function AuswertungDetailBundle({
                 <div className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-secondary">
                   6-Monats-Trend (Ø Bewertung)
                 </div>
-                <Sparkline
-                  values={reviewTrendRows.map((r) => r.rating)}
+                <TrendChart
+                  data={reviewTrendRows.map((r) => ({
+                    date: new Date(r.recordedAt).toISOString().slice(0, 10),
+                    value: r.rating,
+                  }))}
                   tone="good"
-                  height={48}
+                  height={80}
+                  showAxes
+                  label="Ø Bewertung"
+                  valueFormat="rating"
                 />
               </div>
             )}
@@ -842,12 +870,12 @@ function deltaHint(pct: number | null) {
   );
 }
 
-function channelLabel(channel: string): string {
+function channelLabel(channel: string): ReactNode {
   switch (channel) {
     case "meta":
-      return "Meta · Facebook & Instagram";
+      return <Brand brand="meta">Meta · Facebook & Instagram</Brand>;
     case "google":
-      return "Google Ads";
+      return <Brand brand="google">Google Ads</Brand>;
     case "direkt":
       return "Direkt / Formular";
     case "empfehlung":
@@ -857,14 +885,14 @@ function channelLabel(channel: string): string {
   }
 }
 
-function platformLabel(p: string): string {
+function platformLabelNode(p: string): ReactNode {
   switch (p) {
     case "google":
-      return "Google";
+      return <Brand brand="google" />;
     case "jameda":
-      return "Jameda";
+      return <Brand brand="jameda" />;
     case "trustpilot":
-      return "Trustpilot";
+      return <Brand brand="trustpilot" />;
     case "manual":
       return "Eigene Aufnahme";
     default:
@@ -896,12 +924,16 @@ function FunnelStat({
 
 function DailyMiniChart({
   label,
+  dates,
   values,
   tone,
+  valueFormat,
 }: {
   label: string;
+  dates: string[];
   values: number[];
-  tone: "accent" | "good" | "warn" | "bad" | "neutral";
+  tone: TrendChartTone;
+  valueFormat?: TrendChartValueFormat;
 }) {
   const total = values.reduce((s, v) => s + v, 0);
   return (
@@ -912,7 +944,13 @@ function DailyMiniChart({
       <div className="mt-1 font-display text-2xl font-semibold tabular-nums">
         {formatNumber(total)}
       </div>
-      <Sparkline values={values} tone={tone} height={56} />
+      <TrendChart
+        data={zipSeries(dates, values)}
+        tone={tone}
+        height={56}
+        label={label}
+        valueFormat={valueFormat}
+      />
     </div>
   );
 }

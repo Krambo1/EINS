@@ -2,11 +2,11 @@ export type Objection = { q: string; a: string };
 
 export const OBJECTIONS: Objection[] = [
   {
-    q: "Wir haben doch schon eine Website.",
+    q: "Brauchen wir das, wir haben doch schon eine Website?",
     a: "Ihre Website ist gut, um gefunden zu werden. Für bezahlte Anzeigen brauchen Sie aber spezielle Seiten ohne Menü und ohne Ablenkung. So buchen 3 bis 5 mal mehr Patienten bei gleichem Budget.",
   },
   {
-    q: "Werbung hat bei uns noch nie funktioniert.",
+    q: "Was, wenn Werbung bei uns noch nie funktioniert hat?",
     a: "Meistens lag es nicht am Geld, sondern am System dahinter. Schwache Seiten, austauschbare Videos und fehlende Filter verbrennen jedes Budget. Genau das ersetzen wir.",
   },
   {
@@ -15,7 +15,7 @@ export const OBJECTIONS: Objection[] = [
   },
   {
     q: "Was, wenn es nicht funktioniert?",
-    a: "Erreichen wir die im Strategie-Call vereinbarte Anfragen-Schwelle nicht innerhalb von 90 Tagen, bekommen Sie alle bis dahin gezahlten Gebühren vollständig zurück. Reichen 90 Tage nicht aus, arbeiten wir kostenlos weiter, bis das Ziel steht. Sie können außerdem jederzeit monatlich kündigen, vom ersten Tag an. Die konkreten Garantie-Bedingungen werden vor Beauftragung schriftlich fixiert.",
+    a: "Erreichen wir die im Strategie-Call vereinbarte Anfragen-Schwelle nicht innerhalb von 90 Tagen, bekommen Sie alle bis dahin gezahlten Gebühren vollständig zurück. Sie können außerdem jederzeit monatlich kündigen, vom ersten Tag an. Die konkreten Garantie-Bedingungen werden vor Beauftragung schriftlich fixiert.",
   },
   {
     q: "Wie lange dauert der Start?",
@@ -27,7 +27,7 @@ export const OBJECTIONS: Objection[] = [
   },
   {
     q: "Was ist mit unserer bestehenden Software (Doctolib, samedi, CGM, MedITEX)?",
-    a: "Bleibt unverändert. Wir docken an Ihre bestehende Klinik-Software an. Einfache Anfragen wie Folgetermine für Botox oder Laser laufen direkt in Ihr Buchungssystem, hochpreisige Anfragen werden geprüft und gehen vorbereitet an Ihr Team.",
+    a: "Bleibt unverändert. Wir docken an Ihre bestehende Praxis-Software an. Einfache Anfragen wie Folgetermine für Botox oder Laser laufen direkt in Ihr Buchungssystem, hochpreisige Anfragen werden geprüft und gehen vorbereitet an Ihr Team.",
   },
   {
     q: "Können wir nur Videos oder nur Anzeigen buchen?",
@@ -39,6 +39,10 @@ export const OBJECTIONS: Objection[] = [
   },
   {
     q: "Was, wenn unser Team die vielen Anfragen nicht bewältigen kann?",
-    a: "Die Vorqualifizierung filtert Preisjäger und unpassende Anfragen automatisch aus, sodass nur ernsthafte Patienten an Ihr Team gehen. Zusätzlich enthalten ist ein Sales-Playbook mit Antwort-SLAs, WhatsApp-Skripten, Telefonleitfäden und CRM-Anleitung, damit Ihr Team jede Anfrage strukturiert und ohne zusätzlichen Schulungsaufwand verarbeitet.",
+    a: "Die Vorqualifizierung filtert Preisjäger und unpassende Anfragen automatisch aus, sodass nur ernsthafte Patienten an Ihr Team gehen. Zusätzlich enthalten ist ein Vertriebsleitfaden mit Antwort-Vorgaben, WhatsApp-Skripten, Telefonleitfäden und einer Anleitung zur Patientenverwaltung, damit Ihr Team jede Anfrage strukturiert und ohne zusätzlichen Schulungsaufwand verarbeitet.",
+  },
+  {
+    q: "Was zählt für Sie als qualifizierte Anfrage?",
+    a: "Eine Anfrage gilt nur dann als qualifiziert, wenn sie alle vier Kriterien erfüllt: 1. Vollständig ausgefülltes Formular mit konkretem Behandlungswunsch. 2. Realistische Budget-Indikation passend zur gewünschten Behandlung. 3. Bereitschaft für ein Beratungsgespräch innerhalb der nächsten 30 Tage. 4. Positive Bewertung durch unsere KI auf Basis eines objektiven Scoring-Systems (Ernsthaftigkeit, Erreichbarkeit, Passung zum Behandlungsangebot). Preisjäger, Spam, Termin-Touristen und Anfragen außerhalb Ihres Behandlungsspektrums fallen automatisch raus und werden nicht an Ihr Team weitergeleitet.",
   },
 ];

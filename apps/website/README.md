@@ -1,6 +1,6 @@
-# EINS Visuals - Landing Page
+# EINS - Landing Page
 
-Premium single-page landing site for EINS Visuals. Built with Next.js 14, TypeScript, Tailwind CSS, Framer Motion and Recharts.
+Single-page Marketing-Site für EINS. Built with Next.js 14, TypeScript, Tailwind CSS, Framer Motion and Recharts.
 
 ---
 
@@ -38,7 +38,7 @@ Alle Texte, Preise und Statistiken liegen in `lib/`. Sie koennen sie direkt edit
 
 | Datei | Inhalt |
 | --- | --- |
-| `lib/constants.ts` | Calendly-URL, Kontakt-E-Mail, Anzahl aktive Kliniken |
+| `lib/constants.ts` | Calendly-URL, Kontakt-E-Mail, Telefon |
 | `lib/stats-data.ts` | Die 12 Statistiken im interaktiven Explorer |
 | `lib/offer-data.ts` | Basispaket-Sektionen, Wachstumssystem-Features, ROI-Szenarien |
 | `lib/system-data.ts` | Die drei System-Ebenen |
@@ -55,7 +55,7 @@ Alle Texte, Preise und Statistiken liegen in `lib/`. Sie koennen sie direkt edit
 ### Schritt A: Code auf GitHub pushen
 
 1. Account bei https://github.com anlegen (falls noch nicht vorhanden).
-2. Neues Repository erstellen: https://github.com/new - Name z. B. `einsvisuals-web`, privat lassen, **ohne** README/gitignore/license (haben wir schon).
+2. Neues Repository erstellen: https://github.com/new - Name z. B. `eins-web`, privat lassen, **ohne** README/gitignore/license (haben wir schon).
 3. Im Terminal, im Projektordner:
 
 ```bash
@@ -63,7 +63,7 @@ git init
 git add .
 git commit -m "initial commit"
 git branch -M main
-git remote add origin https://github.com/IHR-USERNAME/einsvisuals-web.git
+git remote add origin https://github.com/IHR-USERNAME/eins-web.git
 git push -u origin main
 ```
 
@@ -73,14 +73,14 @@ Ersetzen Sie `IHR-USERNAME` durch Ihren GitHub-Benutzernamen.
 
 1. Auf https://vercel.com/signup mit dem GitHub-Account einloggen.
 2. Nach dem Login: **"Add New... -> Project"** klicken.
-3. Ihr GitHub-Repo `einsvisuals-web` auswaehlen, **"Import"**.
+3. Ihr GitHub-Repo `eins-web` auswaehlen, **"Import"**.
 4. Alle Defaults so lassen (Framework: Next.js wird automatisch erkannt). **"Deploy"** klicken.
-5. Nach ca. 90 Sekunden ist die Seite live unter `einsvisuals-web.vercel.app`.
+5. Nach ca. 90 Sekunden ist die Seite live unter `eins-web.vercel.app`.
 
 ### Schritt C: Eigene Domain verbinden (optional)
 
 1. In Vercel das Projekt oeffnen -> **"Settings" -> "Domains"**.
-2. `einsvisuals.com` (oder gewuenschte Domain) eintragen.
+2. `eins.ag` (oder gewuenschte Domain) eintragen.
 3. Vercel zeigt DNS-Eintraege an, die Sie bei Ihrem Domain-Anbieter (z. B. Strato, IONOS, Namecheap) setzen muessen.
 4. Nach ein paar Minuten ist die Domain aktiv.
 
@@ -135,4 +135,4 @@ npm run build       # Production-Build lokal testen
 
 ## Fragen?
 
-team@einsvisuals.com
+team@eins.ag

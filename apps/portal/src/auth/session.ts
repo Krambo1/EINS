@@ -185,11 +185,16 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
   if (row.expiresAt.getTime() < Date.now()) return null;
   if (row.archivedAt) return null;
 
-  // Slide the expiry + touch lastSeen (idempotent, cheap).
-  await db
+  // Touch lastSeen — fire-and-forget so we don't block page rendering on a
+  // write whose result no caller reads. Errors are logged but never thrown
+  // since a missed lastSeen update is purely cosmetic (admin "last seen" UI).
+  void db
     .update(schema.sessions)
     .set({ lastSeenAt: new Date() })
-    .where(eq(schema.sessions.id, row.sessionId));
+    .where(eq(schema.sessions.id, row.sessionId))
+    .catch((err) => {
+      console.warn("[session] lastSeenAt update failed", err);
+    });
 
   return {
     sessionId: row.sessionId,

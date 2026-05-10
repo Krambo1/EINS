@@ -11,7 +11,7 @@ import { decryptString, encryptString } from "../lib/crypto";
  * via the CLI script scripts/reset-admin-mfa.ts if needed).
  */
 
-const ISSUER = "EINS Visuals Admin";
+const ISSUER = "EINS Admin";
 const DIGITS = 6;
 const PERIOD = 30;
 

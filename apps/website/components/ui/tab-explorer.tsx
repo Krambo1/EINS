@@ -22,9 +22,9 @@ export function TabExplorer() {
   };
 
   return (
-    <div className="card-glow rounded-2xl border border-border bg-bg-secondary/60 px-3 py-6 backdrop-blur-sm md:rounded-3xl md:p-10">
+    <div className="card-glow mx-auto max-w-4xl rounded-2xl border border-border bg-bg-secondary/60 px-3 py-6 backdrop-blur-sm md:rounded-3xl md:p-10">
       <Tabs value={tab} onValueChange={handleTabChange}>
-        <div className="flex flex-col items-start gap-3 md:flex-row md:items-center md:justify-between md:gap-6">
+        <div className="flex flex-col items-center gap-4">
           <div className="tabs-fade-mask w-full max-w-full overflow-x-auto md:w-auto md:overflow-visible md:[mask-image:none]">
             <TabsList className="px-1 md:px-2">
               {TAB_DEFS.map((t) => (
@@ -92,7 +92,7 @@ export function TabExplorer() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-          className="mt-6 md:mt-10"
+          className="mt-6 text-center md:mt-10"
         >
           <div className="font-display text-7xl font-semibold tracking-tightest md:text-8xl">
             <ShimmerText>
@@ -105,7 +105,7 @@ export function TabExplorer() {
               />
             </ShimmerText>
           </div>
-          <div className="mt-4 max-w-3xl text-balance font-display text-3xl font-medium leading-tight text-fg-primary md:text-4xl">{md(active.headline)}</div>
+          <div className="mx-auto mt-4 max-w-3xl text-balance font-display text-3xl font-medium leading-tight text-fg-primary md:text-4xl">{md(active.headline)}</div>
           <div className="mt-6 font-mono text-xs text-fg-secondary">
             Quelle: {active.source}
           </div>

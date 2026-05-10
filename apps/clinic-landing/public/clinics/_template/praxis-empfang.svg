@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 1000" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Platzhalter: Empfangsbereich">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f3f3f6"/>
+      <stop offset="1" stop-color="#dadbe0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1500" height="1000" fill="url(#bg)"/>
+  <g fill="#9aa6b6">
+    <rect x="120" y="640" width="1260" height="40" rx="4"/>
+    <rect x="200" y="240" width="280" height="400" rx="8"/>
+    <rect x="540" y="320" width="240" height="320" rx="8"/>
+    <rect x="840" y="280" width="320" height="360" rx="8"/>
+  </g>
+  <text x="750" y="900" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="34" fill="#555560">Empfangsbereich (1500 × 1000 WebP)</text>
+</svg>

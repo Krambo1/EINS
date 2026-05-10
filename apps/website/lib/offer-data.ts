@@ -11,11 +11,11 @@ export const BASISPAKET: BasispaketSection[] = [
     id: "medienproduktion",
     title: "Medienproduktion",
     bullets: [
-      "Voller Produktionstag in Ihrer Klinik für Ihre profitabelste Behandlung (z. B. Facelift, Liposuktion, Lippenunterspritzung, Kryolipolyse).",
+      "Voller Produktionstag in Ihrer Praxis für Ihre profitabelste Behandlung (z. B. Facelift, Liposuktion, Lippenunterspritzung, Kryolipolyse).",
       "Exklusives Strategie-Meeting: Zielgruppen, Positionierung, USPs und Tonalität.",
       "Hochauflösendes Hauptvideo mit medizinischer Videoanimation. Erklärt komplexe Eingriffe verständlich und vertrauensbildend: Ablauf, Ausfallzeit, realistische Ergebnisse.",
-      "20 hochwertige Fotos für Website, Anzeigen und soziale Medien: Klinik, Team, Behandlungsräume, Technologie. Professionelle Premium-Nachbearbeitung, sofort einsetzbar.",
-      "Eigene Bibliothek an 2D-Animationen, maßgeschneidert auf Ihre Klinik: Faltenunterspritzung, Lippenunterspritzung, Botox, Hyaluron-Filler, Kryolipolyse, HIFU, Laser-Behandlungen, Body Contouring.",
+      "20 hochwertige Fotos für Website, Anzeigen und soziale Medien: Praxis, Team, Behandlungsräume, Technologie. Professionelle Premium-Nachbearbeitung, sofort einsetzbar.",
+      "Eigene Bibliothek an 2D-Animationen, maßgeschneidert auf Ihre Praxis: Faltenunterspritzung, Lippenunterspritzung, Botox, Hyaluron-Filler, Kryolipolyse, HIFU, Laser-Behandlungen, Body Contouring.",
       "Reduziert Patientenangst vor dem ersten Kontakt durch visuelle Aufklärung der Behandlungsschritte. Besonders wirksam für erklärungsbedürftige Eingriffe.",
     ],
   },
@@ -60,9 +60,9 @@ export type Scenario = {
 };
 
 export const SCENARIOS: Scenario[] = [
-  { label: "Untergrenze", leads: 90, conversion: 15, patients: 13, returnEur: 39000 },
-  { label: "Konservativ", leads: 90, conversion: 20, patients: 18, returnEur: 54000 },
-  { label: "Durchschnitt", leads: 130, conversion: 30, patients: 39, returnEur: 117000, highlight: true },
-  { label: "Gut", leads: 130, conversion: 40, patients: 52, returnEur: 156000 },
-  { label: "Top", leads: 170, conversion: 50, patients: 85, returnEur: 255000 },
+  { label: "Untergrenze", leads: 90, conversion: 15, patients: 13, returnEur: 45500 },
+  { label: "Konservativ", leads: 90, conversion: 20, patients: 18, returnEur: 63000 },
+  { label: "Durchschnitt", leads: 130, conversion: 30, patients: 39, returnEur: 136500, highlight: true },
+  { label: "Gut", leads: 130, conversion: 40, patients: 52, returnEur: 182000 },
+  { label: "Top", leads: 170, conversion: 50, patients: 85, returnEur: 297500 },
 ];

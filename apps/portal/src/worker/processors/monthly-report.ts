@@ -106,11 +106,11 @@ export async function processMonthlyReport(job: MonthlyReportJob): Promise<void>
         `Guten Tag${u.fullName ? " " + u.fullName : ""},\n\n` +
         `Ihre Monats-Auswertung für ${period} liegt im Portal bereit.\n\n` +
         `Zur Auswertung: ${link}\n\n` +
-        `Herzliche Grüße\nEINS Visuals`,
+        `Herzliche Grüße\nEINS`,
       html: `<p>Guten Tag${u.fullName ? " " + u.fullName : ""},</p>
              <p>Ihre Monats-Auswertung für <strong>${period}</strong> liegt im Portal bereit.</p>
              <p><a href="${link}">Zur Auswertung</a></p>
-             <p>Herzliche Grüße<br>EINS Visuals</p>`,
+             <p>Herzliche Grüße<br>EINS</p>`,
     });
   }
 }

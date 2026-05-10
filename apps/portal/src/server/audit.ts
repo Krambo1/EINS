@@ -8,9 +8,9 @@ import { db, schema } from "../db/client";
  *
  * Entity kinds we actually use (loose string — no check constraint in schema):
  *   request, request_activity, asset, animation_instance, document,
- *   platform_credential, clinic_user, upgrade_request, login, logout,
+ *   platform_credential, clinic_user, login, logout,
  *   mfa_enroll, mfa_verify, magic_link_request, settings, hwg_check,
- *   dsgvo_export, dsgvo_delete, admin_clinic, admin_upgrade_resolve.
+ *   dsgvo_export, dsgvo_delete, admin_clinic.
  *
  * Action verbs: create, update, delete, view, login, logout, invite,
  * assign, transition, download, upload, deliver, approve, reject, export.

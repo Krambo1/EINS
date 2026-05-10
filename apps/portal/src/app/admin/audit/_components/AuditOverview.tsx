@@ -4,7 +4,7 @@ import type { AuditOverview } from "@/server/queries/admin";
 import { LineChart } from "../../_charts/LineChart";
 import { Heatmap } from "../../_charts/Heatmap";
 
-const GLOW_CARD = "card-glow !bg-bg-secondary/60 backdrop-blur-sm";
+const GLOW_CARD = "!bg-bg-secondary/60";
 
 export function AuditOverviewPanel({ data }: { data: AuditOverview }) {
   return (

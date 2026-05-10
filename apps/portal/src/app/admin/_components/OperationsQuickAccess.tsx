@@ -10,7 +10,6 @@ const ITEMS: {
   tone: "bad" | "warn" | "neutral";
 }[] = [
   { href: "/admin/operations#sla", label: "SLA-Verstöße", key: "slaBreaches", tone: "bad" },
-  { href: "/admin/operations#upgrades", label: "Upgrade-Anfragen", key: "openUpgrades", tone: "warn" },
   { href: "/admin/operations#animationen", label: "Animationen offen", key: "animationsRequested", tone: "warn" },
   { href: "/admin/operations#sync-fehler", label: "Sync-Fehler", key: "syncErrors", tone: "bad" },
   { href: "/admin/operations#mfa", label: "MFA fehlt", key: "mfaMissing", tone: "warn" },
@@ -19,7 +18,7 @@ const ITEMS: {
 
 export function OperationsQuickAccess({ data }: { data: PendingOperations }) {
   return (
-    <section className="card-glow rounded-2xl border border-border bg-bg-secondary/60 p-6 backdrop-blur-sm md:p-8">
+    <section className="rounded-2xl border border-border bg-bg-secondary/60 p-6 md:p-8">
       <header className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <span className="font-mono text-[0.6875rem] uppercase tracking-[0.18em] text-fg-secondary">

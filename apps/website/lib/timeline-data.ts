@@ -9,8 +9,8 @@ export const STATIONS: Station[] = [
     when: "Woche 1–2",
     title: "Wir kommen zu Ihnen",
     bullets: [
-      "Videodreh und Fotoshooting in Ihrer Klinik",
-      "Anbindung an Ihre Klinik-Software",
+      "Videodreh und Fotoshooting in Ihrer Praxis",
+      "Anbindung an Ihre Praxis-Software",
       "KI-Rechtsprüfung aller Werbebotschaften",
     ],
   },

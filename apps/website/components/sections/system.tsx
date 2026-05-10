@@ -33,25 +33,36 @@ function CardVisual({ id }: { id: OfferCard["id"] }) {
         strokeLinecap="round"
         strokeLinejoin="round"
         aria-hidden
-        className="h-24 w-24 translate-y-1.5 text-fg-primary sm:h-24 sm:w-24 sm:translate-y-1 md:h-32 md:w-32 md:translate-y-0"
+        className="rp-icon-loop h-24 w-24 translate-y-1.5 text-fg-primary sm:h-24 sm:w-24 sm:translate-y-1 md:h-32 md:w-32 md:translate-y-0"
       >
         <path d="M4 4h9l4 4v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z" />
         <polyline points="13 4 13 8 17 8" />
         <line x1="6" y1="11" x2="14" y2="11" />
         <line x1="6" y1="13.5" x2="11" y2="13.5" />
-        <g transform="rotate(-12 17 17)">
-          <rect x="13.5" y="14" width="7" height="6" rx="1" fill="#FFFFFF" stroke="#58BAB5" />
-          <text
-            x="17"
-            y="18.7"
-            fontSize="5.5"
-            fontWeight="700"
-            fill="#58BAB5"
-            stroke="none"
-            textAnchor="middle"
-          >
-            §
-          </text>
+        <circle
+          className="rp-stamp-ring"
+          cx="17"
+          cy="17"
+          r="5"
+          fill="none"
+          stroke="#58BAB5"
+          strokeWidth={0.5}
+        />
+        <g className="rp-stamp">
+          <g transform="rotate(-12 17 17)">
+            <rect x="13.5" y="14" width="7" height="6" rx="1" fill="#FFFFFF" stroke="#58BAB5" />
+            <text
+              x="17"
+              y="18.7"
+              fontSize="5.5"
+              fontWeight="700"
+              fill="#58BAB5"
+              stroke="none"
+              textAnchor="middle"
+            >
+              §
+            </text>
+          </g>
         </g>
       </svg>
     );
@@ -66,7 +77,7 @@ function CardVisual({ id }: { id: OfferCard["id"] }) {
         strokeLinecap="round"
         strokeLinejoin="round"
         aria-hidden
-        className="w-32 translate-y-1 text-fg-primary sm:w-40 sm:translate-y-1 md:w-52 md:translate-y-0"
+        className="lp-icon-loop w-32 translate-y-1 text-fg-primary sm:w-40 sm:translate-y-1 md:w-52 md:translate-y-0"
       >
         <rect x="20" y="20" width="200" height="140" rx="6" />
         <line x1="20" y1="42" x2="220" y2="42" />
@@ -88,6 +99,18 @@ function CardVisual({ id }: { id: OfferCard["id"] }) {
         <line x1="36" y1="84" x2="148" y2="84" strokeWidth={3.2} />
         <line x1="36" y1="98" x2="128" y2="98" strokeWidth={2} />
         <rect
+          className="lp-button-ripple"
+          x="36"
+          y="118"
+          width="92"
+          height="22"
+          rx="11"
+          fill="none"
+          stroke="#58BAB5"
+          strokeWidth={2}
+        />
+        <rect
+          className="lp-button"
           x="36"
           y="118"
           width="92"
@@ -97,6 +120,7 @@ function CardVisual({ id }: { id: OfferCard["id"] }) {
           stroke="#58BAB5"
         />
         <path
+          className="lp-cursor"
           d="M118 130 L138 144 L128.6 146.5 L133.6 156.4 L128 158.6 L123 148.6 L116 152.6 Z"
           fill="currentColor"
           stroke="#ffffff"
@@ -139,12 +163,12 @@ function CardVisual({ id }: { id: OfferCard["id"] }) {
   }
   if (id === "reputation") {
     return (
-      <div className="flex translate-y-1.5 flex-col items-center gap-2 sm:translate-y-1 sm:gap-3 md:translate-y-0">
+      <div className="rep-icon-loop flex translate-y-1.5 flex-col items-center gap-2 sm:translate-y-1 sm:gap-3 md:translate-y-0">
         <div className="flex items-center gap-0.5 sm:gap-1">
           {Array.from({ length: 5 }).map((_, i) => (
             <Star
               key={i}
-              className="h-6 w-6 fill-yellow-400 text-yellow-400 sm:h-7 sm:w-7 md:h-9 md:w-9"
+              className="rep-star h-6 w-6 fill-yellow-400 text-yellow-400 sm:h-7 sm:w-7 md:h-9 md:w-9"
               strokeWidth={1.5}
             />
           ))}
@@ -181,14 +205,14 @@ function CardVisual({ id }: { id: OfferCard["id"] }) {
         strokeLinecap="round"
         strokeLinejoin="round"
         aria-hidden
-        className="h-24 w-24 translate-y-1.5 text-fg-primary sm:h-24 sm:w-24 sm:translate-y-1 md:h-32 md:w-32 md:translate-y-0"
+        className="cp-icon-loop h-24 w-24 translate-y-1.5 text-fg-primary sm:h-24 sm:w-24 sm:translate-y-1 md:h-32 md:w-32 md:translate-y-0"
       >
         <circle cx="12" cy="12" r="8.5" />
         <line x1="12" y1="3.5" x2="12" y2="4.6" />
         <line x1="12" y1="19.4" x2="12" y2="20.5" />
         <line x1="3.5" y1="12" x2="4.6" y2="12" />
         <line x1="19.4" y1="12" x2="20.5" y2="12" />
-        <g transform="rotate(45 12 12)">
+        <g className="cp-needle">
           <path d="M12 7.4 L13.55 12 L10.45 12 Z" fill="#58BAB5" stroke="#58BAB5" />
           <path d="M12 16.6 L13.55 12 L10.45 12 Z" fill="currentColor" stroke="currentColor" />
         </g>
@@ -205,7 +229,7 @@ function ExpandableCard({ card, index }: { card: OfferCard; index: number }) {
 
   return (
     <Reveal delay={0.08 + index * 0.05}>
-      <article className="card-glow group overflow-hidden rounded-2xl border border-border bg-transparent transition-colors duration-300 hover:border-accent/50">
+      <article className="card-glow group overflow-hidden rounded-3xl border border-border bg-transparent transition-colors duration-300 hover:border-accent/50">
         <div className="flex flex-row md:items-stretch">
           <div className="order-1 flex-1 min-w-0 pl-4 pr-1 pb-3 pt-4 sm:pl-6 sm:pr-2 sm:pb-4 sm:pt-6 md:order-2 md:flex-1 md:p-10">
             <h3
@@ -290,28 +314,15 @@ export function System() {
       <div className="container">
         <Reveal delay={0.08}>
           <div className="flex justify-center">
-            <span className="inline-flex items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-4 py-1.5 font-mono text-sm text-accent backdrop-blur-sm">
-              <span className="inline-flex h-2 w-2 rounded-full bg-accent" aria-hidden />
-              monatlich
-            </span>
+            <span className="eyebrow">monatlich</span>
           </div>
           <h2 className="display-l mx-auto mt-4 max-w-6xl text-center">
-            <span className="block md:inline">Das</span>{" "}
-            <span className="block md:inline md:whitespace-nowrap">
-              <Image
-                src="/eins-logo.svg"
-                alt="EINS"
-                width={1275}
-                height={513}
-                priority
-                className="inline-block h-[1em] w-auto align-baseline"
-              />{" "}
-              <ShimmerText className="inline">Wachstumssystem.</ShimmerText>
-            </span>
+            <span className="block md:inline">Das EINS-</span>
+            <ShimmerText className="block md:inline">Wachstumssystem.</ShimmerText>
           </h2>
         </Reveal>
         <Reveal delay={0.15}>
-          <p className="mt-5 text-balance text-center font-display text-xl font-semibold tracking-tight text-fg-primary md:text-4xl">
+          <p className="mt-5 text-balance text-center font-display text-base font-semibold tracking-tight text-fg-primary sm:text-xl md:text-4xl">
             Werden Sie zur&nbsp;EINS in Ihrer Region.
           </p>
         </Reveal>

@@ -29,7 +29,7 @@ import { LeadsTable } from "../_components/LeadsTable";
 
 export const metadata = { title: "Leads · Admin" };
 
-const GLOW_CARD = "card-glow !bg-bg-secondary/60 backdrop-blur-sm";
+const GLOW_CARD = "!bg-bg-secondary/60";
 const PAGE_SIZE = 50;
 
 interface PageProps {

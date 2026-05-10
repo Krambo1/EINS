@@ -30,9 +30,6 @@ export const PERMISSIONS = {
   "documents.view.all": ["inhaber"], // Verträge, AVV — owner only
   "documents.view.marketing": ["inhaber", "marketing", "frontdesk"],
   "documents.view.all_roles": ["inhaber", "marketing", "frontdesk"],
-  // Plan & Upgrade — owner only (financial commitment)
-  "plan.view": ["inhaber"],
-  "plan.request_upgrade": ["inhaber"],
   // Einstellungen — owner only (team, OAuth tokens, audit log)
   "settings.team": ["inhaber"],
   "settings.integrations": ["inhaber"],
@@ -40,6 +37,9 @@ export const PERMISSIONS = {
   // Tools
   "tools.hwg_check": ["inhaber", "marketing", "frontdesk"],
   "tools.what_if": ["inhaber", "marketing", "frontdesk"],
+  // Bewertungen / Reputation
+  "reviews.view": ["inhaber", "marketing", "frontdesk"],
+  "reviews.manage": ["inhaber"],
   // Feedback — anyone in the clinic can send feedback to EINS
   "feedback.submit": ["inhaber", "marketing", "frontdesk"],
   "feedback.view": ["inhaber", "marketing", "frontdesk"],

@@ -197,11 +197,9 @@ export default async function AuswertungPage({
       {/* Trichter-Quoten — einfach version (no delta hints). Detail version
           with delta hints renders inside the streamed bundle. */}
       {!isDetail && summary.qualifiedLeads > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Trichter-Quoten</CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-4 md:grid-cols-3">
+        <section>
+          <h3 className="opa-h3 mb-4 text-fg-primary">Trichter-Quoten</h3>
+          <div className="grid gap-4 md:grid-cols-3">
             <FunnelStat
               label="Anfrage → Termin"
               value={formatPercent(summary.appointments / summary.qualifiedLeads)}
@@ -222,8 +220,8 @@ export default async function AuswertungPage({
                   : "–"
               }
             />
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       )}
 
       {/* DETAIL-ONLY DEEP DIVE — streamed inside Suspense */}

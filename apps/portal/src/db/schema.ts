@@ -53,33 +53,23 @@ const citext = customType<{ data: string; notNull: true; default: false }>({
 // ---------------------------------------------------------------
 // CLINICS
 // ---------------------------------------------------------------
-export const clinics = pgTable(
-  "clinics",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    legalName: text("legal_name").notNull(),
-    displayName: text("display_name").notNull(),
-    slug: text("slug").notNull().unique(),
-    plan: text("plan").notNull(),
-    planStartedAt: timestamp("plan_started_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    logoUrl: text("logo_url"),
-    primaryColor: text("primary_color"),
-    defaultDoctorEmail: text("default_doctor_email"),
-    billingAddress: jsonb("billing_address"),
-    hwgContactName: text("hwg_contact_name"),
-    hwgContactEmail: text("hwg_contact_email"),
-    locations: jsonb("locations").default(sql`'[]'::jsonb`),
-    createdAt: timestamp("created_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    archivedAt: timestamp("archived_at", { withTimezone: true }),
-  },
-  (t) => ({
-    planCheck: check("clinics_plan_check", sql`${t.plan} IN ('standard','erweitert')`),
-  })
-);
+export const clinics = pgTable("clinics", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  legalName: text("legal_name").notNull(),
+  displayName: text("display_name").notNull(),
+  slug: text("slug").notNull().unique(),
+  logoUrl: text("logo_url"),
+  primaryColor: text("primary_color"),
+  defaultDoctorEmail: text("default_doctor_email"),
+  billingAddress: jsonb("billing_address"),
+  hwgContactName: text("hwg_contact_name"),
+  hwgContactEmail: text("hwg_contact_email"),
+  locations: jsonb("locations").default(sql`'[]'::jsonb`),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+});
 
 // ---------------------------------------------------------------
 // CLINIC_USERS
@@ -217,36 +207,6 @@ export const impersonationTokens = pgTable(
   (t) => ({
     targetIdx: index("impersonation_tokens_target_idx").on(t.targetUserId),
     expiryIdx: index("impersonation_tokens_expiry_idx").on(t.expiresAt),
-  })
-);
-
-// ---------------------------------------------------------------
-// UPGRADE REQUESTS (D6)
-// ---------------------------------------------------------------
-export const upgradeRequests = pgTable(
-  "upgrade_requests",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    clinicId: uuid("clinic_id")
-      .notNull()
-      .references(() => clinics.id),
-    requestedBy: uuid("requested_by")
-      .notNull()
-      .references(() => clinicUsers.id),
-    requestedAt: timestamp("requested_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    status: text("status").notNull().default("offen"),
-    karamNote: text("karam_note"),
-    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
-    resolvedByAdminEmail: text("resolved_by_admin_email"),
-    userNote: text("user_note"),
-  },
-  (t) => ({
-    statusCheck: check(
-      "upgrade_requests_status_check",
-      sql`${t.status} IN ('offen','bearbeitet','abgelehnt')`
-    ),
   })
 );
 
@@ -871,6 +831,42 @@ export const feedback = pgTable(
     statusCheck: check(
       "feedback_status_check",
       sql`${t.status} IN ('offen','gesehen','bearbeitet','verworfen')`
+    ),
+  })
+);
+
+// ---------------------------------------------------------------
+// CLINIC TIMELINE ENTRIES — clinic-facing "Fortschritt" feed.
+// Admin-authored milestones (campaigns, deliveries, onboarding steps).
+// Read-only for clinic users; visible to all clinic roles.
+// ---------------------------------------------------------------
+export const clinicTimelineEntries = pgTable(
+  "clinic_timeline_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    description: text("description"),
+    eventDate: timestamp("event_date", { withTimezone: true }).notNull(),
+    status: text("status").notNull().default("geplant"),
+    createdByEmail: text("created_by_email"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    statusCheck: check(
+      "clinic_timeline_status_check",
+      sql`${t.status} IN ('geplant','laeuft','abgeschlossen')`
+    ),
+    byClinicDate: index("clinic_timeline_clinic_date_idx").on(
+      t.clinicId,
+      t.eventDate.desc()
     ),
   })
 );

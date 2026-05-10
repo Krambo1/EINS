@@ -1,0 +1,245 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Neutral fallback tokens. Each clinic layout overrides these with its own
+ * brand palette via inline style on the root. This keeps the CSS bundle
+ * single-tenant agnostic — no compiled per-clinic CSS.
+ */
+:root {
+  --brand-primary: #1e3a5f;
+  --brand-primary-soft: #cfd9e6;
+  --brand-accent: #c9a96e;
+  --brand-bg: #ffffff;
+  --brand-bg-soft: #f7f7f9;
+  --brand-fg: #15151b;
+  --brand-fg-muted: #555560;
+  --brand-border: #e6e6ea;
+  --brand-radius: 0.75rem;
+  --brand-font: "Inter", system-ui, sans-serif;
+}
+
+* {
+  border-color: var(--brand-border);
+}
+
+html {
+  scroll-behavior: smooth;
+  /* Prevent iOS Safari font scaling on orientation change */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  background: var(--brand-bg);
+  color: var(--brand-fg);
+  font-family: var(--brand-font), system-ui, -apple-system, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Reserve room for sticky-bottom-cta on mobile */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Headings: pretty wrap on mobile (no orphan single-word lines), balance on tablet+ */
+h1, h2, h3, h4, h5, h6 {
+  text-wrap: pretty;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+@media (min-width: 768px) {
+  h1, h2, h3, h4, h5, h6 {
+    text-wrap: balance;
+  }
+}
+
+h1 {
+  font-size: clamp(2rem, 8vw, 3.25rem);
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+}
+h2 {
+  font-size: clamp(1.5rem, 5vw, 2.25rem);
+  line-height: 1.15;
+}
+h3 {
+  font-size: clamp(1.125rem, 3vw, 1.375rem);
+  line-height: 1.25;
+}
+
+::selection {
+  background: var(--brand-primary);
+  color: var(--brand-bg);
+}
+
+/* Hero LCP text: paint immediately (no opacity transition) but a subtle
+   slide-in for non-LCP users. transform-only animation = no LCP penalty. */
+.hero-rise {
+  transform: translateY(12px);
+  animation: hero-rise 600ms cubic-bezier(0.16, 1, 0.3, 1) 0ms forwards;
+}
+@keyframes hero-rise {
+  to { transform: translateY(0); }
+}
+
+/* CSS-only scroll-reveal — no IntersectionObserver, no JS. */
+.reveal {
+  animation: reveal 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-timeline: view();
+  animation-range: entry 0% entry 60%;
+}
+@keyframes reveal {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .hero-rise {
+    transform: none;
+  }
+}
+
+/* Button base */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-weight: 500;
+  border-radius: var(--brand-radius);
+  transition: transform 200ms ease, background 200ms ease, box-shadow 200ms ease;
+  white-space: nowrap;
+  text-align: center;
+}
+.btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand-primary) 35%, transparent);
+}
+.btn:active {
+  transform: scale(0.98);
+}
+
+.btn-primary {
+  background: var(--brand-primary);
+  color: var(--brand-bg);
+  min-height: 56px;
+  padding: 0 1.25rem;
+  font-size: 1.0625rem;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 6px 16px -8px color-mix(in oklab, var(--brand-primary) 40%, transparent);
+}
+.btn-primary:hover {
+  background: color-mix(in oklab, var(--brand-primary) 92%, black);
+}
+
+.btn-secondary {
+  background: var(--brand-bg);
+  color: var(--brand-fg);
+  border: 1px solid var(--brand-border);
+  min-height: 52px;
+  padding: 0 1rem;
+  font-size: 1rem;
+}
+.btn-secondary:hover {
+  border-color: color-mix(in oklab, var(--brand-fg) 30%, transparent);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--brand-fg);
+  min-height: 44px;
+  padding: 0 0.75rem;
+}
+
+/* Card */
+.card {
+  background: var(--brand-bg);
+  border: 1px solid var(--brand-border);
+  border-radius: var(--brand-radius);
+  padding: 1.25rem;
+}
+
+.eyebrow {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--brand-primary);
+}
+
+/* Form fields — meet ≥48px height, ≥16px font (prevents iOS zoom) */
+.field {
+  width: 100%;
+  min-height: 52px;
+  padding: 0.875rem 1rem;
+  font-size: 1rem;
+  line-height: 1.4;
+  color: var(--brand-fg);
+  background: var(--brand-bg);
+  border: 1px solid var(--brand-border);
+  border-radius: var(--brand-radius);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.field:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--brand-primary) 22%, transparent);
+}
+.field::placeholder {
+  color: var(--brand-fg-muted);
+}
+
+/* Subtle scroll fade for horizontal containers */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Trust strip: ensure logos line up cleanly */
+.trust-mark {
+  filter: grayscale(100%);
+  opacity: 0.75;
+  transition: opacity 200ms ease;
+}
+.trust-mark:hover {
+  opacity: 1;
+}
+
+/* Quiz step transitions — opacity only to keep paint cheap */
+.step-enter {
+  animation: step-enter 280ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes step-enter {
+  from { opacity: 0; transform: translateX(8px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* Quiz progress bar */
+.progress-track {
+  height: 4px;
+  background: var(--brand-bg-soft);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--brand-primary);
+  border-radius: 9999px;
+  transition: width 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Bottom-CTA ride-up: idle-mounted to keep main thread free at LCP */
+.sticky-bottom-cta {
+  padding-bottom: calc(0.625rem + env(safe-area-inset-bottom));
+}

@@ -1,5 +1,5 @@
 import "server-only";
-import { MetricTile } from "@eins/ui";
+import { MetricTile, TrendChart } from "@eins/ui";
 import {
   kpiSummaryWithComparison,
   kpiDailySeriesWithSparkline,
@@ -12,6 +12,7 @@ import {
   toneForGoalRatio,
   deltaTone,
 } from "@/lib/formatting";
+import { zipSeries } from "@/lib/chart-data";
 import type { KpiSummary } from "@/server/queries/kpis";
 
 type Goal = Awaited<ReturnType<typeof currentGoals>>[number];
@@ -75,7 +76,14 @@ export async function DashboardTopMetricsEnhanced({
               }
             : undefined
         }
-        sparkline={spark.qualifiedLeads}
+        chartSlot={
+          <TrendChart
+            data={zipSeries(spark.dates, spark.qualifiedLeads)}
+            tone="accent"
+            label="Anfragen"
+            valueFormat="number"
+          />
+        }
         hint="vs. Vormonat"
       />
       <MetricTile
@@ -99,7 +107,14 @@ export async function DashboardTopMetricsEnhanced({
               }
             : undefined
         }
-        sparkline={spark.revenueEur}
+        chartSlot={
+          <TrendChart
+            data={zipSeries(spark.dates, spark.revenueEur)}
+            tone="accent"
+            label="Umsatz"
+            valueFormat="euro"
+          />
+        }
         hint="vs. Vormonat"
       />
       <MetricTile
@@ -113,7 +128,14 @@ export async function DashboardTopMetricsEnhanced({
             ? "warten auf erste Reaktion"
             : "alles auf aktuellem Stand"
         }
-        sparkline={spark.qualifiedLeads}
+        chartSlot={
+          <TrendChart
+            data={zipSeries(spark.dates, spark.qualifiedLeads)}
+            tone={slaBreaches > 0 ? "bad" : openRequests > 0 ? "warn" : "good"}
+            label="Anfragen"
+            valueFormat="number"
+          />
+        }
       />
     </section>
   );

@@ -17,7 +17,7 @@ const Input = z.object({
 /**
  * Clinic user asks for a customized version of an animation.
  * Creates (or updates) the animation_instance row to state=requested,
- * notifies Karam by email.
+ * notifies the EINS team by email.
  */
 export async function requestAnimationCustomizationAction(formData: FormData) {
   const session = await requireSession();
@@ -96,7 +96,7 @@ export async function requestAnimationCustomizationAction(formData: FormData) {
       `Notiz:      ${input.note ?? "(keine)"}`,
     ].join("\n");
     await getEmailSender().send({
-      to: "karam@einsvisuals.com",
+      to: "team@eins.ag",
       subject,
       text,
       html: `<pre style="font-family:inherit; white-space:pre-wrap">${text}</pre>`,

@@ -1,0 +1,128 @@
+import type { ReactNode } from "react";
+
+export type BrandKey = "google" | "jameda" | "trustpilot" | "meta";
+
+const SIMPLE_LOGOS: Partial<Record<BrandKey, string>> = {
+  google: "/Google_Favicon_2025.svg",
+  trustpilot: "/trustpilot-2.svg",
+  jameda: "/jameda-logo.png",
+};
+
+const LABELS: Record<BrandKey, string> = {
+  google: "Google",
+  jameda: "Jameda",
+  trustpilot: "Trustpilot",
+  meta: "Meta",
+};
+
+const META_LIGHT = "/Meta_lockup_positive primary_RGB.svg";
+const META_DARK = "/Meta_lockup_negative primary_white_RGB.svg";
+
+const baseImg = "inline-block h-[1em] w-auto shrink-0 align-[-0.15em]";
+const metaImg = "inline-block h-[2em] w-auto shrink-0 align-[-0.55em]";
+
+export function BrandLogo({
+  brand,
+  className = "",
+}: {
+  brand: BrandKey;
+  className?: string;
+}) {
+  if (brand === "meta") {
+    return (
+      <>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={META_LIGHT}
+          alt=""
+          aria-hidden="true"
+          className={`brand-meta-light ${metaImg} ${className}`}
+        />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={META_DARK}
+          alt=""
+          aria-hidden="true"
+          className={`brand-meta-dark ${metaImg} ${className}`}
+        />
+      </>
+    );
+  }
+
+  const src = SIMPLE_LOGOS[brand];
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt=""
+      aria-hidden="true"
+      className={`${baseImg} ${className}`}
+    />
+  );
+}
+
+/**
+ * Inline brand mention — renders the text followed by its logo, sized to 1em.
+ * Use sparingly: only where naming the brand visually matters (labels, table
+ * cells, card titles, platform tiles). Don't sprinkle into flowing prose.
+ */
+export function Brand({
+  brand,
+  children,
+}: {
+  brand: BrandKey;
+  children?: ReactNode;
+}) {
+  if (brand === "meta") {
+    // The Meta lockup already includes the "Meta" wordmark, so strip a
+    // leading "Meta" from the label to avoid rendering the name twice.
+    const label = children ?? LABELS[brand];
+    let suffix: ReactNode = null;
+    if (typeof label === "string") {
+      const stripped = label.replace(/^Meta\s*/, "");
+      if (stripped) suffix = stripped;
+    } else if (label) {
+      suffix = label;
+    }
+    return (
+      <span className="whitespace-nowrap">
+        <BrandLogo brand={brand} />
+        {suffix ? <span className="ml-1">{suffix}</span> : null}
+      </span>
+    );
+  }
+  return (
+    <span className="whitespace-nowrap">
+      {children ?? LABELS[brand]}
+      <BrandLogo brand={brand} className="ml-1" />
+    </span>
+  );
+}
+
+const BRAND_PATTERN =
+  /(Google Ads|Google Maps|Google Authenticator|Google|Jameda|Trustpilot|Meta)/g;
+
+/**
+ * Walk a plain string and wrap any "Google", "Jameda", "Trustpilot", "Meta"
+ * (and common Google sub-brands) with an inline <Brand> showing the logo
+ * next to the text. Use this for short labels coming from constants dicts,
+ * not for flowing prose.
+ */
+export function withBrandLogos(text: string): ReactNode {
+  const parts = text.split(BRAND_PATTERN);
+  return parts.map((part, i) => {
+    if (i % 2 === 0) return part;
+    const brand: BrandKey = part.startsWith("Google")
+      ? "google"
+      : part === "Jameda"
+        ? "jameda"
+        : part === "Trustpilot"
+          ? "trustpilot"
+          : "meta";
+    return (
+      <Brand key={i} brand={brand}>
+        {part}
+      </Brand>
+    );
+  });
+}

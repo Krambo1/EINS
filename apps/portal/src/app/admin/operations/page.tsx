@@ -10,7 +10,6 @@ import {
 } from "@/server/queries/admin";
 import { AdminPageHeader } from "../_components/AdminPageHeader";
 import { SlaQueue } from "./_components/SlaQueue";
-import { UpgradesQueue } from "./_components/UpgradesQueue";
 import { AnimationenQueue } from "./_components/AnimationenQueue";
 import { SyncErrorsQueue } from "./_components/SyncErrorsQueue";
 import { MfaMissingQueue } from "./_components/MfaMissingQueue";
@@ -25,7 +24,6 @@ export default async function AdminOperationsPage() {
   const [
     counts,
     sla,
-    upgrades,
     animations,
     syncs,
     mfa,
@@ -33,29 +31,6 @@ export default async function AdminOperationsPage() {
   ] = await Promise.all([
     pendingOperationCounts(),
     slaBreachQueue(30),
-    db
-      .select({
-        id: schema.upgradeRequests.id,
-        status: schema.upgradeRequests.status,
-        requestedAt: schema.upgradeRequests.requestedAt,
-        userNote: schema.upgradeRequests.userNote,
-        clinicId: schema.clinics.id,
-        clinicName: schema.clinics.displayName,
-        clinicPlan: schema.clinics.plan,
-        requesterEmail: schema.clinicUsers.email,
-        requesterName: schema.clinicUsers.fullName,
-      })
-      .from(schema.upgradeRequests)
-      .leftJoin(
-        schema.clinics,
-        eq(schema.clinics.id, schema.upgradeRequests.clinicId)
-      )
-      .leftJoin(
-        schema.clinicUsers,
-        eq(schema.clinicUsers.id, schema.upgradeRequests.requestedBy)
-      )
-      .where(eq(schema.upgradeRequests.status, "offen"))
-      .orderBy(desc(schema.upgradeRequests.requestedAt)),
     db
       .select({
         id: schema.animationInstances.id,
@@ -97,7 +72,6 @@ export default async function AdminOperationsPage() {
 
   const railItems = [
     { id: "sla", label: "SLA-Verstöße", count: counts.slaBreaches },
-    { id: "upgrades", label: "Upgrade-Anfragen", count: counts.openUpgrades },
     {
       id: "animationen",
       label: "Animationen",
@@ -123,7 +97,6 @@ export default async function AdminOperationsPage() {
         <SectionRail items={railItems} />
         <div className="min-w-0 flex-1 space-y-6">
           <SlaQueue rows={sla} />
-          <UpgradesQueue rows={upgrades} />
           <AnimationenQueue rows={openAnimations} />
           <SyncErrorsQueue rows={syncs} />
           <MfaMissingQueue rows={mfa} />

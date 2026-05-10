@@ -3,8 +3,9 @@
 import { useState, useMemo } from "react";
 import { formatEuro } from "@/lib/utils";
 
-const AVG_LTV = 4500;
+const AVG_LTV = 2500;
 const BASELINE_ADSPEND = 3000;
+const SCALING_EXPONENT = 0.85;
 
 type ScenarioKey = "konservativ" | "realistisch" | "top";
 
@@ -14,21 +15,21 @@ const SCENARIOS: Record<
 > = {
   konservativ: {
     label: "Konservativ",
-    description: "Untergrenze unserer aktuellen Kunden — mit Sicherheitspuffer kalkuliert.",
-    baselineLeads: 90,
-    conversion: 0.15,
+    description: "Untergrenze des Modells, mit Sicherheitspuffer kalkuliert.",
+    baselineLeads: 50,
+    conversion: 0.12,
   },
   realistisch: {
     label: "Realistisch",
-    description: "Was unsere Kunden im Durchschnitt nach 90 Tagen erreichen.",
-    baselineLeads: 130,
-    conversion: 0.30,
+    description: "Erwartbarer Korridor nach 90 Tagen sauberer Umsetzung.",
+    baselineLeads: 65,
+    conversion: 0.20,
   },
   top: {
     label: "Top-Performer",
-    description: "Was unsere stärksten Kampagnen in 90 Tagen liefern.",
-    baselineLeads: 170,
-    conversion: 0.50,
+    description: "Obergrenze des Modells, was eine sauber laufende Kampagne nach 90 Tagen liefern kann.",
+    baselineLeads: 90,
+    conversion: 0.30,
   },
 };
 
@@ -40,7 +41,7 @@ export function RoiSlider() {
 
   const { leads, patients, revenue, investment } = useMemo(() => {
     const cfg = SCENARIOS[scenario];
-    const scale = adspend / BASELINE_ADSPEND;
+    const scale = Math.pow(adspend / BASELINE_ADSPEND, SCALING_EXPONENT);
     const ls = Math.round(cfg.baselineLeads * scale);
     const ps = Math.round(ls * cfg.conversion);
     const rv = ps * AVG_LTV;
@@ -52,27 +53,22 @@ export function RoiSlider() {
   const activeScenario = SCENARIOS[scenario];
 
   return (
-    <div className="card-glow rounded-2xl border border-border bg-bg-secondary/60 p-6 md:p-10" style={{ contain: "layout style" }}>
+    <div className="card-glow mx-auto max-w-3xl rounded-2xl border border-border bg-bg-secondary/60 p-6 md:p-10" style={{ contain: "layout style" }}>
       <div className="flex flex-col gap-8">
         {/* Card intro */}
-        <div>
-          <h3 className="font-display text-2xl font-semibold tracking-tight text-fg-primary md:text-4xl">
-            Ihr Ertrag in 90 Tagen, live berechnet.
-          </h3>
-          <p className="mt-3 hidden max-w-2xl text-base text-fg-secondary md:block md:text-lg">
-            In drei Schritten: Szenario wählen, monatliches Werbebudget einstellen — Sie sehen sofort, wie viele qualifizierte Anfragen, neue Patienten und welchen Umsatz Sie nach 90 Tagen erwarten dürfen.
-          </p>
-        </div>
+        <p className="mx-auto hidden max-w-2xl text-center text-base text-fg-secondary md:block md:text-lg">
+          In drei Schritten: Szenario wählen, monatliches Werbebudget einstellen. Sie sehen sofort, wie viele qualifizierte Anfragen, neue Patienten und welchen Umsatz Sie nach 90 Tagen erwarten dürfen.
+        </p>
 
         {/* Scenario toggle */}
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col items-center gap-3 text-center">
           <label className="font-mono text-base font-medium text-fg-primary md:text-lg">
             1 · Welches Szenario passt zu Ihnen?
           </label>
           <div
             role="tablist"
             aria-label="Szenario auswählen"
-            className="inline-flex self-start gap-1 rounded-full border border-border bg-bg-primary/60 p-1"
+            className="inline-flex gap-1 rounded-full border border-border bg-bg-primary/60 p-1"
           >
             {SCENARIO_ORDER.map((key) => {
               const active = scenario === key;
@@ -101,7 +97,7 @@ export function RoiSlider() {
 
         {/* Budget slider */}
         <div className="flex flex-col gap-3">
-          <div className="flex items-baseline justify-between">
+          <div className="flex flex-col items-center gap-1 text-center md:flex-row md:items-baseline md:justify-center md:gap-4">
             <label htmlFor="adspend" className="font-mono text-base font-medium text-fg-primary md:text-lg">
               2 · Ihr monatliches Werbebudget
             </label>
@@ -141,17 +137,17 @@ export function RoiSlider() {
 
         {/* Results */}
         <div className="border-t border-border pt-6">
-          <div className="mb-5 font-mono text-base font-medium text-fg-primary md:text-lg">
+          <div className="mb-5 text-center font-mono text-base font-medium text-fg-primary md:text-lg">
             3 · Ihr Ergebnis nach 90 Tagen
           </div>
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
+          <div className="grid grid-cols-2 gap-4 text-center md:grid-cols-3">
             <Metric label="Qualifizierte Anfragen" value={`${leads}`} />
             <Metric label="Neue Patienten" value={`${patients}`} />
             <Metric label="Umsatz" value={formatEuro(revenue)} highlight className="col-span-2 md:col-span-1" />
           </div>
 
           {/* Investment vs. revenue comparison */}
-          <div className="mt-6 hidden flex-col gap-3 rounded-xl border border-accent/40 bg-accent/[0.06] p-5 md:mt-8 md:flex md:flex-row md:items-center md:justify-between md:gap-6 md:p-6">
+          <div className="mt-6 hidden flex-col items-center gap-3 rounded-xl border border-accent/40 bg-accent/[0.06] p-5 text-center md:mt-8 md:flex md:flex-row md:items-center md:justify-center md:gap-10 md:p-6">
             <div className="flex items-center gap-4 md:gap-6">
               <div>
                 <div className="font-mono text-xs uppercase tracking-wide text-fg-secondary md:text-sm">
@@ -173,7 +169,7 @@ export function RoiSlider() {
                 </div>
               </div>
             </div>
-            <p className="text-sm leading-relaxed text-fg-secondary md:max-w-xs md:text-right md:text-base">
+            <p className="text-sm leading-relaxed text-fg-secondary md:max-w-xs md:text-base">
               Werbebudget × 3 Monate gegen den realisierbaren Umsatz aus den neugewonnenen Patienten.
             </p>
           </div>

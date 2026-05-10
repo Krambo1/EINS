@@ -50,12 +50,9 @@ export function ClinicTabsNav({
             )}
           >
             {t.label}
-            <span
-              className={cn(
-                "pointer-events-none absolute inset-x-3 -bottom-0.5 h-px origin-center bg-accent transition-transform duration-300 ease-expo",
-                active ? "scale-x-100" : "scale-x-0 group-hover:scale-x-100"
-              )}
-            />
+            {active && (
+              <span className="pointer-events-none absolute inset-x-3 -bottom-0.5 h-px bg-accent" />
+            )}
           </Link>
         );
       })}

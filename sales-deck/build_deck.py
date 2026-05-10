@@ -86,14 +86,10 @@ GUARANTEE_STACK = [
      "Sie zahlen für die Aufbauarbeit erst, wenn die ersten qualifizierten Anfragen bei Ihnen liegen. Vorab kein Setup-Betrag fällig."),
     ("02", "100 % Geld zurück bei verfehltem Ziel",
      "Erreichen wir die vereinbarte Anfragen-Schwelle in 90 Tagen nicht, erstatten wir alle bis dahin gezahlten Gebühren. Vollständig, ohne Diskussion."),
-    ("03", "Wir arbeiten kostenlos weiter, bis das Ziel steht",
-     "Falls 90 Tage nicht reichen, betreuen wir Sie so lange unentgeltlich, bis die Schwelle erreicht ist."),
-    ("04", "Geschwindigkeits-Garantie: erste Anfragen in 21 Tagen",
+    ("03", "Geschwindigkeits-Garantie: erste Anfragen in 21 Tagen",
      "Liegt nach drei Wochen ab Kampagnen-Launch keine einzige qualifizierte Anfrage vor, erlassen wir den nächsten Monat komplett."),
-    ("05", "Kein Lock-in ab Tag 1",
+    ("04", "Kein Lock-in ab Tag 1",
      "Sie können monatlich kündigen, vom ersten Tag an. Keine 12-Monats-Bindung, keine Mindestlaufzeit."),
-    ("06", "Direkt vom Gründer betreut",
-     "Kein Junior-Account-Manager, kein Praktikant, keine Outsourcing-Schiene. Sie arbeiten persönlich mit Karam Issa, dem Gründer, an Ihrer Kampagne."),
 ]
 
 COUNTER_ASKS = [

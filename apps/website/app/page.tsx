@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { Nav } from "@/components/nav";
 import { Footer } from "@/components/footer";
 import { Hero } from "@/components/sections/hero";
@@ -12,16 +13,23 @@ import { Objections } from "@/components/sections/objections";
 import { FinalCta } from "@/components/sections/final-cta";
 import { OBJECTIONS } from "@/lib/objections-data";
 
-const SITE_URL = "https://einsvisuals.com";
+const SITE_URL = "https://eins.ag";
+
+export const metadata: Metadata = {
+  title: "EINS | Wachstumssystem für Ästhetik-Praxen",
+  description:
+    "Mehr Selbstzahler für Ihre Ästhetik-Praxis: Video, bezahlte Anzeigen und KI-gestütztes Anfrage-System als integriertes Wachstumssystem im DACH-Raum.",
+  alternates: { canonical: "/" },
+};
 
 const localBusinessJsonLd = {
   "@context": "https://schema.org",
   "@type": "LocalBusiness",
-  name: "EINS Visuals",
+  name: "EINS",
   url: SITE_URL,
   image: `${SITE_URL}/eins-logo.png`,
   description:
-    "Akquisitions-System für Ästhetikkliniken im DACH-Raum. Medienproduktion, bezahlte Anzeigen und KI-gestütztes Anfrage-System.",
+    "Wachstumssystem für Ästhetik-Praxen im DACH-Raum. Medienproduktion, bezahlte Anzeigen und KI-gestütztes Anfrage-System.",
   address: {
     "@type": "PostalAddress",
     addressLocality: "Köln",

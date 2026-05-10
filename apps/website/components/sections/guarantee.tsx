@@ -1,11 +1,8 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
 import { motion } from "framer-motion";
-import { ChevronDown } from "lucide-react";
 import { Reveal } from "@/components/ui/reveal";
-import { cn } from "@/lib/utils";
 
 const STACK = [
   {
@@ -15,24 +12,12 @@ const STACK = [
   },
   {
     n: 2,
-    title: "Wir arbeiten kostenlos weiter, bis das Ziel steht",
-    body: "Falls 90 Tage nicht reichen, betreuen wir Sie so lange unentgeltlich, bis die Schwelle erreicht ist.",
-  },
-  {
-    n: 3,
     title: "Frei kündbar, jederzeit",
     body: "Sie können monatlich kündigen, vom ersten Tag an. Keine 12-Monats-Bindung, keine Mindestlaufzeit.",
-  },
-  {
-    n: 4,
-    title: "Direkt vom Gründer betreut",
-    body: "Kein Junior-Account-Manager, kein Praktikant, keine Outsourcing-Schiene. Sie arbeiten persönlich mit dem Gründer an Ihrer Kampagne.",
   },
 ];
 
 export function Guarantee() {
-  const [openId, setOpenId] = useState<number | null>(null);
-
   return (
     <section className="section relative">
       <div className="container">
@@ -75,78 +60,46 @@ export function Guarantee() {
         </Reveal>
 
         <Reveal delay={0.18}>
-          <div className="relative mt-8 overflow-hidden rounded-2xl border border-accent/40 bg-gradient-to-br from-accent/[0.08] via-bg-secondary to-bg-secondary p-6 md:mt-12 md:p-12">
+          <div className="relative mt-8 overflow-hidden rounded-2xl border border-accent/40 bg-gradient-to-br from-accent/[0.08] via-bg-secondary to-bg-secondary p-6 md:mx-auto md:mt-12 md:max-w-3xl md:p-8 lg:max-w-4xl lg:p-10">
             <div
               className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full"
               style={{ background: "radial-gradient(circle, var(--accent-glow), transparent 60%)" }}
               aria-hidden
             />
 
-            <div className="relative md:flex md:items-start md:gap-x-10 lg:gap-x-14">
+            <div className="relative md:flex md:items-stretch md:gap-x-6 lg:gap-x-8">
               <div className="md:flex-1">
-                <h3 className="font-display text-2xl font-semibold leading-tight tracking-tight md:text-4xl lg:text-5xl">
-                  100&nbsp;% Geld-zurück-Garantie.
-                </h3>
-
-                <ul className="mt-8 flex flex-col gap-0 md:mt-12 md:grid md:grid-cols-2 md:gap-x-10 md:gap-y-8">
-                  {STACK.map((item) => {
-                    const isOpen = openId === item.n;
-                    return (
-                      <li
-                        key={item.n}
-                        className="border-b border-border/60 last:border-b-0 md:flex md:gap-4 md:border-0"
-                      >
-                        <div className="hidden font-mono text-sm font-medium text-accent md:block md:text-lg">
-                          {item.n}.
-                        </div>
-                        <div className="flex-1">
-                          <button
-                            type="button"
-                            onClick={() => setOpenId(isOpen ? null : item.n)}
-                            aria-expanded={isOpen}
-                            className="flex w-full items-start gap-3 py-4 text-left md:hidden"
-                          >
-                            <span className="font-mono text-sm font-medium text-accent">
-                              {item.n}.
-                            </span>
-                            <span className="flex-1 font-display text-lg font-semibold leading-snug tracking-tight text-fg-primary">
-                              {item.title}
-                            </span>
-                            <ChevronDown
-                              className={cn(
-                                "mt-1 h-5 w-5 shrink-0 text-fg-secondary transition-transform",
-                                isOpen && "rotate-180"
-                              )}
-                              aria-hidden
-                            />
-                          </button>
-                          <div className="hidden font-display text-xl font-semibold leading-snug tracking-tight text-fg-primary md:block md:text-2xl">
+                <ul className="flex flex-col gap-10 md:gap-y-12">
+                  {STACK.map((item) => (
+                    <li key={item.n} className="md:flex md:gap-5">
+                      <div className="hidden font-mono text-base font-medium text-accent md:block md:text-lg md:pt-1.5">
+                        {item.n}.
+                      </div>
+                      <div className="md:max-w-xl">
+                        <div className="flex items-start gap-3 md:block">
+                          <span className="font-mono text-sm font-medium text-accent md:hidden">
+                            {item.n}.
+                          </span>
+                          <h3 className="flex-1 font-display text-xl font-semibold leading-snug tracking-tight text-fg-primary md:text-3xl lg:text-4xl">
                             {item.title}
-                          </div>
-                          <div
-                            className={cn(
-                              "overflow-hidden md:block md:overflow-visible",
-                              isOpen ? "block" : "hidden"
-                            )}
-                          >
-                            <p className="pb-4 pl-7 text-base leading-relaxed text-fg-primary md:mt-2 md:pb-0 md:pl-0 md:text-xl">
-                              {item.body}
-                            </p>
-                          </div>
+                          </h3>
                         </div>
-                      </li>
-                    );
-                  })}
+                        <p className="mt-2 pl-7 text-base leading-relaxed text-fg-primary md:mt-4 md:max-w-md md:pl-0 md:text-lg lg:text-xl">
+                          {item.body}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
                 </ul>
               </div>
 
-              <div className="mt-3 self-start md:-mt-4 md:w-[240px] md:shrink-0 lg:w-[260px]">
+              <div className="mt-3 self-start md:-mt-2 md:w-[190px] md:shrink-0 lg:w-[210px]">
                 {/* Mobile: image bleeds to bottom-left edge of outer card */}
                 <div className="-mr-6 -mb-6 flex md:hidden">
                   <div className="relative aspect-[3/4] w-44 shrink-0 self-end overflow-hidden">
                     <Image
                       src="/headshot.webp"
-                      alt="Karam Issa, Gründer EINS Visuals"
+                      alt="Karam Issa, Gründer EINS"
                       fill
                       sizes="176px"
                       className="object-contain object-bottom"
@@ -182,42 +135,42 @@ export function Guarantee() {
 
                 {/* Desktop: stacked Kapazität + large image */}
                 <div className="hidden md:block">
-                  <div className="rounded-xl border border-accent/40 bg-accent/[0.06] p-4">
-                    <div className="font-mono text-xs uppercase tracking-wide text-accent">
+                  <div className="rounded-xl border border-accent/40 bg-accent/[0.06] p-3">
+                    <div className="font-mono text-[11px] uppercase tracking-wide text-accent">
                       Kapazität
                     </div>
-                    <div className="mt-1 font-display text-2xl font-semibold text-fg-primary md:text-3xl">
+                    <div className="mt-0.5 font-display text-xl font-semibold text-fg-primary lg:text-2xl">
                       2 Plätze
                     </div>
-                    <div className="font-mono text-sm text-fg-secondary">
+                    <div className="font-mono text-xs text-fg-secondary">
                       Q3 2026
                     </div>
                   </div>
 
-                  <div className="mt-5 relative aspect-[3/4] overflow-hidden rounded-xl border border-border bg-white">
+                  <div className="mt-4 relative aspect-[3/4] overflow-hidden rounded-xl border border-border bg-white">
                     <Image
                       src="/headshot.webp"
-                      alt="Karam Issa, Gründer EINS Visuals"
+                      alt="Karam Issa, Gründer EINS"
                       fill
-                      sizes="260px"
+                      sizes="210px"
                       className="object-contain"
                     />
                   </div>
-                  <div className="mt-3 flex flex-col items-center px-1 text-center">
-                    <div className="relative h-12 w-32">
+                  <div className="mt-2 flex flex-col items-center px-1 text-center">
+                    <div className="relative h-10 w-28">
                       <Image
                         src="/Signature.png"
                         alt="Unterschrift Karam Issa"
                         fill
-                        sizes="128px"
+                        sizes="112px"
                         className="object-contain"
                       />
                     </div>
-                    <div className="mt-1 font-display text-base font-semibold text-fg-primary md:text-lg">
+                    <div className="mt-0.5 font-display text-sm font-semibold text-fg-primary lg:text-base">
                       Karam Issa
                     </div>
-                    <div className="text-sm text-fg-secondary">
-                      Gründer, EINS Visuals
+                    <div className="text-xs text-fg-secondary">
+                      Gründer, EINS
                     </div>
                   </div>
                 </div>

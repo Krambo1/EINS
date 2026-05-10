@@ -15,7 +15,7 @@ export default async function PortalLayout({ children }: { children: ReactNode }
         role: session.role,
         uiMode: session.uiMode,
       }}
-      clinic={clinic ?? { id: session.clinicId, displayName: "", plan: "standard", logoUrl: null }}
+      clinic={clinic ?? { id: session.clinicId, displayName: "", logoUrl: null }}
       impersonating={session.impersonatedByAdminId !== null}
     >
       {children}

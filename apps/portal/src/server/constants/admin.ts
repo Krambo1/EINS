@@ -2,11 +2,9 @@
  * Admin-side platform thresholds and configurable numbers.
  *
  * Source of truth for the tone-thresholds the admin UI uses to colour
- * health/leaderboard signals. Mirrors the EINS Visuals "Grundlagen"
+ * health/leaderboard signals. Mirrors the EINS "Grundlagen"
  * Notion page for CPL/CPP targets.
  */
-
-import type { Plan } from "@/lib/constants";
 
 export const KPI_THRESHOLDS = {
   /** Cost per qualified lead, EUR. <40 = good, 40–60 = warn, >60 = bad. */
@@ -20,15 +18,6 @@ export const KPI_THRESHOLDS = {
   /** Median first-contact response time, minutes. <=30 = good, 30–120 = warn. */
   responseTimeMin: { good: 30, warn: 120 },
 } as const;
-
-/**
- * Monthly retainer per plan, EUR. Placeholder values — Karam to fill in
- * when ready. The leaderboard MRR column reads from here.
- */
-export const PLAN_PRICING_EUR: Record<Plan, number> = {
-  standard: 0,
-  erweitert: 0,
-};
 
 export type ToneKey = "good" | "warn" | "bad" | "neutral";
 

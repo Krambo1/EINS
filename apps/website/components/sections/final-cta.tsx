@@ -1,4 +1,4 @@
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, Clock } from "lucide-react";
 import { ShinyButton } from "@/components/ui/shiny-button";
 import { Reveal } from "@/components/ui/reveal";
 import { ShimmerText } from "@/components/ui/shimmer-text";
@@ -27,6 +27,7 @@ export function FinalCta() {
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-green-500" />
               </span>
               Verfügbar · 30 Minuten
+              <Clock className="h-3.5 w-3.5" aria-hidden="true" />
             </span>
             <a
               href={`mailto:${CONTACT_EMAIL}`}

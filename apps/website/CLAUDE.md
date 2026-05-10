@@ -65,5 +65,11 @@ read -p "Tech Stack (e.g., Express, PostgreSQL, Prisma): " TECH_STACK applicatio
 
 ---
 
+## Terminology — "Praxis" not "Klinik"
+
+Never use **Klinik** in copy, UI, code comments, or docs. Use **Praxis** (or "Praxis für Ästhetische Medizin", "Praxisinhaber:in", etc. depending on context). Reason: the avatar is overwhelmingly Praxen, not Kliniken — "Klinik" excludes most of the target segment. Applies to all German-facing strings; English code identifiers (e.g. `clinicId`) can stay as-is unless user-visible.
+
+---
+
 **Last Updated**: 2026-04-25
 **Optimized with**: [Claude Token Optimizer](https://github.com/nadimtuhin/claude-token-optimizer)

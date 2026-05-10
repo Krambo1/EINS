@@ -17,7 +17,7 @@ const STATUS_TONE: Record<string, "neutral" | "good" | "warn" | "bad" | "accent"
   spam: "neutral",
 };
 
-const GLOW_CARD = "card-glow !bg-bg-secondary/60 backdrop-blur-sm";
+const GLOW_CARD = "!bg-bg-secondary/60";
 
 export function PipelineSection({
   funnel,
@@ -57,7 +57,7 @@ export function PipelineSection({
           </div>
           <div className="rounded-xl border border-border bg-bg-primary/40 p-3">
             <div className="mb-1 px-2 text-xs text-fg-secondary">
-              KI-Score · 30 Tage
+              KI-Bewertung · 30 Tage
             </div>
             <Donut
               slices={aiSlices}

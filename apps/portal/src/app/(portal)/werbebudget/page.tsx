@@ -9,7 +9,9 @@ import {
   EmptyState,
   Button,
   Badge,
-  Sparkline,
+  TrendChart,
+  type TrendChartTone,
+  type TrendChartValueFormat,
   Accordion,
   AccordionItem,
   AccordionTrigger,
@@ -31,15 +33,16 @@ import {
 } from "@/lib/formatting";
 import { AlertTriangle, Link as LinkIcon, Plug } from "lucide-react";
 import { DataTable } from "../auswertung/_components/detail-helpers";
+import { Brand } from "@/app/_components/Brand";
 
 export const metadata = { title: "Werbebudget Live" };
 
 type Search = { days?: string };
 
-const PLATFORM_LABELS = {
-  meta: "Meta · Facebook & Instagram",
-  google: "Google Ads",
-} as const;
+const PLATFORM_LABELS: Record<"meta" | "google", React.ReactNode> = {
+  meta: <Brand brand="meta">Meta · Facebook & Instagram</Brand>,
+  google: <Brand brand="google">Google Ads</Brand>,
+};
 
 export default async function WerbebudgetPage({
   searchParams,
@@ -139,13 +142,11 @@ export default async function WerbebudgetPage({
             />
           </section>
 
-          {/* Detail-only pace projection card */}
+          {/* Detail-only pace projection */}
           {isDetail && detail?.pace && (
-            <Card className="print:break-inside-avoid">
-              <CardHeader>
-                <CardTitle>Monats-Hochrechnung (Pace)</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-4 md:grid-cols-4">
+            <section className="print:break-inside-avoid">
+              <h3 className="opa-h3 mb-4 text-fg-primary">Monats-Hochrechnung (Pace)</h3>
+              <div className="grid gap-4 md:grid-cols-4">
                 <PaceStat
                   label="Bisher diesen Monat"
                   value={formatEuro(detail.pace.monthSpendSoFar)}
@@ -179,8 +180,8 @@ export default async function WerbebudgetPage({
                       : "good"
                   }
                 />
-              </CardContent>
-            </Card>
+              </div>
+            </section>
           )}
 
           {/* Per-platform cards */}
@@ -276,8 +277,8 @@ export default async function WerbebudgetPage({
           <CardContent className="space-y-2 text-base text-fg-primary">
             <p>
               Die Zahlen werden täglich aus Meta und Google abgerufen. Kleine
-              Abweichungen zu den dortigen Dashboards sind normal, weil Werbe-
-              attribution sich 24 bis 48 Stunden rückwirkend ändert.
+              Abweichungen zu den dortigen Auswertungen sind normal, weil sich
+              die Werbe-Zuordnung 24 bis 48 Stunden rückwirkend ändert.
             </p>
             <p>
               „Anfragen“ sind hier Formular-Einreichungen, die tatsächlich in
@@ -422,20 +423,23 @@ function PlatformCard({
             {isDetail && detail && detail.daily.length > 0 && (
               <>
                 <div className="grid grid-cols-3 gap-3">
-                  <MiniSparkline
+                  <MiniTrend
                     label="Budget pro Tag"
-                    values={detail.daily.map((d) => d.spendEur)}
+                    data={detail.daily.map((d) => ({ date: d.date, value: d.spendEur }))}
                     tone="accent"
+                    valueFormat="euro"
                   />
-                  <MiniSparkline
+                  <MiniTrend
                     label="Anfragen pro Tag"
-                    values={detail.daily.map((d) => d.leads)}
+                    data={detail.daily.map((d) => ({ date: d.date, value: d.leads }))}
                     tone="good"
+                    valueFormat="number"
                   />
-                  <MiniSparkline
+                  <MiniTrend
                     label="CPL pro Tag"
-                    values={detail.daily.map((d) => d.cplEur ?? 0)}
+                    data={detail.daily.map((d) => ({ date: d.date, value: d.cplEur ?? 0 }))}
                     tone="warn"
+                    valueFormat="euro"
                   />
                 </div>
                 <div className="grid grid-cols-3 gap-3">
@@ -463,11 +467,11 @@ function PlatformCard({
 
                 <Accordion type="single" collapsible>
                   <AccordionItem value="sync">
-                    <AccordionTrigger>Sync-Verlauf (letzte 10)</AccordionTrigger>
+                    <AccordionTrigger>Abgleich-Verlauf (letzte 10)</AccordionTrigger>
                     <AccordionContent>
                       {detail.sync.length === 0 ? (
                         <p className="text-sm text-fg-secondary">
-                          Noch keine Sync-Vorgänge.
+                          Noch keine Abgleiche.
                         </p>
                       ) : (
                         <table className="w-full text-sm">
@@ -544,21 +548,28 @@ function MiniStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function MiniSparkline({
+function MiniTrend({
   label,
-  values,
+  data,
   tone,
+  valueFormat,
 }: {
   label: string;
-  values: number[];
-  tone: "accent" | "good" | "warn" | "bad" | "neutral";
+  data: { date: string; value: number }[];
+  tone: TrendChartTone;
+  valueFormat?: TrendChartValueFormat;
 }) {
   return (
     <div>
       <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
         {label}
       </div>
-      <Sparkline values={values} tone={tone} />
+      <TrendChart
+        data={data}
+        tone={tone}
+        label={label}
+        valueFormat={valueFormat}
+      />
     </div>
   );
 }

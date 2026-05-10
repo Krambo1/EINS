@@ -1,5 +1,5 @@
 import "server-only";
-import { MetricTile } from "@eins/ui";
+import { MetricTile, TrendChart } from "@eins/ui";
 import {
   kpiSummaryWithComparison,
   kpiDailySeriesWithSparkline,
@@ -13,6 +13,7 @@ import {
   toneForGoalRatio,
   deltaTone,
 } from "@/lib/formatting";
+import { zipSeries } from "@/lib/chart-data";
 
 type Goal = Awaited<ReturnType<typeof currentGoals>>[number];
 
@@ -71,7 +72,14 @@ export async function AuswertungTopMetricsEnhanced({
               }
             : undefined
         }
-        sparkline={sparklines.qualifiedLeads}
+        chartSlot={
+          <TrendChart
+            data={zipSeries(sparklines.dates, sparklines.qualifiedLeads)}
+            tone="accent"
+            label="Anfragen"
+            valueFormat="number"
+          />
+        }
         hint="vs. Vorperiode"
       />
       <MetricTile
@@ -95,7 +103,14 @@ export async function AuswertungTopMetricsEnhanced({
               }
             : undefined
         }
-        sparkline={sparklines.revenueEur}
+        chartSlot={
+          <TrendChart
+            data={zipSeries(sparklines.dates, sparklines.revenueEur)}
+            tone="accent"
+            label="Umsatz"
+            valueFormat="euro"
+          />
+        }
         hint="vs. Vorperiode"
       />
       <MetricTile
@@ -110,7 +125,14 @@ export async function AuswertungTopMetricsEnhanced({
               }
             : undefined
         }
-        sparkline={sparklines.spendEur}
+        chartSlot={
+          <TrendChart
+            data={zipSeries(sparklines.dates, sparklines.spendEur)}
+            tone="neutral"
+            label="Werbebudget"
+            valueFormat="euro"
+          />
+        }
         hint="vs. Vorperiode"
       />
     </section>

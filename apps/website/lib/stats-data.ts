@@ -80,7 +80,7 @@ export const STATS: Stat[] = [
     headline: "der deutschen Internetnutzer recherchieren Praxen vor der Buchung",
     bigNumber: { value: 55, suffix: "%" },
     salesFrame:
-      "Über die Hälfte der potenziellen Patienten beurteilt Ihre Klinik online, bevor sie anruft. Wer in diesem Moment nicht überzeugt, verliert die Anfrage still und leise.",
+      "Über die Hälfte der potenziellen Patienten beurteilt Ihre Praxis online, bevor sie anruft. Wer in diesem Moment nicht überzeugt, verliert die Anfrage still und leise.",
     source: "Bitkom Research, repräsentative Befragung, 2026",
     viz: { kind: "gauge", value: 55 },
   },
@@ -90,7 +90,7 @@ export const STATS: Stat[] = [
     headline: "der Suchenden vergleichen 2 bis 5 Anbieter vor der Entscheidung",
     bigNumber: { value: 70, suffix: "%" },
     salesFrame:
-      "Ihre Klinik wird fast nie isoliert betrachtet. Fotos, Videos, Bewertungen und Ziel-Website werden nebeneinander mit 2 bis 5 Mitbewerbern verglichen.",
+      "Ihre Praxis wird fast nie isoliert betrachtet. Fotos, Videos, Bewertungen und Ziel-Website werden nebeneinander mit 2 bis 5 Mitbewerbern verglichen.",
     source: "Software Advice How Patients Use Online Reviews, 2022",
     viz: { kind: "gauge", value: 70 },
   },
@@ -112,7 +112,7 @@ export const STATS: Stat[] = [
   {
     id: "stammkunden-umsatz",
     tab: "markt",
-    headline: "des Umsatzes in Ästhetik-Kliniken stammen von Stammkunden",
+    headline: "des Umsatzes in Ästhetik-Praxen stammen von Stammkunden",
     bigNumber: { value: 80, suffix: "%" },
     salesFrame:
       "Ästhetik ist ein Stammkunden-Geschäft. Wer den ersten Termin gut inszeniert und visuell überzeugt, verdient über Jahre. Jede neue Patientin ist kein Einmal-Umsatz, sondern eine langfristige Beziehung.",
@@ -130,7 +130,7 @@ export const STATS: Stat[] = [
     headline: "Anstieg ästhetischer Eingriffe weltweit in 4 Jahren",
     bigNumber: { value: 41.3, suffix: "%", decimals: 1, prefix: "+" },
     salesFrame:
-      "Der Markt wächst schnell. Kliniken, die jetzt sichtbar und professionell auftreten, sichern sich den größten Teil davon.",
+      "Der Markt wächst schnell. Praxen, die jetzt sichtbar und professionell auftreten, sichern sich den größten Teil davon.",
     source: "ISAPS Global Survey 2022",
     viz: {
       kind: "lineGrowth",
@@ -147,9 +147,9 @@ export const STATS: Stat[] = [
     id: "price-range",
     tab: "markt",
     headline: "Marktpreise in Deutschland für hochpreisige ästhetische Behandlungen",
-    bigNumber: { value: 3000, prefix: "Ø ", suffix: " €" },
+    bigNumber: { value: 3500, prefix: "Ø ", suffix: " €" },
     salesFrame:
-      "Bei einem durchschnittlichen Behandlungswert von 3.000 € und regelmäßigen Re-Treatments rechnet sich jede seriöse Kampagne schnell. Wenige zusätzliche Patienten pro Monat finanzieren die gesamte Strategie mehrfach.",
+      "Bei einem durchschnittlichen Behandlungswert von 3.500 € und regelmäßigen Nachbehandlungen rechnet sich jede seriöse Kampagne schnell. Wenige zusätzliche Patienten pro Monat finanzieren die gesamte Strategie mehrfach.",
     source: "VDÄPC und Marktrecherche ästhetische Medizin DACH, 2023 bis 2025",
     viz: {
       kind: "priceRange",

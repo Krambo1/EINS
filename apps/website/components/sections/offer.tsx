@@ -47,23 +47,21 @@ export function Offer() {
                 <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent to-transparent" />
 
                 <div className="relative mx-auto max-w-3xl text-center">
-                  <div className="flex flex-wrap items-center justify-center gap-2">
-                    <span className="rounded-full border border-accent/40 bg-accent/10 px-3 py-1 font-mono text-xs font-semibold tracking-wider text-accent">
-                      Enthalten
-                    </span>
+                  <div className="flex flex-wrap items-center justify-center gap-3">
+                    <span className="eyebrow">Enthalten</span>
                     <span className="inline-flex items-center gap-1.5 font-mono text-xs text-fg-secondary">
                       <Lock className="h-3 w-3" aria-hidden />
-                      Privater Klinik-Zugang
+                      Privater Praxis-Zugang
                     </span>
                   </div>
                   <p className="mt-5 font-mono text-lg font-medium text-fg-primary md:text-2xl">
-                    Ihre EINS Klinik-Software
+                    Ihre EINS Praxis-Software
                   </p>
                   <h4 className="mt-2 font-display text-3xl font-semibold tracking-tight md:text-6xl">
                     Sie sehen alles. <span className="text-accent">In Echtzeit.</span>
                   </h4>
                   <p className="mt-5 text-lg leading-relaxed text-fg-primary md:text-xl">
-                    Portal für Ihre Klinik mit Anfragen, Werbebudget, ROI.
+                    Portal für Ihre Praxis mit Anfragen, Werbebudget, ROI.
                     Sofortige Klarheit, nicht erst im Monatsreport.
                   </p>
                 </div>

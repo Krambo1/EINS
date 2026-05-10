@@ -33,6 +33,7 @@ import {
   type ActivityKind,
   type RequestStatus,
 } from "@/lib/constants";
+import { withBrandLogos } from "@/app/_components/Brand";
 import {
   formatDate,
   formatDateTime,
@@ -166,11 +167,11 @@ export default async function AnfrageDetailPage({
                     }
                   >
                     {AI_CATEGORY_LABELS[request.aiCategory as keyof typeof AI_CATEGORY_LABELS]}
-                    {request.aiScore != null ? ` · Score ${request.aiScore}` : ""}
+                    {request.aiScore != null ? ` · Bewertung ${request.aiScore}` : ""}
                   </Badge>
                 )}
                 <Badge tone="neutral">
-                  {SOURCE_LABELS[request.source as keyof typeof SOURCE_LABELS] ?? request.source}
+                  {withBrandLogos(SOURCE_LABELS[request.source as keyof typeof SOURCE_LABELS] ?? request.source)}
                 </Badge>
                 {treatmentName && <Badge tone="accent">{treatmentName}</Badge>}
                 {locationName && <Badge tone="neutral">{locationName}</Badge>}
@@ -450,7 +451,7 @@ export default async function AnfrageDetailPage({
 
             <Card>
               <CardHeader>
-                <CardTitle>Recall planen</CardTitle>
+                <CardTitle>Folgetermin planen</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 <form action={scheduleRecallAction} className="space-y-3">
@@ -476,9 +477,9 @@ export default async function AnfrageDetailPage({
                         defaultValue="recall"
                         className="mt-1 h-11 w-full rounded-xl border border-border bg-bg-primary px-3 text-base"
                       >
-                        <option value="recall">Recall</option>
-                        <option value="followup">Followup</option>
-                        <option value="review_request">Bewertung</option>
+                        <option value="recall">Folgetermin</option>
+                        <option value="followup">Nachfass</option>
+                        <option value="review_request">Bewertungs-Anfrage</option>
                       </select>
                     </div>
                   </div>
@@ -488,7 +489,7 @@ export default async function AnfrageDetailPage({
                     className="h-11 w-full rounded-xl border border-border bg-bg-primary px-3 text-base"
                   />
                   <Button type="submit" variant="outline" className="w-full">
-                    Recall hinzufügen
+                    Folgetermin hinzufügen
                   </Button>
                 </form>
 
@@ -777,11 +778,11 @@ function KvTable({ kv }: { kv: Record<string, unknown> }) {
 function recallKindLabel(kind: string): string {
   switch (kind) {
     case "recall":
-      return "Recall";
+      return "Folgetermin";
     case "followup":
-      return "Followup";
+      return "Nachfass";
     case "review_request":
-      return "Bewertung";
+      return "Bewertungs-Anfrage";
     default:
       return kind;
   }

@@ -23,6 +23,12 @@ export interface MetricTileProps {
   delta?: MetricDeltaInput;
   sparkline?: number[];
   sparklineTone?: SparklineTone;
+  /**
+   * Optional override for the sparkline area. When provided, this slot is
+   * rendered in place of the static `Sparkline` (e.g. an interactive
+   * `TrendChart`). Caller is responsible for sizing.
+   */
+  chartSlot?: React.ReactNode;
   /** Optional small hint shown under the sparkline ("vs. Vormonat"). */
   hint?: React.ReactNode;
   className?: string;
@@ -58,6 +64,7 @@ export function MetricTile({
   delta,
   sparkline,
   sparklineTone,
+  chartSlot,
   hint,
   className,
 }: MetricTileProps) {
@@ -90,13 +97,18 @@ export function MetricTile({
       {sublabel && (
         <div className="mt-2 text-xs text-fg-secondary">{sublabel}</div>
       )}
-      {sparkline && sparkline.length > 0 && (
-        <div className="mt-4">
-          <Sparkline
-            values={sparkline}
-            tone={sparklineTone ?? toneToSparklineTone(tone)}
-          />
-        </div>
+      {chartSlot ? (
+        <div className="mt-4">{chartSlot}</div>
+      ) : (
+        sparkline &&
+        sparkline.length > 0 && (
+          <div className="mt-4">
+            <Sparkline
+              values={sparkline}
+              tone={sparklineTone ?? toneToSparklineTone(tone)}
+            />
+          </div>
+        )
       )}
       {hint && <div className="mt-2 text-[11px] text-fg-tertiary">{hint}</div>}
     </div>

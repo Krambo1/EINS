@@ -19,12 +19,10 @@ import {
 import { db, schema } from "@/db/client";
 import {
   REQUEST_STATUSES,
-  type Plan,
   type RequestStatus,
 } from "@/lib/constants";
 import {
   KPI_THRESHOLDS,
-  PLAN_PRICING_EUR,
   clinicHealthTone,
   type ToneKey,
 } from "@/server/constants/admin";
@@ -481,9 +479,7 @@ export interface ClinicLeaderboardRow {
   clinicId: string;
   name: string;
   slug: string;
-  plan: Plan;
   archivedAt: Date | null;
-  mrrEur: number;
   spendEur: number;
   revenueEur: number;
   roas: number | null;
@@ -507,7 +503,6 @@ export async function clinicLeaderboard(args: {
     clinic_id: string;
     name: string;
     slug: string;
-    plan: string;
     archived_at: Date | null;
     spend: string | null;
     revenue: string | null;
@@ -521,7 +516,6 @@ export async function clinicLeaderboard(args: {
       c.id            AS clinic_id,
       c.display_name  AS name,
       c.slug          AS slug,
-      c.plan          AS plan,
       c.archived_at   AS archived_at,
       kpi.spend       AS spend,
       kpi.revenue     AS revenue,
@@ -558,7 +552,6 @@ export async function clinicLeaderboard(args: {
     const spend = Number(r.spend ?? 0);
     const revenue = Number(r.revenue ?? 0);
     const leads = Number(r.leads ?? 0);
-    const plan = (r.plan === "erweitert" ? "erweitert" : "standard") as Plan;
     const cpl = leads > 0 ? Number((spend / leads).toFixed(2)) : null;
     const roas = spend > 0 ? Number((revenue / spend).toFixed(2)) : null;
     const lastLogin = r.last_login ? new Date(r.last_login) : null;
@@ -568,9 +561,7 @@ export async function clinicLeaderboard(args: {
       clinicId: r.clinic_id,
       name: r.name,
       slug: r.slug,
-      plan,
       archivedAt: r.archived_at ? new Date(r.archived_at) : null,
-      mrrEur: PLAN_PRICING_EUR[plan],
       spendEur: spend,
       revenueEur: revenue,
       roas,
@@ -1112,7 +1103,6 @@ export async function clinicActivity(
 
 export interface PendingOperations {
   slaBreaches: number;
-  openUpgrades: number;
   animationsRequested: number;
   animationsInProduction: number;
   syncErrors: number;
@@ -1125,7 +1115,6 @@ export async function pendingOperationCounts(): Promise<PendingOperations> {
 
   const [
     [sla],
-    [up],
     [anReq],
     [anProd],
     [sync],
@@ -1142,10 +1131,6 @@ export async function pendingOperationCounts(): Promise<PendingOperations> {
           inArray(schema.requests.status, ["neu", "qualifiziert"])
         )
       ),
-    db
-      .select({ total: count() })
-      .from(schema.upgradeRequests)
-      .where(eq(schema.upgradeRequests.status, "offen")),
     db
       .select({ total: count() })
       .from(schema.animationInstances)
@@ -1188,7 +1173,6 @@ export async function pendingOperationCounts(): Promise<PendingOperations> {
 
   return {
     slaBreaches: Number(sla?.total ?? 0),
-    openUpgrades: Number(up?.total ?? 0),
     animationsRequested: Number(anReq?.total ?? 0),
     animationsInProduction: Number(anProd?.total ?? 0),
     syncErrors: Number(sync?.total ?? 0),
@@ -1590,4 +1574,4 @@ export async function topCampaigns(args: {
 // ---------------------------------------------------------------
 // Re-export tone helper for callers
 // ---------------------------------------------------------------
-export { KPI_THRESHOLDS, PLAN_PRICING_EUR };
+export { KPI_THRESHOLDS };

@@ -49,12 +49,16 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-10">
+      {/* Mobile-only page title — the bottom nav is icon-only on mobile, so
+          we surface the active section name here for context. Desktop keeps
+          the side-nav label as the page-context cue. */}
+      <h1 className="text-2xl font-semibold md:hidden">Übersicht</h1>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-sm text-fg-secondary">Guten Tag,</p>
-          <h1 className="text-3xl font-semibold md:text-4xl">
+          <h2 className="text-3xl font-semibold md:text-4xl">
             {session.fullName ?? session.email.split("@")[0]}.
-          </h1>
+          </h2>
           <p className="mt-2 text-base text-fg-primary md:text-lg">
             So läuft es aktuell in Ihrer Praxis.
           </p>

@@ -20,7 +20,7 @@ import {
   Circle,
 } from "lucide-react";
 
-export const metadata = { title: "Onboarding" };
+export const metadata = { title: "Erste Schritte" };
 
 /**
  * Onboarding checklist. Each step is checked against an actual signal in the
@@ -112,7 +112,7 @@ export default async function OnboardingPage() {
       description:
         "Was bedeutet für Sie ein guter Monat? Anfragen oder Umsatz – wir arbeiten in diese Richtung.",
       done: goalRows.length > 0,
-      action: { label: "Zum Dashboard", href: "/dashboard" },
+      action: { label: "Zur Übersicht", href: "/dashboard" },
       icon: <CheckCircle2 className="h-5 w-5" />,
     },
     {
@@ -228,7 +228,7 @@ export default async function OnboardingPage() {
           </CardHeader>
           <CardContent className="space-y-2 text-base text-fg-primary">
             <p>
-              Ihr Portal ist startklar. Ab jetzt sehen Sie im Dashboard
+              Ihr Portal ist startklar. Ab jetzt sehen Sie in der Übersicht
               laufend, wie Ihre Werbung läuft und welche Anfragen hereinkommen.
             </p>
             <p>
@@ -244,8 +244,8 @@ export default async function OnboardingPage() {
 
 interface Step {
   key: string;
-  title: string;
-  description: string;
+  title: React.ReactNode;
+  description: React.ReactNode;
   done: boolean;
   hint?: string;
   action?: { label: string; href: string };

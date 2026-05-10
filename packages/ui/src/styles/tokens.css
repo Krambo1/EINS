@@ -1,4 +1,4 @@
-/* EINS Visuals brand tokens — shared between website + portal.
+/* EINS brand tokens — shared between website + portal.
    Source of truth. Do not override in app-level CSS. */
 
 :root {
@@ -54,4 +54,63 @@
 
   /* Spacing rhythm */
   --tap-min: 56px;   /* Opa-proof minimum tap-target */
+
+  /* Card shadows — soft drop shadow in light mode, swapped to a subtle
+     white glow in dark mode (see :root[data-theme="dark"]). Single-layer
+     box-shadows keep paint cost negligible even with many cards. */
+  --shadow-card-sm: 0 1px 2px rgba(16, 16, 26, 0.05);
+  --shadow-card: 0 1px 2px rgba(16, 16, 26, 0.04), 0 8px 24px -6px rgba(16, 16, 26, 0.08);
+  --shadow-card-strong:
+    0 1px 2px rgba(16, 16, 26, 0.06),
+    0 6px 20px -4px rgba(16, 16, 26, 0.09),
+    0 28px 56px -20px rgba(16, 16, 26, 0.12);
+  --shadow-card-strong-hover:
+    0 2px 4px rgba(16, 16, 26, 0.07),
+    0 10px 28px -4px rgba(16, 16, 26, 0.12),
+    0 32px 64px -20px rgba(16, 16, 26, 0.14);
+}
+
+/* Dark theme — applied when <html data-theme="dark">.
+   Keep the Mint-Teal accent identical; only surfaces, foregrounds, borders,
+   and the semantic tone tints shift. Tones are nudged brighter and the
+   translucent bg/border alpha is bumped so the traffic-light cards still
+   read as good/warn/bad against the dark canvas. */
+:root[data-theme="dark"] {
+  --bg-primary: #0e0f14;
+  --bg-secondary: #181922;
+  --bg-tertiary: #23242e;
+
+  --fg-primary: #f4f4f7;
+  --fg-secondary: #b4b4bd;
+  --fg-tertiary: #8a8a93;
+
+  --accent-glow: rgba(88, 186, 181, 0.45);
+  --accent-soft: rgba(88, 186, 181, 0.16);
+
+  --border: #2a2b35;
+  --border-hover: #3a3b46;
+
+  --tone-good: #2bc985;
+  --tone-good-bg: rgba(43, 201, 133, 0.12);
+  --tone-good-border: rgba(43, 201, 133, 0.3);
+
+  --tone-warn: #f0a83a;
+  --tone-warn-bg: rgba(240, 168, 58, 0.12);
+  --tone-warn-border: rgba(240, 168, 58, 0.32);
+
+  --tone-bad: #ef5a51;
+  --tone-bad-bg: rgba(239, 90, 81, 0.12);
+  --tone-bad-border: rgba(239, 90, 81, 0.3);
+
+  --tone-neutral: #b4b4bd;
+  --tone-neutral-bg: rgba(180, 180, 189, 0.08);
+  --tone-neutral-border: rgba(180, 180, 189, 0.2);
+
+  /* Subtle white glow replaces the dark drop shadow that disappears against
+     the dark canvas. Single-layer box-shadows with a low-alpha white are
+     cheap to paint and don't trigger layout. */
+  --shadow-card-sm: 0 0 10px rgba(255, 255, 255, 0.018);
+  --shadow-card: 0 0 20px rgba(255, 255, 255, 0.028);
+  --shadow-card-strong: 0 0 28px rgba(255, 255, 255, 0.04);
+  --shadow-card-strong-hover: 0 0 38px rgba(255, 255, 255, 0.06);
 }

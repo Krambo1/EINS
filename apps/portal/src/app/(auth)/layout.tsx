@@ -20,7 +20,7 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
         {children}
       </main>
       <footer className="px-6 pb-8 text-center text-sm text-fg-secondary">
-        © EINS Visuals · Kundenportal
+        © EINS · Kundenportal
       </footer>
     </div>
   );

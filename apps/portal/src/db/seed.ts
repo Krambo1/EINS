@@ -1,7 +1,8 @@
 /**
- * Seed script — inserts a demo clinic "Praxis Dr. Demo" with ~30 realistic
- * Anfragen, ~7 days of campaign snapshots, goals, and three users
- * (inhaber / marketing / frontdesk).
+ * Seed script — inserts a demo clinic "Praxis Dr. Demo" with ~80 realistic
+ * Anfragen weighted into the current month, 60 days of campaign snapshots
+ * and KPI rollups, goals, three clinic users (inhaber / marketing / frontdesk),
+ * connected ad-platform credentials and a populated progress timeline.
  *
  * The admin user (Karam) comes from ADMIN_EMAILS env and is created
  * on-demand by the admin login flow.
@@ -27,6 +28,30 @@ function daysAgo(days: number, hourOffset = 0): Date {
   d.setDate(d.getDate() - days);
   d.setHours(9 + hourOffset, randomInt(0, 59), 0, 0);
   return d;
+}
+
+/**
+ * Pick a `daysBack` so the resulting date falls in a chosen month bucket.
+ * Bucket 0 = current month, 1 = prior month, 2 = two months ago.
+ * Keeps dashboard "current month" cards densely populated while still
+ * providing prior-period rows for delta comparisons.
+ */
+function daysBackInBucket(today: Date, bucket: 0 | 1 | 2): number {
+  const dayOfMonth = today.getDate();
+  if (bucket === 0) {
+    // Anywhere from the 1st of this month through today.
+    return randomInt(0, dayOfMonth - 1);
+  }
+  if (bucket === 1) {
+    const priorMonthLast = new Date(today.getFullYear(), today.getMonth(), 0);
+    const priorMonthDays = priorMonthLast.getDate();
+    return randomInt(dayOfMonth, dayOfMonth + priorMonthDays - 1);
+  }
+  // bucket === 2
+  const twoMonthsAgoLast = new Date(today.getFullYear(), today.getMonth() - 1, 0);
+  const priorMonthLast = new Date(today.getFullYear(), today.getMonth(), 0);
+  const minBack = dayOfMonth + priorMonthLast.getDate();
+  return randomInt(minBack, minBack + twoMonthsAgoLast.getDate() - 1);
 }
 
 // ----- Fixture content -----
@@ -102,14 +127,12 @@ async function main() {
 
     const clinicId = randomUUID();
     await sql`
-      INSERT INTO clinics (id, legal_name, display_name, slug, plan, plan_started_at, default_doctor_email, hwg_contact_name, hwg_contact_email)
+      INSERT INTO clinics (id, legal_name, display_name, slug, default_doctor_email, hwg_contact_name, hwg_contact_email)
       VALUES (
         ${clinicId},
         'Praxis Dr. Demo GmbH',
         'Praxis Dr. Demo',
         'praxis-dr-demo',
-        'erweitert',
-        now() - interval '120 days',
         'dr.demo@example.com',
         'Dr. Martin Demo',
         'hwg@example.com'
@@ -162,15 +185,22 @@ async function main() {
       return treatmentIdBySlug["sonstige"] ?? null;
     }
 
-    // --- 30 realistic requests across last 30 days ---
+    // --- realistic requests, weighted into current month so dashboard cards fill ---
+    // Distribution (today = anchor):
+    //   60% in current month (dashboard "diesen Monat" cards)
+    //   30% in prior month  (delta-vs-prior comparisons)
+    //   10% two months back (longer trend lines, cohorts)
     const statuses = [
       "neu","neu","neu",
       "qualifiziert","qualifiziert",
       "termin_vereinbart","termin_vereinbart",
       "beratung_erschienen",
-      "gewonnen","gewonnen",
+      "gewonnen","gewonnen","gewonnen",
       "verloren",
     ] as const;
+
+    const REQUEST_COUNT = 80;
+    const today = new Date();
 
     let newCount = 0;
     /** Track patient rows per email so repeat customers aggregate. */
@@ -183,9 +213,12 @@ async function main() {
     /** Map request_id → won_at so we can build recalls below. */
     const wonRequests: Array<{ requestId: string; patientId: string; treatmentId: string | null; wonAt: Date }> = [];
 
-    for (let i = 0; i < 30; i++) {
-      const daysBack = randomInt(0, 29);
+    for (let i = 0; i < REQUEST_COUNT; i++) {
+      const r = Math.random();
+      const bucket: 0 | 1 | 2 = r < 0.6 ? 0 : r < 0.9 ? 1 : 2;
+      const daysBack = daysBackInBucket(today, bucket);
       const createdAt = daysAgo(daysBack, randomInt(0, 8));
+      // First three in the loop stay "neu" so the dashboard always shows fresh ones.
       const status = i < 3 ? "neu" : pick(statuses);
       const source = pick(SOURCES);
       // 25% chance to repeat a previously-seen contact so LTV accumulates.
@@ -415,46 +448,75 @@ async function main() {
         ${inhaberId})
     `;
 
-    // --- campaign snapshots last 30 days ---
-    for (let i = 0; i < 30; i++) {
+    // --- campaign snapshots last 60 days (covers current + prior month for delta) ---
+    for (let i = 0; i < 60; i++) {
       const date = new Date();
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().slice(0, 10);
+      const dow = date.getDay();
+      const isWeekend = dow === 0 || dow === 6;
 
-      const metaSpend = randomInt(40, 80) + Math.random();
-      const metaLeads = randomInt(0, 3);
-      const googleSpend = randomInt(25, 55) + Math.random();
-      const googleLeads = randomInt(0, 2);
+      // Slightly lower activity on weekends to mimic real campaign rhythms.
+      const metaSpend = (isWeekend ? randomInt(30, 55) : randomInt(55, 95)) + Math.random();
+      const metaLeads = isWeekend ? randomInt(1, 3) : randomInt(2, 5);
+      const googleSpend = (isWeekend ? randomInt(20, 40) : randomInt(40, 70)) + Math.random();
+      const googleLeads = isWeekend ? randomInt(0, 2) : randomInt(1, 3);
+
+      const metaImpressions = randomInt(2800, 6500);
+      const metaClicks = randomInt(85, 240);
+      const googleImpressions = randomInt(1200, 3800);
+      const googleClicks = randomInt(45, 140);
 
       await sql`
         INSERT INTO campaign_snapshots (clinic_id, snapshot_date, platform, spend_eur, impressions, clicks, leads, cpl_eur, ctr)
         VALUES
-          (${clinicId}, ${dateStr}, 'meta',   ${metaSpend.toFixed(2)}, ${randomInt(2000, 6000)}, ${randomInt(60, 220)}, ${metaLeads}, ${(metaSpend / Math.max(1, metaLeads)).toFixed(2)}, ${(Math.random() * 0.05).toFixed(4)}),
-          (${clinicId}, ${dateStr}, 'google', ${googleSpend.toFixed(2)}, ${randomInt(1000, 3500)}, ${randomInt(30, 120)}, ${googleLeads}, ${(googleSpend / Math.max(1, googleLeads)).toFixed(2)}, ${(Math.random() * 0.07).toFixed(4)})
+          (${clinicId}, ${dateStr}, 'meta',   ${metaSpend.toFixed(2)},   ${metaImpressions},   ${metaClicks},   ${metaLeads},   ${(metaSpend / Math.max(1, metaLeads)).toFixed(2)},   ${(metaClicks / metaImpressions).toFixed(4)}),
+          (${clinicId}, ${dateStr}, 'google', ${googleSpend.toFixed(2)}, ${googleImpressions}, ${googleClicks}, ${googleLeads}, ${(googleSpend / Math.max(1, googleLeads)).toFixed(2)}, ${(googleClicks / googleImpressions).toFixed(4)})
         ON CONFLICT (clinic_id, snapshot_date, platform) DO NOTHING
       `;
     }
 
     // --- kpi_daily rollup (coarse — worker recomputes nightly) ---
-    for (let i = 0; i < 30; i++) {
+    // 60 days so the dashboard's "Tagesverlauf · 14 Tage" sparklines and the
+    // prior-period delta chips both have rows to aggregate.
+    for (let i = 0; i < 60; i++) {
       const date = new Date();
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().slice(0, 10);
-      const leads = randomInt(0, 3);
-      const spend = randomInt(80, 150);
-      const revenue = randomInt(0, 4500);
+      const dow = date.getDay();
+      const isWeekend = dow === 0 || dow === 6;
+
+      // Funnel: leads → appointments → consultations held → cases won.
+      // Calibrated so the Trichter card on the dashboard shows realistic ratios
+      // (~70% appointment rate, ~70% consultation rate, ~50% close rate).
+      const leads = isWeekend ? randomInt(2, 4) : randomInt(3, 7);
+      const appointments = Math.max(1, Math.round(leads * (0.55 + Math.random() * 0.25)));
+      const consultations = Math.max(1, Math.round(appointments * (0.55 + Math.random() * 0.25)));
+      const casesWon = Math.max(0, Math.round(consultations * (0.35 + Math.random() * 0.30)));
+
+      const spend = randomInt(110, 195);
+      const avgCaseValue = randomInt(900, 2400);
+      const revenue = casesWon * avgCaseValue;
+      const noShows = appointments > 0 ? Math.random() * 0.15 : 0;
+
       await sql`
-        INSERT INTO kpi_daily (clinic_id, date, qualified_leads, cost_per_qualified_lead, appointments, consultations_held, cases_won, total_spend_eur, revenue_attributed_eur, roas)
+        INSERT INTO kpi_daily (
+          clinic_id, date,
+          qualified_leads, cost_per_qualified_lead,
+          appointments, consultations_held, cases_won,
+          total_spend_eur, revenue_attributed_eur, roas, no_show_rate
+        )
         VALUES (
           ${clinicId}, ${dateStr},
           ${leads},
-          ${leads > 0 ? (spend / leads).toFixed(2) : null},
-          ${randomInt(0, leads)},
-          ${randomInt(0, leads)},
-          ${revenue > 0 ? 1 : 0},
+          ${(spend / leads).toFixed(2)},
+          ${appointments},
+          ${consultations},
+          ${casesWon},
           ${spend.toFixed(2)},
           ${revenue.toFixed(2)},
-          ${spend > 0 ? (revenue / spend).toFixed(2) : "0"}
+          ${spend > 0 ? (revenue / spend).toFixed(2) : "0"},
+          ${noShows.toFixed(4)}
         )
         ON CONFLICT (clinic_id, date) DO NOTHING
       `;
@@ -504,7 +566,7 @@ async function main() {
     await sql`
       INSERT INTO documents (clinic_id, kind, title, storage_key, visible_to_roles)
       VALUES
-        (${clinicId}, 'vertrag',              'Hauptvertrag EINS Visuals',                            'clinics/praxis-dr-demo/vertrag-2026.pdf',                ARRAY['inhaber']::text[]),
+        (${clinicId}, 'vertrag',              'Hauptvertrag EINS',                                    'clinics/praxis-dr-demo/vertrag-2026.pdf',                ARRAY['inhaber']::text[]),
         (${clinicId}, 'avv',                  'Auftragsverarbeitungsvertrag',                         'clinics/praxis-dr-demo/avv-2026.pdf',                    ARRAY['inhaber']::text[]),
         (${clinicId}, 'vertriebsleitfaden',   'Vertriebsleitfaden Version 2.1',                       'global/vertriebsleitfaden-v2-1.pdf',                     ARRAY['inhaber','marketing','frontdesk']::text[]),
         (${clinicId}, 'auswertung_monatlich', ${'Monats-Auswertung ' + (now.getMonth() > 0 ? `${String(now.getMonth()).padStart(2,'0')}/${now.getFullYear()}` : `12/${now.getFullYear() - 1}`)},
@@ -515,16 +577,65 @@ async function main() {
     await sql`
       INSERT INTO notifications (user_id, clinic_id, kind, title, body, link)
       VALUES
-        (${inhaberId},   ${clinicId}, 'new_lead',    'Neue heiße Anfrage',     'Dr. Müller-Krug hat soeben eine Terminanfrage gestellt (KI-Score 87).', '/anfragen'),
-        (${marketingId}, ${clinicId}, 'sla_warning', 'SLA in 60 Minuten',      'Eine Anfrage läuft bald aus der SLA-Zeit. Bitte kontaktieren.',         '/anfragen'),
+        (${inhaberId},   ${clinicId}, 'new_lead',    'Neue heiße Anfrage',     'Dr. Müller-Krug hat soeben eine Terminanfrage gestellt (KI-Bewertung 87).', '/anfragen'),
+        (${marketingId}, ${clinicId}, 'sla_warning', 'Antwort-Frist in 60 Minuten', 'Eine Anfrage erreicht bald die Antwort-Frist. Bitte kontaktieren.',     '/anfragen'),
         (${inhaberId},   ${clinicId}, 'asset_ready', 'Neue Medien verfügbar',  'Das Video vom Shooting am 14.04. ist bereit zum Download.',             '/medien')
+    `;
+
+    // --- platform_credentials (Werbe-Sync card on dashboard + Werbebudget page) ---
+    // Bytea field is NOT NULL but never decrypted in dev — a labelled placeholder
+    // keeps the row valid without exposing a fake secret.
+    const placeholderToken = Buffer.from("DEMO_TOKEN_NOT_REAL", "utf8");
+    await sql`
+      INSERT INTO platform_credentials (
+        clinic_id, platform, access_token_enc, account_id,
+        last_synced_at, scopes
+      )
+      VALUES
+        (${clinicId}, 'meta',   ${placeholderToken}, 'act_283719456',
+         now() - interval '47 minutes',
+         ARRAY['ads_read','ads_management','business_management']::text[]),
+        (${clinicId}, 'google', ${placeholderToken}, '987-654-3210',
+         now() - interval '1 hour 12 minutes',
+         ARRAY['https://www.googleapis.com/auth/adwords']::text[])
+      ON CONFLICT (clinic_id, platform) DO NOTHING
+    `;
+
+    // --- clinic_timeline_entries (Fortschritt page) ---
+    await sql`
+      INSERT INTO clinic_timeline_entries (
+        clinic_id, title, description, event_date, status, created_by_email
+      ) VALUES
+        (${clinicId}, 'Onboarding-Workshop',
+         'Kickoff mit dem Praxis-Team und EINS Strategie-Lead. Ziele, Avatar, Tonalität.',
+         now() - interval '52 days', 'abgeschlossen', 'team@eins-visuals.de'),
+        (${clinicId}, 'Erste Werbekampagne live',
+         'Meta + Google starten parallel mit Schwerpunkt Hyaluron-Filler.',
+         now() - interval '38 days', 'abgeschlossen', 'team@eins-visuals.de'),
+        (${clinicId}, 'Vor-Ort-Shooting München',
+         'Bewegtbild- und Foto-Aufnahmen für die Q2-Kampagne.',
+         now() - interval '21 days', 'abgeschlossen', 'team@eins-visuals.de'),
+        (${clinicId}, 'A/B-Test der Hooks ausgewertet',
+         'Variante B (Empathie-Hook) bringt +37% CTR — wird ab dieser Woche Hauptmaterial.',
+         now() - interval '6 days', 'abgeschlossen', 'team@eins-visuals.de'),
+        (${clinicId}, 'Empfehlung: Recall-Sequenz aktivieren',
+         'Wir empfehlen, die 4-Monats-Recalls automatisch über das Portal zu versenden.',
+         now() - interval '1 day', 'laeuft', 'team@eins-visuals.de'),
+        (${clinicId}, 'Monatsreport ' || to_char(now(), 'Mon YYYY') || ' versendet',
+         'Monatsbericht mit ROAS, Trichter-Analyse und Empfehlungen für den Folgemonat.',
+         now() + interval '6 days', 'geplant', 'team@eins-visuals.de'),
+        (${clinicId}, 'Quartals-Review Q2',
+         'Strategie-Termin: Plan für Q3, Budget-Reallokation, neue Kampagnen-Konzepte.',
+         now() + interval '23 days', 'geplant', 'team@eins-visuals.de')
     `;
 
     console.log(`✓ seeded clinic ${clinicId} (Praxis Dr. Demo)`);
     console.log(`  inhaber:    inhaber@praxis-demo.de`);
     console.log(`  marketing:  marketing@praxis-demo.de`);
     console.log(`  frontdesk:  frontdesk@praxis-demo.de`);
-    console.log(`  Anfragen:   30 (${newCount} neu)`);
+    console.log(`  Anfragen:   ${REQUEST_COUNT} (${newCount} neu, schwerpunktmäßig im laufenden Monat)`);
+    console.log(`  KPI-Tage:   60`);
+    console.log(`  Werbekonten: meta + google verbunden (Demo-Token)`);
   } finally {
     await sql.end();
   }

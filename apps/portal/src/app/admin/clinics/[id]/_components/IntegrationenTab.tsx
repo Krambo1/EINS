@@ -8,8 +8,9 @@ import {
 } from "@eins/ui";
 import { formatDateTime, formatRelative } from "@/lib/formatting";
 import type { schema } from "@/db/client";
+import { Brand } from "@/app/_components/Brand";
 
-const GLOW_CARD = "card-glow !bg-bg-secondary/60 backdrop-blur-sm";
+const GLOW_CARD = "!bg-bg-secondary/60";
 
 type Cred = typeof schema.platformCredentials.$inferSelect;
 interface SyncEvent {
@@ -45,7 +46,11 @@ export function IntegrationenTab({
               >
                 <div>
                   <div className="font-medium">
-                    {p === "meta" ? "Meta / Instagram" : "Google Ads"}
+                    {p === "meta" ? (
+                      <Brand brand="meta">Meta / Instagram</Brand>
+                    ) : (
+                      <Brand brand="google">Google Ads</Brand>
+                    )}
                   </div>
                   <div className="text-xs text-fg-secondary">
                     {c

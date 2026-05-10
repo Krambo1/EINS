@@ -11,7 +11,7 @@ export function Roi() {
       <div className="container">
         <Reveal delay={0.08}>
           <h2 className="display-l mx-auto max-w-6xl text-center">
-            Realistischer Ertrag: <ShimmerText className="whitespace-nowrap">Ø&nbsp;+247&nbsp;%</ShimmerText> in{" "}
+            Ihr Ertrag in{" "}
             <span className="relative inline-block whitespace-nowrap">
               90 Tagen
               <motion.svg
@@ -40,7 +40,8 @@ export function Roi() {
                   </filter>
                 </defs>
               </motion.svg>
-            </span>.
+            </span>,{" "}
+            <ShimmerText className="whitespace-nowrap">live</ShimmerText> berechnet.
           </h2>
         </Reveal>
         <Reveal delay={0.2}>
@@ -49,8 +50,8 @@ export function Roi() {
           </div>
         </Reveal>
 
-        <p className="mt-6 text-center font-mono text-base text-fg-secondary">
-          Basierend auf einem durchschnittlichen langfristigen Kundenwert von 3.000 € pro Ästhetik-Patient inklusive Re-Treatments. Bei
+        <p className="mx-auto mt-6 max-w-3xl text-center font-mono text-base text-fg-secondary">
+          Basierend auf einem durchschnittlichen langfristigen Kundenwert von 2.500 € pro Ästhetik-Patient inklusive Nachbehandlungen. Bei
           chirurgischen Eingriffen wie Facelift, Brust- oder Körperchirurgie oft 6.000 bis 15.000 € pro Patient.
         </p>
       </div>

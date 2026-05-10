@@ -1,8 +1,4 @@
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
   Accordion,
   AccordionItem,
   AccordionTrigger,
@@ -51,11 +47,11 @@ export default async function LeitfadenPage() {
         </p>
       </header>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>{isDetail ? "Sechs goldene Prinzipien" : "Drei goldene Prinzipien"}</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
+      <section>
+        <h3 className="opa-h3 mb-4 text-fg-primary">
+          {isDetail ? "Sechs goldene Prinzipien" : "Drei goldene Prinzipien"}
+        </h3>
+        <div className="space-y-3">
           <Rule
             icon={<HeartHandshake className="h-5 w-5" />}
             title="Anerkennen, reframen, Termin anbieten"
@@ -107,48 +103,39 @@ export default async function LeitfadenPage() {
               </Rule>
             </>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>KPI-Ziele für jeden Anruf</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-3">
-          <Kpi label="Reaktionszeit" value="< 5 Min" hint="ab Lead-Eingang" />
+      <section>
+        <h3 className="opa-h3 mb-4 text-fg-primary">KPI-Ziele für jeden Anruf</h3>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Kpi label="Reaktionszeit" value="< 5 Min" hint="ab Anfrage-Eingang" />
           <Kpi label="Abschlussquote" value="> 25 %" hint="aus Beratungsterminen" />
           <Kpi label="No-Show-Rate" value="< 20 %" hint="bei Erstberatung" />
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       {isDetail && (
-      <Card>
-        <CardHeader>
-          <CardTitle>Vor jedem Anruf in 30 Sekunden</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ol className="ml-5 list-decimal space-y-2 text-base text-fg-primary">
-            <li>
-              Anrufer-Profil aus dem Vorqualifizierungs-Score öffnen (Hot, Warm,
-              Cold).
-            </li>
-            <li>Behandlungswunsch und Budget-Indikation lesen, falls vorhanden.</li>
-            <li>
-              Notiz-Block parat halten: Anrede, Name, Geburtsdatum, Mobil,
-              E-Mail, PLZ, Behandlungswunsch, bevorzugter Kanal,
-              Empfehlungsquelle.
-            </li>
-            <li>Stimme hochbringen, leise Umgebung, kein Hintergrundgeräusch.</li>
-          </ol>
-        </CardContent>
-      </Card>
+      <section>
+        <h3 className="opa-h3 mb-4 text-fg-primary">Vor jedem Anruf in 30 Sekunden</h3>
+        <ol className="ml-5 list-decimal space-y-2 text-base text-fg-primary">
+          <li>
+            Anrufer-Profil aus der KI-Bewertung öffnen (Heiß, Warm, Kalt).
+          </li>
+          <li>Behandlungswunsch und Budget-Indikation lesen, falls vorhanden.</li>
+          <li>
+            Notiz-Block parat halten: Anrede, Name, Geburtsdatum, Mobil,
+            E-Mail, PLZ, Behandlungswunsch, bevorzugter Kanal,
+            Empfehlungsquelle.
+          </li>
+          <li>Stimme hochbringen, leise Umgebung, kein Hintergrundgeräusch.</li>
+        </ol>
+      </section>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Gesprächs-Eröffnung, wortwörtlich</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <section>
+        <h3 className="opa-h3 mb-4 text-fg-primary">Gesprächs-Eröffnung, wortwörtlich</h3>
+        <div>
           {!isDetail && (
             <div className="space-y-2">
               <Quote>
@@ -246,15 +233,13 @@ export default async function LeitfadenPage() {
             />
           </Accordion>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       {isDetail && (
-      <Card>
-        <CardHeader>
-          <CardTitle>Discovery: 14 Fragen in vier Blöcken</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <section>
+        <h3 className="opa-h3 mb-4 text-fg-primary">Discovery: 14 Fragen in vier Blöcken</h3>
+        <div>
           <p className="mb-4 text-sm text-fg-secondary">
             Nicht jede Frage in jedem Anruf. Der Block leitet das Gespräch.
             Prinzip: offene Frage zuerst, geschlossene Folge-Frage zur
@@ -380,19 +365,17 @@ export default async function LeitfadenPage() {
               }
             />
           </Accordion>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            {isDetail
-              ? "Einwandbehandlung: 23 Patienten-Einwände"
-              : "Top 5 Einwände, die Sie heute hören werden"}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-6">
+      <section>
+        <h3 className="opa-h3 mb-4 text-fg-primary">
+          {isDetail
+            ? "Einwandbehandlung: 23 Patienten-Einwände"
+            : "Top 5 Einwände, die Sie heute hören werden"}
+        </h3>
+        <div className="space-y-6">
           {!isDetail && (
             <>
               <p className="text-sm text-fg-secondary">
@@ -414,7 +397,7 @@ export default async function LeitfadenPage() {
                 <Objection
                   value="easy-a3"
                   title="„Was kostet das genau?“"
-                  concern="Reine Preisnennung am Telefon senkt die Conversion und schafft falsche Anker."
+                  concern="Reine Preisnennung am Telefon senkt die Abschlussquote und schafft falsche Anker."
                   answer="Das ist die Frage, die uns am häufigsten erreicht, sehr verständlich. Eine seriöse Antwort kann ich Ihnen am Telefon nicht geben, weil die Kosten von Ihrer Anatomie, dem genauen Vorgehen und dem zeitlichen Aufwand abhängen. Was ich Ihnen aber sagen kann: Behandlungen in diesem Bereich bewegen sich bei uns üblicherweise in einer Spanne von [grobe Spanne]. Das persönliche Beratungsgespräch kostet [50 €] und wird bei Behandlung in vielen Fällen angerechnet. Im Termin bekommen Sie einen schriftlichen Kostenvoranschlag, den Sie ohne Verpflichtung mitnehmen. Wann passt es Ihnen?"
                   avoid={[
                     "Konkrete Einzelzahl („3.200 €“)",
@@ -494,7 +477,7 @@ export default async function LeitfadenPage() {
               <Objection
                 value="a3"
                 title="A3. „Was kostet das genau?"
-                concern="Triage. Reine Preisnennung am Telefon senkt Conversion und schafft falsche Anker."
+                concern="Triage. Reine Preisnennung am Telefon senkt die Abschlussquote und schafft falsche Anker."
                 answer="Das ist die Frage, die uns am häufigsten erreicht, sehr verständlich. Eine seriöse Antwort kann ich Ihnen am Telefon nicht geben, weil die Kosten von Ihrer Anatomie, dem genauen Vorgehen und dem zeitlichen Aufwand abhängen. Was ich Ihnen aber sagen kann: Behandlungen in diesem Bereich bewegen sich bei uns üblicherweise in einer Spanne von [grobe Spanne]. Das persönliche Beratungsgespräch kostet [50 €] und wird bei Behandlung in vielen Fällen angerechnet. Im Termin bekommen Sie einen schriftlichen Kostenvoranschlag, den Sie ohne Verpflichtung mitnehmen. Wann passt es Ihnen?"
                 avoid={[
                   "Konkrete Einzelzahl („3.200 €“)",
@@ -737,15 +720,13 @@ export default async function LeitfadenPage() {
           </ObjectionGroup>
           </>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       {isDetail && (
-      <Card>
-        <CardHeader>
-          <CardTitle>HWG-Quick-Reference: Sag-So, Sag-So-Nicht</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <section>
+        <h3 className="opa-h3 mb-4 text-fg-primary">HWG-Quick-Reference: Sag-So, Sag-So-Nicht</h3>
+        <div>
           <p className="mb-4 text-sm text-fg-secondary">
             Sieben Tabellen mit konkreten Formulierungen. Jede Sag-So-Nicht-Zeile
             ist ein konkretes HWG-, MBO-Ä- oder UWG-Risiko.
@@ -925,17 +906,15 @@ export default async function LeitfadenPage() {
               ]}
             />
           </Accordion>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            {isDetail ? "Termin-Close und DSGVO-Datenaufnahme" : "Termin-Close in zwei Sätzen"}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+      <section>
+        <h3 className="opa-h3 mb-4 text-fg-primary">
+          {isDetail ? "Termin-Close und DSGVO-Datenaufnahme" : "Termin-Close in zwei Sätzen"}
+        </h3>
+        <div>
           <Accordion type="multiple" className="space-y-2">
             <Step
               value="close"
@@ -1066,15 +1045,13 @@ export default async function LeitfadenPage() {
             </>
             )}
           </Accordion>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       {isDetail && (
-      <Card>
-        <CardHeader>
-          <CardTitle>No-Show-Prävention: Cadence und Vorlagen</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      <section>
+        <h3 className="opa-h3 mb-4 text-fg-primary">No-Show-Prävention: Cadence und Vorlagen</h3>
+        <div className="space-y-4">
           <p className="text-sm text-fg-secondary">
             Mehrkanal-Cadence reduziert No-Shows in deutschen Praxen messbar
             (Doctolib 30 bis 60 %, Universität Lübeck zitiert von LINK Mobility
@@ -1160,7 +1137,7 @@ nur eine kurze Erinnerung: Wir sehen uns morgen, [Wochentag], um [Uhrzeit] Uhr i
 
 Falls Sie noch Fragen vorab haben oder Ihre Anfahrt klären möchten, melden Sie sich gerne unter [Tel].
 
-Sollte Ihnen kurzfristig etwas dazwischenkommen, geben Sie uns bitte bis spätestens heute 18:00 Uhr Bescheid, dann können wir den Slot nachbesetzen.
+Sollte Ihnen kurzfristig etwas dazwischenkommen, geben Sie uns bitte bis spätestens heute 18:00 Uhr Bescheid, dann können wir den Termin nachbesetzen.
 
 Bis morgen
 [Empfangsteam]
@@ -1168,7 +1145,7 @@ Bis morgen
             />
             <Template
               value="t6"
-              title="6. Last-Reminder 2h vorher SMS oder WhatsApp"
+              title="6. Letzte Erinnerung 2h vorher SMS oder WhatsApp"
               text={`Hallo [Vorname], Ihr Termin bei [Klinik] ist heute in 2h um [Uhrzeit]. Adresse: [Straße], [PLZ Ort]. Anfahrt: [maps.app.goo.gl/xxx] Bis gleich.`}
             />
             <Template
@@ -1194,10 +1171,10 @@ Sie konnten gestern Ihren Beratungstermin nicht wahrnehmen, kein Problem, das pa
 
 Wir möchten Sie nicht aus den Augen verlieren. Falls Ihr Anliegen weiterhin besteht, finden wir gemeinsam einen neuen Termin, der besser in Ihren Alltag passt.
 
-Direkt einen neuen Slot wählen: [Booking-Link]
+Direkt einen neuen Termin wählen: [Termin-Link]
 Oder antworten Sie einfach auf diese E-Mail.
 
-Wenn Sie sich anders entschieden haben, ist das ebenfalls völlig in Ordnung. Eine kurze Rückmeldung würde uns helfen, den Slot freizugeben.
+Wenn Sie sich anders entschieden haben, ist das ebenfalls völlig in Ordnung. Eine kurze Rückmeldung würde uns helfen, den Termin wieder freizugeben.
 
 Herzliche Grüße
 [Name], [Klinik]
@@ -1212,7 +1189,7 @@ Liebe / Lieber [Vorname],
 
 vor einer Woche hatten wir Ihre Beratung zum Thema [Behandlung] reserviert. Wir gehen davon aus, dass etwas dazwischengekommen ist und möchten Ihnen einen neuen Termin anbieten.
 
-Diese Woche haben wir noch zwei Slots frei:
+Diese Woche haben wir noch zwei freie Termine:
   - [Wochentag, Datum] um [Uhrzeit] Uhr
   - [Wochentag, Datum] um [Uhrzeit] Uhr
 
@@ -1226,28 +1203,28 @@ Herzliche Grüße
             <Template
               value="t11"
               title="11. Reaktivierung nach 14 Tagen, SMS-Light"
-              text={`Hallo [Vorname], wir hätten weiterhin gerne Ihre Fragen zu [Behandlung] beantwortet. Wenn Sie möchten, melden Sie sich: [Tel] oder [Booking-Link]. [Klinik]`}
+              text={`Hallo [Vorname], wir hätten weiterhin gerne Ihre Fragen zu [Behandlung] beantwortet. Wenn Sie möchten, melden Sie sich: [Tel] oder [Termin-Link]. [Klinik]`}
             />
             <Template
               value="t12"
-              title="12. Cancellation-Bestätigung SMS"
-              text={`Vielen Dank für Ihre Nachricht. Ihr Termin am [Datum] ist storniert. Möchten Sie direkt einen neuen Termin? [Booking-Link] oder rufen Sie uns an: [Tel]`}
+              title="12. Storno-Bestätigung SMS"
+              text={`Vielen Dank für Ihre Nachricht. Ihr Termin am [Datum] ist storniert. Möchten Sie direkt einen neuen Termin? [Termin-Link] oder rufen Sie uns an: [Tel]`}
             />
             <Template
               value="t13"
-              title="13. Cancellation-Bestätigung E-Mail mit Re-Booking"
+              title="13. Storno-Bestätigung E-Mail mit Termin-Angebot"
               text={`Betreff: Termin abgesagt, kein Problem, wir bleiben in Kontakt
 
 Liebe / Lieber [Vorname],
 
 Ihr Termin am [Datum] um [Uhrzeit] ist storniert, danke, dass Sie uns rechtzeitig Bescheid gegeben haben.
 
-Möchten Sie direkt einen Ersatztermin vereinbaren? Wir haben in den nächsten 14 Tagen folgende Slots:
+Möchten Sie direkt einen Ersatztermin vereinbaren? Wir haben in den nächsten 14 Tagen folgende freie Termine:
   - [Wochentag, Datum] - [Uhrzeit]
   - [Wochentag, Datum] - [Uhrzeit]
   - [Wochentag, Datum] - [Uhrzeit]
 
-Oder Sie wählen selbst: [Booking-Link]
+Oder Sie wählen selbst: [Termin-Link]
 
 Falls sich Ihre Pläne geändert haben, ist das vollkommen in Ordnung. Wir sind da, sobald Sie soweit sind.
 
@@ -1271,18 +1248,16 @@ Herzliche Grüße
             Klinik beachten, kein 100 % am OP-Tag. AGB vor Auslieferung
             anwaltlich prüfen lassen.
           </Dont>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
       )}
 
-      <Card className="print:break-inside-avoid">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Printer className="h-5 w-5" />
-            Cheat-Sheet zum Ausdrucken
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
+      <section className="print:break-inside-avoid">
+        <h3 className="opa-h3 mb-4 flex items-center gap-2 text-fg-primary">
+          <Printer className="h-5 w-5" />
+          Cheat-Sheet zum Ausdrucken
+        </h3>
+        <div>
           <pre className="overflow-x-auto whitespace-pre rounded-xl border border-border bg-bg-secondary/40 p-4 font-mono text-xs leading-relaxed text-fg-primary">{`VERTRIEBSLEITFADEN, KURZFASSUNG FÜR DEN EMPFANGSTRESEN
 ─────────────────────────────────────────────────────────
 
@@ -1343,14 +1318,12 @@ Patient ernst nehmen, nicht weg-skripten.`}</pre>
             Drucken über das Browser-Menü (Strg+P / Cmd+P), Schriftgröße 11,
             laminiert am Empfangstresen platzieren.
           </p>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Was Sie unbedingt vermeiden</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
+      <section>
+        <h3 className="opa-h3 mb-4 text-fg-primary">Was Sie unbedingt vermeiden</h3>
+        <div className="space-y-3">
           <Dont title="Keinen Endpreis am Telefon nennen">
             Lockpreise und Festpreise verstoßen gegen § 7 HWG und § 5 Abs. 2
             GOÄ. Stattdessen Spanne, Beratungsgebühr, Verweis auf Kostenvoranschlag
@@ -1392,15 +1365,13 @@ Patient ernst nehmen, nicht weg-skripten.`}</pre>
               </Dont>
             </>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
       {isDetail && (
-      <Card>
-        <CardHeader>
-          <CardTitle>Rechtsgrundlagen, kompakt</CardTitle>
-        </CardHeader>
-        <CardContent>
+      <section>
+        <h3 className="opa-h3 mb-4 text-fg-primary">Rechtsgrundlagen, kompakt</h3>
+        <div>
           <div className="flex flex-wrap gap-2">
             <Badge tone="neutral">§ 3 HWG (Heilversprechen)</Badge>
             <Badge tone="neutral">§ 7 HWG (Lockangebote)</Badge>
@@ -1423,8 +1394,8 @@ Patient ernst nehmen, nicht weg-skripten.`}</pre>
             BSP). Landesärztekammer-Berufsordnungen variieren leicht von der
             MBO-Ä-Modellnorm.
           </p>
-        </CardContent>
-      </Card>
+        </div>
+      </section>
       )}
     </div>
   );
@@ -1628,12 +1599,12 @@ function SagSoBlock({
 function CadenceTable() {
   const rows: { time: string; channel: string; purpose: string }[] = [
     { time: "T+0 sofort", channel: "E-Mail mit iCal + SMS", purpose: "Bestätigung mit Adresse, Anfahrt, Vorbereitung" },
-    { time: "T-7 Tage (optional)", channel: "E-Mail", purpose: "Vorab-Intake, Erwartungsmanagement" },
-    { time: "T-24h", channel: "SMS primär + E-Mail", purpose: "Hauptreminder mit JA / NEIN-Bestätigung" },
-    { time: "T-2h", channel: "SMS oder WhatsApp", purpose: "Last-Minute-Reminder mit Adresse + Map" },
+    { time: "T-7 Tage (optional)", channel: "E-Mail", purpose: "Vorab-Befragung, Erwartungsmanagement" },
+    { time: "T-24h", channel: "SMS primär + E-Mail", purpose: "Haupt-Erinnerung mit JA / NEIN-Bestätigung" },
+    { time: "T-2h", channel: "SMS oder WhatsApp", purpose: "Kurzfristige Erinnerung mit Adresse + Karte" },
     { time: "T+30 Min No-Show", channel: "Anruf + SMS", purpose: "Wo bleiben Sie? sanft, lösungsorientiert" },
-    { time: "T+24h", channel: "E-Mail", purpose: "Empathische Nachfass-Mail mit Re-Booking-Link" },
-    { time: "T+7 Tage", channel: "E-Mail oder Anruf", purpose: "Reaktivierung 1: Slot-Angebot" },
+    { time: "T+24h", channel: "E-Mail", purpose: "Empathische Nachfass-Mail mit Termin-Link" },
+    { time: "T+7 Tage", channel: "E-Mail oder Anruf", purpose: "Reaktivierung 1: Termin-Angebot" },
     { time: "T+14 Tage", channel: "SMS oder E-Mail", purpose: "Reaktivierung 2: neue Erstberatung" },
   ];
   return (

@@ -4,7 +4,7 @@ import { formatRelative } from "@/lib/formatting";
 import type { schema } from "@/db/client";
 import { ImpersonateButton } from "./ImpersonateButton";
 
-const GLOW_CARD = "card-glow !bg-bg-secondary/60 backdrop-blur-sm";
+const GLOW_CARD = "!bg-bg-secondary/60";
 
 type TeamMember = typeof schema.clinicUsers.$inferSelect;
 

@@ -90,6 +90,13 @@ export { EmptyState } from "./components/EmptyState";
 export { StatusPill } from "./components/StatusPill";
 export { Sparkline, type SparklineProps, type SparklineTone } from "./components/Sparkline";
 export {
+  TrendChart,
+  type TrendChartProps,
+  type TrendChartTone,
+  type TrendChartPoint,
+  type TrendChartValueFormat,
+} from "./components/TrendChart";
+export {
   MetricTile,
   type MetricTileProps,
   type MetricTileTone,

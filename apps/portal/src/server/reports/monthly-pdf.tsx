@@ -69,8 +69,8 @@ export async function renderMonthlyReportPdf(
   const doc = (
     <Document
       title={`Monats-Auswertung ${period}`}
-      author="EINS Visuals"
-      creator="EINS Visuals Portal"
+      author="EINS"
+      creator="EINS Portal"
     >
       <Page size="A4" style={styles.page}>
         <View style={styles.accentBar} />
@@ -102,7 +102,7 @@ export async function renderMonthlyReportPdf(
         />
 
         <Text style={styles.footer}>
-          EINS Visuals — erstellt am {new Date().toLocaleDateString("de-DE")}
+          EINS — erstellt am {new Date().toLocaleDateString("de-DE")}
         </Text>
       </Page>
     </Document>

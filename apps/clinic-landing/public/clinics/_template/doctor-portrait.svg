@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1500" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Platzhalter: Portrait der Ärztin">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e9ecf1"/>
+      <stop offset="1" stop-color="#cfd9e6"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="1500" fill="url(#bg)"/>
+  <g transform="translate(600 700)" fill="#9aa6b6">
+    <circle cx="0" cy="-120" r="180"/>
+    <path d="M -300 280 Q 0 80 300 280 L 300 600 L -300 600 Z"/>
+  </g>
+  <text x="600" y="1380" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="34" fill="#555560">
+    Portrait der Ärztin (1200 × 1500 WebP)
+  </text>
+</svg>

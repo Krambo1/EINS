@@ -300,6 +300,8 @@ export interface KpiSparklines {
   revenueEur: number[];
   roas: number[];
   noShowRate: number[];
+  /** Parallel array of ISO date strings (YYYY-MM-DD), aligned with each metric. */
+  dates: string[];
 }
 
 /**
@@ -327,12 +329,14 @@ async function kpiDailySeriesWithSparklineUncached(
     revenueEur: [],
     roas: [],
     noShowRate: [],
+    dates: [],
   };
 
   const cursor = new Date(from);
   while (cursor.getTime() <= to.getTime()) {
     const key = cursor.toISOString().slice(0, 10);
     const r = byDate.get(key);
+    sparklines.dates.push(key);
     sparklines.qualifiedLeads.push(Number(r?.qualifiedLeads ?? 0));
     sparklines.casesWon.push(Number(r?.casesWon ?? 0));
     sparklines.spendEur.push(Number(r?.totalSpendEur ?? 0));

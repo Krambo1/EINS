@@ -84,6 +84,90 @@ export async function reviewTrend(
   });
 }
 
+/**
+ * Bewertungen tab fetches latest snapshots, 6-month trend, and full history.
+ * Runs all three in a single transaction so the page pays one round-trip
+ * instead of three.
+ */
+export async function bewertungenPageData(
+  clinicId: string,
+  userId: string,
+  trendMonths = 6
+): Promise<{
+  latest: ReviewSnapshot[];
+  trend: ReviewTrendRow[];
+  history: Awaited<ReturnType<typeof listReviews>>;
+}> {
+  return withClinicContext(clinicId, userId, async (tx) => {
+    const since = new Date();
+    since.setMonth(since.getMonth() - trendMonths);
+
+    const [latestRowsRaw, trendRows, historyRows] = await Promise.all([
+      tx.execute(sql`
+        SELECT DISTINCT ON (platform)
+          id, platform, rating, total_count, recorded_at, notes
+        FROM reviews
+        WHERE clinic_id = ${clinicId}
+        ORDER BY platform, recorded_at DESC
+      `),
+      tx
+        .select({
+          platform: schema.reviews.platform,
+          rating: schema.reviews.rating,
+          recordedAt: schema.reviews.recordedAt,
+        })
+        .from(schema.reviews)
+        .where(
+          and(
+            eq(schema.reviews.clinicId, clinicId),
+            gte(schema.reviews.recordedAt, since)
+          )
+        )
+        .orderBy(schema.reviews.platform, schema.reviews.recordedAt),
+      tx
+        .select()
+        .from(schema.reviews)
+        .where(eq(schema.reviews.clinicId, clinicId))
+        .orderBy(desc(schema.reviews.recordedAt)),
+    ]);
+
+    const latestRows = latestRowsRaw as unknown as Array<{
+      id: string;
+      platform: string;
+      rating: string;
+      total_count: number;
+      recorded_at: Date;
+      notes: string | null;
+    }>;
+
+    return {
+      latest: latestRows.map((r) => ({
+        id: r.id,
+        platform: r.platform as ReviewSnapshot["platform"],
+        rating: Number(r.rating),
+        totalCount: Number(r.total_count),
+        recordedAt: r.recorded_at,
+        notes: r.notes,
+      })),
+      trend: trendRows.map((r) => ({
+        platform: r.platform,
+        rating: Number(r.rating),
+        recordedAt: r.recordedAt,
+      })),
+      history: historyRows.map((r) => ({
+        id: r.id,
+        platform: r.platform,
+        rating: Number(r.rating),
+        totalCount: Number(r.totalCount),
+        periodStart: r.periodStart,
+        periodEnd: r.periodEnd,
+        recordedAt: r.recordedAt,
+        notes: r.notes,
+      })),
+    };
+  }, "bewertungen:page");
+}
+
 /** Full reviews list — admin-style page in /einstellungen. */
 export async function listReviews(
   clinicId: string,

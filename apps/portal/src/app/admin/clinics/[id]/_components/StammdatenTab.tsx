@@ -8,18 +8,11 @@ import {
   Label,
   Button,
   Separator,
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
 } from "@eins/ui";
-import { PLAN_TIERS, PLAN_LABELS } from "@/lib/constants";
-import { formatDateTime } from "@/lib/formatting";
 import type { schema } from "@/db/client";
 import { updateClinicAction } from "../actions";
 
-const GLOW_CARD = "card-glow !bg-bg-secondary/60 backdrop-blur-sm";
+const GLOW_CARD = "!bg-bg-secondary/60";
 
 export function StammdatenTab({
   clinic,
@@ -31,8 +24,7 @@ export function StammdatenTab({
       <CardHeader>
         <CardTitle>Stammdaten</CardTitle>
         <CardDescription>
-          Anzeigename, Rechtsname, Plan und HWG-Kontakt. Änderung des Plans setzt
-          den Start des Abo-Zyklus zurück.
+          Anzeigename, Rechtsname und HWG-Kontakt.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -59,25 +51,6 @@ export function StammdatenTab({
               required
               maxLength={200}
             />
-          </div>
-
-          <div className="md:col-span-1">
-            <Label htmlFor="plan">Plan</Label>
-            <Select name="plan" defaultValue={clinic.plan} required>
-              <SelectTrigger id="plan">
-                <SelectValue placeholder="Plan wählen" />
-              </SelectTrigger>
-              <SelectContent>
-                {PLAN_TIERS.map((p) => (
-                  <SelectItem key={p} value={p}>
-                    {PLAN_LABELS[p]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <p className="mt-1 text-xs text-fg-secondary">
-              Aktueller Zyklus seit {formatDateTime(clinic.planStartedAt)}.
-            </p>
           </div>
 
           <div className="md:col-span-1">

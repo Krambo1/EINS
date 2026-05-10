@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
-import { WebVitalsReporter } from "./_components/WebVitalsReporter";
+import { AppEffects } from "./_components/AppEffects";
 
 const display = localFont({
   src: [
@@ -16,8 +16,8 @@ const display = localFont({
 
 export const metadata: Metadata = {
   title: {
-    default: "EINS Visuals Portal",
-    template: "%s — EINS Visuals Portal",
+    default: "EINS Portal",
+    template: "%s — EINS Portal",
   },
   description:
     "Kundenportal für Zahn- und Ästhetikpraxen: Anfragen, Werbebudget, Medien und Auswertungen an einem Ort.",
@@ -38,8 +38,19 @@ export default function RootLayout({
 }) {
   return (
     <html lang="de" className={display.variable} suppressHydrationWarning>
+      <head>
+        {/* Set data-theme BEFORE first paint so CSS-variable surfaces don't
+            flash white→dark on reload. Runs synchronously in <head>; the
+            try/catch covers privacy modes where localStorage throws. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{var t=localStorage.getItem('eins-portal-theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}",
+          }}
+        />
+      </head>
       <body className="min-h-dvh bg-bg-primary text-fg-primary antialiased">
-        <WebVitalsReporter />
+        <AppEffects />
         {children}
       </body>
     </html>
