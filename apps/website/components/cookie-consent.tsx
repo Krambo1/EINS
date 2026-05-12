@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { SpeedInsights } from "@vercel/speed-insights/next";
 import { Analytics } from "@vercel/analytics/next";
 
 const STORAGE_KEY = "eins-consent-v1";
@@ -135,7 +134,6 @@ function ConsentGatedThirdParties() {
   return (
     <>
       <Analytics />
-      <SpeedInsights />
     </>
   );
 }

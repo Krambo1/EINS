@@ -90,13 +90,31 @@ export default function Datenschutz() {
         </p>
       </Section>
 
-      <Section label="Reichweitenmessung" heading="Vercel Web Analytics & Speed Insights">
+      <Section label="Ladezeit-Messung" heading="Vercel Speed Insights">
         <p>
-          Zur Auswertung der Seitenaufrufe und zur Überwachung der Ladezeiten nutzen
-          wir die datenschutzfreundlichen Dienste Vercel Web Analytics und Vercel
-          Speed Insights. Diese Dienste arbeiten ohne Cookies und ohne
-          Nutzer-Tracking über Sitzungen hinweg. Verarbeitet werden anonymisierte
-          Zugriffsinformationen wie aufgerufene Seite, Verweisquelle, Gerätekategorie,
+          Zur Überwachung der Ladezeiten und Core Web Vitals (z. B. LCP, INP, CLS)
+          unserer Website nutzen wir Vercel Speed Insights. Der Dienst arbeitet
+          ohne Cookies und ohne Zugriff auf Informationen, die auf Ihrem Endgerät
+          gespeichert sind. Gemessen und an Vercel übertragen werden ausschließlich
+          anonyme Performance-Metriken Ihres aktuellen Seitenaufrufs sowie eine
+          grobe Gerätekategorie. Eine Identifizierung einzelner Personen ist
+          nicht möglich.
+        </p>
+        <p>
+          Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse
+          an einer technisch optimal funktionierenden Website). § 25 TTDSG findet
+          keine Anwendung, da keine Informationen auf Ihrem Endgerät gespeichert
+          oder ausgelesen werden. Anbieter ist die Vercel Inc. (USA), zertifiziert
+          unter dem EU-U.S. Data Privacy Framework.
+        </p>
+      </Section>
+
+      <Section label="Reichweitenmessung" heading="Vercel Web Analytics">
+        <p>
+          Zur statistischen Auswertung der Seitenaufrufe nutzen wir Vercel Web
+          Analytics. Der Dienst arbeitet ohne Cookies und ohne Nutzer-Tracking
+          über Sitzungen hinweg. Verarbeitet werden anonymisierte Zugriffs-
+          informationen wie aufgerufene Seite, Verweisquelle, Gerätekategorie,
           Browser und ein täglich rotierender Hash aus IP-Adresse und User-Agent,
           der keine Identifizierung einzelner Personen erlaubt.
         </p>
@@ -119,11 +137,11 @@ export default function Datenschutz() {
         </p>
         <p>
           Nicht erforderliche Dienste – die Reichweitenmessung über Vercel
-          Analytics und Vercel Speed Insights sowie die technische
-          Vorbereitung der Verbindung zu Calendly (Preconnect/DNS-Prefetch) –
-          werden erst nach Ihrer ausdrücklichen Einwilligung über unseren
-          Cookie-Banner geladen. Rechtsgrundlage ist Art. 6 Abs. 1 lit. a
-          DSGVO in Verbindung mit § 25 Abs. 1 TTDSG.
+          Web Analytics sowie die technische Vorbereitung der Verbindung zu
+          Calendly (Preconnect/DNS-Prefetch) – werden erst nach Ihrer
+          ausdrücklichen Einwilligung über unseren Cookie-Banner geladen.
+          Rechtsgrundlage ist Art. 6 Abs. 1 lit. a DSGVO in Verbindung mit
+          § 25 Abs. 1 TTDSG.
         </p>
         <p>
           Sie können Ihre Einwilligung jederzeit mit Wirkung für die Zukunft
