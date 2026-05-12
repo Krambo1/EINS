@@ -74,7 +74,11 @@ export function Pains() {
     dragRef.current = { active: true, startX: e.clientX, dx: 0, moved: false };
     setIsDragging(true);
     setDragDx(0);
-    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    try {
+      (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    } catch {
+      // pointer no longer active (e.g. browser cancelled it before React fired)
+    }
   };
 
   const onPointerMove = (e: React.PointerEvent) => {
@@ -97,12 +101,23 @@ export function Pains() {
     }
   };
 
+  const releaseCapture = (e: React.PointerEvent) => {
+    const el = e.currentTarget as Element;
+    if (el.hasPointerCapture?.(e.pointerId)) {
+      try {
+        el.releasePointerCapture(e.pointerId);
+      } catch {
+        // pointer already released
+      }
+    }
+  };
+
   const onPointerUp = (e: React.PointerEvent) => {
-    (e.currentTarget as Element).releasePointerCapture?.(e.pointerId);
+    releaseCapture(e);
     endDrag(true);
   };
   const onPointerCancel = (e: React.PointerEvent) => {
-    (e.currentTarget as Element).releasePointerCapture?.(e.pointerId);
+    releaseCapture(e);
     endDrag(false);
   };
 
