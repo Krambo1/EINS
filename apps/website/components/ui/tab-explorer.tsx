@@ -105,7 +105,7 @@ export function TabExplorer() {
               />
             </ShimmerText>
           </div>
-          <div className="mx-auto mt-4 max-w-3xl text-balance font-display text-3xl font-medium leading-tight text-fg-primary md:text-4xl">{md(active.headline)}</div>
+          <div className="mx-auto mt-4 max-w-3xl text-pretty font-display text-3xl font-medium leading-tight text-fg-primary md:text-balance md:text-4xl">{md(active.headline)}</div>
           <div className="mt-6 font-mono text-xs text-fg-secondary">
             Quelle: {active.source}
           </div>

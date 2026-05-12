@@ -40,7 +40,7 @@ Alle Texte, Preise und Statistiken liegen in `lib/`. Sie koennen sie direkt edit
 | --- | --- |
 | `lib/constants.ts` | Calendly-URL, Kontakt-E-Mail, Telefon |
 | `lib/stats-data.ts` | Die 12 Statistiken im interaktiven Explorer |
-| `lib/offer-data.ts` | Basispaket-Sektionen, Wachstumssystem-Features, ROI-Szenarien |
+| `lib/offer-data.ts` | Basispaket-Sektionen, Wachstumssystem-Features |
 | `lib/system-data.ts` | Die drei System-Ebenen |
 | `lib/timeline-data.ts` | Onboarding-Timeline-Stationen |
 | `lib/fit-data.ts` | Passungs-Checklisten (fuer/gegen Sie) |

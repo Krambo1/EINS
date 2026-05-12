@@ -242,57 +242,6 @@ svg.text-accent,
   }
 }
 
-/* ROI slider thumb — 28px visible with 44px touch/hitbox via padding */
-.eins-slider {
-  -webkit-appearance: none;
-  appearance: none;
-  height: 4px;
-  border-radius: 999px;
-  outline: none;
-}
-.eins-slider:focus-visible::-webkit-slider-thumb {
-  box-shadow: 0 0 0 4px var(--accent-glow), 0 0 0 6px var(--accent);
-}
-.eins-slider:focus-visible::-moz-range-thumb {
-  box-shadow: 0 0 0 4px var(--accent-glow), 0 0 0 6px var(--accent);
-}
-.eins-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--accent);
-  cursor: pointer;
-  box-shadow: 0 0 0 4px var(--accent-glow);
-  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-.eins-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.1);
-}
-.eins-slider::-moz-range-thumb {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: var(--accent);
-  border: none;
-  cursor: pointer;
-  box-shadow: 0 0 0 4px var(--accent-glow);
-}
-
-/* Pulse ring overlay sitting on top of the slider thumb */
-.thumb-pulse-ring {
-  animation: thumb-ring-pulse 1.6s ease-out infinite;
-}
-@keyframes thumb-ring-pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(88, 186, 181, 0.55);
-  }
-  100% {
-    box-shadow: 0 0 0 16px rgba(88, 186, 181, 0);
-  }
-}
-
 /* Hero fade-in used server-side to avoid shipping framer-motion for LCP.
    Opacity stays at 1 so the headline paints immediately (LCP); only the
    slide-up transform animates. */

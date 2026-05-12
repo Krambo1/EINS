@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 import { Nav } from "@/components/nav";
 import { Footer } from "@/components/footer";
 import { Hero } from "@/components/sections/hero";
+import { Pains } from "@/components/sections/pains";
 import { StatsShowcase } from "@/components/sections/stats-showcase";
 import { System } from "@/components/sections/system";
 import { Offer } from "@/components/sections/offer";
-import { Roi } from "@/components/sections/roi";
 import { Guarantee } from "@/components/sections/guarantee";
 import { Timeline } from "@/components/sections/timeline";
 import { FitCheck } from "@/components/sections/fit-check";
@@ -84,11 +84,11 @@ export default function Page() {
       <Nav />
       <main>
         <Hero />
+        <Pains />
         <System />
         <Offer />
         <Guarantee />
         <StatsShowcase />
-        <Roi />
         <Timeline />
         <FitCheck />
         <Objections />

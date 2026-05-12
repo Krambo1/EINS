@@ -49,20 +49,3 @@ export const RETAINER = {
   description:
     "Ein Paket. Alles drin. Komplette Steuerung, Optimierung und Begleitung Ihrer Patientengewinnung.",
 } as const;
-
-export type Scenario = {
-  label: string;
-  leads: number;
-  conversion: number;
-  patients: number;
-  returnEur: number;
-  highlight?: boolean;
-};
-
-export const SCENARIOS: Scenario[] = [
-  { label: "Untergrenze", leads: 90, conversion: 15, patients: 13, returnEur: 45500 },
-  { label: "Konservativ", leads: 90, conversion: 20, patients: 18, returnEur: 63000 },
-  { label: "Durchschnitt", leads: 130, conversion: 30, patients: 39, returnEur: 136500, highlight: true },
-  { label: "Gut", leads: 130, conversion: 40, patients: 52, returnEur: 182000 },
-  { label: "Top", leads: 170, conversion: 50, patients: 85, returnEur: 297500 },
-];
