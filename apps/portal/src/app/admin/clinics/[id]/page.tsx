@@ -48,8 +48,8 @@ const TABS = [
 type TabKey = (typeof TABS)[number]["key"];
 
 interface PageProps {
-  params: { id: string };
-  searchParams: Record<string, string | string[] | undefined>;
+  params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
 const PERIOD_DAYS: Record<string, number> = {
@@ -72,11 +72,14 @@ export default async function AdminClinicDetailPage({
 }: PageProps) {
   await requireAdmin();
 
-  const tabParam = (searchParams.tab as string | undefined) ?? "uebersicht";
+  const { id } = await params;
+  const sp = await searchParams;
+
+  const tabParam = (sp.tab as string | undefined) ?? "uebersicht";
   const tab: TabKey = (TABS.find((t) => t.key === tabParam)?.key ??
     "uebersicht") as TabKey;
 
-  const clinic = await getAdminClinicById(params.id);
+  const clinic = await getAdminClinicById(id);
   if (!clinic) notFound();
 
   let renderedTab: React.ReactNode;
@@ -88,29 +91,29 @@ export default async function AdminClinicDetailPage({
     ]);
     renderedTab = <OverviewTab clinic={clinic} totals={counts} perf={perf} />;
   } else if (tab === "leistung") {
-    const periodKey = (searchParams.period as string | undefined) ?? "90d";
+    const periodKey = (sp.period as string | undefined) ?? "90d";
     const days = PERIOD_DAYS[periodKey] ?? 90;
     const perf = await clinicPerformance(clinic.id, days);
     renderedTab = (
       <LeistungTab perf={perf} periodKey={periodKey} clinicId={clinic.id} />
     );
   } else if (tab === "leads") {
-    const page = Math.max(1, Number(searchParams.page ?? 1) || 1);
+    const page = Math.max(1, Number(sp.page ?? 1) || 1);
     const filters: AdminLeadFilters = {
       clinicIds: [clinic.id],
-      status: asArray(searchParams.status).filter((s) =>
+      status: asArray(sp.status).filter((s) =>
         (REQUEST_STATUSES as readonly string[]).includes(s)
       ) as RequestStatus[],
-      source: asArray(searchParams.source).filter((s) =>
+      source: asArray(sp.source).filter((s) =>
         (REQUEST_SOURCES as readonly string[]).includes(s as RequestSource)
       ),
-      aiCategory: asArray(searchParams.aiCategory).filter((c) =>
+      aiCategory: asArray(sp.aiCategory).filter((c) =>
         ["hot", "warm", "cold", "unscored"].includes(c)
       ) as ("hot" | "warm" | "cold" | "unscored")[],
-      slaBreachedOnly: searchParams.slaBreachedOnly === "1",
+      slaBreachedOnly: sp.slaBreachedOnly === "1",
       search:
-        typeof searchParams.search === "string" && searchParams.search.length
-          ? searchParams.search
+        typeof sp.search === "string" && sp.search.length
+          ? sp.search
           : undefined,
     };
     const result = await globalLeads(filters, {
@@ -124,7 +127,7 @@ export default async function AdminClinicDetailPage({
         aggregates={result.aggregates}
         page={page}
         filters={filters}
-        searchParams={searchParams}
+        searchParams={sp}
         clinicId={clinic.id}
       />
     );

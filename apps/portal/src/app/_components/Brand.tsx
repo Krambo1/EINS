@@ -1,18 +1,29 @@
 import type { ReactNode } from "react";
+import { ClipboardList, PenLine, type LucideIcon } from "lucide-react";
 
-export type BrandKey = "google" | "jameda" | "trustpilot" | "meta";
+export type BrandKey =
+  | "google"
+  | "jameda"
+  | "meta"
+  | "formular"
+  | "manuell";
 
 const SIMPLE_LOGOS: Partial<Record<BrandKey, string>> = {
   google: "/Google_Favicon_2025.svg",
-  trustpilot: "/trustpilot-2.svg",
   jameda: "/jameda-logo.png",
+};
+
+const ICONS: Partial<Record<BrandKey, LucideIcon>> = {
+  formular: ClipboardList,
+  manuell: PenLine,
 };
 
 const LABELS: Record<BrandKey, string> = {
   google: "Google",
   jameda: "Jameda",
-  trustpilot: "Trustpilot",
   meta: "Meta",
+  formular: "Zielseiten-Formular",
+  manuell: "Manueller Eintrag",
 };
 
 const META_LIGHT = "/Meta_lockup_positive primary_RGB.svg";
@@ -20,6 +31,7 @@ const META_DARK = "/Meta_lockup_negative primary_white_RGB.svg";
 
 const baseImg = "inline-block h-[1em] w-auto shrink-0 align-[-0.15em]";
 const metaImg = "inline-block h-[2em] w-auto shrink-0 align-[-0.55em]";
+const baseIcon = "inline-block h-[1em] w-[1em] shrink-0 align-[-0.15em]";
 
 export function BrandLogo({
   brand,
@@ -46,6 +58,16 @@ export function BrandLogo({
           className={`brand-meta-dark ${metaImg} ${className}`}
         />
       </>
+    );
+  }
+
+  const Icon = ICONS[brand];
+  if (Icon) {
+    return (
+      <Icon
+        aria-hidden="true"
+        className={`brand-source-icon ${baseIcon} ${className}`}
+      />
     );
   }
 
@@ -100,13 +122,13 @@ export function Brand({
 }
 
 const BRAND_PATTERN =
-  /(Google Ads|Google Maps|Google Authenticator|Google|Jameda|Trustpilot|Meta)/g;
+  /(Google Ads|Google Maps|Google Authenticator|Google|Jameda|Meta|Zielseiten-Formular|Manueller Eintrag)/g;
 
 /**
- * Walk a plain string and wrap any "Google", "Jameda", "Trustpilot", "Meta"
- * (and common Google sub-brands) with an inline <Brand> showing the logo
- * next to the text. Use this for short labels coming from constants dicts,
- * not for flowing prose.
+ * Walk a plain string and wrap any "Google", "Jameda", "Meta" (and common
+ * Google sub-brands) with an inline <Brand> showing the logo next to the
+ * text. Use this for short labels coming from constants dicts, not for
+ * flowing prose.
  */
 export function withBrandLogos(text: string): ReactNode {
   const parts = text.split(BRAND_PATTERN);
@@ -116,9 +138,11 @@ export function withBrandLogos(text: string): ReactNode {
       ? "google"
       : part === "Jameda"
         ? "jameda"
-        : part === "Trustpilot"
-          ? "trustpilot"
-          : "meta";
+        : part === "Zielseiten-Formular"
+          ? "formular"
+          : part === "Manueller Eintrag"
+            ? "manuell"
+            : "meta";
     return (
       <Brand key={i} brand={brand}>
         {part}

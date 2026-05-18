@@ -1,7 +1,8 @@
 import "server-only";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, isNull } from "drizzle-orm";
 import { withClinicContext, db, schema } from "@/db/client";
 import type { AssetKind } from "@/lib/constants";
+import { sectionBadgeThreshold } from "./navBadges";
 
 /**
  * Fetch clinic-visible assets. RLS already scopes by clinic_id; we also
@@ -60,6 +61,54 @@ export async function listAnimationsForClinic(clinicId: string, userId: string) 
       instance: byLibraryId.get(lib.id) ?? null,
     }));
   });
+}
+
+/**
+ * Returns true iff a new asset has landed or an animation customization
+ * has been delivered for this clinic since this user's last visit to
+ * /medien. Drives the sidebar Medien "Neu" pill.
+ */
+export async function hasNewMedia(
+  clinicId: string,
+  userId: string
+): Promise<boolean> {
+  const threshold = await sectionBadgeThreshold(clinicId, userId, "medien");
+  return withClinicContext(
+    clinicId,
+    userId,
+    async (tx) => {
+      const newAssetsP = tx
+        .select({ id: schema.assets.id })
+        .from(schema.assets)
+        .where(
+          and(
+            eq(schema.assets.clinicId, clinicId),
+            gt(schema.assets.createdAt, threshold)
+          )
+        )
+        .limit(1);
+      // Animations don't have a created_at on `animation_instances`; the
+      // user-visible "new" moment is when a customization becomes ready
+      // (delivered_at moves from NULL to a timestamp).
+      const newAnimationsP = tx
+        .select({ id: schema.animationInstances.id })
+        .from(schema.animationInstances)
+        .where(
+          and(
+            eq(schema.animationInstances.clinicId, clinicId),
+            isNotNull(schema.animationInstances.deliveredAt),
+            gt(schema.animationInstances.deliveredAt, threshold)
+          )
+        )
+        .limit(1);
+      const [newAssets, newAnimations] = await Promise.all([
+        newAssetsP,
+        newAnimationsP,
+      ]);
+      return newAssets.length > 0 || newAnimations.length > 0;
+    },
+    "medien:has-new"
+  );
 }
 
 /** Global animation library — no clinic_id, no RLS. Safe to read via superuser. */

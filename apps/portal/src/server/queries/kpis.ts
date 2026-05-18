@@ -270,7 +270,7 @@ function buildDelta(cur: KpiSummary, prior: KpiSummary): KpiDelta {
  * Period length is matched: prior covers the same number of days immediately
  * before `from`.
  */
-async function kpiSummaryWithComparisonUncached(
+export async function kpiSummaryWithComparisonUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -310,7 +310,7 @@ export interface KpiSparklines {
  * structure with one number array per metric, dense across the date range
  * (missing days fill with 0).
  */
-async function kpiDailySeriesWithSparklineUncached(
+export async function kpiDailySeriesWithSparklineUncached(
   clinicId: string,
   userId: string,
   from: Date,

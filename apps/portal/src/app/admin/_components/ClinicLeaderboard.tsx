@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Card, CardContent, Badge } from "@eins/ui";
+import { Card, CardContent, Badge, Button } from "@eins/ui";
 import {
   formatEuro,
   formatNumber,
@@ -59,13 +59,14 @@ export function ClinicLeaderboard({ rows }: { rows: ClinicLeaderboardRow[] }) {
                 <th className="px-3 py-2 text-right">No-Show</th>
                 <th className="px-3 py-2 text-right">Aktivität</th>
                 <th className="px-3 py-2">Health</th>
+                <th className="px-3 py-2 pr-6 text-right">Aktion</th>
               </tr>
             </thead>
             <tbody>
               {sorted.length === 0 && (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={10}
                     className="px-6 py-10 text-center text-fg-secondary"
                   >
                     Noch keine Klinik angelegt.
@@ -121,6 +122,29 @@ export function ClinicLeaderboard({ rows }: { rows: ClinicLeaderboardRow[] }) {
                       />
                       {TONE_LABEL[r.healthTone]}
                     </span>
+                  </td>
+                  <td className="px-3 py-2 pr-6 text-right">
+                    {r.archivedAt ? (
+                      <span className="text-xs text-fg-secondary">—</span>
+                    ) : (
+                      <form
+                        action="/admin/start-impersonation"
+                        method="POST"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex justify-end"
+                      >
+                        <input type="hidden" name="clinicId" value={r.clinicId} />
+                        <Button
+                          type="submit"
+                          size="sm"
+                          variant="outline"
+                          title={`Portal als ${r.name} öffnen (als Inhaber)`}
+                        >
+                          Öffnen
+                        </Button>
+                      </form>
+                    )}
                   </td>
                 </tr>
               ))}

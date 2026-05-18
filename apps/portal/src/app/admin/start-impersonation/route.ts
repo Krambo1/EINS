@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { requireAdmin } from "@/auth/admin-guards";
 import { issueImpersonationToken } from "@/auth/impersonation";
 import { db, schema } from "@/db/client";
@@ -9,11 +9,18 @@ import { env } from "@/lib/env";
 /**
  * POST /admin/start-impersonation
  *
- * Mints an impersonation token for `targetUserId` (form field) and 303s to
- * the clinic-host landing endpoint that consumes it. Driven by a real
- * `<form target="_blank" method="POST">` from the admin clinic-detail Team
- * tab so the browser opens the new tab natively — no `window.open` and no
- * popup-blocker exposure.
+ * Mints an impersonation token and 303s to the clinic-host landing
+ * endpoint that consumes it. Accepts one of:
+ *   - `targetUserId` — open as a specific clinic user (used by the
+ *     per-user button on the clinic-detail Team tab).
+ *   - `clinicId` — quick path: auto-pick the clinic's Inhaber (falling
+ *     back to the oldest active user). Used by the one-click button in
+ *     the admin clinics list so the common case ("open as this praxis")
+ *     doesn't require drilling into the detail page.
+ *
+ * Driven by a real `<form target="_blank" method="POST">` so the browser
+ * opens the new tab natively — no `window.open` and no popup-blocker
+ * exposure.
  *
  * Why a route handler and not a server action:
  *   Server actions can't open a new browser tab. Their `redirect()`
@@ -31,12 +38,45 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const admin = await requireAdmin();
 
   const form = await req.formData();
-  const raw = String(form.get("targetUserId") ?? "");
-  const parsed = z.string().uuid().safeParse(raw);
-  if (!parsed.success) {
-    return new NextResponse("invalid_target_user_id", { status: 400 });
+  const rawUserId = form.get("targetUserId");
+  const rawClinicId = form.get("clinicId");
+
+  let targetUserId: string;
+
+  if (rawUserId != null && String(rawUserId).length > 0) {
+    const parsed = z.string().uuid().safeParse(String(rawUserId));
+    if (!parsed.success) {
+      return new NextResponse("invalid_target_user_id", { status: 400 });
+    }
+    targetUserId = parsed.data;
+  } else if (rawClinicId != null && String(rawClinicId).length > 0) {
+    const parsed = z.string().uuid().safeParse(String(rawClinicId));
+    if (!parsed.success) {
+      return new NextResponse("invalid_clinic_id", { status: 400 });
+    }
+    // Prefer the Inhaber; if there's none (or several archived ones),
+    // fall back to the oldest active user. ORDER BY puts inhaber first.
+    const [picked] = await db
+      .select({ id: schema.clinicUsers.id })
+      .from(schema.clinicUsers)
+      .where(
+        and(
+          eq(schema.clinicUsers.clinicId, parsed.data),
+          isNull(schema.clinicUsers.archivedAt)
+        )
+      )
+      .orderBy(
+        sql`CASE WHEN ${schema.clinicUsers.role} = 'inhaber' THEN 0 ELSE 1 END`,
+        asc(schema.clinicUsers.createdAt)
+      )
+      .limit(1);
+    if (!picked) {
+      return new NextResponse("clinic_has_no_active_users", { status: 404 });
+    }
+    targetUserId = picked.id;
+  } else {
+    return new NextResponse("missing_target", { status: 400 });
   }
-  const targetUserId = parsed.data;
 
   // Confirm the target is a real, non-archived clinic_users row. The
   // consumer route also re-checks; we re-check here so the admin gets a

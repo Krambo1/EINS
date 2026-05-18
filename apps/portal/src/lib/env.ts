@@ -12,6 +12,12 @@ export const env = createEnv({
   server: {
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     APP_ORIGIN: z.string().url().default("http://localhost:3001"),
+    /**
+     * Default clinic-landing origin used when a clinic has not set
+     * `reviewLandingOrigin`. Patient review-request emails embed rating
+     * links of the form `${origin}/r/${token}`.
+     */
+    CLINIC_LANDING_ORIGIN: z.string().url().default("http://localhost:3002"),
 
     DATABASE_URL: z.string().min(1),
     DATABASE_URL_APP: z.string().min(1).optional(),
@@ -54,6 +60,8 @@ export const env = createEnv({
     GOOGLE_ADS_DEVELOPER_TOKEN: z.string().optional(),
     GOOGLE_REDIRECT_URI: z.string().url().optional(),
     GOOGLE_ADS_LOGIN_CUSTOMER_ID: z.string().optional(),
+    /** Server-side API key for Places API (New) — review rating + count sync. */
+    GOOGLE_PLACES_API_KEY: z.string().optional(),
 
     // Sentry
     SENTRY_DSN: z.string().optional(),
@@ -95,6 +103,7 @@ export const env = createEnv({
   runtimeEnv: {
     NODE_ENV: process.env.NODE_ENV,
     APP_ORIGIN: process.env.APP_ORIGIN,
+    CLINIC_LANDING_ORIGIN: process.env.CLINIC_LANDING_ORIGIN,
     DATABASE_URL: process.env.DATABASE_URL,
     DATABASE_URL_APP: process.env.DATABASE_URL_APP,
     REDIS_URL: process.env.REDIS_URL,
@@ -121,6 +130,7 @@ export const env = createEnv({
     GOOGLE_ADS_DEVELOPER_TOKEN: process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
     GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
     GOOGLE_ADS_LOGIN_CUSTOMER_ID: process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID,
+    GOOGLE_PLACES_API_KEY: process.env.GOOGLE_PLACES_API_KEY,
     SENTRY_DSN: process.env.SENTRY_DSN,
     ADMIN_EMAILS: process.env.ADMIN_EMAILS,
     ADMIN_IP_ALLOWLIST: process.env.ADMIN_IP_ALLOWLIST,
@@ -155,4 +165,7 @@ export function hasGoogle(): boolean {
     Boolean(env.GOOGLE_ADS_CLIENT_SECRET) &&
     Boolean(env.GOOGLE_ADS_DEVELOPER_TOKEN)
   );
+}
+export function hasGooglePlaces(): boolean {
+  return Boolean(env.GOOGLE_PLACES_API_KEY);
 }

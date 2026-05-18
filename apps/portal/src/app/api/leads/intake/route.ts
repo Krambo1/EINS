@@ -4,6 +4,7 @@ import { REQUEST_SOURCES } from "@/lib/constants";
 import { rateLimit } from "@/server/rate-limit";
 import { writeAudit } from "@/server/audit";
 import { verifyLeadSignature, persistLead } from "@/server/leads";
+import { TREATMENT_CATEGORIES } from "@/worker/processors/treatment-tiers";
 
 /**
  * Public lead-intake endpoint — receives form submissions from clinic
@@ -15,6 +16,41 @@ import { verifyLeadSignature, persistLead } from "@/server/leads";
  * Success response is deliberately minimal and symmetric with signature
  * failure so the endpoint doesn't leak whether a clinic exists.
  */
+
+/**
+ * Structured pre-qualifier answers from the clinic-landing form. Optional
+ * because manual / WhatsApp / paid-ad intake doesn't carry them. When present,
+ * the worker uses these to score via deterministic rules and skips OpenAI.
+ */
+const QuizBody = z.object({
+  treatmentSlug: z.string().max(120),
+  treatmentSelection: z.string().max(120),
+  /**
+   * Treatment category from the landing app's clinic config. Drives the
+   * value-tier in the rule-based scorer. Optional for legacy payloads.
+   */
+  treatmentCategory: z.enum(TREATMENT_CATEGORIES).optional(),
+  treatmentValueCents: z.number().int().nonnegative().optional(),
+  timeframe: z
+    .enum(["asap", "this-month", "next-3-months", "later", "info-only"])
+    .optional(),
+  experience: z.enum(["first", "had-similar", "had-this"]).optional(),
+  branch: z.enum(["qualified", "info-only"]),
+  city: z.string().max(80).optional(),
+  notes: z.string().max(1000).optional(),
+  hasPhone: z.boolean(),
+  marketingConsent: z.boolean(),
+  /**
+   * Patient's explicit consent for AI-assisted scoring of the notes field.
+   * Optional for backwards-compat with legacy clients; the worker treats
+   * `undefined` or `false` identically — no OpenAI call, deterministic fallback only.
+   */
+  aiProcessingConsent: z.boolean().optional(),
+  eventId: z.string().max(200),
+  sourceUrl: z.string().max(500).optional(),
+  fbc: z.string().max(200).optional(),
+  fbp: z.string().max(200).optional(),
+});
 
 const Body = z.object({
   clinicId: z.string().uuid(),
@@ -29,6 +65,7 @@ const Body = z.object({
   budgetIndication: z.string().max(200).optional(),
   message: z.string().max(5000).optional(),
   dsgvoConsent: z.boolean(),
+  quiz: QuizBody.optional(),
   hp_field: z.string().optional(), // honeypot
 });
 
@@ -103,6 +140,7 @@ export async function POST(request: NextRequest) {
       dsgvoConsent: true,
       dsgvoConsentIp: ip,
       rawPayload: JSON.parse(raw),
+      quiz: parsed.quiz ?? null,
     });
 
     await writeAudit({

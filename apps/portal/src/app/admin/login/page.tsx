@@ -1,6 +1,6 @@
-import { Card, CardContent, CardHeader, CardTitle, Input, Label, Button } from "@eins/ui";
-import { requestAdminMagicLinkAction } from "./actions";
+import { Card, CardContent, CardHeader, CardTitle } from "@eins/ui";
 import { EinsLogo } from "@/app/_components/EinsLogo";
+import { LoginForm } from "./_components/LoginForm";
 
 export const metadata = { title: "Admin-Anmeldung" };
 
@@ -39,18 +39,7 @@ export default function AdminLoginPage({ searchParams }: PageProps) {
               {error}
             </div>
           )}
-          <form action={requestAdminMagicLinkAction} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="email">E-Mail</Label>
-              <Input id="email" name="email" type="email" required autoFocus />
-            </div>
-            <Button type="submit" className="w-full">
-              Anmeldelink senden
-            </Button>
-            <p className="text-xs text-fg-secondary">
-              Nur in der Allowlist hinterlegte Admin-Adressen erhalten einen Link.
-            </p>
-          </form>
+          <LoginForm />
         </CardContent>
       </Card>
     </div>

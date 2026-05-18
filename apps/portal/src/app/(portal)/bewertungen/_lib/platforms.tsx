@@ -1,12 +1,7 @@
 import type { ReactNode } from "react";
 import { Brand } from "@/app/_components/Brand";
 
-export const TRACKED_PLATFORMS = [
-  "google",
-  "jameda",
-  "trustpilot",
-  "manual",
-] as const;
+export const TRACKED_PLATFORMS = ["google", "jameda", "manual"] as const;
 
 export type Platform = (typeof TRACKED_PLATFORMS)[number];
 
@@ -16,8 +11,6 @@ export function platformLabel(p: Platform | string): string {
       return "Google";
     case "jameda":
       return "Jameda";
-    case "trustpilot":
-      return "Trustpilot";
     case "manual":
       return "Eigene Aufnahme";
     default:
@@ -32,8 +25,6 @@ export function platformLabelNode(p: Platform | string): ReactNode {
       return <Brand brand="google" />;
     case "jameda":
       return <Brand brand="jameda" />;
-    case "trustpilot":
-      return <Brand brand="trustpilot" />;
     default:
       return platformLabel(p);
   }
@@ -55,8 +46,6 @@ export function publicProfileUrl(
       return `https://www.google.com/maps/search/?api=1&query=${q}`;
     case "jameda":
       return `https://www.jameda.de/suche?q=${q}`;
-    case "trustpilot":
-      return `https://www.trustpilot.com/search?query=${q}`;
     case "manual":
       return null;
     default:

@@ -2,6 +2,9 @@ import "server-only";
 import { Queue, type JobsOptions } from "bullmq";
 import Redis from "ioredis";
 import { env } from "@/lib/env";
+import { QUEUES, type QueueName } from "@/lib/queues";
+
+export { QUEUES, type QueueName };
 
 /**
  * BullMQ producer-side facade.
@@ -41,23 +44,6 @@ function connection(): Redis {
   }
   return globalThis.__einsBullmqConn;
 }
-
-// ---------------------------------------------------------------
-// Queue names — keep in sync with src/worker/index.ts
-// ---------------------------------------------------------------
-export const QUEUES = {
-  aiScore: "ai-score",
-  syncMeta: "sync-meta",
-  syncGoogle: "sync-google",
-  kpiRebuild: "kpi-rebuild",
-  slaCheck: "sla-check",
-  monthlyReport: "monthly-report",
-  refreshOauth: "refresh-oauth",
-  dbBackup: "db-backup",
-  purgeAudit: "purge-audit",
-  emailSend: "email-send",
-} as const;
-export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
 
 // ---------------------------------------------------------------
 // Queue cache (producer side)
@@ -142,4 +128,71 @@ export function enqueueEmail(payload: {
   html?: string;
 }): Promise<string | null> {
   return safeAdd(QUEUES.emailSend, "send", payload);
+}
+
+// ---------------------------------------------------------------
+// PVS Bridge producers
+// ---------------------------------------------------------------
+
+/**
+ * Replay event-log history for one (clinicId, portalPatientId) tuple and
+ * update requests.status, revenue, and patient lifetime_revenue accordingly.
+ *
+ * BullMQ jobId is `${clinicId}:${patientId}` so concurrent enqueues for the
+ * same patient coalesce to one in-flight worker (BullMQ dedupes by jobId).
+ * If an event-log row was just inserted for a patient with N in-flight
+ * derive jobs, only one runs — the others are dropped because the queue
+ * already has a job with that id.
+ */
+export function enqueuePvsStatusDerive(
+  clinicId: string,
+  portalPatientId: string
+): Promise<string | null> {
+  return safeAdd(
+    QUEUES.pvsStatusDerive,
+    "derive",
+    { clinicId, portalPatientId },
+    { jobId: `${clinicId}:${portalPatientId}` }
+  );
+}
+
+/**
+ * Process an uploaded CSV through the pvs-csv-ingest worker. The worker reads
+ * `pvs_csv_uploads.storage_key`, applies `mapping_json`, and emits canonical
+ * events through `applyPvsEvent` in-process.
+ */
+export function enqueuePvsCsvIngest(
+  uploadId: string
+): Promise<string | null> {
+  return safeAdd(QUEUES.pvsCsvIngest, "ingest", { uploadId });
+}
+
+/**
+ * Re-run the Stage-3 fuzzy linker for one PVS patient id. Triggered by:
+ *   • A new pvs_event_log row whose pvsPatientId has no existing map.
+ *   • The "Re-check" button on the linking-failures inbox UI.
+ *   • The nightly reconciliation job.
+ */
+export function enqueuePvsLinkBackfill(
+  clinicId: string,
+  pvsPatientId: string
+): Promise<string | null> {
+  return safeAdd(QUEUES.pvsLinkBackfill, "backfill", {
+    clinicId,
+    pvsPatientId,
+  });
+}
+
+/**
+ * Direction A — write the `EINS-Lead-{8hex}` linking token into the PVS
+ * bemerkung field for the patient implied by `requestId`. The processor
+ * dispatches per-adapter (Tomedo writes via REST; HealthHub/RED via FHIR
+ * Patient.note PATCH; GDT-Agent does NOT support write-back; n8n/CSV are
+ * no-ops). For unsupported adapters the token remains only visible in the
+ * portal UI for manual MFA copy-paste.
+ */
+export function enqueuePvsLeadTokenWrite(
+  requestId: string
+): Promise<string | null> {
+  return safeAdd(QUEUES.pvsLeadTokenWrite, "write", { requestId });
 }

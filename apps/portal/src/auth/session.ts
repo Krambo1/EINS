@@ -11,6 +11,7 @@ import {
   type Role,
 } from "../lib/constants";
 import { generateToken, sha256Hex } from "../lib/crypto";
+import { avatarUrlForKey } from "../server/avatars";
 
 /**
  * Session layer for clinic users.
@@ -63,10 +64,10 @@ export interface ResolvedSession {
   clinicId: string;
   email: string;
   fullName: string | null;
+  avatarUrl: string | null;
   role: Role;
   mfaEnrolled: boolean;
   mfaVerified: boolean;
-  uiMode: "einfach" | "detail";
   /** Non-null when an admin opened this session via "View as clinic user". */
   impersonatedByAdminId: string | null;
 }
@@ -164,9 +165,10 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
       clinicId: schema.clinicUsers.clinicId,
       email: schema.clinicUsers.email,
       fullName: schema.clinicUsers.fullName,
+      avatarKey: schema.clinicUsers.avatarKey,
+      avatarUpdatedAt: schema.clinicUsers.avatarUpdatedAt,
       role: schema.clinicUsers.role,
       mfaEnrolled: schema.clinicUsers.mfaEnrolled,
-      uiMode: schema.clinicUsers.uiMode,
       archivedAt: schema.clinicUsers.archivedAt,
     })
     .from(schema.sessions)
@@ -202,10 +204,10 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
     clinicId: row.clinicId,
     email: row.email,
     fullName: row.fullName,
+    avatarUrl: avatarUrlForKey(row.avatarKey, row.avatarUpdatedAt),
     role: row.role as Role,
     mfaEnrolled: row.mfaEnrolled,
     mfaVerified: row.mfaVerifiedSession,
-    uiMode: row.uiMode as "einfach" | "detail",
     impersonatedByAdminId: row.impersonatedByAdminId,
   };
 }

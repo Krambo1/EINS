@@ -245,6 +245,7 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
                   />
                   <th className="px-3 py-2">Health</th>
                   <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2 text-right">Aktion</th>
                 </tr>
               </thead>
               <tbody>
@@ -303,12 +304,35 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
                         <Badge tone="good">Aktiv</Badge>
                       )}
                     </td>
+                    <td className="px-3 py-2 text-right">
+                      {c.archivedAt ? (
+                        <span className="text-xs text-fg-secondary">—</span>
+                      ) : (
+                        <form
+                          action="/admin/start-impersonation"
+                          method="POST"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex justify-end"
+                        >
+                          <input type="hidden" name="clinicId" value={c.clinicId} />
+                          <Button
+                            type="submit"
+                            size="sm"
+                            variant="outline"
+                            title={`Portal als ${c.name} öffnen (als Inhaber)`}
+                          >
+                            Öffnen
+                          </Button>
+                        </form>
+                      )}
+                    </td>
                   </tr>
                 ))}
                 {sorted.length === 0 && (
                   <tr>
                     <td
-                      colSpan={10}
+                      colSpan={11}
                       className="px-4 py-10 text-center text-fg-secondary"
                     >
                       Keine Klinik passt zu den aktuellen Filtern.

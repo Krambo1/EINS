@@ -27,8 +27,13 @@ import {
   archiveTreatmentAction,
   createLocationAction,
   archiveLocationAction,
-  logReviewSnapshotAction,
+  updateReviewSettingsAction,
+  rotateIntakeSecretAction,
+  consumeIntakeSecretFlash,
+  syncReviewsNowAction,
+  consumeReviewSyncFlash,
 } from "./actions";
+import { env } from "@/lib/env";
 import {
   UserPlus,
   ShieldCheck,
@@ -37,13 +42,14 @@ import {
   Unplug,
   Plus,
   MapPin,
-  Star,
+  RefreshCw,
 } from "lucide-react";
 import { listTreatments } from "@/server/queries/treatments";
 import { listLocations } from "@/server/queries/locations";
-import { listReviews } from "@/server/queries/reviews";
 import { Brand } from "@/app/_components/Brand";
-import { platformLabelNode, type Platform } from "../bewertungen/_lib/platforms";
+import { AvatarUploader } from "./_components/AvatarUploader";
+import { Avatar } from "@eins/ui";
+import { avatarUrlForKey } from "@/server/avatars";
 
 export const metadata = { title: "Einstellungen" };
 
@@ -57,7 +63,14 @@ export default async function EinstellungenPage() {
     .where(eq(schema.clinics.id, session.clinicId))
     .limit(1);
 
-  const team = isInhaber
+  // One-shot flash: plaintext of a freshly rotated intake/HMAC secret.
+  // Showed once, then the cookie is wiped. Only Inhaber can trigger rotation.
+  const flashedIntakeSecret = isInhaber ? await consumeIntakeSecretFlash() : null;
+
+  // One-shot flash: per-platform outcome of the manual review sync.
+  const flashedReviewSync = isInhaber ? await consumeReviewSyncFlash() : null;
+
+  const teamRows = isInhaber
     ? await db
         .select()
         .from(schema.clinicUsers)
@@ -69,6 +82,10 @@ export default async function EinstellungenPage() {
         )
         .orderBy(schema.clinicUsers.createdAt)
     : [];
+  const team = teamRows.map((m) => ({
+    ...m,
+    avatarUrl: avatarUrlForKey(m.avatarKey, m.avatarUpdatedAt),
+  }));
 
   const credentials = isInhaber
     ? await db
@@ -80,31 +97,21 @@ export default async function EinstellungenPage() {
   const metaCred = credentials.find((c) => c.platform === "meta");
   const googleCred = credentials.find((c) => c.platform === "google");
 
-  const isDetail = session.uiMode === "detail";
-  const [treatments, locations, reviews, recentAudit] = await Promise.all([
-    isDetail
-      ? listTreatments(session.clinicId, session.userId)
-      : Promise.resolve([] as Awaited<ReturnType<typeof listTreatments>>),
-    isDetail
-      ? listLocations(session.clinicId, session.userId)
-      : Promise.resolve([] as Awaited<ReturnType<typeof listLocations>>),
-    isDetail
-      ? listReviews(session.clinicId, session.userId)
-      : Promise.resolve([] as Awaited<ReturnType<typeof listReviews>>),
-    isDetail
-      ? db
-          .select({
-            id: schema.auditLog.id,
-            action: schema.auditLog.action,
-            entityKind: schema.auditLog.entityKind,
-            actorEmail: schema.auditLog.actorEmail,
-            createdAt: schema.auditLog.createdAt,
-          })
-          .from(schema.auditLog)
-          .where(eq(schema.auditLog.clinicId, session.clinicId))
-          .orderBy(schema.auditLog.createdAt)
-          .limit(20)
-      : Promise.resolve([] as never[]),
+  const [treatments, locations, recentAudit] = await Promise.all([
+    listTreatments(session.clinicId, session.userId),
+    listLocations(session.clinicId, session.userId),
+    db
+      .select({
+        id: schema.auditLog.id,
+        action: schema.auditLog.action,
+        entityKind: schema.auditLog.entityKind,
+        actorEmail: schema.auditLog.actorEmail,
+        createdAt: schema.auditLog.createdAt,
+      })
+      .from(schema.auditLog)
+      .where(eq(schema.auditLog.clinicId, session.clinicId))
+      .orderBy(schema.auditLog.createdAt)
+      .limit(20),
   ]);
 
   return (
@@ -117,11 +124,22 @@ export default async function EinstellungenPage() {
       </header>
 
       {/* My profile — everyone */}
-      <Card>
+      <Card id="profil" className="scroll-mt-24">
         <CardHeader>
           <CardTitle>Mein Profil</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-6">
+          <div>
+            <label className="mb-2 block text-sm font-medium">Profilbild</label>
+            <AvatarUploader
+              currentUrl={session.avatarUrl}
+              name={session.fullName}
+              email={session.email}
+            />
+            <p className="mt-2 text-xs text-fg-secondary">
+              JPG, PNG oder WebP — wird quadratisch auf 512&times;512 zugeschnitten.
+            </p>
+          </div>
           <form
             action={updateOwnProfileAction}
             className="grid gap-4 md:grid-cols-[1fr_auto]"
@@ -144,11 +162,17 @@ export default async function EinstellungenPage() {
                 </p>
               </div>
             </div>
-            <div className="md:self-end">
+            <div className="md:self-start">
+              <span
+                aria-hidden="true"
+                className="mb-1 hidden text-sm font-medium md:block"
+              >
+                &nbsp;
+              </span>
               <Button type="submit">Speichern</Button>
             </div>
           </form>
-          <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-border pt-4 text-sm">
+          <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4 text-sm">
             <span className="text-fg-secondary">Rolle:</span>
             <Badge tone="neutral">
               {ROLE_LABELS[session.role as Role] ?? session.role}
@@ -165,7 +189,7 @@ export default async function EinstellungenPage() {
 
       {/* Clinic settings — Inhaber only */}
       {isInhaber && clinic && (
-        <Card>
+        <Card id="praxis-angaben" className="scroll-mt-24">
           <CardHeader>
             <CardTitle>Praxis-Angaben</CardTitle>
           </CardHeader>
@@ -226,9 +250,300 @@ export default async function EinstellungenPage() {
         </Card>
       )}
 
+      {/* EINS Stimme — Bewertungen & Reputation. Inhaber only. */}
+      {isInhaber && clinic && (
+        <Card id="bewertungen" className="scroll-mt-24">
+          <CardHeader>
+            <CardTitle>Bewertungen &amp; Reputation</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <p className="text-sm text-fg-secondary">
+              Nach jedem Termin geht eine Bitte um Rückmeldung an die
+              Patient:in. Hohe Bewertungen werden zu Google &amp; Jameda
+              eingeladen, kritische landen vertraulich in Ihrem{" "}
+              <Link
+                href="/bewertungen/feedback"
+                className="text-fg-primary underline underline-offset-4"
+              >
+                Patientenfeedback-Postfach
+              </Link>
+              .
+            </p>
+
+            <form
+              action={updateReviewSettingsAction}
+              className="grid gap-4 md:grid-cols-2"
+            >
+              <label className="md:col-span-2 flex items-center gap-3 rounded-xl border border-border bg-bg-secondary/40 p-4">
+                <input
+                  type="checkbox"
+                  name="reviewRequestEnabled"
+                  defaultChecked={clinic.reviewRequestEnabled}
+                  className="h-5 w-5 rounded border-border"
+                />
+                <span>
+                  <span className="block font-medium text-fg-primary">
+                    Bewertungs-Anfragen aktivieren
+                  </span>
+                  <span className="block text-sm text-fg-secondary">
+                    Nur aktivieren, wenn Sie Patient:innen bei Termin-
+                    vereinbarung über die spätere E-Mail informieren
+                    (siehe Onboarding-Checkliste).
+                  </span>
+                </span>
+              </label>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">
+                  Google-Bewertungs-URL
+                </label>
+                <Input
+                  name="googleReviewUrl"
+                  type="url"
+                  defaultValue={clinic.googleReviewUrl ?? ""}
+                  placeholder="https://g.page/r/…/review"
+                  maxLength={500}
+                />
+                <p className="mt-1 text-xs text-fg-secondary">
+                  Aus dem „Google Business"-Profil unter „Mehr Rezensionen
+                  erhalten".
+                </p>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">
+                  Jameda-Bewertungs-URL
+                </label>
+                <Input
+                  name="jamedaReviewUrl"
+                  type="url"
+                  defaultValue={clinic.jamedaReviewUrl ?? ""}
+                  placeholder="https://www.jameda.de/…/bewerten/"
+                  maxLength={500}
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">
+                  Versand X Tage nach Termin
+                </label>
+                <Input
+                  name="reviewRequestDelayDays"
+                  type="number"
+                  min={0}
+                  max={30}
+                  defaultValue={clinic.reviewRequestDelayDays ?? 3}
+                />
+                <p className="mt-1 text-xs text-fg-secondary">
+                  Empfohlen: 3 Tage. So sind frische Eindrücke noch präsent,
+                  aber Schwellungen / Erströtungen sind schon abgeklungen.
+                </p>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">
+                  Praxis-Domain für Patient:innen-Link
+                </label>
+                <Input
+                  name="reviewLandingOrigin"
+                  type="url"
+                  defaultValue={clinic.reviewLandingOrigin ?? ""}
+                  placeholder="https://praxis-ihre-praxis.de"
+                  maxLength={500}
+                />
+                <p className="mt-1 text-xs text-fg-secondary">
+                  Optional: wenn leer, nehmen wir die Standard-Praxisseite.
+                </p>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">
+                  E-Mail-Postfach für private Rückmeldungen
+                </label>
+                <Input
+                  name="reviewInboxEmail"
+                  type="email"
+                  defaultValue={clinic.reviewInboxEmail ?? ""}
+                  placeholder={clinic.defaultDoctorEmail ?? "praxis@…"}
+                  maxLength={200}
+                />
+                <p className="mt-1 text-xs text-fg-secondary">
+                  Wenn leer, geht die Benachrichtigung an die leitende
+                  Ärztin / den leitenden Arzt.
+                </p>
+              </div>
+
+              <div className="md:col-span-2 mt-4 rounded-xl border border-border bg-bg-secondary/40 p-4">
+                <h3 className="text-sm font-semibold text-fg-primary">
+                  Live-Synchronisation der Bewertungen
+                </h3>
+                <p className="mt-1 text-sm text-fg-secondary">
+                  Hinterlegen Sie pro Plattform die Profil-ID. Wir holen
+                  jede Nacht (04:00 UTC) automatisch Sternwert und Anzahl
+                  der Bewertungen von Google und Jameda und zeigen sie auf
+                  der Bewertungen-Seite an.
+                </p>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-sm font-medium">
+                  Google Place-ID
+                </label>
+                <Input
+                  name="googlePlaceId"
+                  defaultValue={clinic.googlePlaceId ?? ""}
+                  placeholder="ChIJN1t_tDeuEmsRUsoyG83frY4"
+                  maxLength={255}
+                  pattern="[A-Za-z0-9_\-:]+"
+                />
+                <p className="mt-1 text-xs text-fg-secondary">
+                  Finden Sie unter{" "}
+                  <a
+                    href="https://developers.google.com/maps/documentation/places/web-service/place-id"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline underline-offset-4"
+                  >
+                    Place-ID-Finder
+                  </a>
+                  . Praxis-Namen eingeben → ID kopieren.
+                </p>
+              </div>
+
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-sm font-medium">
+                  Jameda-Profil-URL
+                </label>
+                <Input
+                  name="jamedaProfileUrl"
+                  type="url"
+                  defaultValue={clinic.jamedaProfileUrl ?? ""}
+                  placeholder="https://www.jameda.de/berlin/aerzte/…/uebersicht/"
+                  maxLength={500}
+                />
+                <p className="mt-1 text-xs text-fg-secondary">
+                  Die öffentliche Profilseite (ohne „/bewerten/" am Ende).
+                  Jameda hat keine API — wir lesen die Bewertung aus den
+                  strukturierten Daten der Profilseite aus.
+                </p>
+              </div>
+
+              <div className="md:col-span-2 flex justify-end">
+                <Button type="submit">Speichern</Button>
+              </div>
+            </form>
+
+            {/* Manual sync trigger + last-run flash */}
+            <div className="rounded-xl border border-border bg-bg-secondary/40 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-fg-primary">
+                    Jetzt synchronisieren
+                  </h3>
+                  <p className="mt-1 text-sm text-fg-secondary">
+                    Holt sofort die aktuellen Werte von Google und Jameda.
+                    Nützlich nach dem ersten Hinterlegen der Profil-IDs
+                    &mdash; sonst läuft der Abgleich täglich automatisch.
+                  </p>
+                </div>
+                <form action={syncReviewsNowAction}>
+                  <Button type="submit" variant="outline" size="sm">
+                    <RefreshCw className="h-4 w-4" />
+                    Jetzt aktualisieren
+                  </Button>
+                </form>
+              </div>
+              {flashedReviewSync && (
+                <ul className="mt-3 space-y-1 text-sm">
+                  {flashedReviewSync.map((o) => (
+                    <li key={o.platform} className="flex items-center gap-2">
+                      {o.ok ? (
+                        <Badge tone="good">OK</Badge>
+                      ) : (
+                        <Badge tone="warn">Fehler</Badge>
+                      )}
+                      <span className="font-medium text-fg-primary capitalize">
+                        {o.platform}
+                      </span>
+                      {!o.ok && o.error && (
+                        <span className="text-fg-secondary truncate">
+                          · {o.error}
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <Separator />
+
+            {/* Make.com webhook info */}
+            <div className="space-y-3">
+              <div>
+                <h3 className="text-sm font-semibold text-fg-primary">
+                  Make.com-Anbindung
+                </h3>
+                <p className="mt-1 text-sm text-fg-secondary">
+                  Konfigurieren Sie ein Make-Szenario pro
+                  Praxis-Verwaltungssystem (Doctolib, Charly, ivoris, Z1,
+                  Dampsoft). Jeder „Termin abgeschlossen"-Trigger schickt
+                  einen signierten Webhook an folgende Adresse:
+                </p>
+              </div>
+              <div className="rounded-xl border border-border bg-bg-secondary/40 p-3 font-mono text-xs">
+                <div className="text-fg-secondary">Webhook-URL</div>
+                <div className="mt-1 break-all text-fg-primary">
+                  {env.APP_ORIGIN}/api/patients/events
+                </div>
+              </div>
+              <div className="rounded-xl border border-border bg-bg-secondary/40 p-3 font-mono text-xs">
+                <div className="text-fg-secondary">Praxis-ID (clinicId)</div>
+                <div className="mt-1 break-all text-fg-primary">{clinic.id}</div>
+              </div>
+              <div className="rounded-xl border border-border bg-bg-secondary/40 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="font-mono text-xs text-fg-secondary">
+                      HMAC-Geheimnis (X-EINS-Signature)
+                    </div>
+                    <p className="mt-1 text-xs text-fg-secondary">
+                      Wird beim Rotieren einmalig angezeigt. Speichern Sie ihn
+                      sofort in Make. Bei Rotation ist Ihr bisheriger
+                      Webhook bis zur Aktualisierung in Make ungültig &mdash;
+                      auch für Ihre Landingpage-Formulare.
+                    </p>
+                  </div>
+                  <form action={rotateIntakeSecretAction}>
+                    <Button type="submit" variant="outline" size="sm">
+                      Geheimnis rotieren
+                    </Button>
+                  </form>
+                </div>
+                {flashedIntakeSecret && (
+                  <div className="mt-3 rounded-lg border border-fg-primary/30 bg-bg-primary p-3">
+                    <div className="text-xs font-semibold text-fg-primary">
+                      Neues Geheimnis (einmalig sichtbar):
+                    </div>
+                    <code className="mt-1 block break-all font-mono text-sm text-fg-primary">
+                      {flashedIntakeSecret}
+                    </code>
+                    <p className="mt-2 text-xs text-fg-secondary">
+                      Wenn Sie diese Seite verlassen, ist das Geheimnis nicht
+                      mehr aus dem Portal abrufbar. Bei Verlust rotieren Sie
+                      es einfach erneut.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Team — Inhaber only */}
       {isInhaber && can(session.role, "settings.team") && (
-        <Card>
+        <Card id="team" className="scroll-mt-24">
           <CardHeader>
             <CardTitle>Team</CardTitle>
           </CardHeader>
@@ -285,31 +600,38 @@ export default async function EinstellungenPage() {
                     key={m.id}
                     className="flex flex-wrap items-center justify-between gap-4 py-3"
                   >
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-fg-primary">
-                          {m.fullName ?? m.email}
-                        </span>
-                        {isSelf && (
-                          <Badge tone="neutral">Sie</Badge>
-                        )}
-                        <Badge tone="neutral">
-                          {ROLE_LABELS[m.role as Role] ?? m.role}
-                        </Badge>
-                        {m.mfaEnrolled ? (
-                          <Badge tone="good">2FA aktiv</Badge>
-                        ) : (
-                          <Badge tone="warn">Einladung offen</Badge>
-                        )}
-                      </div>
-                      <div className="mt-0.5 text-sm text-fg-secondary">
-                        {m.email}
-                        {m.lastLoginAt && (
-                          <> · Letzter Login {formatRelative(m.lastLoginAt)}</>
-                        )}
-                        {!m.lastLoginAt && m.invitedAt && (
-                          <> · Eingeladen {formatRelative(m.invitedAt)}</>
-                        )}
+                    <div className="flex min-w-0 items-center gap-3">
+                      <Avatar
+                        src={m.avatarUrl}
+                        name={m.fullName ?? m.email}
+                        size="lg"
+                      />
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-medium text-fg-primary">
+                            {m.fullName ?? m.email}
+                          </span>
+                          {isSelf && (
+                            <Badge tone="neutral">Sie</Badge>
+                          )}
+                          <Badge tone="neutral">
+                            {ROLE_LABELS[m.role as Role] ?? m.role}
+                          </Badge>
+                          {m.mfaEnrolled ? (
+                            <Badge tone="good">2FA aktiv</Badge>
+                          ) : (
+                            <Badge tone="warn">Einladung offen</Badge>
+                          )}
+                        </div>
+                        <div className="mt-0.5 text-sm text-fg-secondary">
+                          {m.email}
+                          {m.lastLoginAt && (
+                            <> · Letzter Login {formatRelative(m.lastLoginAt)}</>
+                          )}
+                          {!m.lastLoginAt && m.invitedAt && (
+                            <> · Eingeladen {formatRelative(m.invitedAt)}</>
+                          )}
+                        </div>
                       </div>
                     </div>
                     {!isSelf && (
@@ -354,7 +676,7 @@ export default async function EinstellungenPage() {
 
       {/* Integrations — Inhaber only */}
       {isInhaber && can(session.role, "settings.integrations") && (
-        <Card>
+        <Card id="werbekonten" className="scroll-mt-24">
           <CardHeader>
             <CardTitle>Werbekonten verbinden</CardTitle>
           </CardHeader>
@@ -379,11 +701,9 @@ export default async function EinstellungenPage() {
         </Card>
       )}
 
-      {isDetail && (
-        <>
-          {/* Treatments CRUD */}
-          {can(session.role, "settings.team") && (
-            <Card>
+      {/* Treatments CRUD */}
+      {can(session.role, "settings.team") && (
+            <Card id="behandlungen" className="scroll-mt-24">
               <CardHeader>
                 <CardTitle>Behandlungs-Kategorien</CardTitle>
               </CardHeader>
@@ -474,7 +794,7 @@ export default async function EinstellungenPage() {
 
           {/* Locations CRUD */}
           {can(session.role, "settings.team") && (
-            <Card>
+            <Card id="standorte" className="scroll-mt-24">
               <CardHeader>
                 <CardTitle>Standorte</CardTitle>
               </CardHeader>
@@ -528,101 +848,9 @@ export default async function EinstellungenPage() {
             </Card>
           )}
 
-          {/* Review snapshots */}
-          {can(session.role, "settings.team") && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Reputation</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-fg-secondary">
-                  Eine Momentaufnahme der Bewertungen pro Plattform manuell
-                  erfassen. Wird in der Übersicht und in der Auswertung angezeigt.
-                </p>
-                <form
-                  action={logReviewSnapshotAction}
-                  className="grid gap-3 rounded-xl border border-border bg-bg-secondary/40 p-4 md:grid-cols-[10rem_8rem_8rem_1fr_auto]"
-                >
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-fg-secondary">
-                      Plattform
-                    </label>
-                    <select
-                      name="platform"
-                      defaultValue="google"
-                      className="h-11 w-full rounded-xl border border-border bg-bg-primary px-3 text-base"
-                    >
-                      <option value="google">Google</option>
-                      <option value="jameda">Jameda</option>
-                      <option value="trustpilot">Trustpilot</option>
-                      <option value="manual">Eigene</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-fg-secondary">
-                      Bewertung (0–5)
-                    </label>
-                    <Input
-                      name="rating"
-                      type="number"
-                      step="0.1"
-                      min={0}
-                      max={5}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-fg-secondary">
-                      Anzahl
-                    </label>
-                    <Input name="totalCount" type="number" min={0} required />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-fg-secondary">
-                      Notiz
-                    </label>
-                    <Input name="notes" maxLength={500} />
-                  </div>
-                  <div className="flex items-end">
-                    <Button type="submit" className="w-full md:w-auto">
-                      <Star className="h-4 w-4" />
-                      Erfassen
-                    </Button>
-                  </div>
-                </form>
-
-                {reviews.length > 0 && (
-                  <ul className="divide-y divide-border">
-                    {reviews.slice(0, 8).map((r) => (
-                      <li
-                        key={r.id}
-                        className="flex items-center justify-between py-2 text-sm"
-                      >
-                        <span>
-                          <span className="font-medium text-fg-primary">
-                            {platformLabelNode(r.platform as Platform)}
-                          </span>
-                          <span className="ml-2 tabular-nums">
-                            {r.rating.toFixed(1).replace(".", ",")} ★
-                          </span>
-                          <span className="ml-2 text-fg-secondary">
-                            ({r.totalCount} Bewertungen)
-                          </span>
-                        </span>
-                        <span className="text-xs text-fg-tertiary tabular-nums">
-                          {formatDateTime(r.recordedAt)}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
           {/* Audit log preview */}
           {recentAudit.length > 0 && (
-            <Card>
+            <Card id="audit" className="scroll-mt-24">
               <CardHeader>
                 <CardTitle>Audit-Log (letzte 20 Aktionen)</CardTitle>
               </CardHeader>
@@ -657,7 +885,7 @@ export default async function EinstellungenPage() {
           )}
 
           {clinic && (
-            <Card>
+            <Card id="technische-details" className="scroll-mt-24">
               <CardHeader>
                 <CardTitle>Technische Details</CardTitle>
               </CardHeader>
@@ -675,9 +903,7 @@ export default async function EinstellungenPage() {
                   <code className="font-mono">{session.userId}</code>
                 </div>
               </CardContent>
-            </Card>
-          )}
-        </>
+        </Card>
       )}
     </div>
   );

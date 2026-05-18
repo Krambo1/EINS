@@ -1,58 +1,109 @@
 import { Suspense } from "react";
-import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
-import {
-  TrafficLightCard,
-  ProgressGoal,
-  Button,
-} from "@eins/ui";
 import { requireSession } from "@/auth/guards";
 import {
   currentMonthSummary,
   currentGoals,
+  kpiSummaryUncached,
 } from "@/server/queries/kpis";
 import {
-  recentRequestsCount,
   requestStatusCounts,
   slaBreachedCount,
+  totalRequestsInRangeWithComparison,
+  qualifiedLeadsInRangeWithComparison,
 } from "@/server/queries/requests";
+import { getClinicRelationshipStart } from "@/server/queries/clinic";
 import {
-  formatRoasSentence,
-} from "@/lib/formatting";
-import { DashboardTopMetricsSimple } from "./_components/DashboardTopMetricsSimple";
+  DASHBOARD_RANGE_KEYS,
+  dashboardRangeWindow,
+  parseDashboardRange,
+} from "@/lib/dashboard-range";
 import { DashboardTopMetricsEnhanced } from "./_components/DashboardTopMetricsEnhanced";
 import { DashboardDetailBundle } from "./_components/DashboardDetailBundle";
 import { DetailBundleSkeleton } from "./_components/DetailBundleSkeleton";
 
 export const metadata = { title: "Übersicht" };
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | undefined>>;
+}) {
   const session = await requireSession();
-  const isDetail = session.uiMode === "detail";
+  const sp = await searchParams;
+  // Each of the four top cards owns its own range param so users can
+  // compare different windows side-by-side (e.g. monthly leads vs. yearly
+  // revenue).
+  const leadsRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.leads]);
+  const revenueRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.revenue]);
+  const openRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.open]);
+  const totalRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.total]);
+  const staffRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.staff]);
+  const sourcesRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.sources]);
+  const leadsWindow = dashboardRangeWindow(leadsRange);
+  const revenueWindow = dashboardRangeWindow(revenueRange);
+  const openWindow = dashboardRangeWindow(openRange);
+  const totalWindow = dashboardRangeWindow(totalRange);
 
-  // Base bundle — always small (5 queries). The detail bundle (8 more) is
-  // streamed inside <Suspense> so the shell paints before the deep-dive
-  // queries finish.
-  const [summary, goals, statusCounts, slaBreaches, newToday] = await Promise.all([
+  // Base bundle. The three `*Summary` calls are scoped to each card's
+  // selected range; `monthlySummary` stays monthly for the goal bars and
+  // ROAS traffic-light below. The detail bundle (7 more) is streamed
+  // inside <Suspense> so the shell paints before the deep-dive queries
+  // finish.
+  const [
+    monthlySummary,
+    leadsBreakdown,
+    revenueSummary,
+    openSummary,
+    totalSummary,
+    goals,
+    statusCounts,
+    slaBreaches,
+    relationshipStartedAt,
+  ] = await Promise.all([
     currentMonthSummary(session.clinicId, session.userId),
+    // Leads card pulls qualified/won counts from the live `requests` table
+    // — same source as `totalSummary` — so qualified ≤ total is guaranteed
+    // and the cards stay consistent even when kpi_daily is stale.
+    qualifiedLeadsInRangeWithComparison(
+      session.clinicId,
+      session.userId,
+      leadsWindow.from,
+      leadsWindow.to
+    ),
+    kpiSummaryUncached(
+      session.clinicId,
+      session.userId,
+      revenueWindow.from,
+      revenueWindow.to
+    ),
+    kpiSummaryUncached(
+      session.clinicId,
+      session.userId,
+      openWindow.from,
+      openWindow.to
+    ),
+    totalRequestsInRangeWithComparison(
+      session.clinicId,
+      session.userId,
+      totalWindow.from,
+      totalWindow.to
+    ),
     currentGoals(session.clinicId, session.userId),
     requestStatusCounts(session.clinicId, session.userId),
     slaBreachedCount(session.clinicId, session.userId),
-    recentRequestsCount(session.clinicId, session.userId, 1),
+    getClinicRelationshipStart(session.clinicId),
   ]);
+  const summary = monthlySummary;
 
   const leadsGoal = goals.find((g) => g.metric === "qualified_leads");
   const revenueGoal = goals.find((g) => g.metric === "revenue");
+  const totalGoal = goals.find((g) => g.metric === "total_requests");
 
   const openRequests =
     (statusCounts.neu ?? 0) + (statusCounts.qualifiziert ?? 0);
 
   return (
     <div className="space-y-10">
-      {/* Mobile-only page title — the bottom nav is icon-only on mobile, so
-          we surface the active section name here for context. Desktop keeps
-          the side-nav label as the page-context cue. */}
-      <h1 className="text-2xl font-semibold md:hidden">Übersicht</h1>
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-sm text-fg-secondary">Guten Tag,</p>
@@ -73,122 +124,64 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Top metrics — Detail streams the enriched MetricTile grid; the base
-          SimpleMetric grid is the Suspense fallback so it paints immediately. */}
-      {isDetail ? (
-        <Suspense
-          fallback={
-            <DashboardTopMetricsSimple
-              summary={summary}
-              slaBreaches={slaBreaches}
-              openRequests={openRequests}
-              leadsGoal={leadsGoal}
-              revenueGoal={revenueGoal}
-            />
-          }
-        >
-          <DashboardTopMetricsEnhanced
-            clinicId={session.clinicId}
-            userId={session.userId}
-            summary={summary}
-            slaBreaches={slaBreaches}
-            openRequests={openRequests}
-            leadsGoal={leadsGoal}
-            revenueGoal={revenueGoal}
-          />
-        </Suspense>
-      ) : (
-        <DashboardTopMetricsSimple
-          summary={summary}
+      {/* Top metrics — four MetricTile cards, each with its own range toggle.
+          Streamed inside Suspense so the shell paints before the parallel
+          range-window queries finish on initial load. We deliberately do
+          NOT key the boundary by the active ranges: a key change unmounts
+          the subtree and reverts to the skeleton on every toggle click,
+          which both flashes the cards and destroys the TimeRangeToggle's
+          sliding-pill animation. With no key, `startTransition` keeps the
+          old cards visible while the new RSC payload streams in, the
+          toggle stays mounted, and its pill animates to the new value. */}
+      <Suspense fallback={<TopMetricsSkeleton />}>
+        <DashboardTopMetricsEnhanced
+          clinicId={session.clinicId}
+          userId={session.userId}
+          leadsBreakdown={leadsBreakdown}
+          revenueSummary={revenueSummary}
+          openSummary={openSummary}
+          totalSummary={totalSummary}
           slaBreaches={slaBreaches}
           openRequests={openRequests}
           leadsGoal={leadsGoal}
           revenueGoal={revenueGoal}
+          totalGoal={totalGoal}
+          leadsRange={leadsRange}
+          revenueRange={revenueRange}
+          openRange={openRange}
+          totalRange={totalRange}
+          relationshipStartedAt={relationshipStartedAt}
         />
-      )}
+      </Suspense>
 
-      {/* Goals */}
-      {(leadsGoal || revenueGoal) && (
-        <section className="grid gap-4 md:grid-cols-2">
-          {leadsGoal && (
-            <ProgressGoal
-              label="Monatsziel Anfragen"
-              current={summary.qualifiedLeads}
-              target={Number(leadsGoal.targetValue)}
-              unit="Anfragen"
-            />
-          )}
-          {revenueGoal && (
-            <ProgressGoal
-              label="Monatsziel Umsatz"
-              current={Math.round(summary.revenueEur)}
-              target={Number(revenueGoal.targetValue)}
-              unit="€"
-            />
-          )}
-        </section>
-      )}
-
-      {/* Ampel-Cards — render with base data only, no detail dependency. */}
-      <section className="grid gap-4 md:grid-cols-3">
-        <TrafficLightCard
-          tone={slaBreaches > 0 ? "bad" : "good"}
-          title="Anfragen-Reaktion"
-          diagnosis={
-            slaBreaches > 0
-              ? `${slaBreaches} Anfragen warten länger als vereinbart auf Antwort.`
-              : "Alle Anfragen wurden pünktlich beantwortet."
-          }
-          action={
-            slaBreaches > 0 ? (
-              <Button asChild size="sm">
-                <Link href="/anfragen?slaBreached=1">Jetzt bearbeiten</Link>
-              </Button>
-            ) : undefined
-          }
+      {/* Deep dive — streamed inside Suspense so the shell paints before its
+          8 parallel queries finish. */}
+      <Suspense fallback={<DetailBundleSkeleton />}>
+        <DashboardDetailBundle
+          clinicId={session.clinicId}
+          userId={session.userId}
+          summary={summary}
+          staffRange={staffRange}
+          sourcesRange={sourcesRange}
         />
-        <TrafficLightCard
-          tone={newToday > 0 ? "good" : "neutral"}
-          title="Heute neu eingegangen"
-          diagnosis={
-            newToday > 0
-              ? `${newToday} neue Anfrage${newToday === 1 ? "" : "n"} in den letzten 24 Stunden.`
-              : "Heute noch keine neuen Anfragen eingegangen."
-          }
-          action={
-            <Button asChild size="sm" variant="outline">
-              <Link href="/anfragen">
-                Alle ansehen <ArrowUpRight className="ml-1 h-4 w-4" />
-              </Link>
-            </Button>
-          }
-        />
-        <TrafficLightCard
-          tone={
-            summary.roas === null
-              ? "neutral"
-              : summary.roas >= 3
-              ? "good"
-              : summary.roas >= 1.5
-              ? "warn"
-              : "bad"
-          }
-          title="Werbeertrag"
-          diagnosis={formatRoasSentence(summary.roas)}
-        />
-      </section>
-
-      {/* Detail-mode deep dive — streamed inside Suspense so the shell paints
-          before its 8 parallel queries finish. */}
-      {isDetail && (
-        <Suspense fallback={<DetailBundleSkeleton />}>
-          <DashboardDetailBundle
-            clinicId={session.clinicId}
-            userId={session.userId}
-            summary={summary}
-          />
-        </Suspense>
-      )}
+      </Suspense>
     </div>
+  );
+}
+
+function TopMetricsSkeleton() {
+  return (
+    <section
+      aria-label="Kennzahlen werden geladen"
+      aria-busy="true"
+      className="grid gap-5 md:grid-cols-2 md:gap-6"
+    >
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div
+          key={i}
+          className="h-44 animate-pulse rounded-2xl border border-border bg-bg-secondary/40"
+        />
+      ))}
+    </section>
   );
 }

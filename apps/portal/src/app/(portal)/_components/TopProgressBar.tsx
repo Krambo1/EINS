@@ -5,11 +5,9 @@ import { cn } from "@eins/ui";
 /**
  * Thin indeterminate progress bar pinned to the top of the viewport.
  *
- * Used by PortalShell to acknowledge two kinds of transitions that otherwise
- * have no visible feedback for ~500–1500ms:
- *
- *   1. Einfach ↔ Detail toggle (server PATCH + router.refresh).
- *   2. Side-nav navigation between portal sections.
+ * Used by PortalShell to acknowledge side-nav navigation between portal
+ * sections — otherwise the click has no visible feedback for ~500–1500ms
+ * while the new RSC payload is fetched and rendered.
  *
  * Pure CSS — a translating shimmer block masked by `overflow-hidden`. We keep
  * the track mounted and toggle opacity so the fade-out reads as "done"

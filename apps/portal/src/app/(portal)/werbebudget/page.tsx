@@ -52,9 +52,8 @@ export default async function WerbebudgetPage({
   const session = await requirePermissionOrRedirect("campaigns.live");
   const params = await searchParams;
   const days = Math.max(7, Math.min(90, Number(params.days ?? 30)));
-  const isDetail = session.uiMode === "detail";
 
-  const [live, creds] = await Promise.all([
+  const [live, creds, detail] = await Promise.all([
     campaignLiveSummary(session.clinicId, session.userId, days),
     db
       .select({
@@ -65,12 +64,8 @@ export default async function WerbebudgetPage({
       })
       .from(schema.platformCredentials)
       .where(eq(schema.platformCredentials.clinicId, session.clinicId)),
+    fetchDetail(session.clinicId, session.userId, days),
   ]);
-
-  // Detail bundle in parallel.
-  const detail = isDetail
-    ? await fetchDetail(session.clinicId, session.userId, days)
-    : null;
 
   const totalSpend = live.reduce((sum, r) => sum + r.spendEur, 0);
   const totalLeads = live.reduce((sum, r) => sum + r.leads, 0);
@@ -142,8 +137,7 @@ export default async function WerbebudgetPage({
             />
           </section>
 
-          {/* Detail-only pace projection */}
-          {isDetail && detail?.pace && (
+          {detail?.pace && (
             <section className="print:break-inside-avoid">
               <h3 className="opa-h3 mb-4 text-fg-primary">Monats-Hochrechnung (Pace)</h3>
               <div className="grid gap-4 md:grid-cols-4">
@@ -190,19 +184,17 @@ export default async function WerbebudgetPage({
               platform="meta"
               data={live.find((l) => l.platform === "meta")}
               cred={metaCred}
-              isDetail={isDetail}
               detail={detail?.platforms.meta}
             />
             <PlatformCard
               platform="google"
               data={live.find((l) => l.platform === "google")}
               cred={googleCred}
-              isDetail={isDetail}
               detail={detail?.platforms.google}
             />
           </section>
 
-          {isDetail && detail?.campaigns && detail.campaigns.length > 0 && (
+          {detail?.campaigns && detail.campaigns.length > 0 && (
             <Card className="print:break-inside-avoid">
               <CardHeader>
                 <CardTitle>Kampagnen-Übersicht</CardTitle>
@@ -269,24 +261,22 @@ export default async function WerbebudgetPage({
         </>
       )}
 
-      {isDetail && (
-        <Card className="print:break-inside-avoid">
-          <CardHeader>
-            <CardTitle>Hinweise zur Messung</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-base text-fg-primary">
-            <p>
-              Die Zahlen werden täglich aus Meta und Google abgerufen. Kleine
-              Abweichungen zu den dortigen Auswertungen sind normal, weil sich
-              die Werbe-Zuordnung 24 bis 48 Stunden rückwirkend ändert.
-            </p>
-            <p>
-              „Anfragen“ sind hier Formular-Einreichungen, die tatsächlich in
-              Ihrem Posteingang gelandet sind, nicht nur Klicks.
-            </p>
-          </CardContent>
-        </Card>
-      )}
+      <Card className="print:break-inside-avoid">
+        <CardHeader>
+          <CardTitle>Hinweise zur Messung</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-base text-fg-primary">
+          <p>
+            Die Zahlen werden täglich aus Meta und Google abgerufen. Kleine
+            Abweichungen zu den dortigen Auswertungen sind normal, weil sich
+            die Werbe-Zuordnung 24 bis 48 Stunden rückwirkend ändert.
+          </p>
+          <p>
+            „Anfragen“ sind hier Formular-Einreichungen, die tatsächlich in
+            Ihrem Posteingang gelandet sind, nicht nur Klicks.
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 }
@@ -364,7 +354,6 @@ function PlatformCard({
   platform,
   data,
   cred,
-  isDetail,
   detail,
 }: {
   platform: "meta" | "google";
@@ -374,7 +363,6 @@ function PlatformCard({
     lastSyncedAt: Date | null;
     lastSyncError: string | null;
   };
-  isDetail: boolean;
   detail?: {
     daily: Array<{
       date: string;
@@ -419,8 +407,7 @@ function PlatformCard({
               />
             </div>
 
-            {/* Detail-only: per-platform charts + extra columns */}
-            {isDetail && detail && detail.daily.length > 0 && (
+            {detail && detail.daily.length > 0 && (
               <>
                 <div className="grid grid-cols-3 gap-3">
                   <MiniTrend

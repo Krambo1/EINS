@@ -61,9 +61,9 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
               query: { tab: "leistung", period: p.key },
             }}
             scroll={false}
-            className={`rounded-full border px-3 py-1 text-xs ${
+            className={`rounded-full border px-3 py-1 text-xs transition-colors ${
               p.key === periodKey
-                ? "border-accent bg-accent text-white"
+                ? "border-accent bg-fg-primary text-bg-primary"
                 : "border-border text-fg-secondary hover:border-accent hover:text-accent"
             }`}
           >

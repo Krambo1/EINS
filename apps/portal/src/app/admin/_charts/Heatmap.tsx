@@ -1,4 +1,7 @@
+"use client";
+
 import * as React from "react";
+import { ChartTooltipCard } from "./ChartTooltip";
 
 interface Props {
   rows: { label: string; cells: number[] }[];
@@ -7,9 +10,12 @@ interface Props {
   ceiling?: number;
 }
 
+const numFormatter = new Intl.NumberFormat("de-DE");
+
 /**
- * Mint-scale heatmap. Rendered server-side — pure CSS.
- * Cell intensity = value / max-in-grid; capped to 1 for legibility.
+ * Mint-scale heatmap. Cell intensity = value / max-in-grid; capped to 1 for
+ * legibility. Hover any cell to see a tooltip card with row + column + value,
+ * matching the clinic-side TrendChart hover style.
  */
 export function Heatmap({ rows, columnLabels, ceiling }: Props) {
   const max = Math.max(
@@ -17,13 +23,66 @@ export function Heatmap({ rows, columnLabels, ceiling }: Props) {
     ceiling ??
       rows.reduce((acc, r) => Math.max(acc, ...r.cells), 0)
   );
+
+  const [hover, setHover] = React.useState<
+    | {
+        row: string;
+        column: string;
+        value: number;
+        color: string;
+        // mouse position relative to wrapper
+        x: number;
+        y: number;
+      }
+    | null
+  >(null);
+  const wrapperRef = React.useRef<HTMLDivElement | null>(null);
+
+  function handleEnter(
+    e: React.PointerEvent<HTMLTableCellElement>,
+    row: string,
+    column: string,
+    value: number,
+    color: string
+  ) {
+    const wrap = wrapperRef.current;
+    if (!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    setHover({
+      row,
+      column,
+      value,
+      color,
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    });
+  }
+
+  function handleMove(e: React.PointerEvent<HTMLTableCellElement>) {
+    setHover((prev) => {
+      if (!prev) return prev;
+      const wrap = wrapperRef.current;
+      if (!wrap) return prev;
+      const rect = wrap.getBoundingClientRect();
+      return {
+        ...prev,
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+      };
+    });
+  }
+
+  function handleLeave() {
+    setHover(null);
+  }
+
   return (
-    <div className="overflow-x-auto">
+    <div ref={wrapperRef} className="relative overflow-x-auto">
       <table className="w-full border-separate border-spacing-1 text-xs">
         <thead>
           <tr>
             <th className="sticky left-0 px-2 py-1 text-left font-medium text-fg-secondary">
-              Klinik
+              Praxis
             </th>
             {columnLabels.map((c) => (
               <th
@@ -53,19 +112,31 @@ export function Heatmap({ rows, columnLabels, ceiling }: Props) {
               </td>
               {r.cells.map((v, i) => {
                 const intensity = Math.min(1, v / max);
-                const bg =
+                const color =
                   v === 0
                     ? "var(--bg-tertiary)"
                     : `rgba(88, 186, 181, ${0.18 + intensity * 0.6})`;
+                const isActive =
+                  hover != null &&
+                  hover.row === r.label &&
+                  hover.column === (columnLabels[i] ?? "");
                 return (
                   <td
                     key={i}
-                    className="rounded-sm px-2 py-1 text-center font-mono text-[11px] tabular-nums"
+                    className="rounded-sm px-2 py-1 text-center font-mono text-[11px] tabular-nums transition-transform duration-100"
                     style={{
-                      background: bg,
+                      background: color,
                       color: intensity > 0.55 ? "white" : "var(--fg-primary)",
+                      transform: isActive ? "scale(1.08)" : undefined,
+                      boxShadow: isActive
+                        ? "0 0 0 1.5px var(--fg-primary)"
+                        : undefined,
                     }}
-                    title={`${r.label} · ${columnLabels[i] ?? ""}: ${v}`}
+                    onPointerEnter={(e) =>
+                      handleEnter(e, r.label, columnLabels[i] ?? "", v, color)
+                    }
+                    onPointerMove={handleMove}
+                    onPointerLeave={handleLeave}
                   >
                     {v > 0 ? v : ""}
                   </td>
@@ -75,6 +146,31 @@ export function Heatmap({ rows, columnLabels, ceiling }: Props) {
           ))}
         </tbody>
       </table>
+
+      {hover && (
+        <div
+          className="pointer-events-none absolute z-50"
+          style={{
+            left: hover.x,
+            top: hover.y,
+            transform: "translate(-50%, calc(-100% - 12px))",
+          }}
+        >
+          <ChartTooltipCard
+            header={`${hover.row} · ${hover.column}`}
+            rows={[
+              {
+                name: "",
+                value: numFormatter.format(hover.value),
+                color:
+                  hover.value === 0
+                    ? "var(--fg-tertiary)"
+                    : "rgb(88, 186, 181)",
+              },
+            ]}
+          />
+        </div>
+      )}
     </div>
   );
 }

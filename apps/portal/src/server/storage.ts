@@ -16,6 +16,14 @@ import { env, hasR2 } from "@/lib/env";
 export interface Storage {
   /** Public (or presigned) URL for reading a stored object. */
   urlFor(key: string, options?: { expiresInSeconds?: number }): Promise<string>;
+  /**
+   * Synchronous, NON-presigned public URL for `key`. Used in hot-path
+   * server-component rendering (avatars in tables, dropdowns, timelines)
+   * where awaiting a signed-URL per row would be a per-render network call.
+   * Returns null when the active driver can't produce a public URL without
+   * signing (e.g. R2 without `R2_PUBLIC_BASE`). Callers fall back to initials.
+   */
+  publicUrlFor(key: string): string | null;
   /** Upload a buffer. Returns the storage key. */
   put(
     key: string,
@@ -24,10 +32,20 @@ export interface Storage {
   ): Promise<void>;
   /** Delete an object. */
   remove(key: string): Promise<void>;
+  /**
+   * Read the full object body. Used by background workers that need to
+   * process the file (e.g. the PVS CSV-ingest worker). For very large
+   * files prefer streaming, but EINS clinic CSVs are bounded (< 50 MB).
+   */
+  read(key: string): Promise<Buffer>;
 }
 
 class LocalStorage implements Storage {
   async urlFor(key: string): Promise<string> {
+    return this.publicUrlFor(key);
+  }
+
+  publicUrlFor(key: string): string {
     // Served by /api/files/[...path] passthrough — relative path so it works
     // in any environment.
     return `/api/files/${encodeURI(key)}`;
@@ -55,16 +73,29 @@ class LocalStorage implements Storage {
       // ignore — idempotent delete
     }
   }
+
+  async read(key: string): Promise<Buffer> {
+    const { readFile } = await import("node:fs/promises");
+    const { join, resolve } = await import("node:path");
+    const root = resolve(process.cwd(), "storage");
+    return await readFile(join(root, key));
+  }
 }
 
 class R2Storage implements Storage {
+  publicUrlFor(key: string): string | null {
+    if (env.R2_PUBLIC_BASE) {
+      return `${env.R2_PUBLIC_BASE.replace(/\/$/, "")}/${key}`;
+    }
+    return null;
+  }
+
   async urlFor(
     key: string,
     options?: { expiresInSeconds?: number }
   ): Promise<string> {
-    if (env.R2_PUBLIC_BASE) {
-      return `${env.R2_PUBLIC_BASE.replace(/\/$/, "")}/${key}`;
-    }
+    const pub = this.publicUrlFor(key);
+    if (pub) return pub;
     // Lazy-import S3 SDK — not a hard dep for local-first setups. The
     // webpackIgnore directive keeps webpack from trying to bundle the
     // module (it'd fail the build when the optional dep isn't installed).
@@ -139,6 +170,32 @@ class R2Storage implements Storage {
         Key: key,
       })
     );
+  }
+
+  async read(key: string): Promise<Buffer> {
+    const { S3Client, GetObjectCommand } = await import(
+      // @ts-expect-error optional peer
+      /* webpackIgnore: true */ "@aws-sdk/client-s3"
+    );
+    const client = new S3Client({
+      region: "auto",
+      endpoint: env.R2_ENDPOINT,
+      credentials: {
+        accessKeyId: env.R2_ACCESS_KEY_ID!,
+        secretAccessKey: env.R2_SECRET_ACCESS_KEY!,
+      },
+    });
+    const out = await client.send(
+      new GetObjectCommand({ Bucket: env.R2_BUCKET!, Key: key })
+    );
+    const body = out.Body;
+    if (!body) throw new Error(`r2: no body for key ${key}`);
+    // Collect the AsyncIterable<Uint8Array> stream into one buffer.
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of body as AsyncIterable<Uint8Array>) {
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
   }
 }
 

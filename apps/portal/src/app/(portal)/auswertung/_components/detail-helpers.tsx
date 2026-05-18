@@ -3,10 +3,21 @@ import { ChevronRight } from "lucide-react";
 import { cn } from "@eins/ui";
 
 /**
- * Small co-located helpers for Auswertung Detail mode. Kept inside the page
- * folder to avoid bloating @eins/ui until we've used the same shape on
- * three different pages. Server components — no hooks, no events, no state.
+ * Small co-located helpers for the Auswertung deep-dive bundle. Kept inside
+ * the page folder to avoid bloating @eins/ui until we've used the same shape
+ * on three different pages. Server components — no hooks, no events, no state.
  */
+
+// ---------- Shared tone vocabulary ----------
+export type BreakdownTone = "neutral" | "accent" | "good" | "warn" | "bad";
+
+const toneClass: Record<BreakdownTone, string> = {
+  neutral: "bg-fg-tertiary/40",
+  accent: "bg-accent/55",
+  good: "bg-tone-good/55",
+  warn: "bg-tone-warn/55",
+  bad: "bg-tone-bad/55",
+};
 
 // ---------- BreakdownBars: horizontal-bar visualization ----------
 export interface BreakdownBarRow {
@@ -14,16 +25,8 @@ export interface BreakdownBarRow {
   value: number;
   /** Optional subtext rendered to the right of the bar. */
   hint?: React.ReactNode;
-  tone?: "neutral" | "accent" | "good" | "warn" | "bad";
+  tone?: BreakdownTone;
 }
-
-const toneClass: Record<NonNullable<BreakdownBarRow["tone"]>, string> = {
-  neutral: "bg-fg-tertiary/40",
-  accent: "bg-accent/55",
-  good: "bg-tone-good/55",
-  warn: "bg-tone-warn/55",
-  bad: "bg-tone-bad/55",
-};
 
 export function BreakdownBars({ rows }: { rows: BreakdownBarRow[] }) {
   const total = rows.reduce((s, r) => s + r.value, 0);

@@ -10,6 +10,7 @@ import {
   pgTable,
   uuid,
   text,
+  varchar,
   timestamp,
   boolean,
   integer,
@@ -65,6 +66,29 @@ export const clinics = pgTable("clinics", {
   hwgContactName: text("hwg_contact_name"),
   hwgContactEmail: text("hwg_contact_email"),
   locations: jsonb("locations").default(sql`'[]'::jsonb`),
+  // --- EINS Stimme (post-visit review request engine) ---
+  /** Public review URL for Google (or Google Business Profile place form). */
+  googleReviewUrl: text("google_review_url"),
+  /** Public review URL for Jameda. */
+  jamedaReviewUrl: text("jameda_review_url"),
+  /** Google Place ID — fed to Places API (New) for live rating + count sync. */
+  googlePlaceId: text("google_place_id"),
+  /** Public Jameda profile URL — HTML scraped (no public API exists). */
+  jamedaProfileUrl: text("jameda_profile_url"),
+  /** Days after `appointment_completed` before sending the review email. */
+  reviewRequestDelayDays: integer("review_request_delay_days")
+    .notNull()
+    .default(3),
+  /** Master switch: when false, /api/patients/events refuses to schedule sends. */
+  reviewRequestEnabled: boolean("review_request_enabled")
+    .notNull()
+    .default(false),
+  /** Origin used to render rating-token links in patient emails (`https://praxis-X.de`). */
+  reviewLandingOrigin: text("review_landing_origin"),
+  /** Sender address for review emails; falls back to global EMAIL_FROM. */
+  reviewEmailFrom: text("review_email_from"),
+  /** Mailbox that receives private-feedback alerts. Falls back to defaultDoctorEmail. */
+  reviewInboxEmail: text("review_inbox_email"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -83,6 +107,11 @@ export const clinicUsers = pgTable(
       .references(() => clinics.id, { onDelete: "cascade" }),
     email: citext("email").notNull(),
     fullName: text("full_name"),
+    /** Storage adapter key, e.g. `avatars/<userId>.webp`. Resolve via
+     *  `avatarUrlForKey()` to get a browser-fetchable URL. */
+    avatarKey: varchar("avatar_key", { length: 500 }),
+    /** Bumped on every avatar upload — drives the `?v=` cache-buster. */
+    avatarUpdatedAt: timestamp("avatar_updated_at", { withTimezone: true }),
     role: text("role").notNull(),
     mfaEnrolled: boolean("mfa_enrolled").notNull().default(false),
     mfaSecretEnc: bytea("mfa_secret_enc"),
@@ -91,7 +120,6 @@ export const clinicUsers = pgTable(
     invitedAt: timestamp("invited_at", { withTimezone: true }),
     invitationTokenHash: text("invitation_token_hash"),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
-    uiMode: text("ui_mode").notNull().default("einfach"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -105,10 +133,6 @@ export const clinicUsers = pgTable(
     roleCheck: check(
       "clinic_users_role_check",
       sql`${t.role} IN ('inhaber','marketing','frontdesk')`
-    ),
-    uiModeCheck: check(
-      "clinic_users_ui_mode_check",
-      sql`${t.uiMode} IN ('einfach','detail')`
     ),
     clinicIdx: index("clinic_users_clinic_idx").on(t.clinicId),
   })
@@ -211,7 +235,7 @@ export const impersonationTokens = pgTable(
 );
 
 // ---------------------------------------------------------------
-// TREATMENTS (per-clinic treatment categories — Detail mode)
+// TREATMENTS (per-clinic treatment categories)
 // ---------------------------------------------------------------
 export const treatments = pgTable(
   "treatments",
@@ -253,6 +277,10 @@ export const locations = pgTable(
     address: text("address"),
     isPrimary: boolean("is_primary").notNull().default(false),
     displayOrder: integer("display_order").notNull().default(0),
+    /** Latitude in WGS84 degrees, geocoded lazily by the AI-score worker. */
+    lat: numeric("lat", { precision: 9, scale: 6 }),
+    /** Longitude in WGS84 degrees, geocoded lazily by the AI-score worker. */
+    lng: numeric("lng", { precision: 9, scale: 6 }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -260,6 +288,29 @@ export const locations = pgTable(
   },
   (t) => ({
     clinicIdx: index("locations_clinic_idx").on(t.clinicId),
+  })
+);
+
+// ---------------------------------------------------------------
+// GEOCODE_CACHE — shared lookup of city/address → lat/lng via Nominatim.
+// Not tenant-scoped: city geometry is public, not PII.
+// ---------------------------------------------------------------
+export const geocodeCache = pgTable(
+  "geocode_cache",
+  {
+    normalizedQuery: text("normalized_query").primaryKey(),
+    /** Null = negative result (Nominatim returned no match). */
+    lat: numeric("lat", { precision: 9, scale: 6 }),
+    lng: numeric("lng", { precision: 9, scale: 6 }),
+    /** Full Nominatim response, kept for audit / debugging. */
+    raw: jsonb("raw"),
+    fetchedAt: timestamp("fetched_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => ({
+    expiresIdx: index("geocode_cache_expires_idx").on(t.expiresAt),
   })
 );
 
@@ -292,6 +343,24 @@ export const patients = pgTable(
       .default("0"),
     requestCount: integer("request_count").notNull().default(0),
     wonCount: integer("won_count").notNull().default(0),
+    /** External PMS patient ID, used for dedup in /api/patients/events. */
+    externalId: text("external_id"),
+    /** Set when patient unsubscribes from review emails (Art. 21 DSGVO + §7 UWG). */
+    reviewEmailUnsubscribedAt: timestamp("review_email_unsubscribed_at", {
+      withTimezone: true,
+    }),
+    // --- PVS Bridge (0026_patients_pvs_columns.sql) ---
+    /** Date of birth, denormalized from PVS for Stage-3 fuzzy linking + UI display. */
+    dob: date("dob"),
+    /** Gender code matching PVS conventions: f|m|d|x. */
+    gender: text("gender"),
+    /**
+     * Denormalized "primary" PVS patient id (most-recent, highest-confidence
+     * link). The full set of PVS ids that map to this portal patient lives in
+     * pvs_patient_map — a portal patient can absorb multiple PVS records
+     * after merges.
+     */
+    pvsPatientId: text("pvs_patient_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -299,11 +368,17 @@ export const patients = pgTable(
   (t) => ({
     clinicIdx: index("patients_clinic_idx").on(t.clinicId),
     ltvIdx: index("patients_ltv_idx").on(t.clinicId, t.lifetimeRevenueEur),
+    externalIdx: index("patients_external_idx").on(t.clinicId, t.externalId),
+    emailIdx: index("patients_email_idx").on(t.clinicId, t.email),
+    genderCheck: check(
+      "patients_gender_check",
+      sql`${t.gender} IS NULL OR ${t.gender} IN ('f','m','d','x')`
+    ),
   })
 );
 
 // ---------------------------------------------------------------
-// REVIEWS (per-clinic snapshots — Detail mode reputation card)
+// REVIEWS (per-clinic snapshots — reputation card)
 // ---------------------------------------------------------------
 export const reviews = pgTable(
   "reviews",
@@ -325,7 +400,7 @@ export const reviews = pgTable(
   (t) => ({
     platformCheck: check(
       "reviews_platform_check",
-      sql`${t.platform} IN ('google','jameda','trustpilot','manual')`
+      sql`${t.platform} IN ('google','jameda','manual')`
     ),
     clinicIdx: index("reviews_clinic_idx").on(t.clinicId, t.recordedAt),
   })
@@ -355,6 +430,27 @@ export const requestRecalls = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    // --- EINS Stimme (kind = 'review_request') ---
+    /** Random 32-byte opaque token; embedded in the patient email URL. */
+    reviewToken: text("review_token").unique(),
+    /** Optional override email captured at intake time (patient mail). */
+    reviewEmail: text("review_email"),
+    /** Optional override name for greeting in the email. */
+    reviewPatientName: text("review_patient_name"),
+    /** Treatment label captured at intake (e.g. "Hyaluron-Auffrischung"). */
+    reviewTreatmentLabel: text("review_treatment_label"),
+    /** Set when the email-send job is enqueued. */
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    /** Set when patient first hits the rating landing page. */
+    ratingClickedAt: timestamp("rating_clicked_at", { withTimezone: true }),
+    /** First-click rating value 1..5. Never overwritten. */
+    ratingValue: integer("rating_value"),
+    /** Set when patient follows the public Google/Jameda link. */
+    publicClickedAt: timestamp("public_clicked_at", { withTimezone: true }),
+    /** Platform clicked on the public CTA: 'google' | 'jameda'. */
+    publicClickedPlatform: text("public_clicked_platform"),
+    /** Set when patient submits the private feedback form. */
+    feedbackAt: timestamp("feedback_at", { withTimezone: true }),
   },
   (t) => ({
     kindCheck: check(
@@ -365,8 +461,22 @@ export const requestRecalls = pgTable(
       "request_recalls_status_check",
       sql`${t.status} IN ('pending','sent','completed','skipped')`
     ),
+    ratingValueCheck: check(
+      "request_recalls_rating_value_check",
+      sql`${t.ratingValue} IS NULL OR (${t.ratingValue} BETWEEN 1 AND 5)`
+    ),
+    publicPlatformCheck: check(
+      "request_recalls_public_platform_check",
+      sql`${t.publicClickedPlatform} IS NULL OR ${t.publicClickedPlatform} IN ('google','jameda')`
+    ),
     clinicIdx: index("request_recalls_clinic_idx").on(
       t.clinicId,
+      t.scheduledFor
+    ),
+    // Drives the cron scanner WHERE kind='review_request' AND status='pending' AND scheduledFor <= today.
+    dueIdx: index("request_recalls_due_idx").on(
+      t.kind,
+      t.status,
       t.scheduledFor
     ),
   })
@@ -423,12 +533,39 @@ export const requests = pgTable(
       .notNull()
       .defaultNow(),
     firstContactedAt: timestamp("first_contacted_at", { withTimezone: true }),
+    /**
+     * Timestamp the first time any clinic user opened the request detail
+     * page. Distinct from `firstContactedAt` (SLA timer for outbound) —
+     * this is purely an "unread" tracker that drives the sidebar Anfragen
+     * badge. Set once, never updated.
+     */
+    firstViewedAt: timestamp("first_viewed_at", { withTimezone: true }),
     wonAt: timestamp("won_at", { withTimezone: true }),
     dsgvoConsentAt: timestamp("dsgvo_consent_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
     dsgvoConsentIp: inet("dsgvo_consent_ip"),
     rawPayload: jsonb("raw_payload"),
+    // --- PVS Bridge (0027_request_pvs_columns.sql) ---
+    /** Foreign key into the PVS calendar — used to dedupe AppointmentCreated
+     *  events and to link multiple events (status change, no-show, completion)
+     *  back to the same row. */
+    pvsAppointmentId: text("pvs_appointment_id"),
+    /** Foreign key into the PVS encounter/case — used to attach invoices. */
+    pvsEncounterId: text("pvs_encounter_id"),
+    /** PVS-derived scheduled appointment time. */
+    appointmentAt: timestamp("appointment_at", { withTimezone: true }),
+    /** Set the first time a PVS AppointmentStatusChanged → no_show event arrives. */
+    noShowAt: timestamp("no_show_at", { withTimezone: true }),
+    /** Set when EncounterCompleted (or CSV "treatment completed") arrives. */
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    /**
+     * Which subsystem last set `status`. Drives the "PVS gewinnt immer" rule
+     * in the pvs-status-derive worker: PVS events overwrite manual edits
+     * unconditionally for rows linked to a PVS appointment, and the UI shows
+     * a `Quelle: PVS` readonly badge to signal the override.
+     */
+    statusSource: text("status_source").notNull().default("manual"),
   },
   (t) => ({
     aiScoreCheck: check(
@@ -441,12 +578,20 @@ export const requests = pgTable(
     ),
     statusCheck: check(
       "requests_status_check",
-      sql`${t.status} IN ('neu','qualifiziert','termin_vereinbart','beratung_erschienen','gewonnen','verloren','spam')`
+      sql`${t.status} IN ('neu','qualifiziert','termin_vereinbart','beratung_erschienen','no_show','behandelt','gewonnen','verloren','spam')`
+    ),
+    statusSourceCheck: check(
+      "requests_status_source_check",
+      sql`${t.statusSource} IN ('manual','pvs','csv')`
     ),
     clinicIdx: index("requests_clinic_idx").on(t.clinicId),
     statusIdx: index("requests_status_idx").on(t.clinicId, t.status),
     slaIdx: index("requests_sla_idx").on(t.slaRespondBy),
     createdIdx: index("requests_created_idx").on(t.clinicId, t.createdAt),
+    pvsApptIdx: index("requests_pvs_appointment_idx").on(
+      t.clinicId,
+      t.pvsAppointmentId
+    ),
   })
 );
 
@@ -690,7 +835,7 @@ export const goals = pgTable(
   (t) => ({
     metricCheck: check(
       "goals_metric_check",
-      sql`${t.metric} IN ('qualified_leads','revenue','cases_won','appointments','spend')`
+      sql`${t.metric} IN ('qualified_leads','revenue','cases_won','appointments','spend','total_requests')`
     ),
     clinicIdx: index("goals_clinic_idx").on(t.clinicId, t.periodStart),
   })
@@ -748,10 +893,26 @@ export const platformCredentials = pgTable(
     uniq: unique("platform_credentials_unique").on(t.clinicId, t.platform),
     platformCheck: check(
       "platform_credentials_platform_check",
-      sql`${t.platform} IN ('meta','google')`
+      sql`${t.platform} IN ('meta','google','intake','pvs')`
     ),
   })
 );
+
+// ---------------------------------------------------------------
+// PVS BRIDGE — re-export schema-pvs.ts so `db.schema.pvsLink` etc. resolve
+// without having to import schema-pvs.ts directly at every call site.
+// ---------------------------------------------------------------
+export {
+  pvsLink,
+  pvsEventLog,
+  pvsPatientMap,
+  pvsTreatmentMapping,
+  pvsLocationMapping,
+  pvsSyncStatus,
+  linkingFailures,
+  pvsCsvUploads,
+  pvsAgentEnrollmentTokens,
+} from "./schema-pvs";
 
 // ---------------------------------------------------------------
 // NOTIFICATIONS
@@ -872,6 +1033,44 @@ export const clinicTimelineEntries = pgTable(
 );
 
 // ---------------------------------------------------------------
+// LEITFADEN QUIZ ATTEMPTS — per-user proof of "Schulungs-Modul"
+// (EINS-Garantie Mitwirkungspflicht). Each row is one submission;
+// `passed` rows count towards the per-user pass state used to drive
+// the sidebar badge and the /leitfaden CTA.
+// ---------------------------------------------------------------
+export const leitfadenQuizAttempts = pgTable(
+  "leitfaden_quiz_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => clinicUsers.id, { onDelete: "cascade" }),
+    score: integer("score").notNull(),
+    total: integer("total").notNull(),
+    passed: boolean("passed").notNull(),
+    questionsVersion: integer("questions_version").notNull().default(1),
+    answers: jsonb("answers").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    scoreCheck: check(
+      "leitfaden_quiz_score_check",
+      sql`${t.score} >= 0 AND ${t.score} <= ${t.total}`
+    ),
+    userPassedIdx: index("leitfaden_quiz_user_passed_idx").on(t.userId),
+    clinicCreatedIdx: index("leitfaden_quiz_clinic_created_idx").on(
+      t.clinicId,
+      t.createdAt.desc()
+    ),
+  })
+);
+
+// ---------------------------------------------------------------
 // Admin users — Karam's super-admin identity (NOT a clinic_user).
 // Access governed by ADMIN_EMAILS env + optional IP allowlist.
 // ---------------------------------------------------------------
@@ -906,5 +1105,140 @@ export const adminSessions = pgTable(
   },
   (t) => ({
     adminIdx: index("admin_sessions_admin_idx").on(t.adminId),
+  })
+);
+
+// ---------------------------------------------------------------
+// EINS Stimme — private patient feedback inbox.
+//
+// Distinct from `reviews` (aggregate platform snapshots). One row per
+// patient submission triggered from the rating landing's private form.
+// Visible inside the portal as a triage queue at /stimme.
+// ---------------------------------------------------------------
+export const patientFeedback = pgTable(
+  "patient_feedback",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    patientId: uuid("patient_id").references((): AnyPgColumn => patients.id, {
+      onDelete: "set null",
+    }),
+    recallId: uuid("recall_id").references(
+      (): AnyPgColumn => requestRecalls.id,
+      { onDelete: "set null" }
+    ),
+    /** Patient's rating at submit time (1..5). */
+    rating: integer("rating").notNull(),
+    /** Free-text feedback in patient's words. */
+    freeText: text("free_text"),
+    /** Patient agreed the Praxis may contact them about this feedback. */
+    contactBackOk: boolean("contact_back_ok").notNull().default(false),
+    /** Snapshot of contact for the Praxis to act on, even if patient unsubscribes later. */
+    contactEmail: text("contact_email"),
+    contactName: text("contact_name"),
+    /** Triage state. */
+    status: text("status").notNull().default("neu"),
+    /** Internal note written by clinic user. */
+    internalNote: text("internal_note"),
+    /**
+     * Where the row came from:
+     *   • 'private'         — patient submitted the private feedback form.
+     *   • 'public_redirect' — patient was redirected to Google/Jameda via the
+     *                         public CTA; row is a "they engaged externally"
+     *                         marker, with no free text or contact consent.
+     */
+    source: text("source").notNull().default("private"),
+    /** For source='public_redirect': which platform they were sent to. */
+    publicPlatform: text("public_platform"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolvedBy: uuid("resolved_by").references(
+      (): AnyPgColumn => clinicUsers.id
+    ),
+  },
+  (t) => ({
+    ratingCheck: check(
+      "patient_feedback_rating_check",
+      sql`${t.rating} BETWEEN 1 AND 5`
+    ),
+    statusCheck: check(
+      "patient_feedback_status_check",
+      sql`${t.status} IN ('neu','gesehen','beantwortet','geschlossen')`
+    ),
+    sourceCheck: check(
+      "patient_feedback_source_check",
+      sql`${t.source} IN ('private','public_redirect')`
+    ),
+    publicPlatformCheck: check(
+      "patient_feedback_public_platform_check",
+      sql`${t.publicPlatform} IS NULL OR ${t.publicPlatform} IN ('google','jameda')`
+    ),
+    clinicIdx: index("patient_feedback_clinic_idx").on(
+      t.clinicId,
+      t.createdAt.desc()
+    ),
+    statusIdx: index("patient_feedback_status_idx").on(
+      t.clinicId,
+      t.status,
+      t.createdAt.desc()
+    ),
+  })
+);
+
+// ---------------------------------------------------------------
+// EMAIL_SUPPRESSION — global do-not-send list per clinic.
+//
+// Populated by /r/unsubscribe links and by Resend bounce/complaint
+// webhooks (future). The review-request scanner skips any patient
+// whose email matches an active suppression.
+// ---------------------------------------------------------------
+export const emailSuppression = pgTable(
+  "email_suppression",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    email: citext("email").notNull(),
+    /** Why this address is suppressed. */
+    reason: text("reason").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    uniq: unique("email_suppression_unique").on(t.clinicId, t.email),
+    reasonCheck: check(
+      "email_suppression_reason_check",
+      sql`${t.reason} IN ('unsubscribed','bounced','complained','manual')`
+    ),
+    clinicIdx: index("email_suppression_clinic_idx").on(t.clinicId, t.email),
+  })
+);
+
+// ---------------------------------------------------------------
+// USER NAV SECTION VIEWS — per-user "last seen" timestamps for sidebar
+// sections that surface a "Neu" pill (Fortschritt, Medien, Dokumente, …).
+// Badge logic compares MAX(content.created_at) against this row; the row
+// is upserted to now() when the user opens that section's page.
+// ---------------------------------------------------------------
+export const userNavSectionViews = pgTable(
+  "user_nav_section_views",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => clinicUsers.id, { onDelete: "cascade" }),
+    /** Stable key for the section, e.g. "fortschritt", "medien", "dokumente". */
+    section: text("section").notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.userId, t.section] }),
   })
 );

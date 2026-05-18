@@ -77,7 +77,7 @@ async function bySourceUncached(
     const requestRows = await tx
       .select({
         source: schema.requests.source,
-        leads: sql<number>`count(*) FILTER (WHERE ${schema.requests.aiCategory} != 'cold' OR ${schema.requests.status} != 'spam')::int`,
+        leads: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} <> 'spam')::int`,
         appointments: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} IN ('termin_vereinbart','beratung_erschienen','gewonnen'))::int`,
         consultations: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} IN ('beratung_erschienen','gewonnen'))::int`,
         casesWon: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} = 'gewonnen')::int`,

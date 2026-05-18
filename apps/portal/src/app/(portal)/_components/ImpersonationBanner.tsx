@@ -8,10 +8,12 @@ interface Props {
 }
 
 /**
- * Yellow top banner shown on every clinic-portal page when the active
- * session was opened by an admin via "View as user". The "Beenden"
- * button POSTs to /api/auth/end-impersonation, which revokes the session
- * server-side and returns the admin host URL to land back on. We try
+ * Subtle top bar shown on every clinic-portal page when the active
+ * session was opened by an admin via "View as user". Designed to stay
+ * out of the way — a thin neutral strip with a small warn dot, just
+ * enough to remind the admin they are not the user. The "Beenden"
+ * button POSTs to /api/auth/end-impersonation, which revokes the
+ * session server-side and returns the admin host URL. We try
  * window.close() first (the tab was opened by JS, so the browser
  * permits it), then fall back to navigation.
  */
@@ -49,27 +51,25 @@ export function ImpersonationBanner({ targetEmail, clinicName }: Props) {
     <div
       role="status"
       aria-live="polite"
-      className="border-b border-yellow-500/40 bg-yellow-300 text-yellow-950"
+      className="border-b border-border bg-bg-secondary/70 text-xs text-fg-secondary"
     >
-      <div className="mx-auto flex max-w-screen-2xl flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm md:px-6">
-        <div className="flex items-center gap-2">
-          <span aria-hidden className="text-base leading-none">⚠</span>
-          <span>
-            <strong className="font-semibold">Impersonation aktiv</strong> — Sie
-            sehen das Portal als{" "}
-            <span className="font-mono">{targetEmail}</span>
+      <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-3 px-4 py-1.5 md:px-6">
+        <div className="flex min-w-0 items-center gap-2">
+          <span
+            aria-hidden
+            className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-tone-warn"
+          />
+          <span className="truncate">
+            Impersonation:{" "}
+            <span className="font-mono text-fg-primary/80">{targetEmail}</span>
             {clinicName ? (
-              <>
-                {" "}
-                (<span className="font-medium">{clinicName}</span>)
-              </>
+              <span className="text-fg-secondary"> · {clinicName}</span>
             ) : null}
-            .
           </span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-3">
           {error && (
-            <span className="text-xs text-red-700" role="alert">
+            <span className="text-tone-bad" role="alert">
               {error}
             </span>
           )}
@@ -77,9 +77,9 @@ export function ImpersonationBanner({ targetEmail, clinicName }: Props) {
             type="button"
             onClick={onEnd}
             disabled={pending}
-            className="rounded-md border border-yellow-700/40 bg-yellow-200/80 px-3 py-1 font-medium hover:bg-yellow-100 disabled:opacity-60"
+            className="text-fg-secondary underline-offset-2 hover:text-fg-primary hover:underline disabled:opacity-60"
           >
-            {pending ? "Beenden …" : "Beenden"}
+            {pending ? "…" : "Beenden"}
           </button>
         </div>
       </div>

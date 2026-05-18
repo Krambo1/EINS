@@ -1,9 +1,10 @@
+import "./shim-server-only";
 import "../lib/load-env";
 import { Queue, QueueEvents, type RepeatOptions } from "bullmq";
 import { isNull } from "drizzle-orm";
 import { workerConnection } from "./connection";
 import { db, schema } from "@/db/client";
-import { QUEUES } from "@/server/jobs";
+import { QUEUES } from "@/lib/queues";
 
 /**
  * Cron — runs as `pnpm cron`. Schedules repeating jobs via BullMQ's built-in
@@ -11,14 +12,16 @@ import { QUEUES } from "@/server/jobs";
  * re-running cron.ts doesn't create duplicate recurring entries.
  *
  * Schedules (UTC):
- *   sla-check          every 15 min
- *   refresh-oauth      every 15 min
- *   sync-meta          02:00   (per connected clinic)
- *   sync-google        02:30   (per connected clinic)
- *   kpi-rebuild        03:00   (per clinic — yesterday only)
- *   db-backup          03:30
- *   purge-audit        Sunday 04:00
- *   monthly-report     1st of month 05:00 (per clinic)
+ *   sla-check                every 15 min
+ *   refresh-oauth            every 15 min
+ *   sync-meta                02:00   (per connected clinic)
+ *   sync-google              02:30   (per connected clinic)
+ *   kpi-rebuild              03:00   (per clinic — yesterday only)
+ *   db-backup                03:30
+ *   sync-reviews-google      04:00   (per clinic with a place_id)
+ *   sync-reviews-jameda      04:20   (per clinic with a profile URL)
+ *   purge-audit              Sunday 04:00
+ *   monthly-report           1st of month 05:00 (per clinic)
  *
  * This file exits after scheduling — BullMQ handles the actual firing.
  */
@@ -64,6 +67,14 @@ async function main() {
     { every: 15 * 60 * 1000 },
     "refresh-oauth-every-15m"
   );
+  // EINS Stimme — scans due review_request recalls and enqueues emails.
+  await scheduleRepeating(
+    QUEUES.reviewRequestTick,
+    "scan",
+    {},
+    { every: 15 * 60 * 1000 },
+    "review-request-tick-every-15m"
+  );
   await scheduleRepeating(
     QUEUES.dbBackup,
     "dump",
@@ -77,6 +88,30 @@ async function main() {
     {},
     { pattern: "0 4 * * 0" },
     "purge-audit-weekly-sun-0400"
+  );
+  // PVS Bridge — daily partition rotation 04:00.
+  await scheduleRepeating(
+    QUEUES.pvsPartitionRotate,
+    "rotate",
+    {},
+    { pattern: "0 4 * * *" },
+    "pvs-partition-rotate-daily-0400"
+  );
+  // PVS Bridge — nightly reconciliation 02:15 (before kpi-rebuild).
+  await scheduleRepeating(
+    QUEUES.pvsReconcile,
+    "reconcile",
+    {},
+    { pattern: "15 2 * * *" },
+    "pvs-reconcile-daily-0215"
+  );
+  // PVS Bridge — daily treatment auto-mapping suggestions 04:30.
+  await scheduleRepeating(
+    QUEUES.pvsTreatmentSuggest,
+    "suggest",
+    {},
+    { pattern: "30 4 * * *" },
+    "pvs-treatment-suggest-daily-0430"
   );
 
   // --- Per-clinic jobs: one recurring schedule each ---
@@ -119,6 +154,20 @@ async function main() {
       { clinicId: c.id, period: "__autoprev__" },
       { pattern: "0 5 1 * *" },
       `monthly-report-${c.id}`
+    );
+    await scheduleRepeating(
+      QUEUES.syncReviewsGoogle,
+      "sync",
+      { clinicId: c.id },
+      { pattern: "0 4 * * *" },
+      `sync-reviews-google-${c.id}`
+    );
+    await scheduleRepeating(
+      QUEUES.syncReviewsJameda,
+      "sync",
+      { clinicId: c.id },
+      { pattern: "20 4 * * *" },
+      `sync-reviews-jameda-${c.id}`
     );
   }
 

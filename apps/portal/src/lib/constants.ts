@@ -181,6 +181,25 @@ export const TIMELINE_STATUS_LABELS: Record<TimelineStatus, string> = {
   abgeschlossen: "Abgeschlossen",
 };
 
+/** EINS Stimme — private patient_feedback triage states. */
+export const PATIENT_FEEDBACK_STATUSES = [
+  "neu",
+  "gesehen",
+  "beantwortet",
+  "geschlossen",
+] as const;
+export type PatientFeedbackStatus = (typeof PATIENT_FEEDBACK_STATUSES)[number];
+
+export const PATIENT_FEEDBACK_STATUS_LABELS: Record<
+  PatientFeedbackStatus,
+  string
+> = {
+  neu: "Neu",
+  gesehen: "Gesehen",
+  beantwortet: "Beantwortet",
+  geschlossen: "Geschlossen",
+};
+
 /** Session cookie */
 export const SESSION_COOKIE = "eins_session";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8; // 8h idle timeout

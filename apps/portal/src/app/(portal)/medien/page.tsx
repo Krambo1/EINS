@@ -251,28 +251,25 @@ export default async function MedienPage({
                     <a
                       href={a.url}
                       download
-                      className="flex-1 rounded-md bg-accent px-3 py-2 text-center text-sm font-medium text-fg-primary hover:bg-accent/90"
+                      className="opa-btn-primary opa-focus-ring flex-1 rounded-md px-3 py-2 text-center text-sm font-medium"
                     >
                       Herunterladen
                     </a>
                   </div>
-                  {a.tags &&
-                    a.tags.length > 0 &&
-                    session.uiMode === "detail" && (
-                      <div className="flex flex-wrap gap-1">
-                        {a.tags.map((t) => (
-                          <span
-                            key={t}
-                            className="rounded-full bg-bg-secondary px-2 py-0.5 text-xs text-fg-secondary"
-                          >
-                            #{t}
-                          </span>
-                        ))}
-                      </div>
-                    )}
+                  {a.tags && a.tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {a.tags.map((t) => (
+                        <span
+                          key={t}
+                          className="rounded-full bg-bg-secondary px-2 py-0.5 text-xs text-fg-secondary"
+                        >
+                          #{t}
+                        </span>
+                      ))}
+                    </div>
+                  )}
 
-                  {session.uiMode === "detail" && (
-                    <dl className="grid grid-cols-2 gap-x-3 gap-y-1 border-t border-border pt-3 text-xs">
+                  <dl className="grid grid-cols-2 gap-x-3 gap-y-1 border-t border-border pt-3 text-xs">
                       <DtDdItem
                         label="Hochgeladen"
                         value={formatDate(a.createdAt)}
@@ -294,7 +291,6 @@ export default async function MedienPage({
                         <DtDdItem label="Mux ID" value={a.muxPlaybackId} />
                       )}
                     </dl>
-                  )}
                 </CardContent>
               </Card>
             ))}
@@ -355,8 +351,7 @@ export default async function MedienPage({
                       </p>
                     )}
 
-                    {session.uiMode === "detail" && (
-                      <dl className="grid grid-cols-2 gap-x-3 gap-y-1 border-t border-border pt-3 text-xs">
+                    <dl className="grid grid-cols-2 gap-x-3 gap-y-1 border-t border-border pt-3 text-xs">
                         <dt className="text-fg-secondary">Status</dt>
                         <dd className="text-right font-medium text-fg-primary">
                           {ANIMATION_STATE_LABELS[state]}
@@ -388,7 +383,6 @@ export default async function MedienPage({
                           </>
                         )}
                       </dl>
-                    )}
 
                     {(state === "standard" || state === "ready") &&
                       can(session.role, "animations.request_customization") && (
@@ -429,7 +423,7 @@ export default async function MedienPage({
             })}
           </div>
 
-          {filter === "animationen" && session.uiMode === "detail" && (
+          {filter === "animationen" && (
             <Card>
               <CardHeader>
                 <CardTitle>Was passiert bei einer Anforderung?</CardTitle>

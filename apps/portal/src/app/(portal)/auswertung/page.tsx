@@ -2,25 +2,11 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { requirePermissionOrRedirect } from "@/auth/guards";
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  EmptyState,
-} from "@eins/ui";
-import {
   kpiDailySeries,
   kpiSummary,
   currentGoals,
 } from "@/server/queries/kpis";
-import {
-  formatEuro,
-  formatNumber,
-  formatDate,
-  formatPercent,
-} from "@/lib/formatting";
-import { BarChart3 } from "lucide-react";
-import { AuswertungTopMetricsSimple } from "./_components/AuswertungTopMetricsSimple";
+import { formatEuro, formatNumber, formatDate } from "@/lib/formatting";
 import { AuswertungTopMetricsEnhanced } from "./_components/AuswertungTopMetricsEnhanced";
 import { AuswertungDetailBundle } from "./_components/AuswertungDetailBundle";
 import { AuswertungDetailBundleSkeleton } from "./_components/AuswertungDetailBundleSkeleton";
@@ -78,7 +64,6 @@ export default async function AuswertungPage({
     params.period && params.period in PERIODS ? params.period : "30"
   ) as PeriodKey;
   const { from, to, label } = computeRange(periodKey);
-  const isDetail = session.uiMode === "detail";
 
   // Base bundle — always 3 cheap queries. The 18-query detail bundle is
   // streamed inside <Suspense> so the header + period nav + base metrics
@@ -124,39 +109,22 @@ export default async function AuswertungPage({
         Zeitraum: {formatDate(from)} bis {formatDate(to)}
       </div>
 
-      {/* Primary 3 metrics — Detail streams MetricTile + delta + sparkline. */}
-      {isDetail ? (
-        <Suspense
-          fallback={
-            <AuswertungTopMetricsSimple
-              summary={summary}
-              periodKey={periodKey}
-              leadsGoal={leadsGoal}
-              revenueGoal={revenueGoal}
-            />
-          }
-        >
-          <AuswertungTopMetricsEnhanced
-            clinicId={session.clinicId}
-            userId={session.userId}
-            summary={summary}
-            from={from}
-            to={to}
-            periodKey={periodKey}
-            leadsGoal={leadsGoal}
-            revenueGoal={revenueGoal}
-          />
-        </Suspense>
-      ) : (
-        <AuswertungTopMetricsSimple
+      {/* Primary 3 metrics — MetricTile + delta + sparkline, streamed inside
+          Suspense so the header + period nav paint while the comparison
+          queries are in flight. */}
+      <Suspense fallback={<TopMetricsSkeleton />}>
+        <AuswertungTopMetricsEnhanced
+          clinicId={session.clinicId}
+          userId={session.userId}
           summary={summary}
+          from={from}
+          to={to}
           periodKey={periodKey}
           leadsGoal={leadsGoal}
           revenueGoal={revenueGoal}
         />
-      )}
+      </Suspense>
 
-      {/* Secondary funnel metrics (Einfach + Detail) */}
       <section aria-label="Trichter" className="grid gap-4 md:grid-cols-4">
         <FunnelStat label="Termine vereinbart" value={formatNumber(summary.appointments)} />
         <FunnelStat label="Beratungen gehalten" value={formatNumber(summary.consultationsHeld)} />
@@ -171,74 +139,37 @@ export default async function AuswertungPage({
         />
       </section>
 
-      {/* Einfach mode renders the simple table card here. Detail mode renders
-          its richer daily-chart card inside the streamed bundle below. */}
-      {!isDetail && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Tagesverlauf</CardTitle>
-          </CardHeader>
-          <CardContent className="p-0">
-            {series.length === 0 ? (
-              <div className="p-6">
-                <EmptyState
-                  icon={<BarChart3 className="h-8 w-8" />}
-                  title="Noch keine Tageswerte"
-                  description={`Für ${label} liegen noch keine Daten vor.`}
-                />
-              </div>
-            ) : (
-              <SeriesTable series={series} summary={summary} />
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Trichter-Quoten — einfach version (no delta hints). Detail version
-          with delta hints renders inside the streamed bundle. */}
-      {!isDetail && summary.qualifiedLeads > 0 && (
-        <section>
-          <h3 className="opa-h3 mb-4 text-fg-primary">Trichter-Quoten</h3>
-          <div className="grid gap-4 md:grid-cols-3">
-            <FunnelStat
-              label="Anfrage → Termin"
-              value={formatPercent(summary.appointments / summary.qualifiedLeads)}
-            />
-            <FunnelStat
-              label="Termin → Beratung"
-              value={
-                summary.appointments > 0
-                  ? formatPercent(summary.consultationsHeld / summary.appointments)
-                  : "–"
-              }
-            />
-            <FunnelStat
-              label="Beratung → Gewonnen"
-              value={
-                summary.consultationsHeld > 0
-                  ? formatPercent(summary.casesWon / summary.consultationsHeld)
-                  : "–"
-              }
-            />
-          </div>
-        </section>
-      )}
-
-      {/* DETAIL-ONLY DEEP DIVE — streamed inside Suspense */}
-      {isDetail && (
-        <Suspense fallback={<AuswertungDetailBundleSkeleton />}>
-          <AuswertungDetailBundle
-            clinicId={session.clinicId}
-            userId={session.userId}
-            from={from}
-            to={to}
-            label={label}
-            summary={summary}
-            series={series}
-          />
-        </Suspense>
-      )}
+      {/* Deep dive — daily-chart card, Trichter-Quoten with deltas, attribution
+          breakdowns, etc. Streamed inside Suspense. */}
+      <Suspense fallback={<AuswertungDetailBundleSkeleton />}>
+        <AuswertungDetailBundle
+          clinicId={session.clinicId}
+          userId={session.userId}
+          from={from}
+          to={to}
+          label={label}
+          summary={summary}
+          series={series}
+        />
+      </Suspense>
     </div>
+  );
+}
+
+function TopMetricsSkeleton() {
+  return (
+    <section
+      aria-label="Kennzahlen werden geladen"
+      aria-busy="true"
+      className="grid gap-6 md:grid-cols-3"
+    >
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div
+          key={i}
+          className="h-40 animate-pulse rounded-2xl border border-border bg-bg-secondary/40"
+        />
+      ))}
+    </section>
   );
 }
 
@@ -266,98 +197,3 @@ function FunnelStat({
   );
 }
 
-function SeriesTable({
-  series,
-  summary,
-}: {
-  series: Awaited<ReturnType<typeof kpiDailySeries>>;
-  summary: Awaited<ReturnType<typeof kpiSummary>>;
-}) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="bg-bg-secondary/50 text-left text-fg-secondary">
-          <tr>
-            <Th>Datum</Th>
-            <Th align="right">Anfragen</Th>
-            <Th align="right">Termine</Th>
-            <Th align="right">Gewonnen</Th>
-            <Th align="right">Budget</Th>
-            <Th align="right">Umsatz</Th>
-            <Th align="right">Werbeertrag</Th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {series.map((row) => (
-            <tr key={row.date} className="hover:bg-bg-secondary/40">
-              <Td>{formatDate(row.date)}</Td>
-              <Td align="right">{formatNumber(row.qualifiedLeads ?? 0)}</Td>
-              <Td align="right">{formatNumber(row.appointments ?? 0)}</Td>
-              <Td align="right">{formatNumber(row.casesWon ?? 0)}</Td>
-              <Td align="right">
-                {row.totalSpendEur ? formatEuro(Number(row.totalSpendEur)) : "–"}
-              </Td>
-              <Td align="right">
-                {row.revenueAttributedEur
-                  ? formatEuro(Number(row.revenueAttributedEur))
-                  : "–"}
-              </Td>
-              <Td align="right">
-                {row.roas ? Number(row.roas).toFixed(2) + "×" : "–"}
-              </Td>
-            </tr>
-          ))}
-        </tbody>
-        <tfoot className="bg-bg-secondary/40 font-semibold">
-          <tr>
-            <Td>Summe</Td>
-            <Td align="right">{formatNumber(summary.qualifiedLeads)}</Td>
-            <Td align="right">{formatNumber(summary.appointments)}</Td>
-            <Td align="right">{formatNumber(summary.casesWon)}</Td>
-            <Td align="right">{formatEuro(summary.spendEur)}</Td>
-            <Td align="right">{formatEuro(summary.revenueEur)}</Td>
-            <Td align="right">
-              {summary.roas !== null ? summary.roas.toFixed(2) + "×" : "–"}
-            </Td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-  );
-}
-
-function Th({
-  children,
-  align = "left",
-}: {
-  children: React.ReactNode;
-  align?: "left" | "right";
-}) {
-  return (
-    <th
-      className={`px-4 py-3 text-xs font-medium uppercase tracking-wide ${
-        align === "right" ? "text-right" : "text-left"
-      }`}
-    >
-      {children}
-    </th>
-  );
-}
-
-function Td({
-  children,
-  align = "left",
-}: {
-  children: React.ReactNode;
-  align?: "left" | "right";
-}) {
-  return (
-    <td
-      className={`px-4 py-3 tabular-nums ${
-        align === "right" ? "text-right" : "text-left"
-      }`}
-    >
-      {children}
-    </td>
-  );
-}

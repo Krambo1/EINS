@@ -54,7 +54,6 @@ export async function exportClinicData(clinicId: string): Promise<DsgvoExport> {
       mfaEnrolled: schema.clinicUsers.mfaEnrolled,
       invitedAt: schema.clinicUsers.invitedAt,
       lastLoginAt: schema.clinicUsers.lastLoginAt,
-      uiMode: schema.clinicUsers.uiMode,
       createdAt: schema.clinicUsers.createdAt,
       archivedAt: schema.clinicUsers.archivedAt,
     })

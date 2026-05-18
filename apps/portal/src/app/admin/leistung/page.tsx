@@ -85,9 +85,9 @@ export default async function AdminLeistungPage({ searchParams }: PageProps) {
           <Link
             key={k}
             href={{ pathname: "/admin/leistung", query: { period: k } }}
-            className={`rounded-full border px-3 py-1 text-xs ${
+            className={`rounded-full border px-3 py-1 text-xs transition-colors ${
               k === periodKey
-                ? "border-accent bg-accent text-white"
+                ? "border-accent bg-fg-primary text-bg-primary"
                 : "border-border text-fg-secondary hover:border-accent hover:text-accent"
             }`}
           >

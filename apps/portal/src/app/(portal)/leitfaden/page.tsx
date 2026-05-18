@@ -1,12 +1,16 @@
+import Link from "next/link";
 import {
   Accordion,
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
   Badge,
+  Button,
   Separator,
 } from "@eins/ui";
-import { requireSession } from "@/auth/guards";
+import { requirePermissionOrRedirect } from "@/auth/guards";
+import { hasUserPassedLeitfadenQuiz } from "@/server/queries/leitfaden";
+import { PASS_THRESHOLD, TOTAL_QUESTIONS } from "./pruefung/questions";
 import {
   Phone,
   MessageCircle,
@@ -18,6 +22,7 @@ import {
   Users,
   HeartHandshake,
   Scale,
+  ArrowRight,
 } from "lucide-react";
 
 export const metadata = { title: "Vertriebsleitfaden" };
@@ -33,23 +38,24 @@ export const metadata = { title: "Vertriebsleitfaden" };
  */
 
 export default async function LeitfadenPage() {
-  const session = await requireSession();
-  const isDetail = session.uiMode === "detail";
+  const session = await requirePermissionOrRedirect("leitfaden.view");
+  const hasPassedQuiz = await hasUserPassedLeitfadenQuiz(
+    session.clinicId,
+    session.userId
+  );
 
   return (
     <div className="space-y-8">
       <header>
         <h1 className="text-3xl font-semibold md:text-4xl">Vertriebsleitfaden.</h1>
         <p className="mt-2 text-base text-fg-primary md:text-lg">
-          {isDetail
-            ? "So verwandeln Sie eine Anfrage in einen Beratungstermin, ohne gegen HWG, MBO-Ä oder DSGVO zu verstoßen. Bewährte Abläufe für eingehende Anrufe aus Meta- und Google-Anzeigen."
-            : "Die wichtigsten 20 % des Leitfadens, die in 80 % der Anrufe ausreichen. Für die vollständigen Skripte, Discovery-Fragen, Vorlagen und HWG-Tabellen oben rechts auf Detail umschalten."}
+          So verwandeln Sie eine Anfrage in einen Beratungstermin, ohne gegen HWG, MBO-Ä oder DSGVO zu verstoßen. Bewährte Abläufe für eingehende Anrufe aus Meta- und Google-Anzeigen.
         </p>
       </header>
 
-      <section>
+      <section id="prinzipien" className="scroll-mt-24">
         <h3 className="opa-h3 mb-4 text-fg-primary">
-          {isDetail ? "Sechs goldene Prinzipien" : "Drei goldene Prinzipien"}
+          Sechs goldene Prinzipien
         </h3>
         <div className="space-y-3">
           <Rule
@@ -77,36 +83,32 @@ export default async function LeitfadenPage() {
             („Donnerstag oder eher nächste Woche?“), nie mit offener „Wollen
             Sie?“-Frage.
           </Rule>
-          {isDetail && (
-            <>
-              <Rule
-                icon={<MessageCircle className="h-5 w-5" />}
-                title="Spiegeln statt widerlegen"
-              >
-                „Ich verstehe, dass …“ statt „Aber …". Patienten kaufen Sicherheit,
-                nicht Argumente.
-              </Rule>
-              <Rule
-                icon={<ShieldCheck className="h-5 w-5" />}
-                title="Bei medizinischen Fragen: routen, nicht antworten"
-              >
-                Risiken, Diagnosen, konkrete Methoden gehören in die ärztliche
-                Aufklärung. Nicht-ärztliches Personal darf keine medizinische
-                Empfehlung geben (§ 7 Abs. 4 MBO-Ä, § 1 HeilprG).
-              </Rule>
-              <Rule
-                icon={<Clock className="h-5 w-5" />}
-                title="Stille aushalten"
-              >
-                Nach dem Termin-Angebot drei Sekunden schweigen. Wer nachschiebt,
-                wirkt unsicher und gibt das Frame ab.
-              </Rule>
-            </>
-          )}
+          <Rule
+            icon={<MessageCircle className="h-5 w-5" />}
+            title="Spiegeln statt widerlegen"
+          >
+            „Ich verstehe, dass …“ statt „Aber …". Patienten kaufen Sicherheit,
+            nicht Argumente.
+          </Rule>
+          <Rule
+            icon={<ShieldCheck className="h-5 w-5" />}
+            title="Bei medizinischen Fragen: routen, nicht antworten"
+          >
+            Risiken, Diagnosen, konkrete Methoden gehören in die ärztliche
+            Aufklärung. Nicht-ärztliches Personal darf keine medizinische
+            Empfehlung geben (§ 7 Abs. 4 MBO-Ä, § 1 HeilprG).
+          </Rule>
+          <Rule
+            icon={<Clock className="h-5 w-5" />}
+            title="Stille aushalten"
+          >
+            Nach dem Termin-Angebot drei Sekunden schweigen. Wer nachschiebt,
+            wirkt unsicher und gibt das Frame ab.
+          </Rule>
         </div>
       </section>
 
-      <section>
+      <section id="kpi" className="scroll-mt-24">
         <h3 className="opa-h3 mb-4 text-fg-primary">KPI-Ziele für jeden Anruf</h3>
         <div className="grid gap-3 sm:grid-cols-3">
           <Kpi label="Reaktionszeit" value="< 5 Min" hint="ab Anfrage-Eingang" />
@@ -115,8 +117,7 @@ export default async function LeitfadenPage() {
         </div>
       </section>
 
-      {isDetail && (
-      <section>
+      <section id="vorbereitung" className="scroll-mt-24">
         <h3 className="opa-h3 mb-4 text-fg-primary">Vor jedem Anruf in 30 Sekunden</h3>
         <ol className="ml-5 list-decimal space-y-2 text-base text-fg-primary">
           <li>
@@ -131,24 +132,10 @@ export default async function LeitfadenPage() {
           <li>Stimme hochbringen, leise Umgebung, kein Hintergrundgeräusch.</li>
         </ol>
       </section>
-      )}
 
-      <section>
+      <section id="eroeffnung" className="scroll-mt-24">
         <h3 className="opa-h3 mb-4 text-fg-primary">Gesprächs-Eröffnung, wortwörtlich</h3>
         <div>
-          {!isDetail && (
-            <div className="space-y-2">
-              <Quote>
-                „[Klinikname], guten Tag, Sie sprechen mit [Vorname Nachname].
-                Was kann ich für Sie tun?"
-              </Quote>
-              <p className="text-sm text-fg-secondary">
-                DACH-Standard: Klinik, Person, Bereitschaft, in einem Satz. Bei
-                spontaner Preisfrage siehe Einwand „Was kostet das genau?" weiter unten.
-              </p>
-            </div>
-          )}
-          {isDetail && (
           <Accordion type="multiple" className="space-y-2">
             <Step
               value="standard"
@@ -156,11 +143,11 @@ export default async function LeitfadenPage() {
               content={
                 <>
                   <Quote>
-                    „[Klinikname], guten Tag, Sie sprechen mit [Vorname
+                    „[Praxisname], guten Tag, Sie sprechen mit [Vorname
                     Nachname]. Was kann ich für Sie tun?"
                   </Quote>
                   <p className="text-sm text-fg-secondary">
-                    DACH-Standard. Klinik, Person, Bereitschaft, in einem Satz.
+                    DACH-Standard. Praxis, Person, Bereitschaft, in einem Satz.
                   </p>
                 </>
               }
@@ -232,13 +219,11 @@ export default async function LeitfadenPage() {
               }
             />
           </Accordion>
-          )}
         </div>
       </section>
 
-      {isDetail && (
       <section>
-        <h3 className="opa-h3 mb-4 text-fg-primary">Discovery: 14 Fragen in vier Blöcken</h3>
+        <h3 id="discovery" className="opa-h3 mb-4 text-fg-primary scroll-mt-24">Discovery: 14 Fragen in vier Blöcken</h3>
         <div>
           <p className="mb-4 text-sm text-fg-secondary">
             Nicht jede Frage in jedem Anruf. Der Block leitet das Gespräch.
@@ -258,7 +243,7 @@ export default async function LeitfadenPage() {
                   </li>
                   <li>
                     „Haben Sie sich vorab schon irgendwo darüber informiert,
-                    etwa im Internet oder in einer anderen Klinik?"
+                    etwa im Internet oder in einer anderen Praxis?"
                   </li>
                 </ul>
               }
@@ -320,11 +305,11 @@ export default async function LeitfadenPage() {
               content={
                 <ol className="ml-5 list-decimal space-y-1" start={11}>
                   <li>
-                    „Wo wohnen Sie ungefähr? Ist [Klinikstadt] gut für Sie zu
+                    „Wo wohnen Sie ungefähr? Ist [Praxisstadt] gut für Sie zu
                     erreichen?"
                   </li>
                   <li>
-                    „Gab es einen Grund, warum Sie sich gerade für unsere Klinik
+                    „Gab es einen Grund, warum Sie sich gerade für unsere Praxis
                     interessieren? Empfehlung, Anzeige, Recherche?"
                   </li>
                   <li>
@@ -367,83 +352,12 @@ export default async function LeitfadenPage() {
           </Accordion>
         </div>
       </section>
-      )}
 
-      <section>
+      <section id="einwand" className="scroll-mt-24">
         <h3 className="opa-h3 mb-4 text-fg-primary">
-          {isDetail
-            ? "Einwandbehandlung: 23 Patienten-Einwände"
-            : "Top 5 Einwände, die Sie heute hören werden"}
+          Einwandbehandlung: 23 Patienten-Einwände
         </h3>
         <div className="space-y-6">
-          {!isDetail && (
-            <>
-              <p className="text-sm text-fg-secondary">
-                Diese fünf decken den Großteil aller Anrufe ab. Antworten direkt
-                vorlesbar, HWG-konform.
-              </p>
-              <Accordion type="multiple" className="space-y-2">
-                <Objection
-                  value="easy-a1"
-                  title="„Das ist mir zu teuer.“"
-                  concern="Wert noch nicht eingeordnet, oder reales Budgetproblem."
-                  answer="Das kann ich gut nachvollziehen, jede ästhetische Behandlung ist eine bewusste Entscheidung. Bei uns hängen die Kosten immer von Ihrer individuellen Anatomie und vom medizinischen Vorgehen ab. Deshalb können wir seriös erst nach dem persönlichen Gespräch mit Frau Dr. [Name] eine konkrete Summe nennen. Im Beratungstermin schauen wir genau, was zu Ihnen passt, und Sie entscheiden danach in Ruhe, ohne Verpflichtung. Hätten Sie eher Anfang oder Ende nächster Woche Zeit?"
-                  avoid={[
-                    "„Schönheit hat ihren Preis.“ (wertend)",
-                    "„Aktion …“ (§ 7 HWG)",
-                    "„Sparen Sie nicht an Ihrer Gesundheit.“ (Angst-Trigger)",
-                  ]}
-                />
-                <Objection
-                  value="easy-a3"
-                  title="„Was kostet das genau?“"
-                  concern="Reine Preisnennung am Telefon senkt die Abschlussquote und schafft falsche Anker."
-                  answer="Das ist die Frage, die uns am häufigsten erreicht, sehr verständlich. Eine seriöse Antwort kann ich Ihnen am Telefon nicht geben, weil die Kosten von Ihrer Anatomie, dem genauen Vorgehen und dem zeitlichen Aufwand abhängen. Was ich Ihnen aber sagen kann: Behandlungen in diesem Bereich bewegen sich bei uns üblicherweise in einer Spanne von [grobe Spanne]. Das persönliche Beratungsgespräch kostet [50 €] und wird bei Behandlung in vielen Fällen angerechnet. Im Termin bekommen Sie einen schriftlichen Kostenvoranschlag, den Sie ohne Verpflichtung mitnehmen. Wann passt es Ihnen?"
-                  avoid={[
-                    "Konkrete Einzelzahl („3.200 €“)",
-                    "„Ab“-Preise (§ 11 HWG)",
-                    "Frage abwimmeln („Kann ich Ihnen nicht sagen.“)",
-                  ]}
-                />
-                <Objection
-                  value="easy-b1"
-                  title="„Was, wenn etwas schiefgeht?“"
-                  concern="Kontrollverlust. Sie braucht das Gefühl, dass jemand das schon zigmal gemacht hat."
-                  answer="Diese Sorge ist verständlich, und sie gehört zu jedem ehrlichen Beratungsgespräch dazu. Jeder Eingriff ist mit Risiken verbunden, das gehört zur ärztlichen Aufklärung, und Frau Dr. [Name] geht im Termin offen mit Ihnen jedes mögliche Risiko durch und erklärt, wie wir damit umgehen, von der Voruntersuchung bis zur Nachsorge. Was ich Ihnen am Telefon zusichern kann: Sie verlassen die Beratung mit allen Informationen schriftlich und entscheiden in Ruhe zuhause. Ohne Termindruck. Hätten Sie diese Woche oder nächste Woche Zeit?"
-                  avoid={[
-                    "„Bei uns geht nichts schief.“ (§ 3 HWG Heilversprechen)",
-                    "„Das ist ungefährlich.“ (§ 3 HWG, § 11 HWG)",
-                    "Konkrete Komplikationsraten zitieren (Arztaufgabe)",
-                  ]}
-                />
-                <Objection
-                  value="easy-c1"
-                  title="„Ich überlege es mir noch.“"
-                  concern="Ambivalenz, oft mit ungenannter Sub-Sorge (Geld, Partner, Schmerz)."
-                  answer="Das ist absolut richtig, eine ästhetische Behandlung ist nichts, was man am Telefon entscheidet. Darf ich Sie etwas fragen: Gibt es einen konkreten Punkt, der Sie noch zögern lässt, Ergebnis, Risiken, Kosten, Termin? Dann kann ich gezielt darauf eingehen. Und falls Sie einfach in Ruhe weiter überlegen wollen: Soll ich Ihnen unverbindlich einen Beratungstermin in zwei oder drei Wochen vormerken, den Sie jederzeit kostenfrei verschieben können?"
-                  avoid={[
-                    "„Aber das ist eine super Investition.“ (Druck)",
-                    "„Heute haben wir Aktionspreis.“ (§ 11 HWG)",
-                    "Weiteren Schub geben (vertieft Ambivalenz)",
-                  ]}
-                />
-                <Objection
-                  value="easy-c2"
-                  title="„Ich rede erst mit meinem Mann oder Partner.“"
-                  concern="Familien-Entscheidung, Erlaubnis, finanzielle Abstimmung oder Test."
-                  answer="Selbstverständlich, das ist eine persönliche Entscheidung, und es ist absolut richtig, das mit Ihrem Partner zu besprechen. Was vielen Patientinnen geholfen hat: erst zur unverbindlichen Beratung zu kommen, sich konkrete Informationen, Kosten und Fragen schriftlich mitzunehmen, und dann zuhause in Ruhe zu zweit zu sprechen, mit Fakten statt Vermutungen. Möchten Sie, dass ich Ihnen einen Termin reserviere? Ihr Partner ist auch herzlich eingeladen mitzukommen, wenn Sie das möchten."
-                  avoid={[
-                    "„Sie sind doch erwachsen, das ist Ihre Entscheidung.“ (übergriffig)",
-                    "„Sie müssen das nicht mit Ihrem Mann besprechen.“ (gefährlich)",
-                    "Unterstellungen über die Partnerschaft",
-                  ]}
-                />
-              </Accordion>
-            </>
-          )}
-
-          {isDetail && (
-          <>
           <p className="text-sm text-fg-secondary">
             Pro Eintrag: eigentliche Sorge, HWG-konforme Antwort wortwörtlich,
             was zu vermeiden ist. Sie können die Antworten direkt vorlesen.
@@ -465,9 +379,9 @@ export default async function LeitfadenPage() {
               />
               <Objection
                 value="a2"
-                title="A2. „Bei Klinik X ist das günstiger."
+                title="A2. „Bei einer anderen Praxis ist das günstiger."
                 concern="Sicherheitsfrage in Preisform."
-                answer="Es ist absolut richtig, dass Sie vergleichen, das ist Ihr gutes Recht. Über die Preise von Kolleginnen und Kollegen kann ich seriös nichts sagen, weil dort jeweils andere Methoden, Materialien und Verläufe zugrunde liegen. Was ich Ihnen für unsere Klinik sagen kann: Frau Dr. [Name] ist [Fachärztin für Plastische und Ästhetische Chirurgie], wir nehmen uns für die Beratung 45 Minuten Zeit, und Sie bekommen einen schriftlichen Heil- und Kostenplan, den Sie in Ruhe mitnehmen. Möchten Sie das bei uns einmal persönlich erleben?"
+                answer="Es ist absolut richtig, dass Sie vergleichen, das ist Ihr gutes Recht. Über die Preise von Kolleginnen und Kollegen kann ich seriös nichts sagen, weil dort jeweils andere Methoden, Materialien und Verläufe zugrunde liegen. Was ich Ihnen für unsere Praxis sagen kann: Frau Dr. [Name] ist [Fachärztin für Plastische und Ästhetische Chirurgie], wir nehmen uns für die Beratung 45 Minuten Zeit, und Sie bekommen einen schriftlichen Heil- und Kostenplan, den Sie in Ruhe mitnehmen. Möchten Sie das bei uns einmal persönlich erleben?"
                 avoid={[
                   "„Bei denen ist das nicht so sicher.“ (üble Nachrede, abmahnfähig)",
                   "„Wir haben den besten Arzt.“ (§ 3 HWG, § 27 MBO-Ä)",
@@ -603,7 +517,7 @@ export default async function LeitfadenPage() {
               />
               <Objection
                 value="c4"
-                title="C4. „Ich möchte mir noch andere Kliniken ansehen."
+                title="C4. „Ich möchte mir noch andere Praxen ansehen."
                 concern="Sie nimmt die Entscheidung ernst. Druck wirkt kontraproduktiv."
                 answer="Das halte ich für absolut sinnvoll und ich würde es Ihnen sogar empfehlen, bei einer ästhetischen Behandlung sollten Sie sich rundum sicher fühlen. Wenn ich Ihnen einen Tipp geben darf für Ihre Vergleichsrunde: Achten Sie auf die Facharzt-Qualifikation der behandelnden Person, auf die Dauer des Beratungsgesprächs und darauf, dass Sie schriftlich aufgeklärt werden. Wir laden Sie gerne unabhängig davon zu einem ersten Beratungstermin ein, damit Sie eine Vergleichsbasis haben. Wann würde Ihnen das passen?"
                 avoid={[
@@ -718,14 +632,11 @@ export default async function LeitfadenPage() {
               />
             </Accordion>
           </ObjectionGroup>
-          </>
-          )}
         </div>
       </section>
 
-      {isDetail && (
       <section>
-        <h3 className="opa-h3 mb-4 text-fg-primary">HWG-Quick-Reference: Sag-So, Sag-So-Nicht</h3>
+        <h3 id="hwg" className="opa-h3 mb-4 text-fg-primary scroll-mt-24">HWG-Quick-Reference: Sag-So, Sag-So-Nicht</h3>
         <div>
           <p className="mb-4 text-sm text-fg-secondary">
             Sieben Tabellen mit konkreten Formulierungen. Jede Sag-So-Nicht-Zeile
@@ -790,13 +701,13 @@ export default async function LeitfadenPage() {
               title="3. Vergleich, Superlative"
               rows={[
                 [
-                  "„Wir sind die beste Klinik in [Stadt]."
+                  "„Wir sind die beste Praxis in [Stadt]."
                   ,
                   "„Wir sind eine [Fachgebiet]-Praxis mit Schwerpunkt …"
                   ,
                 ],
                 [
-                  "„Besser als Klinik X."
+                  "„Besser als die Praxis X."
                   ,
                   "(kein vergleichender Bezug; eigene Leistungen sachlich darstellen)",
                 ],
@@ -842,7 +753,7 @@ export default async function LeitfadenPage() {
               title="5. Empfehlung, Testimonials"
               rows={[
                 [
-                  "„Prof. Dr. X von der Uniklinik empfiehlt uns."
+                  "„Prof. Dr. X von der Universitätsmedizin empfiehlt uns."
                   ,
                   "(weglassen, § 11 Abs. 1 Nr. 2 HWG)",
                 ],
@@ -908,11 +819,10 @@ export default async function LeitfadenPage() {
           </Accordion>
         </div>
       </section>
-      )}
 
       <section>
         <h3 className="opa-h3 mb-4 text-fg-primary">
-          {isDetail ? "Termin-Close und DSGVO-Datenaufnahme" : "Termin-Close in zwei Sätzen"}
+          Termin-Close und DSGVO-Datenaufnahme
         </h3>
         <div>
           <Accordion type="multiple" className="space-y-2">
@@ -950,8 +860,6 @@ export default async function LeitfadenPage() {
                 </>
               }
             />
-            {isDetail && (
-            <>
             <Step
               value="dsgvo"
               title="DSGVO-konformer Datenaufnahme-Satz"
@@ -959,7 +867,7 @@ export default async function LeitfadenPage() {
                 <>
                   <Quote>
                     „Bevor wir Ihre Daten aufnehmen, ein kurzer Hinweis: Wir,
-                    [Klinikname], speichern Ihre Angaben ausschließlich zur
+                    [Praxisname], speichern Ihre Angaben ausschließlich zur
                     Terminvereinbarung und Beratung. Die ausführlichen
                     Datenschutzhinweise nach Artikel 13 DSGVO finden Sie auf
                     unserer Website unter [URL] und liegen bei Ihrem Besuch in
@@ -1042,15 +950,12 @@ export default async function LeitfadenPage() {
                 </Quote>
               }
             />
-            </>
-            )}
           </Accordion>
         </div>
       </section>
 
-      {isDetail && (
       <section>
-        <h3 className="opa-h3 mb-4 text-fg-primary">No-Show-Prävention: Cadence und Vorlagen</h3>
+        <h3 id="no-show" className="opa-h3 mb-4 text-fg-primary scroll-mt-24">No-Show-Prävention: Cadence und Vorlagen</h3>
         <div className="space-y-4">
           <p className="text-sm text-fg-secondary">
             Mehrkanal-Cadence reduziert No-Shows in deutschen Praxen messbar
@@ -1065,7 +970,7 @@ export default async function LeitfadenPage() {
             <Template
               value="t1"
               title="1. Sofort-Bestätigung E-Mail (mit iCal)"
-              text={`Betreff: Ihre Erstberatung bei [Klinik] am [Datum], alle wichtigen Infos
+              text={`Betreff: Ihre Erstberatung bei [Praxis] am [Datum], alle wichtigen Infos
 
 Liebe / Lieber [Vorname Nachname],
 
@@ -1094,20 +999,20 @@ Termin im Kalender speichern: [iCal-Link]
 
 Herzliche Grüße
 [Empfangsteam-Name]
-[Klinik]
+[Praxis]
 [Tel] | [Web]`}
             />
             <Template
               value="t2"
               title="2. Sofort-Bestätigung SMS (160 Zeichen)"
-              text={`Hallo [Vorname], Ihr Beratungstermin bei [Klinik] am [Datum] um [Uhrzeit] ist bestätigt. Adresse: [Straße]. Bei Verhinderung: [Tel]. Wir freuen uns auf Sie.`}
+              text={`Hallo [Vorname], Ihr Beratungstermin bei [Praxis] am [Datum] um [Uhrzeit] ist bestätigt. Adresse: [Straße]. Bei Verhinderung: [Tel]. Wir freuen uns auf Sie.`}
             />
             <Template
               value="t3"
               title="3. Sofort-Bestätigung WhatsApp (nur via Business API)"
               text={`Hallo [Vorname]
 
-Ihr Beratungstermin bei [Klinik] ist bestätigt:
+Ihr Beratungstermin bei [Praxis] ist bestätigt:
 
 Termin: [Wochentag], [Datum]
 Uhrzeit: [Uhrzeit] Uhr
@@ -1119,17 +1024,17 @@ Was Sie mitbringen: Ausweis, ggf. Vorbefunde.
 Bei Verhinderung antworten Sie einfach mit ABSAGE oder rufen Sie unter [Tel] an.
 
 Wir freuen uns auf Sie.
-[Klinik]`}
+[Praxis]`}
             />
             <Template
               value="t4"
               title="4. Erinnerung 24h vorher SMS"
-              text={`Erinnerung: Ihr Termin bei [Klinik] morgen [Datum] um [Uhrzeit]. Adresse: [Straße]. Bestätigen mit JA, Absage mit NEIN. Tel: [Tel]`}
+              text={`Erinnerung: Ihr Termin bei [Praxis] morgen [Datum] um [Uhrzeit]. Adresse: [Straße]. Bestätigen mit JA, Absage mit NEIN. Tel: [Tel]`}
             />
             <Template
               value="t5"
               title="5. Erinnerung 24h vorher E-Mail"
-              text={`Betreff: Morgen ist es so weit, Ihre Beratung bei [Klinik]
+              text={`Betreff: Morgen ist es so weit, Ihre Beratung bei [Praxis]
 
 Liebe / Lieber [Vorname],
 
@@ -1141,17 +1046,17 @@ Sollte Ihnen kurzfristig etwas dazwischenkommen, geben Sie uns bitte bis spätes
 
 Bis morgen
 [Empfangsteam]
-[Klinik]`}
+[Praxis]`}
             />
             <Template
               value="t6"
               title="6. Letzte Erinnerung 2h vorher SMS oder WhatsApp"
-              text={`Hallo [Vorname], Ihr Termin bei [Klinik] ist heute in 2h um [Uhrzeit]. Adresse: [Straße], [PLZ Ort]. Anfahrt: [maps.app.goo.gl/xxx] Bis gleich.`}
+              text={`Hallo [Vorname], Ihr Termin bei [Praxis] ist heute in 2h um [Uhrzeit]. Adresse: [Straße], [PLZ Ort]. Anfahrt: [maps.app.goo.gl/xxx] Bis gleich.`}
             />
             <Template
               value="t7"
               title="7. No-Show-Anruf-Skript (innerhalb 30 Min)"
-              text={`Guten Tag [Anrede] [Nachname], hier spricht [Vorname Nachname] aus der [Klinikname]. Wir hatten Sie um [Uhrzeit] zur Beratung erwartet und konnten Sie noch nicht erreichen. Ist alles in Ordnung? Wenn Sie wollen, können wir gerne einen neuen Termin finden, melden Sie sich einfach bei mir.
+              text={`Guten Tag [Anrede] [Nachname], hier spricht [Vorname Nachname] aus der [Praxisname]. Wir hatten Sie um [Uhrzeit] zur Beratung erwartet und konnten Sie noch nicht erreichen. Ist alles in Ordnung? Wenn Sie wollen, können wir gerne einen neuen Termin finden, melden Sie sich einfach bei mir.
 
 Tonfall: besorgt, nicht ärgerlich. Kein Vorwurf.`}
             />
@@ -1177,7 +1082,7 @@ Oder antworten Sie einfach auf diese E-Mail.
 Wenn Sie sich anders entschieden haben, ist das ebenfalls völlig in Ordnung. Eine kurze Rückmeldung würde uns helfen, den Termin wieder freizugeben.
 
 Herzliche Grüße
-[Name], [Klinik]
+[Name], [Praxis]
 [Tel]`}
             />
             <Template
@@ -1198,12 +1103,12 @@ Antworten Sie einfach mit Ihrer Wunschzeit oder buchen Sie online: [Link]
 Für Rückfragen sind wir Mo bis Fr von [Zeit] erreichbar: [Tel].
 
 Herzliche Grüße
-[Name], [Klinik]`}
+[Name], [Praxis]`}
             />
             <Template
               value="t11"
               title="11. Reaktivierung nach 14 Tagen, SMS-Light"
-              text={`Hallo [Vorname], wir hätten weiterhin gerne Ihre Fragen zu [Behandlung] beantwortet. Wenn Sie möchten, melden Sie sich: [Tel] oder [Termin-Link]. [Klinik]`}
+              text={`Hallo [Vorname], wir hätten weiterhin gerne Ihre Fragen zu [Behandlung] beantwortet. Wenn Sie möchten, melden Sie sich: [Tel] oder [Termin-Link]. [Praxis]`}
             />
             <Template
               value="t12"
@@ -1229,7 +1134,7 @@ Oder Sie wählen selbst: [Termin-Link]
 Falls sich Ihre Pläne geändert haben, ist das vollkommen in Ordnung. Wir sind da, sobald Sie soweit sind.
 
 Herzliche Grüße
-[Name], [Klinik]`}
+[Name], [Praxis]`}
             />
           </Accordion>
 
@@ -1245,12 +1150,11 @@ Herzliche Grüße
             Pauschale Stornogebühren bei ästhetischen Eingriffen sind nach AG
             München (Az. 213 C 27099/15) unwirksam. Stornogebühr darf den
             Behandlungspreis nicht überschreiten, Schadensminderungspflicht der
-            Klinik beachten, kein 100 % am OP-Tag. AGB vor Auslieferung
+            Praxis beachten, kein 100 % am OP-Tag. AGB vor Auslieferung
             anwaltlich prüfen lassen.
           </Dont>
         </div>
       </section>
-      )}
 
       <section className="print:break-inside-avoid">
         <h3 className="opa-h3 mb-4 flex items-center gap-2 text-fg-primary">
@@ -1262,7 +1166,7 @@ Herzliche Grüße
 ─────────────────────────────────────────────────────────
 
 1. ERÖFFNUNG
-   "[Klinikname], guten Tag, Sie sprechen mit [Name],
+   "[Praxisname], guten Tag, Sie sprechen mit [Name],
     was kann ich für Sie tun?"
 
 2. DISCOVERY (3 Pflicht-Fragen)
@@ -1280,7 +1184,7 @@ Herzliche Grüße
    - "Sie werden so aussehen wie [Bild / Person]"
    - "Das hält genau X Monate / ein Leben lang"
    - "Bei der Konkurrenz zahlen Sie mehr"
-   - "Wir sind die beste Klinik in [Stadt]"
+   - "Wir sind die beste Praxis in [Stadt]"
    - "Heute Sonderkondition / Frühlingsaktion"
    - "Erstberatung kostenlos" (für invasive Eingriffe)
    - Keine Vorher-Nachher-Bilder per WhatsApp / E-Mail
@@ -1322,7 +1226,7 @@ Patient ernst nehmen, nicht weg-skripten.`}</pre>
       </section>
 
       <section>
-        <h3 className="opa-h3 mb-4 text-fg-primary">Was Sie unbedingt vermeiden</h3>
+        <h3 id="vermeiden" className="opa-h3 mb-4 text-fg-primary scroll-mt-24">Was Sie unbedingt vermeiden</h3>
         <div className="space-y-3">
           <Dont title="Keinen Endpreis am Telefon nennen">
             Lockpreise und Festpreise verstoßen gegen § 7 HWG und § 5 Abs. 2
@@ -1348,29 +1252,24 @@ Patient ernst nehmen, nicht weg-skripten.`}</pre>
             § 7 Abs. 4 MBO-Ä Fernbehandlungsverbot, § 1 HeilprG. Nicht-ärztliches
             Personal darf keine Eignung beurteilen. Routen statt antworten.
           </Dont>
-          {isDetail && (
-            <>
-              <Dont title="Keine Patiententestimonials oder Promi-Empfehlungen">
-                § 11 Abs. 1 Nr. 2 und Nr. 11 HWG. „Alle sagen, sie ist die Beste"
-                oder „Promi Y kommt zu uns" sind verboten.
-              </Dont>
-              <Dont title="Standard-WhatsApp ist tabu">
-                Adressbuch-Synchronisation und Metadaten-Verstoß gegen § 203 StGB.
-                Nur WhatsApp Business API mit zertifiziertem Anbieter, Opt-In und
-                AVV. Quelle: BfDI 2024.
-              </Dont>
-              <Dont title="Reaktivierungs-Mails nur mit Einwilligung">
-                § 7 / § 7a UWG. Werbliche Nachrichten ohne dokumentiertes Opt-In
-                sind abmahnfähig. Aufbewahrung 5 Jahre.
-              </Dont>
-            </>
-          )}
+          <Dont title="Keine Patiententestimonials oder Promi-Empfehlungen">
+            § 11 Abs. 1 Nr. 2 und Nr. 11 HWG. „Alle sagen, sie ist die Beste"
+            oder „Promi Y kommt zu uns" sind verboten.
+          </Dont>
+          <Dont title="Standard-WhatsApp ist tabu">
+            Adressbuch-Synchronisation und Metadaten-Verstoß gegen § 203 StGB.
+            Nur WhatsApp Business API mit zertifiziertem Anbieter, Opt-In und
+            AVV. Quelle: BfDI 2024.
+          </Dont>
+          <Dont title="Reaktivierungs-Mails nur mit Einwilligung">
+            § 7 / § 7a UWG. Werbliche Nachrichten ohne dokumentiertes Opt-In
+            sind abmahnfähig. Aufbewahrung 5 Jahre.
+          </Dont>
         </div>
       </section>
 
-      {isDetail && (
       <section>
-        <h3 className="opa-h3 mb-4 text-fg-primary">Rechtsgrundlagen, kompakt</h3>
+        <h3 id="recht" className="opa-h3 mb-4 text-fg-primary scroll-mt-24">Rechtsgrundlagen, kompakt</h3>
         <div>
           <div className="flex flex-wrap gap-2">
             <Badge tone="neutral">§ 3 HWG (Heilversprechen)</Badge>
@@ -1396,7 +1295,38 @@ Patient ernst nehmen, nicht weg-skripten.`}</pre>
           </p>
         </div>
       </section>
-      )}
+
+      <section className="print:hidden">
+        <div
+          className={`rounded-2xl border p-6 ${
+            hasPassedQuiz
+              ? "border-[var(--tone-good-border)] bg-[var(--tone-good-bg)]"
+              : "border-accent/30 bg-accent-soft"
+          }`}
+        >
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-2">
+              <h3 className="flex items-center gap-2 text-xl font-semibold text-fg-primary">
+                <ShieldCheck className="h-5 w-5" />
+                {hasPassedQuiz
+                  ? "Sie haben die Leitfaden-Prüfung bestanden."
+                  : "Leitfaden-Prüfung — Mitwirkungspflicht laut EINS-Garantie"}
+              </h3>
+              <p className="text-sm text-fg-primary">
+                {hasPassedQuiz
+                  ? "Wenn Sie möchten, können Sie die Prüfung jederzeit erneut versuchen."
+                  : `${TOTAL_QUESTIONS} Fragen aus diesem Leitfaden, ${PASS_THRESHOLD} richtig zum Bestehen, Versuche unbegrenzt. Mindestens ein:e Mitarbeiter:in pro Praxis muss bestehen, damit die Garantie greift.`}
+              </p>
+            </div>
+            <Button asChild variant={hasPassedQuiz ? "outline" : "default"}>
+              <Link href="/leitfaden/pruefung">
+                {hasPassedQuiz ? "Erneut versuchen" : "Prüfung starten"}
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

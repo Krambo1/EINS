@@ -30,6 +30,9 @@ export const PERMISSIONS = {
   "documents.view.all": ["inhaber"], // Verträge, AVV — owner only
   "documents.view.marketing": ["inhaber", "marketing", "frontdesk"],
   "documents.view.all_roles": ["inhaber", "marketing", "frontdesk"],
+  // Leitfaden — viewable + quiz testable by every clinic role (Mitwirkungspflicht)
+  "leitfaden.view": ["inhaber", "marketing", "frontdesk"],
+  "leitfaden.quiz": ["inhaber", "marketing", "frontdesk"],
   // Einstellungen — owner only (team, OAuth tokens, audit log)
   "settings.team": ["inhaber"],
   "settings.integrations": ["inhaber"],
@@ -39,7 +42,10 @@ export const PERMISSIONS = {
   "tools.what_if": ["inhaber", "marketing", "frontdesk"],
   // Bewertungen / Reputation
   "reviews.view": ["inhaber", "marketing", "frontdesk"],
-  "reviews.manage": ["inhaber"],
+  "reviews.manage": ["inhaber", "marketing", "frontdesk"],
+  // EINS Stimme — private patient feedback inbox
+  "stimme.view": ["inhaber", "marketing", "frontdesk"],
+  "stimme.manage": ["inhaber", "marketing"],
   // Feedback — anyone in the clinic can send feedback to EINS
   "feedback.submit": ["inhaber", "marketing", "frontdesk"],
   "feedback.view": ["inhaber", "marketing", "frontdesk"],

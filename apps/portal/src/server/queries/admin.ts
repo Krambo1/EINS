@@ -84,6 +84,8 @@ export interface PlatformOverviewMetrics {
   };
   /** 30 daily data points, oldest → newest. */
   sparklines: {
+    /** ISO `YYYY-MM-DD` dates aligned with each value array. */
+    dates: string[];
     spend: number[];
     revenue: number[];
     leads: number[];
@@ -205,6 +207,7 @@ function buildSparklineSeries(
       leads: Number(r.leads),
     });
   }
+  const dates: string[] = [];
   const spend: number[] = [];
   const revenue: number[] = [];
   const leads: number[] = [];
@@ -214,6 +217,7 @@ function buildSparklineSeries(
   while (cursor.getTime() <= to.getTime()) {
     const key = isoDate(cursor);
     const r = map.get(key) ?? { spend: 0, revenue: 0, leads: 0 };
+    dates.push(key);
     spend.push(r.spend);
     revenue.push(r.revenue);
     leads.push(r.leads);
@@ -221,7 +225,7 @@ function buildSparklineSeries(
     roas.push(r.spend > 0 ? r.revenue / r.spend : 0);
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
-  return { spend, revenue, leads, cpl, roas };
+  return { dates, spend, revenue, leads, cpl, roas };
 }
 
 type DeltaKind = "higher" | "lower" | "neutral";

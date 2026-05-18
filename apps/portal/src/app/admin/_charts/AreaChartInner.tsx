@@ -10,6 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { makeRechartsTooltip } from "./ChartTooltip";
 
 export interface AreaChartSeries {
   key: string;
@@ -50,8 +51,25 @@ export function AreaChartInner({
   yKind = "eur",
   showGrid = true,
 }: Props) {
-  const formatY = (v: number) =>
-    yKind === "eur" ? eurFormatter.format(v) : numFormatter.format(v);
+  const formatY = React.useCallback(
+    (v: number) =>
+      !Number.isFinite(v)
+        ? "–"
+        : yKind === "eur"
+          ? eurFormatter.format(v)
+          : numFormatter.format(v),
+    [yKind]
+  );
+
+  const formatValue = React.useCallback(
+    (value: number) => formatY(value),
+    [formatY]
+  );
+
+  const TooltipContent = React.useMemo(
+    () => makeRechartsTooltip(formatValue),
+    [formatValue]
+  );
 
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -95,20 +113,10 @@ export function AreaChartInner({
           width={62}
         />
         <Tooltip
-          contentStyle={{
-            background: "var(--bg-primary)",
-            border: "1px solid var(--border)",
-            borderRadius: 8,
-            fontSize: 12,
-          }}
-          labelFormatter={(v) =>
-            new Intl.DateTimeFormat("de-DE", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-            }).format(new Date(v as string))
-          }
-          formatter={(v: number, name: string) => [formatY(v), name]}
+          content={<TooltipContent />}
+          cursor={{ stroke: "var(--fg-tertiary)", strokeOpacity: 0.45, strokeWidth: 1 }}
+          wrapperStyle={{ outline: "none", zIndex: 50 }}
+          isAnimationActive={false}
         />
         {series.map((s) => (
           <Area
@@ -119,6 +127,13 @@ export function AreaChartInner({
             stroke={s.color}
             strokeWidth={2}
             fill={`url(#grad-${s.key})`}
+            activeDot={{
+              r: 4,
+              stroke: "var(--bg-primary)",
+              strokeWidth: 1.5,
+              fill: s.color,
+            }}
+            isAnimationActive={false}
           />
         ))}
       </RechartsAreaChart>

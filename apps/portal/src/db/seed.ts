@@ -14,6 +14,13 @@ import "../lib/load-env";
 import postgres from "postgres";
 import { randomUUID } from "node:crypto";
 
+/**
+ * Fixed UUID for the demo clinic so the landing-app template
+ * (`apps/clinic-landing/clinics/_template/clinic.ts`) can hardcode its
+ * `portalClinicId` and survive re-seeds. Must match that file.
+ */
+const DEMO_CLINIC_ID = "c7d88b71-72da-4920-b939-5158b13d3449";
+
 type ClientSql = ReturnType<typeof postgres>;
 
 // ----- Helpers -----
@@ -125,14 +132,14 @@ async function main() {
     // (admin_users, etc.) untouched since they don't reference clinics.
     await sql`TRUNCATE clinics RESTART IDENTITY CASCADE`;
 
-    const clinicId = randomUUID();
+    const clinicId = DEMO_CLINIC_ID;
     await sql`
       INSERT INTO clinics (id, legal_name, display_name, slug, default_doctor_email, hwg_contact_name, hwg_contact_email)
       VALUES (
         ${clinicId},
         'Praxis Dr. Demo GmbH',
         'Praxis Dr. Demo',
-        'praxis-dr-demo',
+        '_template',
         'dr.demo@example.com',
         'Dr. Martin Demo',
         'hwg@example.com'
@@ -418,7 +425,7 @@ async function main() {
       `;
     }
 
-    // --- reviews (4 platforms × current + 6 months ago for trend) ---
+    // --- reviews (2 platforms × current + 6 months ago for trend) ---
     for (const months of [0, 3, 6]) {
       const periodEnd = new Date();
       periodEnd.setMonth(periodEnd.getMonth() - months);
@@ -429,13 +436,11 @@ async function main() {
       // Slowly improve rating over time so trend points upward.
       const baseGoogle = 4.5 + (3 - months) * 0.05;
       const baseJameda = 4.6 + (3 - months) * 0.04;
-      const baseTrust  = 4.3 + (3 - months) * 0.06;
       await sql`
         INSERT INTO reviews (clinic_id, platform, rating, total_count, period_start, period_end, recorded_at, notes)
         VALUES
-          (${clinicId}, 'google',     ${baseGoogle.toFixed(1)}, ${120 - months * 8}, ${periodStartStr}, ${periodEndStr}, ${periodEnd.toISOString()}, 'Manuell von Praxis erfasst'),
-          (${clinicId}, 'jameda',     ${baseJameda.toFixed(1)}, ${85  - months * 5}, ${periodStartStr}, ${periodEndStr}, ${periodEnd.toISOString()}, 'Manuell von Praxis erfasst'),
-          (${clinicId}, 'trustpilot', ${baseTrust.toFixed(1)},  ${22  - months * 2}, ${periodStartStr}, ${periodEndStr}, ${periodEnd.toISOString()}, 'Manuell von Praxis erfasst')
+          (${clinicId}, 'google', ${baseGoogle.toFixed(1)}, ${120 - months * 8}, ${periodStartStr}, ${periodEndStr}, ${periodEnd.toISOString()}, 'Manuell von Praxis erfasst'),
+          (${clinicId}, 'jameda', ${baseJameda.toFixed(1)}, ${85  - months * 5}, ${periodStartStr}, ${periodEndStr}, ${periodEnd.toISOString()}, 'Manuell von Praxis erfasst')
       `;
     }
 
@@ -530,7 +535,8 @@ async function main() {
       INSERT INTO goals (clinic_id, metric, target_value, period_start, period_end, created_by)
       VALUES
         (${clinicId}, 'qualified_leads', 30, ${monthStart}, ${monthEnd}, ${inhaberId}),
-        (${clinicId}, 'revenue', 25000, ${monthStart}, ${monthEnd}, ${inhaberId})
+        (${clinicId}, 'revenue', 25000, ${monthStart}, ${monthEnd}, ${inhaberId}),
+        (${clinicId}, 'total_requests', 50, ${monthStart}, ${monthEnd}, ${inhaberId})
     `;
 
     // --- animation library (global) ---
@@ -602,30 +608,38 @@ async function main() {
     `;
 
     // --- clinic_timeline_entries (Fortschritt page) ---
+    // Praxisinhaber:innen sind keine Marketing-Profis — Titel und Beschreibungen
+    // werden bewusst in einfachem Deutsch ohne Anglizismen geschrieben.
+    const reportEventDate = new Date();
+    reportEventDate.setDate(reportEventDate.getDate() + 6);
+    const reportMonthLabel = new Intl.DateTimeFormat("de-DE", {
+      month: "long",
+      year: "numeric",
+    }).format(reportEventDate);
     await sql`
       INSERT INTO clinic_timeline_entries (
         clinic_id, title, description, event_date, status, created_by_email
       ) VALUES
-        (${clinicId}, 'Onboarding-Workshop',
-         'Kickoff mit dem Praxis-Team und EINS Strategie-Lead. Ziele, Avatar, Tonalität.',
+        (${clinicId}, 'Auftakt-Gespräch',
+         'Erstes Treffen mit Ihrem Team. Wir klären Ihre Ziele, Ihre Wunsch-Patientinnen und die Bildsprache Ihrer Praxis.',
          now() - interval '52 days', 'abgeschlossen', 'team@eins-visuals.de'),
-        (${clinicId}, 'Erste Werbekampagne live',
-         'Meta + Google starten parallel mit Schwerpunkt Hyaluron-Filler.',
+        (${clinicId}, 'Erste Werbeanzeigen gestartet',
+         'Anzeigen bei Instagram, Facebook und Google laufen parallel. Schwerpunkt: Hyaluron-Behandlungen.',
          now() - interval '38 days', 'abgeschlossen', 'team@eins-visuals.de'),
-        (${clinicId}, 'Vor-Ort-Shooting München',
-         'Bewegtbild- und Foto-Aufnahmen für die Q2-Kampagne.',
+        (${clinicId}, 'Foto- und Videoaufnahmen in München',
+         'Aufnahmen bei Ihnen vor Ort für die Werbeanzeigen im Frühjahr.',
          now() - interval '21 days', 'abgeschlossen', 'team@eins-visuals.de'),
-        (${clinicId}, 'A/B-Test der Hooks ausgewertet',
-         'Variante B (Empathie-Hook) bringt +37% CTR — wird ab dieser Woche Hauptmaterial.',
+        (${clinicId}, 'Zwei Anzeigen-Varianten verglichen',
+         'Die einfühlsamere Variante wird 37 % häufiger angeklickt. Sie wird ab dieser Woche unsere Haupt-Anzeige.',
          now() - interval '6 days', 'abgeschlossen', 'team@eins-visuals.de'),
-        (${clinicId}, 'Empfehlung: Recall-Sequenz aktivieren',
-         'Wir empfehlen, die 4-Monats-Recalls automatisch über das Portal zu versenden.',
+        (${clinicId}, 'Empfehlung: Automatische Erinnerungen aktivieren',
+         'Wir empfehlen, Ihre Patientinnen alle vier Monate automatisch zu erinnern. Direkt aus dem Portal.',
          now() - interval '1 day', 'laeuft', 'team@eins-visuals.de'),
-        (${clinicId}, 'Monatsreport ' || to_char(now(), 'Mon YYYY') || ' versendet',
-         'Monatsbericht mit ROAS, Trichter-Analyse und Empfehlungen für den Folgemonat.',
+        (${clinicId}, ${`Monatsbericht ${reportMonthLabel}`},
+         'Ihr Monatsbericht mit allen wichtigen Zahlen, einer Auswertung der Anfragen und unseren Empfehlungen für den nächsten Monat.',
          now() + interval '6 days', 'geplant', 'team@eins-visuals.de'),
-        (${clinicId}, 'Quartals-Review Q2',
-         'Strategie-Termin: Plan für Q3, Budget-Reallokation, neue Kampagnen-Konzepte.',
+        (${clinicId}, 'Großes Quartals-Gespräch',
+         'Wir blicken auf die letzten drei Monate zurück, verteilen das Werbebudget neu und entwickeln neue Anzeigen-Ideen für die kommenden Monate.',
          now() + interval '23 days', 'geplant', 'team@eins-visuals.de')
     `;
 

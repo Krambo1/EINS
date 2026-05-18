@@ -1,17 +1,14 @@
 import { Star } from "lucide-react";
 import {
-  Button,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
   EmptyState,
-  Input,
 } from "@eins/ui";
 import { requirePermissionOrRedirect } from "@/auth/guards";
 import { db, schema } from "@/db/client";
 import { eq } from "drizzle-orm";
-import { can } from "@/lib/roles";
 import { formatDateTime, formatNumber } from "@/lib/formatting";
 import {
   bewertungenPageData,
@@ -19,7 +16,6 @@ import {
   type ReviewTrendRow,
   type listReviews,
 } from "@/server/queries/reviews";
-import { logReviewSnapshotAction } from "../einstellungen/actions";
 import { PlatformTile } from "./_components/PlatformTile";
 import {
   TRACKED_PLATFORMS,
@@ -32,7 +28,6 @@ export const metadata = { title: "Bewertungen" };
 
 export default async function BewertungenPage() {
   const session = await requirePermissionOrRedirect("reviews.view");
-  const canManage = can(session.role, "reviews.manage");
 
   const [clinicRows, { latest, trend, history }] = await Promise.all([
     db
@@ -66,7 +61,7 @@ export default async function BewertungenPage() {
       {/* Per-platform tiles */}
       <section
         aria-label="Bewertungen pro Plattform"
-        className="grid gap-4 md:grid-cols-2 xl:grid-cols-4"
+        className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
       >
         {TRACKED_PLATFORMS.map((p) => (
           <PlatformTile
@@ -79,70 +74,6 @@ export default async function BewertungenPage() {
         ))}
       </section>
 
-      {/* Inhaber-only: log a new snapshot */}
-      {canManage && (
-        <section className="space-y-3">
-          <div>
-            <h3 className="opa-h3 text-fg-primary">Schnappschuss erfassen</h3>
-            <p className="mt-1 text-sm text-fg-secondary">
-              Tragen Sie regelmäßig Ihren aktuellen Stand pro Plattform ein
-              (z. B. monatlich). So sehen Sie und Ihr Team den Verlauf.
-            </p>
-          </div>
-          <form
-            action={logReviewSnapshotAction}
-            className="grid gap-3 rounded-xl border border-border bg-bg-secondary/40 p-4 md:grid-cols-[10rem_8rem_8rem_1fr_auto]"
-          >
-            <div>
-              <label className="mb-1 block text-xs font-medium text-fg-secondary">
-                Plattform
-              </label>
-              <select
-                name="platform"
-                defaultValue="google"
-                className="h-11 w-full rounded-xl border border-border bg-bg-primary px-3 text-base"
-              >
-                <option value="google">Google</option>
-                <option value="jameda">Jameda</option>
-                <option value="trustpilot">Trustpilot</option>
-                <option value="manual">Eigene</option>
-              </select>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-fg-secondary">
-                Bewertung (0–5)
-              </label>
-              <Input
-                name="rating"
-                type="number"
-                step="0.1"
-                min={0}
-                max={5}
-                required
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-fg-secondary">
-                Anzahl
-              </label>
-              <Input name="totalCount" type="number" min={0} required />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-fg-secondary">
-                Notiz (optional)
-              </label>
-              <Input name="notes" maxLength={500} />
-            </div>
-            <div className="flex items-end">
-              <Button type="submit" className="w-full md:w-auto">
-                <Star className="h-4 w-4" />
-                Erfassen
-              </Button>
-            </div>
-          </form>
-        </section>
-      )}
-
       {/* Full history */}
       <Card>
         <CardHeader>
@@ -154,11 +85,7 @@ export default async function BewertungenPage() {
               <EmptyState
                 icon={<Star className="h-8 w-8" />}
                 title="Noch keine Bewertungen erfasst"
-                description={
-                  canManage
-                    ? "Tragen Sie oben Ihren ersten Schnappschuss ein."
-                    : "Ihre Praxisinhaber:in hat noch keinen Schnappschuss eingetragen."
-                }
+                description="Schnappschüsse werden automatisch von Google und Jameda übernommen. Sobald die Verbindung aktiv ist, erscheint hier der Verlauf."
               />
             </div>
           ) : (

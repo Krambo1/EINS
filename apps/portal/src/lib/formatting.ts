@@ -85,6 +85,46 @@ export function formatRelative(value: Date | string | null | undefined): string 
   return formatDate(d);
 }
 
+/**
+ * Day-granularity relative label, anchored on local midnight. Used for
+ * forward-looking action lists (touchpoints, recalls) where "Heute" / "Morgen"
+ * / "in 4 Tagen" reads faster than an absolute `22.5.2026`. Past dates collapse
+ * to "Überfällig" with the day count surfaced via `overdueDays` so callers can
+ * decide whether to show "vor 3 Tagen" or just paint the row red.
+ *
+ * Note: parses `YYYY-MM-DD` strings as local-midnight (not UTC) so day math
+ * never drifts across the timezone boundary for German users.
+ */
+export function formatRelativeDay(
+  value: string | Date | null | undefined
+): { label: string; diffDays: number; overdue: boolean } {
+  if (!value) return { label: "–", diffDays: 0, overdue: false };
+  let target: Date;
+  if (typeof value === "string") {
+    const m = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    target = m
+      ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+      : new Date(value);
+  } else {
+    target = new Date(value);
+  }
+  if (Number.isNaN(target.getTime())) {
+    return { label: "–", diffDays: 0, overdue: false };
+  }
+  target.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const diffDays = Math.round(
+    (target.getTime() - today.getTime()) / 86_400_000
+  );
+  if (diffDays < 0) {
+    return { label: "Überfällig", diffDays, overdue: true };
+  }
+  if (diffDays === 0) return { label: "Heute", diffDays, overdue: false };
+  if (diffDays === 1) return { label: "Morgen", diffDays, overdue: false };
+  return { label: `in ${diffDays} Tagen`, diffDays, overdue: false };
+}
+
 /** "Für jeden Euro kommen 2,50 € zurück" — Opa-proof ROAS translation. */
 export function formatRoasSentence(roas: number | null | undefined): string {
   if (roas == null || Number.isNaN(roas) || roas <= 0) {

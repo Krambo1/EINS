@@ -54,7 +54,7 @@ export default async function AdminHome() {
     <div className="space-y-10">
       <AdminPageHeader
         title="Plattform-Übersicht"
-        subtitle="Intelligence-Layer für alle Kliniken. Daten aktualisieren sich mit jedem Sync."
+        subtitle="Intelligence-Layer für alle Praxen. Daten aktualisieren sich mit jedem Sync."
       />
 
       <MetricStrip data={overview} />

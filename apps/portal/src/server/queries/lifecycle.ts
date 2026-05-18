@@ -2,6 +2,7 @@ import "server-only";
 import { and, eq, gte, lte, sql, isNotNull } from "drizzle-orm";
 import { withClinicContext, schema } from "@/db/client";
 import { cacheClinicQuery } from "./_cache";
+import { avatarUrlForKey } from "@/server/avatars";
 
 /**
  * Lifecycle helpers: response time, AI score distribution, weekday/hour
@@ -309,6 +310,7 @@ export interface StaffPerformanceRow {
   userId: string;
   fullName: string | null;
   email: string;
+  avatarUrl: string | null;
   role: string;
   assignedCount: number;
   wonCount: number;
@@ -329,6 +331,8 @@ export async function staffPerformance(
         userId: schema.clinicUsers.id,
         fullName: schema.clinicUsers.fullName,
         email: schema.clinicUsers.email,
+        avatarKey: schema.clinicUsers.avatarKey,
+        avatarUpdatedAt: schema.clinicUsers.avatarUpdatedAt,
         role: schema.clinicUsers.role,
         assignedCount: sql<number>`count(${schema.requests.id})::int`,
         wonCount: sql<number>`count(${schema.requests.id}) FILTER (WHERE ${schema.requests.status} = 'gewonnen')::int`,
@@ -349,6 +353,8 @@ export async function staffPerformance(
         schema.clinicUsers.id,
         schema.clinicUsers.fullName,
         schema.clinicUsers.email,
+        schema.clinicUsers.avatarKey,
+        schema.clinicUsers.avatarUpdatedAt,
         schema.clinicUsers.role
       )
       .orderBy(sql`count(${schema.requests.id}) desc`);
@@ -361,6 +367,7 @@ export async function staffPerformance(
         userId: r.userId,
         fullName: r.fullName,
         email: r.email,
+        avatarUrl: avatarUrlForKey(r.avatarKey, r.avatarUpdatedAt),
         role: r.role,
         assignedCount: assigned,
         wonCount: won,

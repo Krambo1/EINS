@@ -140,7 +140,7 @@ export default async function DokumentePage({
                     <a
                       href={d.url}
                       download
-                      className="inline-flex items-center gap-1 rounded-md bg-accent px-3 py-2 text-sm font-medium text-fg-primary hover:bg-accent/90"
+                      className="opa-btn-primary opa-focus-ring inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium"
                     >
                       <Download className="h-4 w-4" />
                       Herunterladen

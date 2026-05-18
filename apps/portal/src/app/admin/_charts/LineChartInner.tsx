@@ -10,11 +10,14 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { makeRechartsTooltip } from "./ChartTooltip";
 
 export interface LineSeries {
   key: string;
   name: string;
   color: string;
+  /** "EUR" or "Anzahl" — used in the tooltip + axis value formatter. */
+  valueKind?: "eur" | "number";
 }
 
 export interface LinePoint {
@@ -23,6 +26,11 @@ export interface LinePoint {
 }
 
 const numFormatter = new Intl.NumberFormat("de-DE");
+const eurFormatter = new Intl.NumberFormat("de-DE", {
+  style: "currency",
+  currency: "EUR",
+  maximumFractionDigits: 0,
+});
 const dateFormatter = new Intl.DateTimeFormat("de-DE", {
   day: "2-digit",
   month: "2-digit",
@@ -37,6 +45,28 @@ export function LineChartInner({
   series: LineSeries[];
   height?: number;
 }) {
+  const valueKindByName = React.useMemo(() => {
+    const m = new Map<string, "eur" | "number">();
+    for (const s of series) m.set(s.name, s.valueKind ?? "number");
+    return m;
+  }, [series]);
+
+  const formatValue = React.useCallback(
+    (value: number, name: string) => {
+      const kind = valueKindByName.get(name) ?? "number";
+      if (!Number.isFinite(value)) return "–";
+      return kind === "eur"
+        ? eurFormatter.format(value)
+        : numFormatter.format(value);
+    },
+    [valueKindByName]
+  );
+
+  const TooltipContent = React.useMemo(
+    () => makeRechartsTooltip(formatValue),
+    [formatValue]
+  );
+
   return (
     <ResponsiveContainer width="100%" height={height}>
       <RechartsLineChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 0 }}>
@@ -57,19 +87,10 @@ export function LineChartInner({
           width={42}
         />
         <Tooltip
-          contentStyle={{
-            background: "var(--bg-primary)",
-            border: "1px solid var(--border)",
-            borderRadius: 8,
-            fontSize: 12,
-          }}
-          labelFormatter={(v) =>
-            new Intl.DateTimeFormat("de-DE", {
-              day: "2-digit",
-              month: "2-digit",
-              year: "numeric",
-            }).format(new Date(v as string))
-          }
+          content={<TooltipContent />}
+          cursor={{ stroke: "var(--fg-tertiary)", strokeOpacity: 0.45, strokeWidth: 1 }}
+          wrapperStyle={{ outline: "none", zIndex: 50 }}
+          isAnimationActive={false}
         />
         {series.map((s) => (
           <Line
@@ -80,6 +101,13 @@ export function LineChartInner({
             stroke={s.color}
             strokeWidth={2}
             dot={false}
+            activeDot={{
+              r: 4,
+              stroke: "var(--bg-primary)",
+              strokeWidth: 1.5,
+              fill: s.color,
+            }}
+            isAnimationActive={false}
           />
         ))}
       </RechartsLineChart>

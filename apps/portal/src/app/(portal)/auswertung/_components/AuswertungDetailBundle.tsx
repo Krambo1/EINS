@@ -6,6 +6,7 @@ import {
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
+  Avatar,
   Card,
   CardContent,
   CardHeader,
@@ -641,11 +642,18 @@ export async function AuswertungDetailBundle({
                 key: "fullName",
                 header: "Mitarbeiter",
                 render: (r) => (
-                  <span>
-                    <span className="font-medium text-fg-primary">
-                      {r.fullName ?? r.email}
+                  <span className="flex items-center gap-3 min-w-0">
+                    <Avatar
+                      src={r.avatarUrl}
+                      name={r.fullName ?? r.email}
+                      size="md"
+                    />
+                    <span className="min-w-0 truncate">
+                      <span className="font-medium text-fg-primary">
+                        {r.fullName ?? r.email}
+                      </span>
+                      <span className="ml-2 text-xs text-fg-secondary">({r.role})</span>
                     </span>
-                    <span className="ml-2 text-xs text-fg-secondary">({r.role})</span>
                   </span>
                 ),
               },
@@ -891,8 +899,6 @@ function platformLabelNode(p: string): ReactNode {
       return <Brand brand="google" />;
     case "jameda":
       return <Brand brand="jameda" />;
-    case "trustpilot":
-      return <Brand brand="trustpilot" />;
     case "manual":
       return "Eigene Aufnahme";
     default:

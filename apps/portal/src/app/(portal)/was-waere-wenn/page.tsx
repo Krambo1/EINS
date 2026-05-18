@@ -8,7 +8,7 @@ import { requirePermissionOrRedirect } from "@/auth/guards";
 import { currentMonthSummary } from "@/server/queries/kpis";
 import { WhatIfCalculator } from "./Calculator";
 
-export const metadata = { title: "Was wäre wenn" };
+export const metadata = { title: "Rechner" };
 
 /**
  * Scenario calculator. Starts from the clinic's actual last-month numbers

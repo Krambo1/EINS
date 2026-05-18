@@ -1,16 +1,14 @@
 import { EmptyState } from "@eins/ui";
 import {
-  CheckCircle2,
+  Activity,
   CalendarClock,
-  Loader2,
+  CheckCircle2,
+  Clock,
+  History,
   Milestone,
-  Sparkles,
 } from "lucide-react";
 import { formatDate } from "@/lib/formatting";
-import {
-  TIMELINE_STATUS_LABELS,
-  type TimelineStatus,
-} from "@/lib/constants";
+import { TIMELINE_STATUS_LABELS } from "@/lib/constants";
 import type { TimelineEntry } from "@/server/queries/timeline";
 
 const MONTH_FORMATTER = new Intl.DateTimeFormat("de-DE", {
@@ -57,113 +55,63 @@ function groupByMonth(entries: TimelineEntry[]) {
   return Array.from(groups.values());
 }
 
-function StatTile({
-  count,
-  label,
-  tone,
-}: {
-  count: number;
-  label: string;
-  tone: "accent" | "neutral" | "good";
-}) {
-  const active = count > 0;
-  const toneClasses = {
-    accent: active
-      ? "border-accent/40 bg-accent-soft/30 text-accent"
-      : "border-border bg-bg-secondary/40 text-fg-tertiary",
-    neutral: active
-      ? "border-border-hover bg-bg-secondary text-fg-primary"
-      : "border-border bg-bg-secondary/40 text-fg-tertiary",
-    good: active
-      ? "border-[var(--tone-good-border)] bg-[var(--tone-good-bg)] text-tone-good"
-      : "border-border bg-bg-secondary/40 text-fg-tertiary",
-  }[tone];
-
+function MetaRow({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      className={`relative overflow-hidden rounded-xl border px-4 py-3 transition-colors ${toneClasses}`}
-    >
-      <div className="flex items-baseline gap-2">
-        <span className="font-mono text-2xl font-semibold leading-none tabular-nums md:text-3xl">
-          {count}
-        </span>
-        {tone === "accent" && active && (
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
-          </span>
-        )}
-      </div>
-      <div className="mt-1 text-[11px] font-mono uppercase tracking-[0.16em] opacity-80">
-        {label}
-      </div>
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg-secondary">
+      {children}
     </div>
+  );
+}
+
+function MetaDot() {
+  return (
+    <span aria-hidden className="text-fg-tertiary">
+      ·
+    </span>
   );
 }
 
 function ActiveCard({ entry, now }: { entry: TimelineEntry; now: Date }) {
   return (
-    <li className="relative overflow-hidden rounded-xl border border-accent/30 bg-bg-primary/60 p-4 shadow-[0_0_0_1px_var(--accent-glow)] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-accent">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -right-12 -top-12 h-32 w-32 rounded-full bg-accent/10 blur-2xl"
-      />
-      <div className="relative flex items-start gap-3">
-        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-accent/30 bg-accent-soft/40 text-accent">
-          <Loader2 className="h-4 w-4 animate-spin [animation-duration:3s]" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-accent/30 bg-accent-soft px-2 py-0.5 font-mono uppercase tracking-wider text-accent">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-70" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
-              </span>
-              {TIMELINE_STATUS_LABELS.laeuft}
-            </span>
-            <span className="text-fg-secondary">
-              {activeDurationLabel(entry.eventDate, now)}
-            </span>
-            <span className="text-fg-tertiary">·</span>
-            <span className="font-mono text-fg-tertiary tabular-nums">
-              {formatDate(entry.eventDate)}
-            </span>
-          </div>
-          <p className="mt-1.5 text-base font-semibold leading-snug text-fg-primary">
-            {entry.title}
-          </p>
-          {entry.description && (
-            <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-fg-secondary">
-              {entry.description}
-            </p>
-          )}
-        </div>
-      </div>
+    <li className="relative overflow-hidden rounded-xl border border-border bg-bg-primary p-5 before:absolute before:inset-y-3 before:left-0 before:w-[3px] before:rounded-r-full before:bg-accent">
+      <MetaRow>
+        <span className="inline-flex items-center gap-1.5 font-medium text-accent">
+          <span className="inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
+          {TIMELINE_STATUS_LABELS.laeuft}
+        </span>
+        <MetaDot />
+        <span>{activeDurationLabel(entry.eventDate, now)}</span>
+        <MetaDot />
+        <span className="tabular-nums">{formatDate(entry.eventDate)}</span>
+      </MetaRow>
+      <p className="mt-2 text-base font-semibold leading-snug text-fg-primary">
+        {entry.title}
+      </p>
+      {entry.description && (
+        <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-fg-secondary">
+          {entry.description}
+        </p>
+      )}
     </li>
   );
 }
 
 function UpcomingCard({ entry, now }: { entry: TimelineEntry; now: Date }) {
   return (
-    <li className="group relative rounded-xl border border-border bg-bg-secondary/40 p-4 transition-colors hover:border-border-hover">
-      <div className="flex items-start gap-3">
-        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-bg-primary/60 text-fg-secondary">
+    <li className="rounded-xl border border-border bg-bg-primary p-5 transition-colors hover:border-border-hover">
+      <div className="flex items-start gap-4">
+        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-bg-secondary/60 text-fg-secondary">
           <CalendarClock className="h-4 w-4" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-            <span className="inline-flex items-center rounded-full border border-border bg-bg-primary/60 px-2 py-0.5 font-mono uppercase tracking-wider text-fg-secondary">
-              {TIMELINE_STATUS_LABELS.geplant}
-            </span>
+          <MetaRow>
             <span className="font-medium text-fg-primary">
               {upcomingDistanceLabel(entry.eventDate, now)}
             </span>
-            <span className="text-fg-tertiary">·</span>
-            <span className="font-mono text-fg-tertiary tabular-nums">
-              {formatDate(entry.eventDate)}
-            </span>
-          </div>
-          <p className="mt-1.5 text-base font-semibold leading-snug text-fg-primary">
+            <MetaDot />
+            <span className="tabular-nums">{formatDate(entry.eventDate)}</span>
+          </MetaRow>
+          <p className="mt-2 text-base font-semibold leading-snug text-fg-primary">
             {entry.title}
           </p>
           {entry.description && (
@@ -182,20 +130,15 @@ function CompletedItem({ entry }: { entry: TimelineEntry }) {
     <li className="relative pl-10">
       <span
         aria-hidden
-        className="absolute left-0 top-3 flex h-7 w-7 items-center justify-center rounded-full border border-[var(--tone-good-border)] bg-[var(--tone-good-bg)] ring-4 ring-bg-primary"
+        className="absolute left-0 top-3 flex h-7 w-7 items-center justify-center rounded-full border border-border bg-bg-primary ring-4 ring-bg-secondary"
       >
         <CheckCircle2 className="h-3.5 w-3.5 text-tone-good" />
       </span>
-      <div className="rounded-xl border border-border bg-bg-secondary/30 p-3.5">
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-          <span className="inline-flex items-center rounded-full border border-[var(--tone-good-border)] bg-[var(--tone-good-bg)] px-2 py-0.5 font-mono uppercase tracking-wider text-tone-good">
-            {TIMELINE_STATUS_LABELS.abgeschlossen}
-          </span>
-          <span className="font-mono text-fg-tertiary tabular-nums">
-            {formatDate(entry.eventDate)}
-          </span>
+      <div className="rounded-xl border border-border bg-bg-primary p-4">
+        <div className="text-sm text-fg-secondary tabular-nums">
+          {formatDate(entry.eventDate)}
         </div>
-        <p className="mt-1.5 text-base font-semibold leading-snug text-fg-primary">
+        <p className="mt-1 text-base font-semibold leading-snug text-fg-primary">
           {entry.title}
         </p>
         {entry.description && (
@@ -205,6 +148,43 @@ function CompletedItem({ entry }: { entry: TimelineEntry }) {
         )}
       </div>
     </li>
+  );
+}
+
+function SectionHeader({
+  id,
+  title,
+  count,
+  countLabel,
+  icon,
+  iconBgVar,
+}: {
+  id: string;
+  title: string;
+  count: number;
+  countLabel?: string;
+  icon: React.ReactNode;
+  /** CSS variable for the solid swatch — matches the dashboard's
+   *  MetricStatusBadge pattern (strong-colored circle, white symbol). */
+  iconBgVar: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <h2 id={id} className="opa-h3 flex items-center gap-3 text-fg-primary">
+        <span
+          aria-hidden
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white"
+          style={{ background: iconBgVar }}
+        >
+          {icon}
+        </span>
+        {title}
+      </h2>
+      <span className="text-sm text-fg-tertiary tabular-nums">
+        {count}
+        {countLabel ? ` ${countLabel}` : ""}
+      </span>
+    </div>
   );
 }
 
@@ -235,33 +215,17 @@ export function TimelineList({ entries }: { entries: TimelineEntry[] }) {
   }
 
   return (
-    <div className="space-y-8">
-      {/* Activity strip — live counts give the page a pulse */}
-      <div className="grid grid-cols-3 gap-2 sm:gap-3">
-        <StatTile count={active.length} label="Läuft" tone="accent" />
-        <StatTile count={upcoming.length} label="Geplant" tone="neutral" />
-        <StatTile count={completed.length} label="Abgeschlossen" tone="good" />
-      </div>
-
+    <div className="space-y-12">
       {active.length > 0 && (
-        <section aria-labelledby="aktuell-heading" className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <h2
-              id="aktuell-heading"
-              className="flex items-center gap-2 text-xs font-mono uppercase tracking-[0.18em] text-accent"
-            >
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-70" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-accent" />
-              </span>
-              Wir arbeiten gerade daran
-            </h2>
-            <span className="inline-flex items-center gap-1 text-[11px] font-mono uppercase tracking-wider text-fg-tertiary">
-              <Sparkles className="h-3 w-3" />
-              Live für Sie
-            </span>
-          </div>
-          <ul className="space-y-2.5">
+        <section aria-labelledby="aktuell-heading" className="space-y-4">
+          <SectionHeader
+            id="aktuell-heading"
+            title="Wir arbeiten gerade daran"
+            count={active.length}
+            icon={<Activity className="h-4 w-4" strokeWidth={2.5} />}
+            iconBgVar="var(--accent)"
+          />
+          <ul className="space-y-3">
             {active.map((e) => (
               <ActiveCard key={e.id} entry={e} now={now} />
             ))}
@@ -270,19 +234,16 @@ export function TimelineList({ entries }: { entries: TimelineEntry[] }) {
       )}
 
       {upcoming.length > 0 && (
-        <section aria-labelledby="anstehend-heading" className="space-y-3">
-          <div className="flex items-center justify-between gap-3">
-            <h2
-              id="anstehend-heading"
-              className="text-xs font-mono uppercase tracking-[0.18em] text-fg-secondary"
-            >
-              Als Nächstes
-            </h2>
-            <span className="text-[11px] font-mono uppercase tracking-wider text-fg-tertiary">
-              {upcoming.length} geplant
-            </span>
-          </div>
-          <ul className="space-y-2.5">
+        <section aria-labelledby="anstehend-heading" className="space-y-4">
+          <SectionHeader
+            id="anstehend-heading"
+            title="Als Nächstes"
+            count={upcoming.length}
+            countLabel="geplant"
+            icon={<Clock className="h-4 w-4" strokeWidth={2.5} />}
+            iconBgVar="var(--tone-warn)"
+          />
+          <ul className="space-y-3">
             {upcoming.map((e) => (
               <UpcomingCard key={e.id} entry={e} now={now} />
             ))}
@@ -291,38 +252,45 @@ export function TimelineList({ entries }: { entries: TimelineEntry[] }) {
       )}
 
       {completed.length > 0 && (
-        <section aria-labelledby="verlauf-heading" className="space-y-4">
-          <div className="flex items-center justify-between gap-3">
-            <h2
-              id="verlauf-heading"
-              className="text-xs font-mono uppercase tracking-[0.18em] text-fg-secondary"
-            >
-              Was bisher passiert ist
-            </h2>
-            <span className="text-[11px] font-mono uppercase tracking-wider text-fg-tertiary">
-              {completed.length} erledigt
-            </span>
-          </div>
+        <section aria-labelledby="verlauf-heading" className="space-y-5">
+          <SectionHeader
+            id="verlauf-heading"
+            title="Was bisher passiert ist"
+            count={completed.length}
+            countLabel="erledigt"
+            icon={<History className="h-4 w-4" strokeWidth={2.5} />}
+            iconBgVar="var(--tone-good)"
+          />
 
-          <div className="relative space-y-5">
-            {groupByMonth(completed).map((g, gi) => (
-              <div key={g.label} className="relative">
-                <div className="mb-2 flex items-center gap-3 pl-10">
-                  <h3 className="font-mono text-xs uppercase tracking-[0.18em] text-fg-tertiary">
-                    {g.label}
-                  </h3>
-                  <div className="h-px flex-1 bg-border" />
+          {/* One continuous timeline line for the whole "completed" column.
+              `top-3` / `bottom-3` align it to the centers of the first and
+              last check-circles (each circle sits at top-3 with h-7 → center
+              at y=12+14=26, line at x=13 runs through the center). The line
+              passes BEHIND every circle and every month divider — circles
+              have an opaque bg-bg-primary fill that masks it locally, so it
+              reads as one thread the check-marks are pinned onto. */}
+          <div className="relative">
+            <span
+              aria-hidden
+              className="pointer-events-none absolute bottom-3 left-[13px] top-3 w-px bg-border-hover"
+            />
+            <div className="space-y-6">
+              {groupByMonth(completed).map((g) => (
+                <div key={g.label}>
+                  <div className="mb-3 flex items-center gap-3 pl-10">
+                    <h3 className="text-sm font-medium text-fg-secondary">
+                      {g.label}
+                    </h3>
+                    <div className="h-px flex-1 bg-border" />
+                  </div>
+                  <ol className="space-y-3">
+                    {g.entries.map((e) => (
+                      <CompletedItem key={e.id} entry={e} />
+                    ))}
+                  </ol>
                 </div>
-                <ol className="relative space-y-2.5 before:absolute before:bottom-2 before:left-[13px] before:top-2 before:w-px before:bg-border">
-                  {g.entries.map((e) => (
-                    <CompletedItem key={e.id} entry={e} />
-                  ))}
-                </ol>
-                {gi < groupByMonth(completed).length - 1 && (
-                  <div className="h-3" />
-                )}
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         </section>
       )}

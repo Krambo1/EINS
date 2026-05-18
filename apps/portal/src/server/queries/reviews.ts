@@ -9,7 +9,7 @@ import { withClinicContext, schema } from "@/db/client";
 
 export interface ReviewSnapshot {
   id: string;
-  platform: "google" | "jameda" | "trustpilot" | "manual";
+  platform: "google" | "jameda" | "manual";
   rating: number;
   totalCount: number;
   recordedAt: Date;

@@ -1,7 +1,8 @@
+import "./shim-server-only";
 import "../lib/load-env";
 import { Worker, type Processor } from "bullmq";
 import { workerConnection } from "./connection";
-import { QUEUES } from "@/server/jobs";
+import { QUEUES } from "@/lib/queues";
 
 import { processAiScore, type AiScoreJob } from "./processors/ai-score";
 import { processSyncMeta, type SyncMetaJob } from "./processors/sync-meta";
@@ -13,6 +14,46 @@ import { processPurgeAudit } from "./processors/purge-audit";
 import { processMonthlyReport, type MonthlyReportJob } from "./processors/monthly-report";
 import { processDbBackup } from "./processors/db-backup";
 import { processEmailSend, type EmailSendJob } from "./processors/email-send";
+import {
+  processReviewRequestTick,
+  type ReviewRequestTickJob,
+} from "./processors/review-request";
+import {
+  processSyncReviewsGoogle,
+  type SyncReviewsGoogleJob,
+} from "./processors/sync-reviews-google";
+import {
+  processSyncReviewsJameda,
+  type SyncReviewsJamedaJob,
+} from "./processors/sync-reviews-jameda";
+import {
+  processPvsStatusDerive,
+  type PvsStatusDeriveJob,
+} from "./processors/pvs-status-derive";
+import {
+  processPvsCsvIngest,
+  type PvsCsvIngestJob,
+} from "./processors/pvs-csv-ingest";
+import {
+  processPvsLinkBackfill,
+  type PvsLinkBackfillJob,
+} from "./processors/pvs-link-backfill";
+import {
+  processPvsLeadTokenWrite,
+  type PvsLeadTokenWriteJob,
+} from "./processors/pvs-lead-token-write";
+import {
+  processPvsPartitionRotate,
+  type PvsPartitionRotateJob,
+} from "./processors/pvs-partition-rotate";
+import {
+  processPvsReconcile,
+  type PvsReconcileJob,
+} from "./processors/pvs-reconcile";
+import {
+  processPvsTreatmentSuggest,
+  type PvsTreatmentSuggestJob,
+} from "./processors/pvs-treatment-suggest";
 
 /**
  * Worker entry point — run as `pnpm worker`.
@@ -84,6 +125,61 @@ const workers: Worker[] = [
     connection,
     concurrency: 5,
   }),
+  new Worker<ReviewRequestTickJob>(
+    QUEUES.reviewRequestTick,
+    wrap("review-request", processReviewRequestTick),
+    { connection, concurrency: 1 }
+  ),
+  new Worker<SyncReviewsGoogleJob>(
+    QUEUES.syncReviewsGoogle,
+    wrap("sync-reviews-google", processSyncReviewsGoogle),
+    { connection, concurrency: 2 }
+  ),
+  new Worker<SyncReviewsJamedaJob>(
+    QUEUES.syncReviewsJameda,
+    wrap("sync-reviews-jameda", processSyncReviewsJameda),
+    // Be polite to Jameda — one HTTP request at a time across all clinics.
+    { connection, concurrency: 1 }
+  ),
+  new Worker<PvsStatusDeriveJob>(
+    QUEUES.pvsStatusDerive,
+    wrap("pvs-status-derive", processPvsStatusDerive),
+    // Replay-per-patient is bounded; allow some parallelism to keep up
+    // with bursts from the initial-sync of a new clinic.
+    { connection, concurrency: 4 }
+  ),
+  new Worker<PvsCsvIngestJob>(
+    QUEUES.pvsCsvIngest,
+    wrap("pvs-csv-ingest", processPvsCsvIngest),
+    // CSV uploads are an interactive flow (inhaber is watching) but heavy
+    // (50k rows). One job at a time keeps DB IOPS predictable.
+    { connection, concurrency: 1 }
+  ),
+  new Worker<PvsLinkBackfillJob>(
+    QUEUES.pvsLinkBackfill,
+    wrap("pvs-link-backfill", processPvsLinkBackfill),
+    { connection, concurrency: 2 }
+  ),
+  new Worker<PvsLeadTokenWriteJob>(
+    QUEUES.pvsLeadTokenWrite,
+    wrap("pvs-lead-token-write", processPvsLeadTokenWrite),
+    { connection, concurrency: 2 }
+  ),
+  new Worker<PvsPartitionRotateJob>(
+    QUEUES.pvsPartitionRotate,
+    wrap("pvs-partition-rotate", processPvsPartitionRotate),
+    { connection, concurrency: 1 }
+  ),
+  new Worker<PvsReconcileJob>(
+    QUEUES.pvsReconcile,
+    wrap("pvs-reconcile", processPvsReconcile),
+    { connection, concurrency: 1 }
+  ),
+  new Worker<PvsTreatmentSuggestJob>(
+    QUEUES.pvsTreatmentSuggest,
+    wrap("pvs-treatment-suggest", processPvsTreatmentSuggest),
+    { connection, concurrency: 1 }
+  ),
 ];
 
 for (const w of workers) {
