@@ -1,10 +1,18 @@
 -- EINS Portal — initial schema.
 -- Matches apps/portal/src/db/schema.ts verbatim.
--- Extensions are created by docker/postgres/init/01-extensions.sql at container boot.
+--
+-- Extensions: citext is required as a column type below. For local docker dev
+-- we also seed it via docker/postgres/init/01-extensions.sql at container
+-- boot, but we still create it here so any environment (managed Postgres,
+-- migrated-from-dump, etc.) is self-sufficient. gen_random_uuid() is built
+-- into Postgres 13+, so pgcrypto is not required. pg_trgm is added later by
+-- 0026_patients_pvs_columns.sql.
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET client_encoding = 'UTF8';
+
+CREATE EXTENSION IF NOT EXISTS citext;
 
 -- ============================================================
 -- CLINICS & USERS
