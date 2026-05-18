@@ -2,6 +2,9 @@
   "name": "portal",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "20.x"
+  },
   "scripts": {
     "dev": "node scripts/dev.js",
     "build": "next build",
