@@ -1,0 +1,123 @@
+{
+  "name": "EINS Visuals — PVS canonical event emitter",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            { "field": "minutes", "minutesInterval": 5 }
+          ]
+        }
+      },
+      "id": "trigger-cron",
+      "name": "Every 5 minutes (replace with your PVS trigger)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 320]
+    },
+    {
+      "parameters": {
+        "url": "={{ $vars.PVS_API_URL }}/appointments?modifiedSince={{ $vars.LAST_CURSOR ?? '1970-01-01T00:00:00Z' }}",
+        "options": {
+          "response": { "response": { "responseFormat": "json" } }
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "Bearer {{ $vars.PVS_TOKEN }}" }
+          ]
+        }
+      },
+      "id": "http-pull",
+      "name": "GET /appointments (your PVS)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 320]
+    },
+    {
+      "parameters": {
+        "fieldsToSplitOut": "items",
+        "options": {}
+      },
+      "id": "split-items",
+      "name": "Split out items",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [720, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Translate one PVS appointment row into the EINS canonical envelope.\n// Replace field references with your PVS's actual JSON paths.\n//\n// Required: pvsPatientId, pvsAppointmentId, scheduledAt\n// Optional: treatmentCode/Label, locationCode/Label, bemerkung\n//\n// The event ID must be stable per source row (de-duplication key on the\n// portal side). Use the PVS's own row id + modified-at where possible.\nconst row = $input.first().json;\nconst event = {\n  kind: 'AppointmentCreated',\n  clinicId: $vars.CLINIC_ID,\n  bridgeSource: 'n8n_custom',\n  pvsExternalEventId: `n8n:appt:${row.id}`,\n  occurredAt: row.scheduledAt,\n  pvsPatientId: String(row.patientId),\n  pvsAppointmentId: String(row.id),\n  scheduledAt: row.scheduledAt,\n  treatmentCode: row.treatmentCode ?? undefined,\n  treatmentLabel: row.treatmentName ?? undefined,\n  bemerkung: row.comment ?? undefined,\n};\nreturn { json: event };"
+      },
+      "id": "to-canonical",
+      "name": "Translate to canonical event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 320]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Sign the body with the per-clinic HMAC secret stored in n8n credentials.\nconst body = JSON.stringify($input.first().json);\nconst crypto = require('crypto');\nconst sig = `sha256=${crypto.createHmac('sha256', $vars.EINS_PVS_SECRET).update(body).digest('hex')}`;\nreturn { json: { body, sig } };"
+      },
+      "id": "sign-body",
+      "name": "HMAC-sign body",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 320]
+    },
+    {
+      "parameters": {
+        "url": "={{ $vars.EINS_PORTAL_URL ?? 'https://portal.einsvisuals.de' }}/api/pvs/events",
+        "options": {},
+        "sendBody": true,
+        "specifyBody": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-eins-signature", "value": "={{ $json.sig }}" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        }
+      },
+      "id": "post-portal",
+      "name": "POST to EINS /api/pvs/events",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1440, 320]
+    }
+  ],
+  "connections": {
+    "Every 5 minutes (replace with your PVS trigger)": {
+      "main": [[{ "node": "GET /appointments (your PVS)", "type": "main", "index": 0 }]]
+    },
+    "GET /appointments (your PVS)": {
+      "main": [[{ "node": "Split out items", "type": "main", "index": 0 }]]
+    },
+    "Split out items": {
+      "main": [[{ "node": "Translate to canonical event", "type": "main", "index": 0 }]]
+    },
+    "Translate to canonical event": {
+      "main": [[{ "node": "HMAC-sign body", "type": "main", "index": 0 }]]
+    },
+    "HMAC-sign body": {
+      "main": [[{ "node": "POST to EINS /api/pvs/events", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "tags": [{ "name": "eins-pvs-bridge" }],
+  "_doc": {
+    "description": "EINS Visuals PVS bridge — example workflow translating any PVS's REST output into the canonical envelope. Customize the trigger + GET node to match your PVS, edit the canonical-event JS to map your fields. Variables needed in n8n: CLINIC_ID, EINS_PVS_SECRET, EINS_PORTAL_URL, PVS_API_URL, PVS_TOKEN.",
+    "supportedKinds": [
+      "PatientUpserted",
+      "AppointmentCreated",
+      "AppointmentStatusChanged",
+      "AppointmentCancelled",
+      "EncounterCompleted",
+      "InvoicePaid",
+      "RecallScheduled",
+      "PatientMerged"
+    ]
+  }
+}
