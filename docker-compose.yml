@@ -29,7 +29,9 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    # `noeviction` is required by BullMQ — under allkeys-lru Redis can evict job
+    # keys and silently drop queued work (e.g. ai-score jobs that never run).
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy noeviction
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
