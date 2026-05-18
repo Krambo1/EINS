@@ -102,7 +102,7 @@ export default function Datenschutz() {
         </p>
         <p>
           Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse
-          an einer technisch optimal funktionierenden Website). § 25 TTDSG findet
+          an einer technisch optimal funktionierenden Website). § 25 TDDDG findet
           keine Anwendung, da keine Informationen auf Ihrem Endgerät gespeichert
           oder ausgelesen werden. Anbieter ist die Vercel Inc. (USA), zertifiziert
           unter dem EU-U.S. Data Privacy Framework.
@@ -120,19 +120,19 @@ export default function Datenschutz() {
         </p>
         <p>
           Rechtsgrundlage ist Ihre Einwilligung gemäß Art. 6 Abs. 1 lit. a
-          DSGVO in Verbindung mit § 25 Abs. 1 TTDSG, die Sie über unseren
+          DSGVO in Verbindung mit § 25 Abs. 1 TDDDG, die Sie über unseren
           Cookie-Banner erteilen und jederzeit widerrufen können. Anbieter ist
           die Vercel Inc. (USA), zertifiziert unter dem EU-U.S. Data Privacy
           Framework.
         </p>
       </Section>
 
-      <Section label="Art. 6 Abs. 1 lit. a DSGVO · § 25 TTDSG" heading="Cookies und Einwilligung">
+      <Section label="Art. 6 Abs. 1 lit. a DSGVO · § 25 TDDDG" heading="Cookies und Einwilligung">
         <p>
           Wir setzen auf dieser Website ausschließlich technisch erforderliche
           Speicherzugriffe ein, die für den Betrieb der Seite zwingend
           notwendig sind und keiner Einwilligung bedürfen (§ 25 Abs. 2 Nr. 2
-          TTDSG). Dazu zählt insbesondere die lokale Speicherung Ihrer
+          TDDDG). Dazu zählt insbesondere die lokale Speicherung Ihrer
           Cookie-Entscheidung selbst.
         </p>
         <p>
@@ -141,7 +141,7 @@ export default function Datenschutz() {
           Calendly (Preconnect/DNS-Prefetch) – werden erst nach Ihrer
           ausdrücklichen Einwilligung über unseren Cookie-Banner geladen.
           Rechtsgrundlage ist Art. 6 Abs. 1 lit. a DSGVO in Verbindung mit
-          § 25 Abs. 1 TTDSG.
+          § 25 Abs. 1 TDDDG.
         </p>
         <p>
           Sie können Ihre Einwilligung jederzeit mit Wirkung für die Zukunft
@@ -173,15 +173,27 @@ export default function Datenschutz() {
         <p>
           Auf unserer Website verlinken wir auf den Dienst Calendly der Calendly,
           LLC (271 17th St NW, Suite 1000, Atlanta, GA 30363, USA), über den Sie
-          ein Strategie-Gespräch buchen können. Wenn Sie auf den Calendly-Button
-          klicken, werden Sie auf die Website von Calendly weitergeleitet. Erst ab
-          diesem Zeitpunkt werden Ihre Daten durch Calendly verarbeitet. Auf der
-          Website eins.ag selbst findet keine Datenübermittlung an
-          Calendly statt.
+          ein Strategie-Gespräch buchen können. Inhalte von Calendly (z. B. ein
+          eingebettetes Buchungs-Widget) werden auf unserer Website nicht
+          geladen. Erst wenn Sie auf den Calendly-Button klicken, werden Sie auf
+          die Website von Calendly weitergeleitet und Ihre Daten dort
+          verarbeitet.
         </p>
         <p>
-          Rechtsgrundlage für die Weiterleitung ist Art. 6 Abs. 1 lit. f DSGVO.
-          Näheres entnehmen Sie der Datenschutzerklärung von Calendly:{" "}
+          Sofern Sie über unseren Cookie-Banner eingewilligt haben, bereitet Ihr
+          Browser bereits beim Aufruf unserer Seite die spätere Verbindung zu
+          Calendly technisch vor (Preconnect / DNS-Prefetch). Dabei werden
+          lediglich die für den Verbindungsaufbau notwendigen Verbindungsdaten
+          (insbesondere Ihre IP-Adresse) an die Calendly-Server übermittelt;
+          eine Übertragung von Inhalts- oder Formulardaten findet nicht statt.
+          Ohne Einwilligung unterbleibt auch diese Verbindungsvorbereitung.
+        </p>
+        <p>
+          Rechtsgrundlage für die Weiterleitung ist Art. 6 Abs. 1 lit. f DSGVO,
+          für die Verbindungsvorbereitung Ihre Einwilligung nach Art. 6 Abs. 1
+          lit. a DSGVO i. V. m. § 25 Abs. 1 TDDDG. Calendly ist unter dem
+          EU-U.S. Data Privacy Framework zertifiziert. Näheres entnehmen Sie der
+          Datenschutzerklärung von Calendly:{" "}
           <a
             href="https://calendly.com/privacy"
             target="_blank"
@@ -204,8 +216,18 @@ export default function Datenschutz() {
           <li>Recht auf Datenübertragbarkeit (Art. 20 DSGVO)</li>
           <li>Widerspruchsrecht gegen die Verarbeitung (Art. 21 DSGVO)</li>
           <li>
-            Beschwerderecht bei einer Aufsichtsbehörde, in der Regel bei der
-            Landesbeauftragten für Datenschutz und Informationsfreiheit Nordrhein-Westfalen
+            Beschwerderecht bei einer Aufsichtsbehörde. Für uns zuständig ist die
+            Landesbeauftragte für Datenschutz und Informationsfreiheit
+            Nordrhein-Westfalen (LDI NRW), Postfach 20 04 44, 40102 Düsseldorf,{" "}
+            <a
+              href="https://www.ldi.nrw.de"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-accent underline-offset-4 hover:underline"
+            >
+              ldi.nrw.de
+            </a>
+            .
           </li>
         </ul>
         <p>
@@ -232,9 +254,75 @@ export default function Datenschutz() {
         <p>
           Wir speichern personenbezogene Daten nur so lange, wie es für die Erfüllung
           des jeweiligen Zwecks erforderlich ist oder soweit gesetzliche
-          Aufbewahrungspflichten (insbesondere aus Handels- und Steuerrecht,
-          typischerweise 6 bis 10 Jahre) bestehen. Server-Logfiles werden in der
-          Regel nach 14 Tagen automatisch gelöscht.
+          Aufbewahrungspflichten dem entgegenstehen. Konkret:
+        </p>
+        <ul className="list-disc space-y-2 pl-5">
+          <li>
+            <strong>Server-Logfiles:</strong> automatische Löschung nach
+            spätestens 14 Tagen.
+          </li>
+          <li>
+            <strong>Anfragen per E-Mail oder Telefon:</strong> Löschung, sobald
+            die Anfrage abschließend bearbeitet ist und keine Anschluss­kommuni­kation
+            mehr zu erwarten ist, in der Regel nach spätestens 24 Monaten.
+          </li>
+          <li>
+            <strong>Vertrags- und abrechnungsrelevante Korrespondenz:</strong>{" "}
+            Aufbewahrung entsprechend den handels- und steuerrechtlichen
+            Pflichten (§ 257 HGB, § 147 AO), also 6 Jahre für Handelsbriefe und
+            10 Jahre für Buchungsbelege.
+          </li>
+          <li>
+            <strong>Einwilligungs-Nachweise (Cookie-Banner):</strong>{" "}
+            Speicherung Ihrer Entscheidung lokal in Ihrem Browser, bis Sie
+            diese aktiv ändern.
+          </li>
+        </ul>
+      </Section>
+
+      <Section label="Art. 22 DSGVO" heading="Automatisierte Entscheidungsfindung">
+        <p>
+          Auf dieser Website findet keine automatisierte Entscheidungsfindung
+          einschließlich Profiling im Sinne von Art. 22 DSGVO statt. Über
+          Anfragen, Angebote und die Aufnahme einer Geschäfts­beziehung
+          entscheiden wir stets manuell.
+        </p>
+      </Section>
+
+      <Section label="Art. 44 ff. DSGVO" heading="Datenübermittlung in Drittländer">
+        <p>
+          Im Rahmen des Betriebs dieser Website werden personenbezogene Daten an
+          Anbieter mit Sitz in den USA übermittelt. Die Übermittlung erfolgt
+          jeweils auf Grundlage einer Zertifizierung des Empfängers unter dem
+          EU-U.S. Data Privacy Framework (Angemessenheitsbeschluss der EU-Kommission
+          vom 10. Juli 2023, Art. 45 DSGVO):
+        </p>
+        <ul className="list-disc space-y-2 pl-5">
+          <li>
+            <strong>Vercel Inc. (USA)</strong> – Hosting, Speed Insights und
+            (nach Einwilligung) Web Analytics.
+          </li>
+          <li>
+            <strong>Google LLC / Google Ireland Limited</strong> – Verarbeitung
+            eingehender E-Mails über Gmail.
+          </li>
+          <li>
+            <strong>Calendly, LLC (USA)</strong> – Terminbuchung nach Weiter­leitung
+            sowie (nach Einwilligung) Verbindungsvorbereitung.
+          </li>
+        </ul>
+        <p>
+          Eine aktuelle Übersicht der unter dem Data Privacy Framework
+          zertifizierten Unternehmen finden Sie unter{" "}
+          <a
+            href="https://www.dataprivacyframework.gov/list"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-accent underline-offset-4 hover:underline"
+          >
+            dataprivacyframework.gov/list
+          </a>
+          .
         </p>
       </Section>
 
@@ -244,7 +332,7 @@ export default function Datenschutz() {
           Rahmenbedingungen oder die auf unserer Website eingesetzten Dienste
           ändern. Die jeweils aktuelle Fassung finden Sie auf dieser Seite.
         </p>
-        <p className="font-mono text-sm text-fg-secondary">Stand: April 2026</p>
+        <p className="font-mono text-sm text-fg-secondary">Stand: Mai 2026</p>
       </Section>
 
       {/*

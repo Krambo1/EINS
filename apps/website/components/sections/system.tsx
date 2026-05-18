@@ -18,8 +18,9 @@ function CardVisual({ id }: { id: OfferCard["id"] }) {
         alt=""
         width={1080}
         height={737}
+        sizes="(max-width: 768px) 144px, 320px"
         className="absolute inset-0 h-full w-full object-cover"
-        priority
+        loading="lazy"
       />
     );
   }

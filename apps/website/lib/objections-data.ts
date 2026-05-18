@@ -35,7 +35,7 @@ export const OBJECTIONS: Objection[] = [
   },
   {
     q: "Wie genau arbeitet die KI bei der Patienten-Filterung?",
-    a: "Die KI prüft jede Anfrage sofort auf gewünschte Behandlung, Budget-Indikation und Ernsthaftigkeit. Anfragen für niedrigpreisige Standardbehandlungen wie Botox-Auffrischungen oder Laser-Termine bekommen direkt einen Buchungslink in Ihr bestehendes System (Doctolib, samedi, CGM). Hochpreisige Beratungs-Anfragen werden vorqualifiziert und vorbereitet an Ihr Team weitergeleitet, telefonisch oder per WhatsApp. Preisjäger und Spam werden aussortiert, bevor jemand Ihr Team erreicht.",
+    a: "Jede Anfrage durchläuft ein zweistufiges Bewertungssystem: Strukturierte Angaben (Wunschbehandlung, Zeitfenster, Entfernung, Erreichbarkeit, Behandlungs-Erfahrung) werden nach einem objektiven Punkteschema bewertet. Die Freitextangaben der Patient:innen werden zusätzlich durch ein KI-Modell auf Behandlungsabsicht, Dringlichkeit und Ernsthaftigkeit analysiert. Niedrigpreisige Standardbehandlungen wie Botox-Auffrischungen oder Laser-Termine bekommen direkt einen Buchungslink in Ihr bestehendes System (Doctolib, samedi, CGM). Hochpreisige Beratungs-Anfragen werden vorqualifiziert an Ihr Team weitergeleitet. Die finale Qualifizierung bleibt bei Ihrem Praxis-Team.",
   },
   {
     q: "Was, wenn unser Team die vielen Anfragen nicht bewältigen kann?",
@@ -43,6 +43,6 @@ export const OBJECTIONS: Objection[] = [
   },
   {
     q: "Was zählt für Sie als qualifizierte Anfrage?",
-    a: "Eine Anfrage gilt nur dann als qualifiziert, wenn sie alle vier Kriterien erfüllt: 1. Vollständig ausgefülltes Formular mit konkretem Behandlungswunsch. 2. Realistische Budget-Indikation passend zur gewünschten Behandlung. 3. Bereitschaft für ein Beratungsgespräch innerhalb der nächsten 30 Tage. 4. Positive Bewertung durch unsere KI auf Basis eines objektiven Scoring-Systems (Ernsthaftigkeit, Erreichbarkeit, Passung zum Behandlungsangebot). Preisjäger, Spam, Termin-Touristen und Anfragen außerhalb Ihres Behandlungsspektrums fallen automatisch raus und werden nicht an Ihr Team weitergeleitet.",
+    a: "Eine Anfrage gilt nur dann als qualifiziert, wenn sie alle vier Kriterien erfüllt: 1. Vollständig ausgefülltes Formular mit konkretem Behandlungswunsch. 2. Realistische Budget-Indikation passend zur gewünschten Behandlung. 3. Bereitschaft für ein Beratungsgespräch innerhalb der nächsten 30 Tage. 4. Positive Bewertung im Scoring-System: strukturierte Angaben nach objektivem Punkteschema, Freitextangaben KI-gestützt auf Ernsthaftigkeit und Behandlungsabsicht ausgewertet. Preisjäger, Spam, Termin-Touristen und Anfragen außerhalb Ihres Behandlungsspektrums fallen automatisch raus und werden nicht an Ihr Team weitergeleitet.",
   },
 ];

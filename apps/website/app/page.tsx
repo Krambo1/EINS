@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
+import dynamic from "next/dynamic";
 import { Nav } from "@/components/nav";
 import { Footer } from "@/components/footer";
 import { Hero } from "@/components/sections/hero";
-import { Pains } from "@/components/sections/pains";
 import { StatsShowcase } from "@/components/sections/stats-showcase";
 import { System } from "@/components/sections/system";
 import { Offer } from "@/components/sections/offer";
@@ -12,6 +12,12 @@ import { FitCheck } from "@/components/sections/fit-check";
 import { Objections } from "@/components/sections/objections";
 import { FinalCta } from "@/components/sections/final-cta";
 import { OBJECTIONS } from "@/lib/objections-data";
+
+// Pains is the second section but its 3D carousel pulls framer-motion +
+// pointer-drag handlers + IntersectionObserver into the bundle. Server-render
+// it (HTML still streams) but split the JS so it doesn't compete with hero
+// hydration.
+const Pains = dynamic(() => import("@/components/sections/pains").then((m) => ({ default: m.Pains })));
 
 const SITE_URL = "https://eins.ag";
 
@@ -60,7 +66,7 @@ export default function Page() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd) }}
       />
       <div aria-hidden className="pointer-events-none fixed inset-0 -z-10 overflow-hidden bg-bg-primary">
-        <div className="absolute inset-x-0 -top-40 transform-gpu overflow-hidden blur-3xl sm:-top-80">
+        <div className="absolute inset-x-0 -top-40 transform-gpu overflow-hidden blur-2xl sm:blur-3xl sm:-top-80">
           <div
             style={{
               clipPath:
@@ -70,7 +76,7 @@ export default function Page() {
             className="relative left-[calc(50%-11rem)] aspect-[1155/678] w-[36.125rem] max-w-none -translate-x-1/2 rotate-[30deg] opacity-30 sm:left-[calc(50%-30rem)] sm:w-[72.1875rem]"
           />
         </div>
-        <div className="absolute inset-x-0 top-[calc(100%-13rem)] transform-gpu overflow-hidden blur-3xl sm:top-[calc(100%-30rem)]">
+        <div className="absolute inset-x-0 top-[calc(100%-13rem)] transform-gpu overflow-hidden blur-2xl sm:blur-3xl sm:top-[calc(100%-30rem)]">
           <div
             style={{
               clipPath:

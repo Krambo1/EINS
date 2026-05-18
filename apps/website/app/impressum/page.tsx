@@ -38,7 +38,7 @@ export default function Impressum() {
 
       <h1 className="display-m">Impressum</h1>
 
-      <Section label="§ 5 TMG" heading="Angaben zum Anbieter">
+      <Section label="§ 5 DDG" heading="Angaben zum Anbieter">
         <p>Karam Issa</p>
         <p>Rösrather Straße 172</p>
         <p>51107 Köln</p>
@@ -88,16 +88,17 @@ export default function Impressum() {
           .
         </p>
         <p>
-          Wir sind nicht bereit und nicht verpflichtet, an Streitbeilegungsverfahren
-          vor einer Verbraucherschlichtungsstelle teilzunehmen.
+          Hinweis nach § 36 VSBG: Wir sind nicht bereit und nicht verpflichtet, an
+          Streitbeilegungsverfahren vor einer Verbraucherschlichtungsstelle
+          teilzunehmen.
         </p>
       </Section>
 
       <Section label="Haftung" heading="Haftung für Inhalte">
         <p>
-          Als Diensteanbieter sind wir gemäß § 7 Abs. 1 TMG für eigene Inhalte auf
+          Als Diensteanbieter sind wir gemäß § 7 Abs. 1 DDG für eigene Inhalte auf
           diesen Seiten nach den allgemeinen Gesetzen verantwortlich. Nach §§ 8 bis
-          10 TMG sind wir als Diensteanbieter jedoch nicht verpflichtet, übermittelte
+          10 DDG sind wir als Diensteanbieter jedoch nicht verpflichtet, übermittelte
           oder gespeicherte fremde Informationen zu überwachen oder nach Umständen zu
           forschen, die auf eine rechtswidrige Tätigkeit hinweisen.
         </p>

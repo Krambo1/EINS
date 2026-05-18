@@ -2,6 +2,39 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Self-hosted display font. Bold (700) is preloaded in layout.tsx because it's
+   used by the hero H1 (display-xl → font-weight 600 → resolves to nearest
+   heavier face = 700). The other weights are loaded on first use via swap so
+   they don't compete for bandwidth with the LCP path. */
+@font-face {
+  font-family: "NeueHaasDisplay";
+  src: url("/fonts/NeueHaasDisplay-Bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "NeueHaasDisplay";
+  src: url("/fonts/NeueHaasDisplay-Mediu.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "NeueHaasDisplay";
+  src: url("/fonts/NeueHaasDisplay-Roman.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "NeueHaasDisplay";
+  src: url("/fonts/NeueHaasDisplay-Light.woff2") format("woff2");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   --bg-primary: #ffffff;
   --bg-secondary: #f5f5f7;
@@ -13,6 +46,7 @@
   --accent-glow: rgba(88, 186, 181, 0.3);
   --border: #e4e4e7;
   --border-hover: #d1d1d6;
+  --font-display: "NeueHaasDisplay", system-ui, sans-serif;
   --font-sans: var(--font-display);
   --font-mono: var(--font-display);
 }

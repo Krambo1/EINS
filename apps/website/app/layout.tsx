@@ -1,20 +1,8 @@
 import type { Metadata } from "next";
-import localFont from "next/font/local";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { CookieConsent } from "@/components/cookie-consent";
 import { CONTACT_EMAIL, CONTACT_PHONE } from "@/lib/constants";
-
-const display = localFont({
-  src: [
-    { path: "../public/fonts/NeueHaasDisplay-Light.woff2",  weight: "300", style: "normal" },
-    { path: "../public/fonts/NeueHaasDisplay-Roman.woff2",  weight: "400", style: "normal" },
-    { path: "../public/fonts/NeueHaasDisplay-Mediu.woff2",  weight: "500", style: "normal" },
-    { path: "../public/fonts/NeueHaasDisplay-Bold.woff2",   weight: "700", style: "normal" },
-  ],
-  variable: "--font-display",
-  display: "swap",
-});
 
 const SITE_URL = "https://eins.ag";
 
@@ -134,8 +122,18 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="de" className={display.variable}>
+    <html lang="de">
       <head>
+        {/* Preload the single font weight used by the LCP hero H1 (display-xl → 600 → falls
+            back to the Bold 700 face). Other weights load via @font-face in globals.css
+            with display:swap, no preload — keeps the LCP path bandwidth-clear. */}
+        <link
+          rel="preload"
+          href="/fonts/NeueHaasDisplay-Bold.woff2"
+          as="font"
+          type="font/woff2"
+          crossOrigin="anonymous"
+        />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}

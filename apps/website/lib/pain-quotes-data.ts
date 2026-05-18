@@ -11,7 +11,7 @@ export const PAIN_QUOTES: PainQuote[] = [
   {
     id: 1,
     quote: "Drei Agenturen in vier Jahren. Keine hat wirklich geliefert.",
-    body: "Das Muster ist immer dasselbe: Standard-Funnel, austauschbare Reels, kein System dahinter. Es liegt nicht an Ihnen — es liegt am Modell.",
+    body: "Jedes Mal die gleichen Vorlagen, die gleichen Videos, die gleichen Versprechen. Am Ende bleibt nichts in meiner Praxis hängen.",
     who: "Dr. M.",
     where: "Düsseldorf",
     chapter: "Agenturen",
@@ -19,7 +19,7 @@ export const PAIN_QUOTES: PainQuote[] = [
   {
     id: 2,
     quote: "40.000 € im Jahr für Werbung. Und ich weiß bis heute nicht, was es bringt.",
-    body: "Budget ohne System verbrennt. Sechzig Prozent fließen in Reichweite, die nie zum Erstgespräch wird — und niemand sagt Ihnen, welche.",
+    body: "Das Geld geht jeden Monat raus. Aber niemand kann mir sagen, welche Werbung wirklich neue Patienten in meine Praxis bringt.",
     who: "Dr. S.",
     where: "Köln",
     chapter: "Werbebudget",
@@ -27,7 +27,7 @@ export const PAIN_QUOTES: PainQuote[] = [
   {
     id: 3,
     quote: "Mein Kalender ist voll. Nur eben mit den falschen Patienten.",
-    body: "Mehr Anfragen lösen das Problem nicht — sie verschärfen es. Was Sie brauchen, ist Qualifizierung vor dem ersten Anruf, nicht im Beratungsgespräch.",
+    body: "Mehr Anfragen helfen mir nichts, wenn die meisten gar nicht zu meiner Praxis passen. Mein Team verbringt Stunden mit Gesprächen, aus denen am Ende keine Behandlung wird.",
     who: "Dr. K.",
     where: "Essen",
     chapter: "Patientenmix",
@@ -35,7 +35,7 @@ export const PAIN_QUOTES: PainQuote[] = [
   {
     id: 4,
     quote: "Marketing ist mein zweiter Vollzeitjob geworden.",
-    body: "Wenn der Auftritt nur funktioniert, solange Sie selbst Reels drehen, ist es kein System. Es ist eine Belastung — und sie wird größer, nicht kleiner.",
+    body: "Abends sitze ich am Schreibtisch und drehe Videos für Instagram. Sobald ich damit aufhöre, ist auch meine Praxis im Internet nicht mehr zu sehen. So kann das auf Dauer keiner durchhalten.",
     who: "Dr. L.",
     where: "Bonn",
     chapter: "Engpass",
@@ -43,7 +43,7 @@ export const PAIN_QUOTES: PainQuote[] = [
   {
     id: 5,
     quote: "Ich verstehe nicht genau, was meine Agentur eigentlich macht.",
-    body: "Abhängigkeit entsteht, wenn die Mechanik in einer Black Box liegt. Zugänge, Reports, Übergabe — bei uns gehört das von Tag eins Ihnen.",
+    body: "Ich bezahle jeden Monat, ohne wirklich zu sehen, was passiert. Wenn die Agentur morgen weg wäre, hätte ich in meiner eigenen Praxis nichts in der Hand.",
     who: "Dr. T.",
     where: "Köln",
     chapter: "Abhängigkeit",

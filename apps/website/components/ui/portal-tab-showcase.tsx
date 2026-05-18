@@ -195,7 +195,7 @@ export function PortalTabShowcase() {
           {outgoing && outgoing.id !== current.id && (
             <ShowcaseImage key={outgoing.id} tab={outgoing} state="leaving" />
           )}
-          <ShowcaseImage key={current.id} tab={current} state="entering" priority />
+          <ShowcaseImage key={current.id} tab={current} state="entering" />
 
           <div className="group absolute inset-0">
             <button

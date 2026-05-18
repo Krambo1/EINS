@@ -83,7 +83,7 @@ export const OFFER_CARDS: OfferCard[] = [
     id: "ki-sortier",
     title: "KI sortiert Anfragen vor",
     teaser:
-      "KI prüft jede Anfrage, bevor sie Ihr Team erreicht. Preisjäger und Spam fliegen raus.",
+      "Preisjäger und Spam werden klar markiert, Ihr Team sieht sofort, welche Anfragen ernst gemeint sind",
     bullets: [
       "KI prüft jede Anfrage, bevor sie Ihr Team erreicht.",
       "Preisjäger und Spam fliegen raus. Ernsthafte Patienten kommen mit Wunschbehandlung und Wunschtermin.",
