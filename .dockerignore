@@ -1,0 +1,45 @@
+# Keep the build context lean. apps/portal/Dockerfile copies only the
+# files it needs explicitly, but a small context still speeds up
+# `docker build` and avoids accidentally shipping local secrets.
+
+# Dependency caches
+**/node_modules
+**/.pnpm-store
+
+# Build artifacts
+**/.next
+**/.turbo
+**/dist
+**/build
+**/.vercel
+
+# Local env + secrets (image gets env at run time via --env-file)
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Git + worktrees
+.git
+.gitignore
+**/.gitkeep
+.claude/worktrees
+
+# Editor / tooling
+.vscode
+.idea
+**/.DS_Store
+**/*.log
+
+# Project metadata that Docker doesn't need
+docs
+**/.claude
+**/storage
+**/playwright-report
+**/test-results
+**/coverage
+
+# Other apps in the monorepo — the worker only needs portal + ui.
+# (Leaving these in would balloon the context with website + clinic-landing
+# source and node_modules entries we'd just throw away.)
+apps/website
+apps/clinic-landing

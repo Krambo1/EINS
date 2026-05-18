@@ -5,13 +5,28 @@
  * We load `.env.local` first (so dev overrides win), then `.env` for any
  * defaults that weren't overridden. Production should set env vars via
  * the process manager — neither file is expected to exist there.
+ *
+ * `dotenv` is a devDependency, so it's absent from the worker's
+ * production image (built via `pnpm deploy --prod`). The dynamic import
+ * lets the file no-op gracefully there instead of crashing at boot.
  */
-import { config } from "dotenv";
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 
 const cwd = process.cwd();
-for (const file of [".env.local", ".env"]) {
-  const p = path.join(cwd, file);
-  if (existsSync(p)) config({ path: p, override: false });
+const candidates = [".env.local", ".env"]
+  .map((f) => path.join(cwd, f))
+  .filter((p) => existsSync(p));
+
+if (candidates.length > 0) {
+  try {
+    const localRequire = createRequire(import.meta.url);
+    const { config } = localRequire("dotenv") as typeof import("dotenv");
+    for (const p of candidates) config({ path: p, override: false });
+  } catch {
+    // dotenv isn't installed — production image path. Env vars are
+    // expected to be set by the orchestrator (Docker --env-file, k8s
+    // Secret, Vercel, etc.).
+  }
 }
