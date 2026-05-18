@@ -39,6 +39,8 @@ export interface TrafficLightCardProps {
   diagnosis: string;
   /** Optional action node — usually a <PrimaryAction> or <Button> */
   action?: React.ReactNode;
+  /** Tighter padding + smaller icon/text. Use in dense layouts (Detail-Mode dashboard). */
+  compact?: boolean;
   className?: string;
 }
 
@@ -55,17 +57,19 @@ export function TrafficLightCard({
   title,
   diagnosis,
   action,
+  compact,
   className,
 }: TrafficLightCardProps) {
   const cfg = toneConfig[tone];
   const Icon = cfg.Icon;
 
   return (
-    <div className={cn(cfg.card, className)}>
-      <div className="flex items-start gap-4">
+    <div className={cn(cfg.card, compact && "opa-card--compact", className)}>
+      <div className={cn("flex items-start", compact ? "gap-3" : "gap-4")}>
         <div
           className={cn(
-            "grid h-12 w-12 shrink-0 place-items-center rounded-full",
+            "grid shrink-0 place-items-center rounded-full",
+            compact ? "h-8 w-8" : "h-12 w-12",
             tone === "good" && "bg-tone-good text-white",
             tone === "warn" && "bg-tone-warn text-white",
             tone === "bad" && "bg-tone-bad text-white",
@@ -73,17 +77,35 @@ export function TrafficLightCard({
           )}
           aria-hidden="true"
         >
-          <Icon className="h-6 w-6" />
+          <Icon className={compact ? "h-4 w-4" : "h-6 w-6"} />
         </div>
-        <div className="flex-1 space-y-1">
-          <p className="text-sm font-semibold uppercase tracking-wide text-fg-secondary">
+        <div className={cn("min-w-0 flex-1", compact ? "space-y-0.5" : "space-y-1")}>
+          <p
+            className={cn(
+              "font-semibold uppercase tracking-wide text-fg-secondary",
+              compact ? "text-[11px]" : "text-sm"
+            )}
+          >
             {toneLabel ?? cfg.label}
           </p>
-          <h3 className="opa-h3 text-fg-primary">{title}</h3>
-          <p className="opa-body">{diagnosis}</p>
+          <h3
+            className={cn(
+              "text-fg-primary",
+              compact ? "text-[15px] font-semibold leading-snug" : "opa-h3"
+            )}
+          >
+            {title}
+          </h3>
+          <p className={compact ? "text-[13px] text-fg-primary leading-snug" : "opa-body"}>
+            {diagnosis}
+          </p>
         </div>
       </div>
-      {action && <div className="mt-5 flex justify-end">{action}</div>}
+      {action && (
+        <div className={cn("flex justify-end", compact ? "mt-2" : "mt-5")}>
+          {action}
+        </div>
+      )}
     </div>
   );
 }

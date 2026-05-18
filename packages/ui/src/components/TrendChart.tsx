@@ -34,6 +34,18 @@ export type TrendChartValueFormat =
 
 export interface TrendChartProps {
   data: TrendChartPoint[];
+  /**
+   * Optional comparison series rendered as a low-contrast grey line behind
+   * `data`. Plotted at the same x positions as `data` (index-aligned, so
+   * point N of comparison sits at point N of data), but contributes to the
+   * shared y-axis so the two curves are visually comparable. Typically the
+   * previous equivalent period (last week vs this week, last month vs this
+   * month). The hover tooltip surfaces the comparison value and its own
+   * date alongside the primary value.
+   */
+  comparisonData?: TrendChartPoint[];
+  /** Short label for the comparison series in the tooltip (e.g. "Vorperiode"). Default "Vorperiode". */
+  comparisonLabel?: string;
   tone?: TrendChartTone;
   height?: number;
   className?: string;
@@ -41,6 +53,18 @@ export interface TrendChartProps {
   filled?: boolean;
   /** Render axis labels (date x-axis ticks, value y-axis ticks). Default false. */
   showAxes?: boolean;
+  /**
+   * When `showAxes` is on, set to `false` to hide just the y-axis tick labels
+   * while keeping the x-axis date ticks. Useful on dashboard tiles where the
+   * big headline value already conveys the magnitude. Default `true`.
+   */
+  showYAxis?: boolean;
+  /**
+   * Render subtle gridlines aligned with the x-tick positions and at the
+   * top, middle, and bottom y. Default false. Implies `showAxes` styling
+   * for label placement but doesn't force `showAxes`.
+   */
+  showGrid?: boolean;
   /**
    * Format value shown in tooltip + axis labels. Defaults to de-DE locale.
    * Server components must use `valueFormat` instead — functions can't be
@@ -162,6 +186,25 @@ function pickTickIndices(len: number, max = 5): number[] {
 }
 
 /**
+ * Pick a "nice" axis max ≥ the data max, rounded to 1/2/5 × 10^k so the
+ * y-axis ticks land on readable round numbers (3, 5, 10, 20, 50, 100, …)
+ * instead of the raw data peak.
+ */
+function niceAxisMax(rawMax: number): number {
+  if (!Number.isFinite(rawMax) || rawMax <= 0) return 1;
+  const exp = Math.floor(Math.log10(rawMax));
+  const pow = Math.pow(10, exp);
+  const norm = rawMax / pow;
+  let niceNorm: number;
+  if (norm <= 1) niceNorm = 1;
+  else if (norm <= 2) niceNorm = 2;
+  else if (norm <= 2.5) niceNorm = 2.5;
+  else if (norm <= 5) niceNorm = 5;
+  else niceNorm = 10;
+  return niceNorm * pow;
+}
+
+/**
  * Interactive line/area chart with stock-chart-style hover behavior.
  *
  * - Renders the same monotone-cubic curve + gradient fill as `Sparkline` so
@@ -179,11 +222,15 @@ function pickTickIndices(len: number, max = 5): number[] {
  */
 export function TrendChart({
   data,
+  comparisonData,
+  comparisonLabel = "Vorperiode",
   tone = "accent",
   height = 64,
   className,
   filled = true,
   showAxes = false,
+  showYAxis = true,
+  showGrid = false,
   formatValue,
   valueFormat,
   label,
@@ -225,22 +272,75 @@ export function TrendChart({
       return null;
     }
     const values = data.map((d) => d.value);
-    const min = Math.min(...values);
-    const max = Math.max(...values);
+    // Include comparison values in the y-axis fit so the two curves render
+    // on the same scale — otherwise a much-larger prior period would be
+    // visually flattened against the bottom (or worse, clip above the top).
+    const cmpValues =
+      comparisonData && comparisonData.length > 0
+        ? comparisonData.map((d) => d.value)
+        : [];
+    const rawMax = Math.max(...values, ...cmpValues, 0);
+    const min = 0;
+    const max = niceAxisMax(rawMax);
     const range = max - min || 1;
     const width = Math.max(data.length * 4, 80);
+    // Single-point data — pad to two points at the same y so the line spans
+    // the full plot area instead of collapsing to a dot at x=0.
+    const isSinglePoint = data.length === 1;
     const stepX = data.length > 1 ? width / (data.length - 1) : width;
-    const points = data.map((d, i) => ({
-      x: i * stepX,
-      y: height - ((d.value - min) / range) * height,
-    }));
+    const toY = (v: number) => height - ((v - min) / range) * height;
+    const points = isSinglePoint
+      ? (() => {
+          const y = toY(data[0].value);
+          return [
+            { x: 0, y },
+            { x: width, y },
+          ];
+        })()
+      : data.map((d, i) => ({ x: i * stepX, y: toY(d.value) }));
     const { move, segments } = monotoneCubicPath(points);
     const linePath = move + segments;
     const first = points[0];
     const last = points[points.length - 1];
     const areaPath = `M0,${height.toFixed(2)} L${first.x.toFixed(2)},${first.y.toFixed(2)}${segments} L${last.x.toFixed(2)},${height.toFixed(2)} Z`;
-    return { points, linePath, areaPath, width, min, max };
-  }, [data, height]);
+
+    // Comparison line: plotted at the current series' x positions, indexed
+    // pairwise (point N of comparison sits at point N of data). If the two
+    // lengths differ we truncate to the shorter — common when the prior
+    // window is a partial period or includes/excludes a leap day.
+    let comparisonPoints: { x: number; y: number }[] | null = null;
+    let comparisonPath: string | null = null;
+    if (comparisonData && comparisonData.length > 0) {
+      const len = Math.min(data.length, comparisonData.length);
+      if (len === 1) {
+        const y = toY(comparisonData[0].value);
+        comparisonPoints = [
+          { x: 0, y },
+          { x: width, y },
+        ];
+      } else if (len > 1) {
+        const cmpStepX = data.length > 1 ? width / (data.length - 1) : width;
+        comparisonPoints = comparisonData
+          .slice(0, len)
+          .map((d, i) => ({ x: i * cmpStepX, y: toY(d.value) }));
+      }
+      if (comparisonPoints && comparisonPoints.length > 0) {
+        const { move: cmove, segments: cseg } = monotoneCubicPath(comparisonPoints);
+        comparisonPath = cmove + cseg;
+      }
+    }
+
+    return {
+      points,
+      linePath,
+      areaPath,
+      width,
+      min,
+      max,
+      comparisonPath,
+      comparisonPoints,
+    };
+  }, [data, comparisonData, height]);
 
   if (!geom) {
     return (
@@ -253,6 +353,8 @@ export function TrendChart({
   }
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    // Pointer handler lives on the plot-area div (the flex-1 child), so the
+    // rect IS the plot area — no gutter offset to subtract.
     const rect = e.currentTarget.getBoundingClientRect();
     if (rect.width <= 0 || data.length === 0) return;
     const ratio = (e.clientX - rect.left) / rect.width;
@@ -271,131 +373,237 @@ export function TrendChart({
   const activeData = activeIdx !== null ? data[activeIdx] : null;
   const activeYPct =
     activePoint != null ? (activePoint.y / Math.max(1, height)) * 100 : 0;
+  const activeComparisonData =
+    activeIdx !== null && comparisonData && activeIdx < comparisonData.length
+      ? comparisonData[activeIdx]
+      : null;
+  const activeComparisonPoint =
+    activeIdx !== null &&
+    geom?.comparisonPoints &&
+    activeIdx < geom.comparisonPoints.length
+      ? geom.comparisonPoints[activeIdx]
+      : null;
+  const activeComparisonYPct =
+    activeComparisonPoint != null
+      ? (activeComparisonPoint.y / Math.max(1, height)) * 100
+      : 0;
 
-  const xTickIdx = showAxes ? pickTickIndices(data.length, 5) : [];
+  const xTickIdx = showAxes || showGrid ? pickTickIndices(data.length, 5) : [];
+  // Y-axis tick fractions from bottom (0) to top (max). 5 ticks → quarters.
+  const yTickFractions = [0, 0.25, 0.5, 0.75, 1];
+  // Reserve room on the left for y-axis labels when axes are shown.
+  const yAxisLabelWidth = showAxes && showYAxis ? 28 : 0;
 
   return (
-    <div className={cn("flex flex-col gap-1", className)}>
-      <div
-        className="relative w-full select-none touch-none"
-        style={{ height }}
-        onPointerMove={handlePointerMove}
-        onPointerLeave={handlePointerLeave}
-        onPointerCancel={handlePointerLeave}
-        role="img"
-        aria-label={ariaLabel ?? label}
-      >
-        <svg
-          viewBox={`0 0 ${geom.width} ${height}`}
-          preserveAspectRatio="none"
-          className="absolute inset-0 h-full w-full overflow-visible pointer-events-none"
-          aria-hidden
+    <div className={cn("flex w-full max-w-full flex-col gap-1", className)}>
+      <div className="flex w-full" style={{ height }}>
+        {/* Y-axis gutter — fixed-width sibling holding the tick labels.
+            Dedupe consecutive duplicate labels (e.g. "0 €" / "0 €" when the
+            data range rounds to the same formatted value) so the gutter
+            doesn't show repeating ticks. */}
+        {showAxes && showYAxis && (() => {
+          const seen = new Set<string>();
+          const ticks = yTickFractions
+            .map((t) => ({ t, v: geom.min + (geom.max - geom.min) * t }))
+            .map(({ t, v }) => ({ t, v, text: fmtValue(v) }))
+            .filter(({ text }) => {
+              if (seen.has(text)) return false;
+              seen.add(text);
+              return true;
+            });
+          return (
+            <div
+              aria-hidden
+              className="relative shrink-0 font-mono text-[10px] tabular-nums text-fg-tertiary"
+              style={{ width: yAxisLabelWidth, height }}
+            >
+              {ticks.map(({ t, text }) => (
+                <span
+                  key={`yl-${t}`}
+                  className="absolute right-1 -translate-y-1/2 whitespace-nowrap"
+                  style={{ top: `${(1 - t) * 100}%` }}
+                >
+                  {text}
+                </span>
+              ))}
+            </div>
+          );
+        })()}
+        {/* Plot area — flex-1 child, owns the SVG + pointer handler. */}
+        <div
+          className="relative min-w-0 flex-1 select-none touch-none"
+          style={{ height }}
+          onPointerMove={handlePointerMove}
+          onPointerLeave={handlePointerLeave}
+          onPointerCancel={handlePointerLeave}
+          role="img"
+          aria-label={ariaLabel ?? label}
         >
-          {filled && (
-            <>
-              <defs>
-                <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-                  <stop
-                    offset="0%"
-                    style={{ stopColor: stroke[tone], stopOpacity: 0.35 }}
-                  />
-                  <stop
-                    offset="100%"
-                    style={{ stopColor: stroke[tone], stopOpacity: 0.04 }}
-                  />
-                </linearGradient>
-              </defs>
-              <path d={geom.areaPath} fill={`url(#${gradId})`} stroke="none" />
-            </>
-          )}
-          <path
-            d={geom.linePath}
-            fill="none"
-            stroke={stroke[tone]}
-            strokeWidth={1.5}
-            strokeLinejoin="round"
-            strokeLinecap="round"
-            vectorEffect="non-scaling-stroke"
-          />
-        </svg>
-
-        {/* Y-axis tick labels (min/max), overlay so they never affect path
-            geometry. Only when axes are enabled. */}
-        {showAxes && (
-          <>
-            <span className="pointer-events-none absolute right-0 top-0 -translate-y-1/2 rounded bg-bg-primary/80 px-1 font-mono text-[10px] tabular-nums text-fg-tertiary">
-              {fmtValue(geom.max)}
-            </span>
-            <span className="pointer-events-none absolute right-0 bottom-0 translate-y-1/2 rounded bg-bg-primary/80 px-1 font-mono text-[10px] tabular-nums text-fg-tertiary">
-              {fmtValue(geom.min)}
-            </span>
-          </>
-        )}
-
-        {/* Crosshair line */}
-        {activeIdx !== null && (
-          <span
+          <svg
+            viewBox={`0 0 ${geom.width} ${height}`}
+            preserveAspectRatio="none"
+            className="block h-full w-full pointer-events-none"
             aria-hidden
-            className="pointer-events-none absolute top-0 bottom-0 w-px bg-fg-tertiary/45"
-            style={{ left: `${activePct}%` }}
-          />
-        )}
-
-        {/* Focus dot */}
-        {activeIdx !== null && activePoint && (
-          <span
-            aria-hidden
-            className="pointer-events-none absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full ring-[1.5px] ring-bg-primary"
-            style={{
-              left: `${activePct}%`,
-              top: `${activeYPct}%`,
-              backgroundColor: stroke[tone],
-            }}
-          />
-        )}
-
-        {/* Tooltip — clamped so it doesn't overflow the chart edges */}
-        {activeIdx !== null && activeData && (
-          <div
-            className="pointer-events-none absolute z-10 whitespace-nowrap rounded-md border border-border bg-bg-secondary px-3 py-2 shadow-lg"
-            style={{
-              left: `${activePct}%`,
-              top: 0,
-              transform: `translate(${activePct < 15 ? "0" : activePct > 85 ? "-100%" : "-50%"}, calc(-100% - 8px))`,
-            }}
           >
-            <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
-              {formatTooltipDate(activeData.date, fmtDateLong)}
+            {showGrid && (
+              <g stroke="var(--border)" strokeWidth={1} vectorEffect="non-scaling-stroke" opacity={0.6}>
+                {yTickFractions.map((t) => (
+                  <line
+                    key={`h${t}`}
+                    x1={0}
+                    x2={geom.width}
+                    y1={(1 - t) * height}
+                    y2={(1 - t) * height}
+                  />
+                ))}
+              </g>
+            )}
+            {filled && (
+              <>
+                <defs>
+                  <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                    <stop
+                      offset="0%"
+                      style={{ stopColor: stroke[tone], stopOpacity: 0.35 }}
+                    />
+                    <stop
+                      offset="100%"
+                      style={{ stopColor: stroke[tone], stopOpacity: 0.04 }}
+                    />
+                  </linearGradient>
+                </defs>
+                <path d={geom.areaPath} fill={`url(#${gradId})`} stroke="none" />
+              </>
+            )}
+            {/* Comparison line — drawn after the fill but before the main
+                line so it sits behind without being masked by the gradient. */}
+            {geom.comparisonPath && (
+              <path
+                d={geom.comparisonPath}
+                fill="none"
+                stroke="var(--fg-tertiary)"
+                strokeOpacity={0.55}
+                strokeWidth={1.25}
+                strokeDasharray="3 3"
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            )}
+            <path
+              d={geom.linePath}
+              fill="none"
+              stroke={stroke[tone]}
+              strokeWidth={1.5}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          </svg>
+
+          {/* Crosshair line — relative to plot area, no gutter offset. */}
+          {activeIdx !== null && (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute top-0 bottom-0 w-px bg-fg-tertiary/45"
+              style={{ left: `${activePct}%` }}
+            />
+          )}
+
+          {/* Comparison focus dot — drawn beneath the main dot so the main
+              series stays visually dominant. */}
+          {activeIdx !== null && activeComparisonPoint && (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-fg-tertiary opacity-70 ring-[1.5px] ring-bg-primary"
+              style={{
+                left: `${activePct}%`,
+                top: `${activeComparisonYPct}%`,
+              }}
+            />
+          )}
+
+          {/* Focus dot */}
+          {activeIdx !== null && activePoint && (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full ring-[1.5px] ring-bg-primary"
+              style={{
+                left: `${activePct}%`,
+                top: `${activeYPct}%`,
+                backgroundColor: stroke[tone],
+              }}
+            />
+          )}
+
+          {/* Tooltip — clamped so it doesn't overflow the chart edges */}
+          {activeIdx !== null && activeData && (
+            <div
+              className="pointer-events-none absolute z-10 whitespace-nowrap rounded-md border border-border bg-bg-secondary px-3 py-2 shadow-lg"
+              style={{
+                left: `${activePct}%`,
+                top: 0,
+                transform: `translate(${activePct < 15 ? "0" : activePct > 85 ? "-100%" : "-50%"}, calc(-100% - 8px))`,
+              }}
+            >
+              <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
+                {formatTooltipDate(activeData.date, fmtDateLong)}
+              </div>
+              <div className="mt-1 font-display text-base font-semibold tabular-nums text-fg-primary">
+                {label ? <span className="font-normal text-fg-secondary">{label}: </span> : null}
+                {fmtValue(activeData.value)}
+              </div>
+              {activeComparisonData && (
+                <div className="mt-1.5 flex items-center gap-2 border-t border-border/60 pt-1.5 text-xs tabular-nums text-fg-secondary">
+                  <span
+                    aria-hidden
+                    className="inline-block h-[2px] w-3 rounded-full bg-fg-tertiary"
+                    style={{
+                      backgroundImage:
+                        "repeating-linear-gradient(90deg, var(--fg-tertiary) 0 3px, transparent 3px 6px)",
+                    }}
+                  />
+                  <span>{comparisonLabel}:</span>
+                  <span className="text-fg-primary">
+                    {fmtValue(activeComparisonData.value)}
+                  </span>
+                  <span className="text-fg-tertiary">
+                    · {formatTooltipDate(activeComparisonData.date, fmtDateLong)}
+                  </span>
+                </div>
+              )}
             </div>
-            <div className="mt-1 font-display text-base font-semibold tabular-nums text-fg-primary">
-              {label ? <span className="font-normal text-fg-secondary">{label}: </span> : null}
-              {fmtValue(activeData.value)}
-            </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
-      {/* X-axis date ticks */}
+      {/* X-axis date ticks — sit below both gutter and plot area, so we offset
+          by the gutter width to align them with the plot. */}
       {showAxes && data.length > 1 && (
-        <div
-          aria-hidden
-          className="relative h-3 text-[10px] font-mono tabular-nums text-fg-tertiary"
-        >
-          {xTickIdx.map((i) => {
-            const pct = (i / denom) * 100;
-            return (
-              <span
-                key={i}
-                className="absolute top-0"
-                style={{
-                  left: `${pct}%`,
-                  transform: `translateX(${pct < 5 ? "0" : pct > 95 ? "-100%" : "-50%"})`,
-                }}
-              >
-                {formatTickDate(data[i].date, fmtDateShort)}
-              </span>
-            );
-          })}
+        <div className="flex w-full">
+          {yAxisLabelWidth > 0 && (
+            <div className="shrink-0" style={{ width: yAxisLabelWidth }} aria-hidden />
+          )}
+          <div
+            aria-hidden
+            className="relative min-w-0 flex-1 h-3 text-[10px] font-mono tabular-nums text-fg-tertiary"
+          >
+            {xTickIdx.map((i) => {
+              const pct = (i / denom) * 100;
+              return (
+                <span
+                  key={i}
+                  className="absolute top-0"
+                  style={{
+                    left: `${pct}%`,
+                    transform: `translateX(${pct < 5 ? "0" : pct > 95 ? "-100%" : "-50%"})`,
+                  }}
+                >
+                  {formatTickDate(data[i].date, fmtDateShort)}
+                </span>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

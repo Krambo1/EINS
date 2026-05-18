@@ -1,9 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Info } from "lucide-react";
 import { cn } from "../lib/cn";
-import { Popover, PopoverTrigger, PopoverContent } from "./Popover";
+import { ExplainerPopover } from "./ExplainerPopover";
 
 export type MetricTone = "good" | "warn" | "bad" | "neutral";
 
@@ -79,22 +78,14 @@ export function SimpleMetric({
         </div>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         <p className="text-xl font-semibold text-fg-primary md:text-2xl">
           {label}
         </p>
         {detailedExplanation && (
-          <Popover>
-            <PopoverTrigger
-              aria-label={`Erklärung für ${label}`}
-              className="opa-focus-ring grid h-9 w-9 shrink-0 place-items-center rounded-full text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary"
-            >
-              <Info className="h-5 w-5" />
-            </PopoverTrigger>
-            <PopoverContent align="start" className="text-base leading-relaxed">
-              {detailedExplanation}
-            </PopoverContent>
-          </Popover>
+          <ExplainerPopover size="md" ariaLabel={`Erklärung für ${label}`}>
+            {detailedExplanation}
+          </ExplainerPopover>
         )}
       </div>
 

@@ -18,6 +18,12 @@ export { Switch } from "./components/Switch";
 export { Separator } from "./components/Separator";
 export { Skeleton } from "./components/Skeleton";
 export {
+  Avatar,
+  initialsOf,
+  type AvatarProps,
+  type AvatarSize,
+} from "./components/Avatar";
+export {
   Dialog,
   DialogTrigger,
   DialogPortal,
@@ -83,7 +89,6 @@ export {
 } from "./components/SimpleMetric";
 export { ExplainerPopover } from "./components/ExplainerPopover";
 export { PrimaryAction } from "./components/PrimaryAction";
-export { DetailToggle, type UiMode } from "./components/DetailToggle";
 export { TrafficLightCard } from "./components/TrafficLightCard";
 export { ProgressGoal } from "./components/ProgressGoal";
 export { EmptyState } from "./components/EmptyState";
@@ -98,7 +103,14 @@ export {
 } from "./components/TrendChart";
 export {
   MetricTile,
+  MetricStatusBadge,
+  metricStatusFromTone,
+  toneDarkColor,
   type MetricTileProps,
   type MetricTileTone,
+  type MetricTileSize,
   type MetricDeltaInput,
+  type MetricProgressInput,
+  type MetricStatus,
+  type MetricStatusBadgeProps,
 } from "./components/MetricTile";
