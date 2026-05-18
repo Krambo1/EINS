@@ -14,6 +14,14 @@ import type { Clinic } from "@/lib/types";
  */
 export const templateClinic: Clinic = {
   slug: "_template",
+  // Real clinics: set to the UUID of the matching portal `clinics` row.
+  // Empty string disables the portal mirror — leaving the template as-is
+  // means the demo LP doesn't try to talk to the portal.
+  portalClinicId: "c7d88b71-72da-4920-b939-5158b13d3449",
+  // Real clinics: set to the env var name holding the per-clinic HMAC secret,
+  // e.g. "PORTAL_INTAKE_SECRET_PRAXIS_MUELLER_MUENCHEN". Same plaintext lives
+  // encrypted in the portal's `platform_credentials` row with platform='intake'.
+  portalIntakeSecretEnv: "PORTAL_INTAKE_SECRET_TEMPLATE",
   domains: [], // Template never receives a custom domain.
   name: "[Praxis-Name]",
   logo: "/clinics/_template/logo.svg",
@@ -131,7 +139,10 @@ export const templateClinic: Clinic = {
     phoneDisplay: "+49 000 0000000",
     whatsappE164: "49000000000",
     email: "info@example.com",
-    bookingUrl: "https://cal.com/example/beratung",
+    // Real clinics: set to the Cal.com / Doctolib / etc. embed URL to surface a
+    // booking iframe on the confirmation screen. Leave undefined to omit the
+    // iframe — better than shipping a placeholder that renders a vendor 404.
+    bookingUrl: undefined,
   },
 
   practiceImages: [
@@ -170,15 +181,22 @@ Wenn Sie das Anfrage-Formular ausfüllen, übermitteln Sie freiwillig: Vorname, 
 
 ## 3. Zwecke und Rechtsgrundlagen
 
-- **Beantwortung Ihrer Anfrage** — Art. 6 Abs. 1 lit. b DSGVO (Vertragsanbahnung).
+- **Beantwortung Ihrer Anfrage** — Art. 6 Abs. 1 lit. b DSGVO (Vertragsanbahnung). Ihre Angaben aus dem Vorqualifizierungs-Formular (gewünschte Behandlung, Zeitfenster, Stadt, ggf. Erfahrung, Telefon-Bereitschaft) werden regelbasiert (deterministisch) eingeordnet, um die Bearbeitung Ihrer Anfrage zu priorisieren. Diese Einordnung ersetzt keine medizinische Beurteilung und führt zu keiner automatisierten Entscheidung im Sinne von Art. 22 Abs. 1 DSGVO — die abschließende Sichtung erfolgt stets durch eine Mitarbeiterin oder einen Mitarbeiter der Praxis.
+- **KI-gestützte Auswertung Ihrer Freitext-Notizen (nur mit Einwilligung)** — Art. 6 Abs. 1 lit. a, Art. 9 Abs. 2 lit. a und Art. 49 Abs. 1 lit. a DSGVO. Wenn Sie der KI-Verarbeitung im Formular ausdrücklich zustimmen, wird der Inhalt des optionalen Notiz-Felds an **OpenAI, Inc.** (1455 3rd Street, San Francisco, CA 94158, USA) übermittelt und dort durch ein Sprachmodell (gpt-4o-mini) hinsichtlich Ihrer Kaufabsicht in eine Punktzahl zwischen 0 und 15 eingeordnet. Diese Punktzahl fließt in die regelbasierte Gesamteinordnung ein; die finale Entscheidung trifft weiterhin ausschließlich ein Mensch. Ohne Ihre Einwilligung findet **keine** KI-Verarbeitung statt; die Notiz wird ausschließlich praxisseitig gelesen.
+- **Versand der Bestätigungs-E-Mail (Double-Opt-In)** — Art. 6 Abs. 1 lit. c DSGVO i.V.m. § 7 Abs. 2 UWG, sowie zur Beweissicherung der erteilten Marketing-Einwilligung.
+- **Versand von Informationen zu Behandlungen und Terminen (nur mit bestätigter Einwilligung)** — Art. 6 Abs. 1 lit. a DSGVO. Der Versand erfolgt erst, nachdem Sie den Bestätigungs-Link in der E-Mail angeklickt haben (Double-Opt-In).
 - **Reichweitenmessung (nur mit Einwilligung)** — Art. 6 Abs. 1 lit. a DSGVO i.V.m. § 25 Abs. 1 TDDDG.
 - **Werbenetzwerk-Pixel und Conversions API (nur mit Einwilligung)** — Art. 6 Abs. 1 lit. a DSGVO i.V.m. § 25 Abs. 1 TDDDG.
 
-Sie können Ihre Einwilligung jederzeit über die Cookie-Einstellungen widerrufen. Die Rechtmäßigkeit der bis zum Widerruf erfolgten Verarbeitung bleibt unberührt.
+Sie können Ihre Einwilligung jederzeit mit Wirkung für die Zukunft widerrufen — für Cookies über die Cookie-Einstellungen, für Marketing-E-Mails über den Abmelde-Link in jeder E-Mail, für die KI-Verarbeitung Ihrer Notizen oder anderweitig per formloser Nachricht an die unter Ziffer 1 genannte Kontaktadresse. Die Rechtmäßigkeit der bis zum Widerruf erfolgten Verarbeitung bleibt unberührt.
 
 ## 4. Empfänger und Drittlandtransfer
 
 Bei aktivem Marketing-Consent werden über den Meta-Pixel und die Meta Conversions API gehashte personenbezogene Daten an Meta Platforms Ireland Ltd. übermittelt. Eine Übermittlung in die USA findet auf Grundlage des EU-US Data Privacy Framework und der EU-Standardvertragsklauseln statt.
+
+Für den Versand transaktionaler E-Mails (insbesondere der Bestätigungs-E-Mail im Rahmen des Double-Opt-In-Verfahrens) setzen wir den Dienstleister **Resend, Inc.** (2261 Market Street, San Francisco, CA 94114, USA) als Auftragsverarbeiter (Art. 28 DSGVO) ein. Eine Übermittlung in die USA findet auf Grundlage des EU-US Data Privacy Framework und ergänzender Standardvertragsklauseln statt.
+
+Bei erteilter KI-Einwilligung übermitteln wir den Inhalt Ihres Notiz-Felds an **OpenAI, Inc.** (1455 3rd Street, San Francisco, CA 94158, USA) als Auftragsverarbeiter (Art. 28 DSGVO). Übermittelt wird ausschließlich der Freitext Ihrer Notiz — kein Name, keine E-Mail, keine Telefonnummer, keine sonstigen Formularfelder. Rechtsgrundlage des Drittlandtransfers ist Ihre ausdrückliche Einwilligung gemäß Art. 49 Abs. 1 lit. a DSGVO; ergänzend gelten die EU-Standardvertragsklauseln und (soweit anwendbar) die Zertifizierung des Empfängers unter dem EU-US Data Privacy Framework. OpenAI verarbeitet die Inhalte ausschließlich zur Beantwortung der konkreten Anfrage und nicht zum Training von Modellen (API-Standardrichtlinie).
 
 ## 5. Speicherdauer
 

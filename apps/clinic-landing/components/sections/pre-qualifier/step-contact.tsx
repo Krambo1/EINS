@@ -106,6 +106,25 @@ export function StepContact({ clinic, state, dispatch, privacyHref }: Props) {
             </>
           }
         />
+        {state.consents.marketing && (
+          <p className="ml-7 text-xs text-brand-fg-muted">
+            Sie erhalten gleich eine Bestätigungs-E-Mail. Erst nach Klick auf den darin enthaltenen
+            Bestätigungs-Link werden Ihnen Informationen zugeschickt (Double-Opt-In).
+          </p>
+        )}
+        <Checkbox
+          checked={state.consents.aiProcessing}
+          onCheckedChange={(v) => dispatch({ type: "setConsent", key: "aiProcessing", value: v })}
+          label={
+            <>
+              Ich willige ein, dass meine Freitext-Notizen aus diesem Formular zur
+              KI-gestützten Einschätzung der Kaufabsicht durch <strong>OpenAI, Inc.</strong> (USA)
+              verarbeitet werden (Art. 6 Abs. 1 lit. a, Art. 9 Abs. 2 lit. a, Art. 49 Abs. 1 lit. a
+              DSGVO). <strong>Freiwillig</strong> — ohne Einwilligung erfolgt die Auswertung
+              ausschließlich regelbasiert.
+            </>
+          }
+        />
       </div>
     </div>
   );

@@ -29,4 +29,5 @@ export function webhookUrlForClinic(clinicSlug: string, fallback?: string): stri
   return process.env[key] ?? fallback;
 }
 
-export type { CRMAdapter } from "./adapter";
+export type { CRMAdapter, MarketingConfirmedEvent } from "./adapter";
+export { postMarketingConfirmed } from "./adapter";

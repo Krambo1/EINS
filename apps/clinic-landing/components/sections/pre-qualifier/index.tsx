@@ -109,7 +109,11 @@ export function PreQualifier({ clinic, treatment, privacyHref }: Props) {
     return (
       <section id="anfrage" className="bg-brand-bg-soft">
         <div className="container mx-auto max-w-3xl py-14 md:py-20">
-          <Confirmation clinic={clinic} branch={state.branch} />
+          <Confirmation
+            clinic={clinic}
+            branch={state.branch}
+            marketingPending={state.consents.marketing}
+          />
         </div>
       </section>
     );
@@ -207,8 +211,11 @@ function validateContact(state: QuizState, isInfoOnly: boolean) {
   const e: Partial<Record<string, string>> = {};
   if (!state.firstName.trim()) e.firstName = "Bitte geben Sie Ihren Vornamen an.";
   if (!EMAIL_RX.test(state.email)) e.email = "Bitte eine gültige E-Mail-Adresse angeben.";
-  if (!isInfoOnly && state.phone && state.phone.replace(/\D/g, "").length < 6)
-    e.phone = "Bitte eine gültige Telefonnummer angeben.";
+  if (!isInfoOnly && state.phone) {
+    const digits = state.phone.replace(/\D/g, "");
+    if (digits.length < 8 || /^(\d)\1+$/.test(digits))
+      e.phone = "Bitte eine gültige Telefonnummer angeben.";
+  }
   if (!state.consents.privacy) e.privacy = "Bitte stimmen Sie der Datenschutzerklärung zu.";
   if (!state.consents.ageGate) e.ageGate = "Bitte bestätigen Sie das Mindestalter.";
   return e;
@@ -236,6 +243,7 @@ async function submit(
     phone: state.phone || undefined,
     notes: state.notes.trim() || undefined,
     consents: state.consents,
+    marketingConfirmedAt: null,
     meta: {
       eventId: state.eventId,
       sourceUrl: typeof window !== "undefined" ? window.location.href : "",

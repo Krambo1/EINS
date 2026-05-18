@@ -18,8 +18,10 @@ export const config = {
      * - favicon, robots, sitemap (well-known)
      * - any file with an extension (jpg, css, woff2, ...)
      * - api routes (handled directly)
+     * - r/* (EINS Stimme review-request landing — clinic context is resolved
+     *        via the opaque review token in the URL, not via host rewrite)
      */
-    "/((?!_next/static|_next/image|favicon\\.ico|robots\\.txt|sitemap\\.xml|api/|.*\\..*).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|robots\\.txt|sitemap\\.xml|api/|r/|.*\\..*).*)",
   ],
 };
 

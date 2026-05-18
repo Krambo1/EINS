@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { getClinic, getTreatment } from "@/lib/clinic-registry";
 import { pickAdapter, webhookUrlForClinic } from "@/lib/crm";
+import { sendDoiEmail, signDoiToken } from "@/lib/doi";
 import { idempotencyKey } from "@/lib/idempotency";
 import {
   anonymizeIp,
@@ -11,6 +12,7 @@ import {
   hashPhone,
   sendMetaCapi,
 } from "@/lib/meta-capi";
+import { sendToPortal } from "@/lib/portal-intake";
 import type { QuizSubmissionPayload } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -50,7 +52,9 @@ const submissionSchema = z.object({
       errorMap: () => ({ message: "consents.ageGate must be true" }),
     }),
     marketing: z.boolean(),
+    aiProcessing: z.boolean(),
   }),
+  marketingConfirmedAt: z.null().optional(),
   meta: z.object({
     eventId: z.string().min(1),
     sourceUrl: z.string().min(1),
@@ -110,12 +114,49 @@ export async function POST(req: NextRequest) {
   const ip = anonymizeIp(clientIp(req));
   const ua = payload.meta.ua ?? req.headers.get("user-agent") ?? "";
 
-  // Run webhook + CAPI in parallel; collect outcomes.
+  // Run webhook + CAPI + DOI email in parallel; collect outcomes.
   const tasks: Promise<unknown>[] = [];
 
   if (fresh && webhookUrl) {
     const adapter = pickAdapter();
     tasks.push(adapter.send(payload, webhookUrl).catch(() => undefined));
+  }
+
+  // Double-opt-in: only fire if the patient actually ticked marketing.
+  // The lead itself still goes to the CRM (above) with `marketingConfirmedAt: null`
+  // so the receiver knows to hold off on the nurture sequence until confirmation.
+  //
+  // Wrapped in try/catch because a missing DOI_SIGNING_SECRET / RESEND_API_KEY
+  // is a config error — it must NEVER take down the lead intake. The patient's
+  // appointment request still succeeds; only the marketing nurture is gated.
+  if (fresh && payload.consents.marketing) {
+    try {
+      const token = signDoiToken({
+        e: payload.email,
+        c: clinic.slug,
+        t: treatment.slug,
+        id: payload.meta.eventId,
+      });
+      const confirmUrl = `${req.nextUrl.origin}/api/lead/confirm-marketing?t=${encodeURIComponent(token)}`;
+      tasks.push(
+        sendDoiEmail({
+          to: payload.email,
+          firstName: payload.firstName,
+          clinic,
+          confirmUrl,
+        }).catch(() => undefined),
+      );
+    } catch (err) {
+      console.error("[lead] DOI dispatch failed (lead still accepted):", (err as Error).message);
+    }
+  }
+
+  // Portal mirror — best-effort, like the CRM/CAPI tasks. The portal is the
+  // long-term system of record, but a portal outage must never block the
+  // patient. `sendToPortal` itself is a no-op when PORTAL_URL or the
+  // per-clinic secret env var is unset.
+  if (fresh) {
+    tasks.push(sendToPortal(payload, clinic, treatment, process.env).catch(() => undefined));
   }
 
   const capiToken = envTokenForSlug(clinic.slug);

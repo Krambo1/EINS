@@ -163,6 +163,19 @@ export interface Connectors {
 
 export interface Clinic {
   slug: string;
+  /**
+   * UUID of the matching clinic row in the EINS portal database. Used by the
+   * lead-intake fan-out to address the portal's `/api/leads/intake` route.
+   * Empty string disables the portal mirror for this clinic.
+   */
+  portalClinicId: string;
+  /**
+   * Name of the env var holding the HMAC shared secret used to sign portal
+   * intake payloads, e.g. `PORTAL_INTAKE_SECRET_TEMPLATE`. The same plaintext
+   * lives encrypted in the portal's `platform_credentials` row with
+   * `platform='intake'` for this clinic.
+   */
+  portalIntakeSecretEnv: string;
   /** Custom domains the clinic owns (apex + www, plus aliases). */
   domains: string[];
   /** Public name as shown in the nav and footer. */
@@ -313,8 +326,27 @@ export interface QuizSubmissionPayload {
   phone?: string;
   /** Optional free-text note from the patient. */
   notes?: string;
-  /** Three booleans: privacy, ageGate (≥18 by self-declaration), marketingOptIn. */
-  consents: { privacy: boolean; ageGate: boolean; marketing: boolean };
+  /**
+   * Four booleans:
+   *   - privacy      — Datenschutz acknowledged (required, Art. 6(1)(b)+13 DSGVO)
+   *   - ageGate      — ≥18 self-declared (required)
+   *   - marketing    — nurture e-mails (optional, requires double-opt-in confirmation)
+   *   - aiProcessing — optional explicit consent for AI-assisted notes scoring
+   *     via OpenAI (US transfer + Art. 9 / Art. 22 DSGVO). Without it the portal
+   *     worker uses the deterministic fallback and never sends notes to OpenAI.
+   */
+  consents: {
+    privacy: boolean;
+    ageGate: boolean;
+    marketing: boolean;
+    aiProcessing: boolean;
+  };
+  /**
+   * Set by the lead intake route. ISO timestamp once the patient has confirmed
+   * the double-opt-in link sent to their email. While null, downstream CRMs
+   * MUST treat `consents.marketing` as pending and not start a nurture flow.
+   */
+  marketingConfirmedAt?: string | null;
   /** Client metadata for CAPI deduplication. */
   meta: {
     /** External event id for Meta Pixel + CAPI dedup. */

@@ -17,6 +17,15 @@ export interface QuizState {
     privacy: boolean;
     ageGate: boolean;
     marketing: boolean;
+    /**
+     * Optional explicit consent for AI-assisted scoring of the free-text notes
+     * field. Without it the worker uses the deterministic fallback rule and
+     * never sends notes to OpenAI. Required separately from `privacy` because
+     * Art. 9 / Art. 22 DSGVO and the US transfer (Art. 49) need their own
+     * purpose-specific, granular consent — bundled consent is not "specific"
+     * within the meaning of Art. 6(1)(a) + Art. 7(2).
+     */
+    aiProcessing: boolean;
   };
   branch: Branch;
   errors: Partial<Record<string, string>>;
@@ -46,12 +55,12 @@ export function buildInitialState(treatment: Treatment, eventId: string): QuizSt
     treatment: null,
     timeframe: null,
     experience: null,
-    city: treatment.city,
+    city: "",
     firstName: "",
     email: "",
     phone: "",
     notes: "",
-    consents: { privacy: false, ageGate: false, marketing: false },
+    consents: { privacy: false, ageGate: false, marketing: false, aiProcessing: false },
     branch: null,
     errors: {},
     submitting: false,

@@ -224,6 +224,10 @@ export const clinicSchema = z.object({
   // A leading underscore marks an internal template (e.g. "_template"), which
   // never receives a custom domain.
   slug: z.string().regex(/^_?[a-z0-9-]+$/, "slug must be lowercase, dash-separated (underscore prefix allowed for internal templates)"),
+  /** UUID of the matching clinic row in the EINS portal. Empty string disables portal mirror. */
+  portalClinicId: z.string(),
+  /** Name of the env var holding the HMAC shared secret for portal intake signing. */
+  portalIntakeSecretEnv: z.string(),
   domains: z.array(z.string().min(3)),
   name: z.string().min(2),
   logo: z.string().min(1),

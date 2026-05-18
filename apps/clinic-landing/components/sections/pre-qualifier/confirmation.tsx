@@ -6,9 +6,14 @@ import { telLink, whatsappLink } from "@/lib/format";
 interface Props {
   clinic: Clinic;
   branch: "qualified" | "info-only";
+  /**
+   * True if the patient ticked the marketing checkbox. We then show a notice
+   * that a confirmation email is on its way (German double-opt-in).
+   */
+  marketingPending?: boolean;
 }
 
-export function Confirmation({ clinic, branch }: Props) {
+export function Confirmation({ clinic, branch, marketingPending = false }: Props) {
   return (
     <div className="step-enter rounded-brand-lg border border-brand-border bg-brand-bg p-6 text-center sm:p-8">
       <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-brand-primary-soft">
@@ -40,6 +45,19 @@ export function Confirmation({ clinic, branch }: Props) {
           Sie erhalten in Kürze die angefragten Informationen per E-Mail. Es ruft Sie niemand an —
           melden Sie sich gerne, sobald Sie konkret werden möchten.
         </p>
+      )}
+      {marketingPending && (
+        <div
+          role="status"
+          className="mt-4 rounded-brand border border-brand-border bg-brand-bg-soft p-3 text-left text-sm text-brand-fg-muted"
+        >
+          <p>
+            <strong>Bestätigungs-E-Mail unterwegs.</strong> Damit wir Ihnen Informationen schicken
+            dürfen, klicken Sie bitte auf den Bestätigungs-Link in der E-Mail (Double-Opt-In nach
+            §&nbsp;7 UWG / Art. 6&nbsp;Abs.&nbsp;1 lit.&nbsp;a DSGVO). Der Link ist 48&nbsp;Stunden
+            gültig.
+          </p>
+        </div>
       )}
       {branch === "qualified" && clinic.contact.bookingUrl && (
         <div className="mt-5 overflow-hidden rounded-brand border border-brand-border">
