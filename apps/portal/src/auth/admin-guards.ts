@@ -9,8 +9,13 @@ import { getAdminSession, type ResolvedAdmin } from "./admin";
 export async function requireAdmin(opts: { skipMfa?: boolean } = {}): Promise<ResolvedAdmin> {
   const session = await getAdminSession();
   if (!session) redirect("/admin/login");
-  if (!opts.skipMfa && session.mfaEnrolled && !session.mfaVerified) {
-    redirect("/admin/login/mfa");
+  if (!opts.skipMfa) {
+    // /admin/login/mfa renders the enrollment QR for unenrolled admins and
+    // the step-up code field for enrolled ones — single redirect covers
+    // both paths. The page itself uses requireAdmin({ skipMfa: true }).
+    if (!session.mfaEnrolled || !session.mfaVerified) {
+      redirect("/admin/login/mfa");
+    }
   }
   return session;
 }

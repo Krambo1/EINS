@@ -65,7 +65,12 @@ export async function consumeAdminMagicLink(token: string): Promise<string | nul
   if (!email) return null;
   if (!isAdminEmail(email)) return null;
 
-  const { id, mfaEnrolled } = await ensureAdminUser(email);
-  await createAdminSession(id, { mfaVerified: !mfaEnrolled });
+  const { id } = await ensureAdminUser(email);
+  // Always mint the session as mfa-pending. requireAdmin sends the user to
+  // /admin/login/mfa, which doubles as the first-time enrollment screen if
+  // mfaEnrolled is false. Previous behaviour (mfaVerified: !mfaEnrolled)
+  // silently let unenrolled admins bypass MFA entirely — anyone whose email
+  // landed in ADMIN_EMAILS got full admin access without ever setting up TOTP.
+  await createAdminSession(id, { mfaVerified: false });
   return email;
 }

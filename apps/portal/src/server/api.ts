@@ -63,8 +63,14 @@ export function withApi<T>(options: ApiOptions, handler: Handler<T>) {
       if (!session) {
         return jsonError(401, "unauthorized", "Nicht angemeldet.");
       }
-      if (!options.allowMfaPending && session.mfaEnrolled && !session.mfaVerified) {
-        return jsonError(403, "mfa_required", "Zwei-Faktor-Bestätigung erforderlich.");
+      // Page-side guards (auth/guards.ts:requireSession) redirect unenrolled
+      // users to /login/enroll-mfa. API callers don't follow redirects, so we
+      // also need to block them here — otherwise a user with a valid session
+      // cookie but no TOTP enrolled can hit /api/* directly between magic-link
+      // consumption and enrollment completion. Match the same 403 contract
+      // used for the enrolled-but-unverified step-up case.
+      if (!options.allowMfaPending && (!session.mfaEnrolled || !session.mfaVerified)) {
+        return jsonError(403, "mfa_required", "Zwei-Faktor-Authentifizierung erforderlich.");
       }
       if (options.permission && !can(session.role, options.permission)) {
         return jsonError(403, "forbidden", "Zugriff verweigert.");
@@ -111,8 +117,9 @@ export function withApiTx<T>(
       if (!session) {
         return jsonError(401, "unauthorized", "Nicht angemeldet.");
       }
-      if (!options.allowMfaPending && session.mfaEnrolled && !session.mfaVerified) {
-        return jsonError(403, "mfa_required", "Zwei-Faktor-Bestätigung erforderlich.");
+      // See withApi above — block both not-enrolled and not-verified here.
+      if (!options.allowMfaPending && (!session.mfaEnrolled || !session.mfaVerified)) {
+        return jsonError(403, "mfa_required", "Zwei-Faktor-Authentifizierung erforderlich.");
       }
       if (options.permission && !can(session.role, options.permission)) {
         return jsonError(403, "forbidden", "Zugriff verweigert.");

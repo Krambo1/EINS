@@ -76,7 +76,10 @@ export async function requirePermissionOr403(
   if (!session) {
     throw new ForbiddenError(permission);
   }
-  if (session.mfaEnrolled && !session.mfaVerified) {
+  // Mirror withApi: block both not-enrolled and not-verified. The page-side
+  // requireSession() redirects to /login/enroll-mfa; API callers don't
+  // follow redirects, so we have to gate here too.
+  if (!session.mfaEnrolled || !session.mfaVerified) {
     throw new ForbiddenError(permission);
   }
   if (!can(session.role, permission)) {
