@@ -30,6 +30,8 @@ export interface GdtRecord {
   value: string;
 }
 
+export type GdtEncoding = "utf8" | "iso-8859-15" | "cp1252";
+
 export interface GdtParseResult {
   /** All records in source order. */
   records: GdtRecord[];
@@ -37,30 +39,83 @@ export interface GdtParseResult {
   satzart?: string;
   /** Sha-256 of raw bytes — used as dedup key in pvsExternalEventId. */
   contentHash: string;
+  /** Encoding chosen by the probe; exposed for tests + ops visibility. */
+  encoding: GdtEncoding;
 }
 
 export async function parseGdtFile(bytes: Buffer): Promise<GdtParseResult> {
-  // Auto-detect encoding: most German PVS emit ISO-8859-1, but some emit
-  // UTF-8 nowadays. Heuristic: try ISO first, validate roundtrip on UTF-8
-  // multibyte sequences if any appear.
-  const decoded = decodeGdt(bytes);
-  const records = parseLines(decoded);
+  const { text, encoding } = decodeGdt(bytes);
+  const records = parseLines(text);
   const satzart = findSatzart(records);
   const hash = await sha256(bytes);
-  return { records, satzart, contentHash: hash };
+  console.debug(
+    `[gdt-parser] decoded as ${encoding} (sha256=${hash.slice(0, 12)})`
+  );
+  return { records, satzart, contentHash: hash, encoding };
 }
 
-function decodeGdt(bytes: Buffer): string {
-  // Try ISO-8859-15 (covers ISO-8859-1 + €) first. If that produces
-  // replacement characters where the byte sequence looks like UTF-8,
-  // re-try UTF-8.
-  const utf8 = bytes.toString("utf8");
-  if (!utf8.includes("�")) {
-    // Check whether ISO would give the same result; if both are clean,
-    // prefer UTF-8 (modern PVS).
-    return utf8;
+const DIACRITICS = new Set(["ä", "ö", "ü", "ß", "Ä", "Ö", "Ü", "€"]);
+const MOJIBAKE_MARKERS = new Set(["}", "{", "|", "~"]);
+const REPLACEMENT_CHAR = "�";
+
+function isAsciiLetter(ch: string): boolean {
+  const code = ch.charCodeAt(0);
+  return (code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a);
+}
+
+function isAsciiConsonant(ch: string): boolean {
+  return isAsciiLetter(ch) && !"aeiouAEIOU".includes(ch);
+}
+
+function scoreDecoded(text: string): number {
+  // +1 per plausible German diacritic; -3 per U+FFFD; -1 per 7-bit-DIN-66003
+  // mojibake marker ({ | } ~) that sits between two ASCII consonants — the
+  // shape of "M}ller" / "Stra~e" when a file is actually DIN 66003 but
+  // read as ASCII/UTF-8/CP1252.
+  let score = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (DIACRITICS.has(ch)) {
+      score += 1;
+      continue;
+    }
+    if (ch === REPLACEMENT_CHAR) {
+      score -= 3;
+      continue;
+    }
+    if (
+      MOJIBAKE_MARKERS.has(ch) &&
+      i > 0 &&
+      i < text.length - 1 &&
+      isAsciiConsonant(text[i - 1]) &&
+      isAsciiConsonant(text[i + 1])
+    ) {
+      score -= 1;
+    }
   }
-  return iconv.decode(bytes, "ISO-8859-15");
+  return score;
+}
+
+function decodeGdt(bytes: Buffer): { text: string; encoding: GdtEncoding } {
+  // Decode the bytes under all three plausible 8-bit candidates and pick
+  // the one that produces the most plausibly-German output. The legacy
+  // approach (utf8 first, fall back to ISO-8859-15 only on U+FFFD) silently
+  // corrupted CP1252 files whose bytes happened to be valid UTF-8 — the
+  // common "Jürgen Müller" failure mode where 0xFC ("ü") gets replaced by
+  // U+FFFD without anyone noticing. Probing all three and scoring the
+  // result catches CP1252 vs ISO-8859-15 mismatches around €/¤ as well.
+  //
+  // Tie-break: utf8 > iso-8859-15 > cp1252 (array order; JS sort is stable
+  // since ES2019, which Node 20 honours).
+  const candidates: Array<{ encoding: GdtEncoding; text: string }> = [
+    { encoding: "utf8", text: bytes.toString("utf8") },
+    { encoding: "iso-8859-15", text: iconv.decode(bytes, "ISO-8859-15") },
+    { encoding: "cp1252", text: iconv.decode(bytes, "CP1252") },
+  ];
+  const scored = candidates.map((c) => ({ ...c, score: scoreDecoded(c.text) }));
+  scored.sort((a, b) => b.score - a.score);
+  const winner = scored[0];
+  return { text: winner.text, encoding: winner.encoding };
 }
 
 function parseLines(decoded: string): GdtRecord[] {
