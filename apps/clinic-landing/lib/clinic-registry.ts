@@ -108,12 +108,35 @@ export function listTreatmentsForClinic(clinicSlug: string): Treatment[] {
   return e ? [...e.treatments.values()] : [];
 }
 
+/**
+ * The `_template` clinic is a placeholder full of `[Stadt]`, `[Praxis-Name]`,
+ * etc. tokens — invaluable for local previews, but a brand-damaging leak if
+ * it ever renders to real traffic. We keep it loaded for dev/preview QA but
+ * exclude it from static generation in production builds. Combined with
+ * `dynamicParams = false` on the route, that means `/_template/*` returns
+ * 404 in production.
+ */
+const EXPOSE_TEMPLATE =
+  process.env.EXPOSE_CLINIC_TEMPLATE === "1" ||
+  process.env.VERCEL_ENV === "preview" ||
+  process.env.NODE_ENV !== "production";
+
 export function listAllRoutes(): { clinicSlug: string; treatmentSlug: string }[] {
   const out: { clinicSlug: string; treatmentSlug: string }[] = [];
   for (const { clinic, treatments } of REGISTRY.values()) {
+    if (clinic.slug === "_template" && !EXPOSE_TEMPLATE) continue;
     for (const t of treatments.values()) {
       out.push({ clinicSlug: clinic.slug, treatmentSlug: t.slug });
     }
   }
   return out;
+}
+
+/**
+ * True if the given clinic slug should be hidden from public traffic. The
+ * page-level guard uses this to return 404 even if `dynamicParams` is
+ * relaxed in the future.
+ */
+export function isHiddenClinicSlug(slug: string): boolean {
+  return slug === "_template" && !EXPOSE_TEMPLATE;
 }

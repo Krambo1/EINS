@@ -2,7 +2,11 @@ import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { ConsentProvider } from "@/components/consent/consent-context";
 import { CookieConsent } from "@/components/consent/cookie-consent";
-import { getClinic, listClinics } from "@/lib/clinic-registry";
+import {
+  getClinic,
+  isHiddenClinicSlug,
+  listClinics,
+} from "@/lib/clinic-registry";
 import { clinicMetadata } from "@/lib/seo";
 import { hexToRgb, radiusToCss } from "@/lib/format";
 import type { Clinic } from "@/lib/types";
@@ -13,16 +17,20 @@ interface LayoutProps {
 }
 
 export function generateStaticParams() {
-  return listClinics().map((c) => ({ clinicSlug: c.slug }));
+  return listClinics()
+    .filter((c) => !isHiddenClinicSlug(c.slug))
+    .map((c) => ({ clinicSlug: c.slug }));
 }
 
 export function generateMetadata({ params }: { params: { clinicSlug: string } }) {
+  if (isHiddenClinicSlug(params.clinicSlug)) return {};
   const clinic = getClinic(params.clinicSlug);
   if (!clinic) return {};
   return clinicMetadata(clinic);
 }
 
 export default function ClinicLayout({ children, params }: LayoutProps) {
+  if (isHiddenClinicSlug(params.clinicSlug)) notFound();
   const clinic = getClinic(params.clinicSlug);
   if (!clinic) notFound();
 

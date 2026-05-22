@@ -39,10 +39,15 @@ export async function GET(
       : data.clinic.jamedaReviewUrl;
 
   if (!target) {
-    return NextResponse.json(
-      { error: "platform_not_configured" },
-      { status: 404 }
-    );
+    // The Praxis hasn't configured this platform's review URL. Round 2
+    // testing flagged the previous behavior (JSON-on-white 404) as a UX
+    // dead-end: the patient clicks a CTA on a German-language page and
+    // gets a raw JSON blob. Redirect back to the rating landing with a
+    // query param the page can render a friendly inline notice from.
+    const back = new URL(`/r/${token}`, request.nextUrl.origin);
+    back.searchParams.set("err", "platform_not_configured");
+    back.searchParams.set("p", platform);
+    return NextResponse.redirect(back, { status: 302 });
   }
 
   // Fire-and-forget — we don't block the redirect on the click ping.

@@ -30,7 +30,7 @@ export default async function Page({
   searchParams,
 }: {
   params: { token: string };
-  searchParams: { rating?: string };
+  searchParams: { rating?: string; err?: string; p?: string };
 }) {
   const { token } = params;
   if (!isValidTokenShape(token)) notFound();
@@ -102,6 +102,22 @@ export default async function Page({
               ? thankYouFor(effectiveRating)
               : "Ihr Feedback hilft uns, besser zu werden. Sie wählen, wie Sie es uns geben möchten."}
           </p>
+
+          {/* Friendly notice when the /go redirector found the requested
+              platform (Google/Jameda) wasn't configured for this clinic. */}
+          {searchParams.err === "platform_not_configured" && (
+            <div
+              role="status"
+              className="mt-6 rounded-brand border border-brand-border bg-brand-bg-soft p-4 text-sm text-brand-fg"
+            >
+              {searchParams.p === "google"
+                ? "Diese Praxis hat noch kein Google-Profil hinterlegt."
+                : searchParams.p === "jameda"
+                ? "Diese Praxis hat noch kein Jameda-Profil hinterlegt."
+                : "Diese Plattform ist nicht konfiguriert."}{" "}
+              Sie können stattdessen gerne unten direkt Feedback hinterlassen.
+            </div>
+          )}
 
           {/* Star reminder if we already know the rating */}
           {effectiveRating !== null && (

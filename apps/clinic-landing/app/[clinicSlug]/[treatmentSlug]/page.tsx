@@ -1,5 +1,10 @@
 import { notFound } from "next/navigation";
-import { getClinic, getTreatment, listAllRoutes } from "@/lib/clinic-registry";
+import {
+  getClinic,
+  getTreatment,
+  isHiddenClinicSlug,
+  listAllRoutes,
+} from "@/lib/clinic-registry";
 import { treatmentMetadata } from "@/lib/seo";
 import { buildJsonLd } from "@/lib/jsonld";
 import { StickyNav } from "@/components/sections/sticky-nav";
@@ -33,6 +38,7 @@ interface PageProps {
 }
 
 export function generateMetadata({ params }: PageProps) {
+  if (isHiddenClinicSlug(params.clinicSlug)) return {};
   const clinic = getClinic(params.clinicSlug);
   const treatment = getTreatment(params.clinicSlug, params.treatmentSlug);
   if (!clinic || !treatment) return {};
@@ -40,6 +46,11 @@ export function generateMetadata({ params }: PageProps) {
 }
 
 export default function TreatmentPage({ params }: PageProps) {
+  // Hard guard so the placeholder `_template` config never renders for real
+  // traffic, even if `dynamicParams` is relaxed later or someone hand-rolls
+  // the URL on the preview host.
+  if (isHiddenClinicSlug(params.clinicSlug)) notFound();
+
   const clinic = getClinic(params.clinicSlug);
   const treatment = getTreatment(params.clinicSlug, params.treatmentSlug);
   if (!clinic || !treatment) notFound();

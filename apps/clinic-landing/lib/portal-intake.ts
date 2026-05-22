@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { anonymizeIp } from "@/lib/meta-capi";
 import type { Clinic, QuizSubmissionPayload, Treatment } from "@/lib/types";
 
 /**
@@ -45,6 +46,25 @@ interface IntakeQuiz {
   fbp?: string;
 }
 
+interface IntakeAttribution {
+  /** Meta click id (URL `fbclid` param), 90-day shelf life. */
+  fbclid?: string;
+  /** Google click id (URL `gclid` param), 90-day shelf life. */
+  gclid?: string;
+  /** Google iOS-14-era web fallback (URL `wbraid` param). */
+  wbraid?: string;
+  /** Google iOS-14-era app fallback (URL `gbraid` param). */
+  gbraid?: string;
+  /** Meta browser-set click id from `_fbc` cookie. */
+  fbc?: string;
+  /** Meta browser fingerprint from `_fbp` cookie. */
+  fbp?: string;
+  /** Anonymised client IP (last octet / 4 hextets zeroed). */
+  clickIpAnon?: string;
+  /** User-agent at lead submission. */
+  clickUserAgent?: string;
+}
+
 interface IntakeBody {
   clinicId: string;
   source: "formular";
@@ -56,12 +76,43 @@ interface IntakeBody {
   message?: string;
   dsgvoConsent: true;
   quiz: IntakeQuiz;
+  /**
+   * Top-level click attribution. Forwarded as typed fields so the portal
+   * can persist them onto the requests row for the closed-loop
+   * Meta CAPI Purchase + Google Ads OCI workers. fbclid/gclid live in
+   * `payload.meta.utm` on the client; we hoist them here.
+   */
+  attribution?: IntakeAttribution;
+}
+
+/**
+ * Lift click-IDs out of the loosely-typed `payload.meta.utm` bag (where the
+ * client-side `extractUtm()` parks them next to the real UTMs) into a
+ * typed `attribution` envelope the portal can persist directly.
+ */
+function buildAttribution(
+  payload: QuizSubmissionPayload,
+  clientIp: string | undefined,
+  userAgent: string | undefined
+): IntakeAttribution | undefined {
+  const utm = payload.meta.utm ?? {};
+  const out: IntakeAttribution = {};
+  if (utm.fbclid) out.fbclid = utm.fbclid;
+  if (utm.gclid) out.gclid = utm.gclid;
+  if (utm.wbraid) out.wbraid = utm.wbraid;
+  if (utm.gbraid) out.gbraid = utm.gbraid;
+  if (payload.meta.fbc) out.fbc = payload.meta.fbc;
+  if (payload.meta.fbp) out.fbp = payload.meta.fbp;
+  if (clientIp) out.clickIpAnon = anonymizeIp(clientIp);
+  if (userAgent) out.clickUserAgent = userAgent;
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 export function mapToIntake(
   payload: QuizSubmissionPayload,
   clinic: Clinic,
-  treatment: Treatment
+  treatment: Treatment,
+  attributionExtras?: { clientIp?: string; userAgent?: string }
 ): IntakeBody {
   return {
     clinicId: clinic.portalClinicId,
@@ -91,6 +142,11 @@ export function mapToIntake(
       fbc: payload.meta.fbc,
       fbp: payload.meta.fbp,
     },
+    attribution: buildAttribution(
+      payload,
+      attributionExtras?.clientIp,
+      attributionExtras?.userAgent
+    ),
   };
 }
 
@@ -103,7 +159,8 @@ export async function sendToPortal(
   payload: QuizSubmissionPayload,
   clinic: Clinic,
   treatment: Treatment,
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  attributionExtras?: { clientIp?: string; userAgent?: string }
 ): Promise<void> {
   const portalUrl = env.PORTAL_URL;
   if (!portalUrl) return;
@@ -113,7 +170,9 @@ export async function sendToPortal(
   if (!secret) return;
 
   // Serialize once; sign that exact string; send that exact string.
-  const body = JSON.stringify(mapToIntake(payload, clinic, treatment));
+  const body = JSON.stringify(
+    mapToIntake(payload, clinic, treatment, attributionExtras)
+  );
   const signature = signBody(secret, body);
 
   const res = await fetch(`${portalUrl.replace(/\/$/, "")}/api/leads/intake`, {

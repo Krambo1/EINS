@@ -63,6 +63,13 @@ const submissionSchema = z.object({
     fbp: z.string().optional(),
     ua: z.string().optional(),
   }),
+  /**
+   * Honeypot — a hidden, CSS-suppressed input named `website` (or any other
+   * unused field name). Real humans never fill it; bots that auto-fill
+   * every visible field do. Any non-empty value silently 202s so the bot
+   * thinks it worked and doesn't try a different vector.
+   */
+  website: z.string().max(200).optional(),
 });
 
 const SEEN_KEYS = new Map<string, number>();
@@ -84,7 +91,73 @@ function clientIp(req: NextRequest): string {
   return req.headers.get("x-real-ip") ?? "";
 }
 
+/**
+ * Per-IP rate limit. In-memory because the clinic-landing app is
+ * single-region and Redis-free; a coordinated attacker could route around
+ * this with a botnet but we'd see that pattern in logs and lift to a CDN
+ * rule. The point is to stop unsophisticated form spam.
+ *
+ * Window is sliding 10 min, capped at 20 submits per IP. Matches the
+ * portal intake's `leads-intake` Redis rate limit shape.
+ */
+const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const RATE_LIMIT_MAX = 20;
+const ipBuckets = new Map<string, number[]>();
+
+function ipRateLimitOk(ip: string): boolean {
+  if (!ip) return true; // can't bucket; let dedup handle it
+  const now = Date.now();
+  const bucket = (ipBuckets.get(ip) ?? []).filter(
+    (ts) => now - ts < RATE_LIMIT_WINDOW_MS
+  );
+  if (bucket.length >= RATE_LIMIT_MAX) {
+    ipBuckets.set(ip, bucket);
+    return false;
+  }
+  bucket.push(now);
+  ipBuckets.set(ip, bucket);
+  // Opportunistic GC so the Map can't grow without bound.
+  if (ipBuckets.size > 5000) {
+    const cutoff = now - RATE_LIMIT_WINDOW_MS;
+    for (const [k, v] of ipBuckets.entries()) {
+      if (v[v.length - 1]! < cutoff) ipBuckets.delete(k);
+    }
+  }
+  return true;
+}
+
+/**
+ * Reject submissions whose Origin/Referer doesn't match the request host.
+ * Real form posts always come from the same origin as the page that
+ * rendered them. CSRF + scripted-spam attempts often skip these headers
+ * or set them to a different host. We accept missing headers (some
+ * browsers strip them in privacy modes) but reject mismatches.
+ */
+function originLooksLegit(req: NextRequest): boolean {
+  const host = req.headers.get("host");
+  if (!host) return true;
+  for (const headerName of ["origin", "referer"]) {
+    const v = req.headers.get(headerName);
+    if (!v) continue;
+    try {
+      const u = new URL(v);
+      if (u.host !== host) return false;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
 export async function POST(req: NextRequest) {
+  // Origin/Referer check — runs before parsing the body so we don't even
+  // burn JSON-parse cycles on obviously off-host requests. A mismatched
+  // origin gets a generic 400 so we don't tell the attacker which header
+  // tripped them up.
+  if (!originLooksLegit(req)) {
+    return NextResponse.json({ error: "invalid_origin" }, { status: 400 });
+  }
+
   let raw: unknown;
   try {
     raw = await req.json();
@@ -101,10 +174,28 @@ export async function POST(req: NextRequest) {
   }
   const payload = parse.data as QuizSubmissionPayload;
 
+  // Honeypot — silently 202 so the bot believes it succeeded. Don't even
+  // dedup-track or rate-count the IP: this is one of the most reliable
+  // ways to drop scripted spam without affecting real users.
+  if (parse.data.website && parse.data.website.length > 0) {
+    return NextResponse.json({ ok: true }, { status: 202 });
+  }
+
   const clinic = getClinic(payload.clinicSlug);
   const treatment = getTreatment(payload.clinicSlug, payload.treatmentSlug);
   if (!clinic || !treatment) {
     return NextResponse.json({ error: "unknown_clinic_or_treatment" }, { status: 404 });
+  }
+
+  // Per-IP rate limit. Done AFTER clinic-validation so probes for
+  // nonexistent clinics burn cycles before they slot into the bucket —
+  // but BEFORE any side-effectful work (CRM, CAPI, Portal, DOI mail).
+  const limiterIp = clientIp(req);
+  if (!ipRateLimitOk(limiterIp)) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": "600" } },
+    );
   }
 
   const dedupKey = idempotencyKey(payload.email, payload.treatmentSlug);
@@ -155,8 +246,19 @@ export async function POST(req: NextRequest) {
   // long-term system of record, but a portal outage must never block the
   // patient. `sendToPortal` itself is a no-op when PORTAL_URL or the
   // per-clinic secret env var is unset.
+  //
+  // We pass the (raw) client IP and user-agent so the portal can persist
+  // an anonymised IP + UA onto the requests row for the Meta CAPI
+  // Purchase / Google Ads OCI workers. The IP is anonymised inside
+  // `mapToIntake` before being written to JSON, so it never leaves this
+  // process unredacted.
   if (fresh) {
-    tasks.push(sendToPortal(payload, clinic, treatment, process.env).catch(() => undefined));
+    tasks.push(
+      sendToPortal(payload, clinic, treatment, process.env, {
+        clientIp: clientIp(req),
+        userAgent: ua,
+      }).catch(() => undefined),
+    );
   }
 
   const capiToken = envTokenForSlug(clinic.slug);
