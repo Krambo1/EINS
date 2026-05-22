@@ -4,11 +4,50 @@ import * as React from "react";
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu";
 import { Check } from "lucide-react";
 import { cn } from "../lib/cn";
+import { useMounted } from "../hooks/use-mounted";
 
 export const DropdownMenu = DropdownMenuPrimitive.Root;
-export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
 export const DropdownMenuGroup = DropdownMenuPrimitive.Group;
 export const DropdownMenuPortal = DropdownMenuPrimitive.Portal;
+
+/**
+ * Hydration-safe DropdownMenuTrigger.
+ *
+ * Radix's <Trigger> ships a React.useId() generated id; under React 19 +
+ * Next 14, that id occasionally diverges between server-render and the
+ * first client render, producing a hydration warning and (worse) a
+ * detached event handler. Originally patched per-call-site in
+ * apps/portal/.../UserMenu.tsx; lifting to the shared component fixes
+ * every other Trigger in the app (admin nav, role pickers, etc) for free.
+ *
+ * Strategy: render an inert <button> with matching aria semantics on
+ * SSR/first-paint, swap to the real Radix Trigger on mount. Visual
+ * appearance is identical; click handlers attach on the next tick.
+ */
+export const DropdownMenuTrigger = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Trigger>
+>((props, ref) => {
+  const mounted = useMounted();
+  if (!mounted) {
+    // Mirror the aria surface Radix emits when closed so reading the DOM
+    // before hydration still announces "collapsed menu".
+    const { children, asChild: _asChild, ...rest } = props as React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Trigger> & { asChild?: boolean };
+    return (
+      <button
+        type="button"
+        ref={ref as React.Ref<HTMLButtonElement>}
+        aria-haspopup="menu"
+        aria-expanded={false}
+        {...rest}
+      >
+        {children}
+      </button>
+    );
+  }
+  return <DropdownMenuPrimitive.Trigger ref={ref} {...props} />;
+});
+DropdownMenuTrigger.displayName = DropdownMenuPrimitive.Trigger.displayName;
 
 export const DropdownMenuContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Content>,
