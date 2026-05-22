@@ -38,7 +38,7 @@ export default async function N8nSetupPage() {
             <li>
               Laden Sie unser n8n-Template herunter (
               <a
-                href="/api/files/pvs-bridge/n8n-templates/canonical-emitter.json"
+                href="/pvs-bridge/n8n-templates/canonical-emitter.json"
                 className="underline"
                 download
               >

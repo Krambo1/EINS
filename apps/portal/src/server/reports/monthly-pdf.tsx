@@ -8,6 +8,7 @@ import {
   StyleSheet,
   renderToBuffer,
 } from "@react-pdf/renderer";
+import { formatEuro, formatNumber } from "@/lib/formatting";
 import type { KpiSummary } from "@/server/queries/kpis";
 
 /**
@@ -49,13 +50,6 @@ const styles = StyleSheet.create({
   },
 });
 
-const euro = new Intl.NumberFormat("de-DE", {
-  style: "currency",
-  currency: "EUR",
-  maximumFractionDigits: 0,
-});
-const int = new Intl.NumberFormat("de-DE");
-
 export async function renderMonthlyReportPdf(
   input: RenderMonthlyReportInput
 ): Promise<Buffer> {
@@ -80,14 +74,14 @@ export async function renderMonthlyReportPdf(
         </Text>
 
         <Text style={styles.h2}>Leistung</Text>
-        <Row label="Qualifizierte Anfragen" value={int.format(summary.qualifiedLeads)} />
-        <Row label="Termine vereinbart" value={int.format(summary.appointments)} />
-        <Row label="Beratungen stattgefunden" value={int.format(summary.consultationsHeld)} />
-        <Row label="Behandlungen gewonnen" value={int.format(summary.casesWon)} />
+        <Row label="Qualifizierte Anfragen" value={formatNumber(summary.qualifiedLeads)} />
+        <Row label="Termine vereinbart" value={formatNumber(summary.appointments)} />
+        <Row label="Beratungen stattgefunden" value={formatNumber(summary.consultationsHeld)} />
+        <Row label="Behandlungen gewonnen" value={formatNumber(summary.casesWon)} />
 
         <Text style={styles.h2}>Finanzen</Text>
-        <Row label="Werbebudget" value={euro.format(summary.spendEur)} />
-        <Row label="Umsatz (zugeordnet)" value={euro.format(summary.revenueEur)} />
+        <Row label="Werbebudget" value={formatEuro(summary.spendEur)} />
+        <Row label="Umsatz (zugeordnet)" value={formatEuro(summary.revenueEur)} />
         <Row
           label="Werbeertrag"
           value={summary.roas !== null ? `${summary.roas.toFixed(2)} ×` : "—"}
@@ -96,7 +90,7 @@ export async function renderMonthlyReportPdf(
           label="Kosten pro qualifizierte Anfrage"
           value={
             summary.costPerQualifiedLead !== null
-              ? euro.format(summary.costPerQualifiedLead)
+              ? formatEuro(summary.costPerQualifiedLead)
               : "—"
           }
         />

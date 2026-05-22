@@ -19,7 +19,7 @@ export function StalledLeadsQueue({ rows }: { rows: StalledLeadRow[] }) {
         <table className="w-full text-sm">
           <thead className="text-left text-xs text-fg-secondary">
             <tr>
-              <th className="py-2">Klinik</th>
+              <th className="py-2">Praxis</th>
               <th className="py-2">Kontakt</th>
               <th className="py-2">Status</th>
               <th className="py-2 text-right">Quelle</th>

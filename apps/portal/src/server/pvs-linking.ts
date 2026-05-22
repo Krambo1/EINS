@@ -300,6 +300,12 @@ async function findFuzzyCandidates(
   //
   // We compute it in SQL so we can rank in one round-trip; the alternative
   // is N+1 SELECTs which gets ugly at scale.
+  //
+  // Explicit ::text / ::date casts on every parameter: without them, PG
+  // raises 42P18 ("could not determine data type of parameter $N") on
+  // expressions like `$1 IS NOT NULL` where the placeholder appears in a
+  // type-agnostic context. The casts pin the type at parse time and also
+  // make NULLs round-trip cleanly through postgres.js's parameter binding.
   const rows = await db.execute<{
     id: string;
     score: number;
@@ -309,40 +315,40 @@ async function findFuzzyCandidates(
       SELECT
         p.id,
         (
-          CASE WHEN ${emailLower} IS NOT NULL AND lower(p.email::text) = ${emailLower}
+          CASE WHEN ${emailLower}::text IS NOT NULL AND lower(p.email::text) = ${emailLower}::text
                THEN 1.00 ELSE 0 END
           +
-          CASE WHEN ${phone} IS NOT NULL AND p.phone IS NOT NULL
+          CASE WHEN ${phone}::text IS NOT NULL AND p.phone IS NOT NULL
                 AND regexp_replace(p.phone, '[^0-9]', '', 'g') =
-                    regexp_replace(${phone}, '[^0-9]', '', 'g')
+                    regexp_replace(${phone}::text, '[^0-9]', '', 'g')
                THEN 0.80 ELSE 0 END
           +
-          CASE WHEN ${phone} IS NOT NULL AND p.phone IS NOT NULL
-                AND similarity(p.phone, ${phone}) >= 0.6
+          CASE WHEN ${phone}::text IS NOT NULL AND p.phone IS NOT NULL
+                AND similarity(p.phone, ${phone}::text) >= 0.6
                 AND regexp_replace(p.phone, '[^0-9]', '', 'g') <>
-                    regexp_replace(${phone}, '[^0-9]', '', 'g')
-               THEN 0.55 + 0.20 * (similarity(p.phone, ${phone}) - 0.6) / 0.4
+                    regexp_replace(${phone}::text, '[^0-9]', '', 'g')
+               THEN 0.55 + 0.20 * (similarity(p.phone, ${phone}::text) - 0.6) / 0.4
                ELSE 0 END
           +
-          CASE WHEN ${fullName} IS NOT NULL AND p.full_name IS NOT NULL
-                AND similarity(p.full_name, ${fullName}) >= 0.5
-               THEN 0.20 + 0.20 * (similarity(p.full_name, ${fullName}) - 0.5) / 0.5
+          CASE WHEN ${fullName}::text IS NOT NULL AND p.full_name IS NOT NULL
+                AND similarity(p.full_name, ${fullName}::text) >= 0.5
+               THEN 0.20 + 0.20 * (similarity(p.full_name, ${fullName}::text) - 0.5) / 0.5
                ELSE 0 END
           +
-          CASE WHEN ${dob} IS NOT NULL AND p.dob IS NOT NULL AND p.dob = ${dob}::date
+          CASE WHEN ${dob}::date IS NOT NULL AND p.dob IS NOT NULL AND p.dob = ${dob}::date
                THEN 0.20 ELSE 0 END
         ) AS raw_score,
         (
-          CASE WHEN ${emailLower} IS NOT NULL AND lower(p.email::text) = ${emailLower}
+          CASE WHEN ${emailLower}::text IS NOT NULL AND lower(p.email::text) = ${emailLower}::text
                THEN 'email exact' ELSE '' END
         ) AS email_reason
       FROM patients p
-      WHERE p.clinic_id = ${event.clinicId}
+      WHERE p.clinic_id = ${event.clinicId}::uuid
         AND (
-          (${emailLower} IS NOT NULL AND lower(p.email::text) = ${emailLower})
-          OR (${phone} IS NOT NULL AND p.phone IS NOT NULL AND similarity(p.phone, ${phone}) >= 0.4)
-          OR (${fullName} IS NOT NULL AND p.full_name IS NOT NULL AND similarity(p.full_name, ${fullName}) >= 0.4)
-          OR (${dob} IS NOT NULL AND p.dob = ${dob}::date)
+          (${emailLower}::text IS NOT NULL AND lower(p.email::text) = ${emailLower}::text)
+          OR (${phone}::text IS NOT NULL AND p.phone IS NOT NULL AND similarity(p.phone, ${phone}::text) >= 0.4)
+          OR (${fullName}::text IS NOT NULL AND p.full_name IS NOT NULL AND similarity(p.full_name, ${fullName}::text) >= 0.4)
+          OR (${dob}::date IS NOT NULL AND p.dob = ${dob}::date)
         )
     )
     SELECT
@@ -437,6 +443,11 @@ export async function backfillLinkFromHistory(
   if (existing) return;
 
   // Find the most-recent PatientUpserted event for this patient.
+  //
+  // The `::text` cast on `${pvsPatientId}` is required: `payload->>'pvsPatientId'`
+  // returns text, but the parameter on the RHS is type-agnostic to the planner,
+  // and PG raises 42P18 ("could not determine data type of parameter $N").
+  // Identical class to the bug fixed in findFuzzyCandidates (R1 #1).
   const [latest] = await db
     .select({
       id: schema.pvsEventLog.id,
@@ -448,7 +459,7 @@ export async function backfillLinkFromHistory(
       and(
         eq(schema.pvsEventLog.clinicId, clinicId),
         eq(schema.pvsEventLog.kind, "PatientUpserted"),
-        sql`${schema.pvsEventLog.payload}->>'pvsPatientId' = ${pvsPatientId}`
+        sql`${schema.pvsEventLog.payload}->>'pvsPatientId' = ${pvsPatientId}::text`
       )
     )
     .orderBy(desc(schema.pvsEventLog.occurredAt))

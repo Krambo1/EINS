@@ -20,7 +20,7 @@ import {
 } from "@/server/queries/admin";
 import { AdminPageHeader } from "../_components/AdminPageHeader";
 
-export const metadata = { title: "Kliniken" };
+export const metadata = { title: "Praxen" };
 
 const GLOW_CARD = "!bg-bg-secondary/60";
 
@@ -36,14 +36,14 @@ const SORT_KEYS = [
 type SortKey = (typeof SORT_KEYS)[number];
 
 interface PageProps {
-  searchParams: {
+  searchParams: Promise<{
     status?: string;
     health?: string;
     activity?: string;
     search?: string;
     sort?: string;
     dir?: string;
-  };
+  }>;
 }
 
 const TONE_DOT: Record<ClinicLeaderboardRow["healthTone"], string> = {
@@ -62,23 +62,24 @@ const TONE_LABEL: Record<ClinicLeaderboardRow["healthTone"], string> = {
 export default async function AdminClinicsPage({ searchParams }: PageProps) {
   await requireAdmin();
 
+  const params = await searchParams;
   const all = await clinicLeaderboard({ periodDays: 30 });
 
   // Apply filters
   const filtered = all.filter((c) => {
-    if (searchParams.status === "active" && c.archivedAt) return false;
-    if (searchParams.status === "archived" && !c.archivedAt) return false;
-    if (searchParams.health && searchParams.health !== "alle") {
-      if (c.healthTone !== searchParams.health) return false;
+    if (params.status === "active" && c.archivedAt) return false;
+    if (params.status === "archived" && !c.archivedAt) return false;
+    if (params.health && params.health !== "alle") {
+      if (c.healthTone !== params.health) return false;
     }
-    if (searchParams.activity && searchParams.activity !== "alle") {
+    if (params.activity && params.activity !== "alle") {
       const days = activityDays(c.lastActivityAt);
-      if (searchParams.activity === "7" && days > 7) return false;
-      if (searchParams.activity === "30" && days > 30) return false;
-      if (searchParams.activity === "older" && days <= 30) return false;
+      if (params.activity === "7" && days > 7) return false;
+      if (params.activity === "30" && days > 30) return false;
+      if (params.activity === "older" && days <= 30) return false;
     }
-    if (searchParams.search) {
-      const term = searchParams.search.toLowerCase();
+    if (params.search) {
+      const term = params.search.toLowerCase();
       if (
         !c.name.toLowerCase().includes(term) &&
         !c.slug.toLowerCase().includes(term)
@@ -89,12 +90,12 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
     return true;
   });
 
-  const sortKey = isSortKey(searchParams.sort) ? searchParams.sort : "roas";
-  const dir = searchParams.dir === "asc" ? "asc" : "desc";
+  const sortKey = isSortKey(params.sort) ? params.sort : "roas";
+  const dir = params.dir === "asc" ? "asc" : "desc";
   const sorted = [...filtered].sort((a, b) => sortRows(a, b, sortKey, dir));
 
   const baseQuery: Record<string, string> = {};
-  for (const [k, v] of Object.entries(searchParams)) {
+  for (const [k, v] of Object.entries(params)) {
     if (typeof v === "string") baseQuery[k] = v;
   }
 
@@ -108,8 +109,8 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
   return (
     <div className="space-y-8">
       <AdminPageHeader
-        title="Alle Kliniken"
-        subtitle={`${sorted.length} von ${all.length} Kliniken sichtbar. Zahlen sind 30-Tage-Werte.`}
+        title="Alle Praxen"
+        subtitle={`${sorted.length} von ${all.length} Praxen sichtbar. Zahlen sind 30-Tage-Werte.`}
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -141,12 +142,12 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
           <form className="grid gap-3 md:grid-cols-[2fr_repeat(3,1fr)_auto]" method="get">
             <Input
               name="search"
-              placeholder="Suche: Klinikname oder Slug"
-              defaultValue={searchParams.search ?? ""}
+              placeholder="Suche: Praxisname oder Slug"
+              defaultValue={params.search ?? ""}
             />
             <select
               name="status"
-              defaultValue={searchParams.status ?? "active"}
+              defaultValue={params.status ?? "active"}
               className="rounded-md border border-border bg-bg-primary px-3 py-2 text-sm"
             >
               <option value="active">Status: aktiv</option>
@@ -155,7 +156,7 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
             </select>
             <select
               name="health"
-              defaultValue={searchParams.health ?? "alle"}
+              defaultValue={params.health ?? "alle"}
               className="rounded-md border border-border bg-bg-primary px-3 py-2 text-sm"
             >
               <option value="alle">Health: alle</option>
@@ -166,7 +167,7 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
             </select>
             <select
               name="activity"
-              defaultValue={searchParams.activity ?? "alle"}
+              defaultValue={params.activity ?? "alle"}
               className="rounded-md border border-border bg-bg-primary px-3 py-2 text-sm"
             >
               <option value="alle">Aktivität: alle</option>
@@ -335,7 +336,7 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
                       colSpan={11}
                       className="px-4 py-10 text-center text-fg-secondary"
                     >
-                      Keine Klinik passt zu den aktuellen Filtern.
+                      Keine Praxis passt zu den aktuellen Filtern.
                     </td>
                   </tr>
                 )}

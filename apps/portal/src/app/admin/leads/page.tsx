@@ -33,7 +33,7 @@ const GLOW_CARD = "!bg-bg-secondary/60";
 const PAGE_SIZE = 50;
 
 interface PageProps {
-  searchParams: Record<string, string | string[] | undefined>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
 function asArray(v: string | string[] | undefined): string[] {
@@ -50,29 +50,30 @@ function parseDate(s: string | undefined): Date | null {
 export default async function AdminLeadsPage({ searchParams }: PageProps) {
   await requireAdmin();
 
-  const page = Math.max(1, Number(searchParams.page ?? 1) || 1);
+  const params = await searchParams;
+  const page = Math.max(1, Number(params.page ?? 1) || 1);
 
   const filters: AdminLeadFilters = {
-    clinicIds: asArray(searchParams.clinicId).filter(Boolean),
-    status: asArray(searchParams.status).filter((s) =>
+    clinicIds: asArray(params.clinicId).filter(Boolean),
+    status: asArray(params.status).filter((s) =>
       (REQUEST_STATUSES as readonly string[]).includes(s)
     ) as RequestStatus[],
-    source: asArray(searchParams.source).filter((s) =>
+    source: asArray(params.source).filter((s) =>
       (REQUEST_SOURCES as readonly string[]).includes(s as RequestSource)
     ),
-    aiCategory: asArray(searchParams.aiCategory).filter((c) =>
+    aiCategory: asArray(params.aiCategory).filter((c) =>
       ["hot", "warm", "cold", "unscored"].includes(c)
     ) as ("hot" | "warm" | "cold" | "unscored")[],
     fromDate: parseDate(
-      typeof searchParams.from === "string" ? searchParams.from : undefined
+      typeof params.from === "string" ? params.from : undefined
     ),
     toDate: parseDate(
-      typeof searchParams.to === "string" ? searchParams.to : undefined
+      typeof params.to === "string" ? params.to : undefined
     ),
-    slaBreachedOnly: searchParams.slaBreachedOnly === "1",
+    slaBreachedOnly: params.slaBreachedOnly === "1",
     search:
-      typeof searchParams.search === "string" && searchParams.search.length
-        ? searchParams.search
+      typeof params.search === "string" && params.search.length
+        ? params.search
         : undefined,
   };
 
@@ -91,7 +92,7 @@ export default async function AdminLeadsPage({ searchParams }: PageProps) {
     }),
   ]);
 
-  const qWithoutPage = { ...searchParams } as Record<
+  const qWithoutPage = { ...params } as Record<
     string,
     string | string[] | undefined
   >;
@@ -101,7 +102,7 @@ export default async function AdminLeadsPage({ searchParams }: PageProps) {
     <div className="space-y-8">
       <AdminPageHeader
         title="Lead-Postfach"
-        subtitle="Alle Anfragen aller Kliniken in einer Ansicht. Lesemodus — zum Bearbeiten in die jeweilige Klinik wechseln."
+        subtitle="Alle Anfragen aller Praxen in einer Ansicht. Lesemodus — zum Bearbeiten in die jeweilige Praxis wechseln."
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -213,8 +214,8 @@ export default async function AdminLeadsPage({ searchParams }: PageProps) {
             {!hasFilters(filters) && <Badge tone="neutral">Keine</Badge>}
             {filters.clinicIds && filters.clinicIds.length > 0 && (
               <Badge tone="neutral">
-                {filters.clinicIds.length} Klinik
-                {filters.clinicIds.length === 1 ? "" : "en"}
+                {filters.clinicIds.length}{" "}
+                {filters.clinicIds.length === 1 ? "Praxis" : "Praxen"}
               </Badge>
             )}
             {filters.status?.map((s) => (

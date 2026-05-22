@@ -41,6 +41,30 @@ export const QUEUES = {
   pvsReconcile: "pvs-reconcile",
   /** PVS Bridge — trigram-based treatment auto-mapping suggestions. */
   pvsTreatmentSuggest: "pvs-treatment-suggest",
+  /**
+   * Nightly per-praxis 90-day cashflow forecast snapshot. Bootstrap Monte
+   * Carlo over historical close rates + time-to-close + DSO; writes one row
+   * to `forecast_snapshots` per (clinic_id, snapshot_date).
+   */
+  forecastSnapshot: "forecast-snapshot",
+  /**
+   * Closed-loop attribution — fire Meta CAPI Purchase event when a
+   * PVS InvoicePaid event arrives for a request with fbclid/fbc.
+   */
+  capiPurchase: "capi-purchase",
+  /**
+   * Closed-loop attribution — upload an offline conversion to Google
+   * Ads (uploadClickConversions) when a PVS InvoicePaid event arrives
+   * for a request with gclid/wbraid/gbraid.
+   */
+  ociPurchase: "oci-purchase",
+  /**
+   * Dashboard anomaly scanner. Runs every 6h, evaluates rule library
+   * against kpi_daily + campaign_snapshots + requests + notifications,
+   * upserts active alerts into dashboard_alerts. The "Auffälligkeiten"
+   * widget on the praxis dashboard reads from there.
+   */
+  anomalyScan: "anomaly-scan",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];

@@ -14,6 +14,7 @@ import {
 import { withClinicContext, schema } from "@/db/client";
 import type { RequestStatus } from "@/lib/constants";
 import { avatarUrlForKey } from "@/server/avatars";
+import { invalidateNavBadges } from "./navBadgesCache";
 
 /**
  * Read helpers for the Anfragen inbox and detail views.
@@ -220,6 +221,9 @@ export async function markRequestViewed(
           ),
       "requests:mark-viewed"
     );
+    // Sidebar Anfragen badge counts unviewed leads — flush so the pill
+    // updates on the next render instead of waiting for the 30 s TTL.
+    invalidateNavBadges(clinicId, userId);
   } catch {
     // Non-critical — silently drop.
   }

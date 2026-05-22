@@ -46,6 +46,8 @@ const PUBLIC_PLATFORM_LABEL: Record<"google" | "jameda", string> = {
   jameda: "Jameda",
 };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export default async function PatientenfeedbackDetailPage({
   params,
 }: {
@@ -53,6 +55,8 @@ export default async function PatientenfeedbackDetailPage({
 }) {
   const session = await requirePermissionOrRedirect("stimme.view");
   const { id } = await params;
+
+  if (!UUID_RE.test(id)) notFound();
 
   const feedback = await getPatientFeedback(
     session.clinicId,

@@ -33,7 +33,7 @@ export function ClinicLeaderboard({ rows }: { rows: ClinicLeaderboardRow[] }) {
         <header className="flex flex-wrap items-end justify-between gap-2 px-6 pt-6">
           <div>
             <span className="font-mono text-[0.6875rem] uppercase tracking-[0.18em] text-fg-secondary">
-              Klinik-Leaderboard
+              Praxis-Leaderboard
             </span>
             <h2 className="mt-1 font-display text-2xl font-semibold">
               Performance · 30 Tage
@@ -43,14 +43,14 @@ export function ClinicLeaderboard({ rows }: { rows: ClinicLeaderboardRow[] }) {
             href="/admin/clinics"
             className="text-sm text-accent hover:underline"
           >
-            Alle Kliniken →
+            Alle Praxen →
           </Link>
         </header>
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="border-y border-border bg-bg-secondary/40 text-left text-xs text-fg-secondary">
               <tr>
-                <th className="px-6 py-2">Klinik</th>
+                <th className="px-6 py-2">Praxis</th>
                 <th className="px-3 py-2 text-right">Spend</th>
                 <th className="px-3 py-2 text-right">Umsatz</th>
                 <th className="px-3 py-2 text-right">ROAS</th>
@@ -69,7 +69,7 @@ export function ClinicLeaderboard({ rows }: { rows: ClinicLeaderboardRow[] }) {
                     colSpan={10}
                     className="px-6 py-10 text-center text-fg-secondary"
                   >
-                    Noch keine Klinik angelegt.
+                    Noch keine Praxis angelegt.
                   </td>
                 </tr>
               )}

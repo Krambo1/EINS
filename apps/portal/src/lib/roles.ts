@@ -71,15 +71,6 @@ export class ForbiddenError extends Error {
   }
 }
 
-export function requireRole<R extends Role>(
-  actual: Role | undefined,
-  allowed: readonly R[]
-): asserts actual is R {
-  if (!actual || !allowed.includes(actual as R)) {
-    throw new ForbiddenError("dashboard.view");
-  }
-}
-
 export function requirePermission(
   role: Role | undefined,
   permission: Permission

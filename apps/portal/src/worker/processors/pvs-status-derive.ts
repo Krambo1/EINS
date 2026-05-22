@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { enqueueInvoiceConversions } from "@/server/ads-conversion-outbox";
 import { enqueueKpiRebuild } from "@/server/jobs";
 import type { PvsEvent } from "@/server/pvs-events";
 
@@ -11,7 +12,7 @@ import type { PvsEvent } from "@/server/pvs-events";
  * `pvsAppointmentId`, and computes the canonical request status + revenue
  * from the events seen.
  *
- * BullMQ jobId is `${clinicId}:${portalPatientId}` so concurrent enqueues
+ * BullMQ jobId is `${clinicId}__${portalPatientId}` so concurrent enqueues
  * coalesce. Worst case the worker runs once per patient per ~second of
  * event burst — acceptable for a Praxis with thousands of patients.
  *
@@ -46,6 +47,13 @@ interface AppointmentBuckets {
   hadMerge: boolean;
 }
 
+interface InvoiceEvent {
+  /** pvs_event_log row id of the InvoicePaid event — outbox dedup key. */
+  eventLogId: string;
+  amountCents: number;
+  paidAt: Date;
+}
+
 interface AppointmentBucket {
   pvsAppointmentId: string;
   scheduledAt: Date | null;
@@ -65,6 +73,13 @@ interface AppointmentBucket {
     | "cancelled";
   invoiceCents: number;
   earliestInvoiceAt: Date | null;
+  /**
+   * One entry per InvoicePaid event tied to this appointment. Carried
+   * separately from `invoiceCents` so the ads-conversion outbox can emit
+   * one Meta CAPI Purchase + one Google OCI upload per payment (a deal
+   * with installments produces multiple invoices).
+   */
+  invoiceEvents: InvoiceEvent[];
 }
 
 export async function processPvsStatusDerive(
@@ -94,6 +109,12 @@ export async function processPvsStatusDerive(
   //
   //    The payload->>'pvsPatientId' index (created in 0022) makes this
   //    fast even for big partitions.
+  //
+  //    The `::text[]` cast on the param is non-negotiable: postgres.js binds
+  //    JS arrays as `unknown`, and `ANY($1)` without a typed RHS raises
+  //    42P18 ("could not determine data type of parameter"). The catch path
+  //    in applyPvsEvent surfaces that as a 500 so the producer retries —
+  //    but the retry loops forever until the cast is in place.
   const events = await db
     .select({
       id: schema.pvsEventLog.id,
@@ -105,7 +126,7 @@ export async function processPvsStatusDerive(
     .where(
       and(
         eq(schema.pvsEventLog.clinicId, clinicId),
-        sql`${schema.pvsEventLog.payload}->>'pvsPatientId' = ANY(${pvsPatientIds})`
+        sql`${schema.pvsEventLog.payload}->>'pvsPatientId' = ANY(${pvsPatientIds}::text[])`
       )
     )
     .orderBy(asc(schema.pvsEventLog.occurredAt));
@@ -170,6 +191,7 @@ function foldEvents(
         appointmentStatus: "scheduled",
         invoiceCents: 0,
         earliestInvoiceAt: null,
+        invoiceEvents: [],
       };
       byAppt.set(id, b);
     }
@@ -227,6 +249,11 @@ function foldEvents(
           if (!b.earliestInvoiceAt || paid < b.earliestInvoiceAt) {
             b.earliestInvoiceAt = paid;
           }
+          b.invoiceEvents.push({
+            eventLogId: e.id,
+            amountCents: payload.amountCents,
+            paidAt: paid,
+          });
         }
         break;
       }
@@ -273,6 +300,7 @@ async function applyAppointmentBuckets(
 
     if (linked) {
       await applyToRequest(linked.id, bucket, derivedStatus);
+      await fanoutInvoiceConversions(clinicId, linked.id, bucket);
       continue;
     }
 
@@ -292,6 +320,7 @@ async function applyAppointmentBuckets(
       .limit(1);
     if (attachable) {
       await applyToRequest(attachable.id, bucket, derivedStatus);
+      await fanoutInvoiceConversions(clinicId, attachable.id, bucket);
       continue;
     }
     // No existing request → don't synthesize one. The patient row holds the
@@ -361,4 +390,42 @@ async function applyToRequest(
       derivedStatus,
     },
   });
+}
+
+/**
+ * For each InvoicePaid event tied to this appointment, insert an outbox
+ * row per channel and enqueue the corresponding worker.
+ *
+ * Idempotency: the outbox UNIQUE(clinic_id, channel, pvs_event_log_id)
+ * makes this safe under derive-replay — rows already inserted on a prior
+ * run are no-ops on the insert side and don't re-enqueue.
+ *
+ * Best-effort: failure to insert/enqueue MUST NOT roll back the request
+ * update above. Practical reason: pvs-status-derive is the source of truth
+ * for "gewonnen" status in the UI; if Redis is down, we still want the
+ * praxis to see the correct status. The nightly pvs-reconcile job will
+ * re-emit any missing outbox rows.
+ */
+async function fanoutInvoiceConversions(
+  clinicId: string,
+  requestId: string,
+  bucket: AppointmentBucket
+): Promise<void> {
+  for (const invoice of bucket.invoiceEvents) {
+    try {
+      await enqueueInvoiceConversions({
+        clinicId,
+        requestId,
+        pvsEventLogId: invoice.eventLogId,
+        valueEur: invoice.amountCents / 100,
+        occurredAt: invoice.paidAt,
+      });
+    } catch (err) {
+      console.error(
+        `[pvs-status-derive] ads-outbox fanout failed (request=${requestId}, event_log=${invoice.eventLogId}):`,
+        err
+      );
+      // Swallow — request update already committed; reconcile job will retry.
+    }
+  }
 }

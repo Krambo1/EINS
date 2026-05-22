@@ -120,12 +120,24 @@ export function enqueueMonthlyReport(
   return safeAdd(QUEUES.monthlyReport, "generate", { clinicId, period: periodYyyyMm });
 }
 
-/** Deliver an email via the configured sender. Used when routes prefer async send. */
+/**
+ * Deliver an email via the configured sender. Used when routes prefer
+ * async send.
+ *
+ * `clinicId` + `klass` are checked against email_suppression in the
+ * worker before delivery. Pass both whenever the send is on behalf of a
+ * specific clinic — magic-links, feedback alerts, monthly reports, review
+ * reminders. Omit only for genuinely cross-tenant ops like Resend test
+ * sends; the worker treats `clinicId=null` as "no suppression check".
+ */
 export function enqueueEmail(payload: {
   to: string;
   subject: string;
   text: string;
   html?: string;
+  clinicId?: string | null;
+  klass?: "transactional" | "marketing";
+  unsubscribeUrl?: string | null;
 }): Promise<string | null> {
   return safeAdd(QUEUES.emailSend, "send", payload);
 }
@@ -138,11 +150,16 @@ export function enqueueEmail(payload: {
  * Replay event-log history for one (clinicId, portalPatientId) tuple and
  * update requests.status, revenue, and patient lifetime_revenue accordingly.
  *
- * BullMQ jobId is `${clinicId}:${patientId}` so concurrent enqueues for the
+ * BullMQ jobId is `${clinicId}__${patientId}` so concurrent enqueues for the
  * same patient coalesce to one in-flight worker (BullMQ dedupes by jobId).
  * If an event-log row was just inserted for a patient with N in-flight
  * derive jobs, only one runs — the others are dropped because the queue
  * already has a job with that id.
+ *
+ * Delimiter is `__`, not `:`: BullMQ rejects `:` in custom jobIds (it's
+ * reserved as the Redis key namespace separator) and logs "Custom Id cannot
+ * contain :" while still letting `add()` succeed with an auto-generated id —
+ * which silently breaks the dedupe guarantee above.
  */
 export function enqueuePvsStatusDerive(
   clinicId: string,
@@ -152,7 +169,7 @@ export function enqueuePvsStatusDerive(
     QUEUES.pvsStatusDerive,
     "derive",
     { clinicId, portalPatientId },
-    { jobId: `${clinicId}:${portalPatientId}` }
+    { jobId: `${clinicId}__${portalPatientId}` }
   );
 }
 
@@ -195,4 +212,48 @@ export function enqueuePvsLeadTokenWrite(
   requestId: string
 ): Promise<string | null> {
   return safeAdd(QUEUES.pvsLeadTokenWrite, "write", { requestId });
+}
+
+// ---------------------------------------------------------------
+// Closed-loop attribution producers
+// ---------------------------------------------------------------
+
+/**
+ * Fire a Meta CAPI Purchase event for one outbox row. JobId is the outbox
+ * row id so a manual retry from the admin UI re-enqueues exactly the same
+ * job slot (BullMQ then drops duplicates if the previous attempt is still
+ * in-flight).
+ */
+export function enqueueCapiPurchase(outboxId: string): Promise<string | null> {
+  return safeAdd(
+    QUEUES.capiPurchase,
+    "purchase",
+    { outboxId },
+    { jobId: `capi-purchase__${outboxId}` }
+  );
+}
+
+/**
+ * Upload a Google Ads offline conversion for one outbox row. JobId =
+ * outbox row id, same dedup story as the Meta side. Delimiter is `__`
+ * not `:` because BullMQ reserves `:` in custom jobIds.
+ */
+export function enqueueOciPurchase(outboxId: string): Promise<string | null> {
+  return safeAdd(
+    QUEUES.ociPurchase,
+    "purchase",
+    { outboxId },
+    { jobId: `oci-purchase__${outboxId}` }
+  );
+}
+
+/**
+ * Trigger an anomaly scan. With no clinicId, scans every active clinic
+ * (matches the every-6h cron behaviour). Use the per-clinic form from
+ * tests or an admin debug surface to refresh one praxis on demand.
+ */
+export function enqueueAnomalyScan(
+  clinicId?: string
+): Promise<string | null> {
+  return safeAdd(QUEUES.anomalyScan, "scan", clinicId ? { clinicId } : {});
 }

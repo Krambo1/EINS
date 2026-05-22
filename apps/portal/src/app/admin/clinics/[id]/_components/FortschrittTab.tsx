@@ -58,7 +58,7 @@ export function FortschrittTab({
         <CardHeader>
           <CardTitle>Neuer Eintrag</CardTitle>
           <CardDescription>
-            Was passiert für diese Klinik? Sichtbar für alle Rollen im
+            Was passiert für diese Praxis? Sichtbar für alle Rollen im
             Kundenportal unter „Fortschritt“.
           </CardDescription>
         </CardHeader>
@@ -116,7 +116,7 @@ export function FortschrittTab({
                 name="description"
                 rows={3}
                 maxLength={5000}
-                placeholder="Kurze Notiz für den Klinik-Inhaber."
+                placeholder="Kurze Notiz für den Praxis-Inhaber."
               />
             </div>
 
@@ -132,7 +132,7 @@ export function FortschrittTab({
           <CardTitle>Einträge ({entries.length})</CardTitle>
           <CardDescription>
             Aufklappen, um zu bearbeiten. „Läuft“-Einträge erscheinen oben in der
-            Klinik-Ansicht.
+            Praxis-Ansicht.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">

@@ -89,6 +89,31 @@ export const clinics = pgTable("clinics", {
   reviewEmailFrom: text("review_email_from"),
   /** Mailbox that receives private-feedback alerts. Falls back to defaultDoctorEmail. */
   reviewInboxEmail: text("review_inbox_email"),
+  // --- Ads conversion config (0036) ---
+  /**
+   * Meta Pixel id (numeric, ~15 digits). When set + a `META_CAPI_TOKEN_<SLUG>`
+   * env var is present, the capi-purchase worker fires Purchase events on
+   * InvoicePaid. Null disables Meta side.
+   */
+  metaPixelId: text("meta_pixel_id"),
+  /**
+   * Google Ads customer id. Accepts digits-only or dash-formatted
+   * (e.g. `123-456-7890`); normalised to digits before the API call.
+   * Null disables the Google side.
+   */
+  googleAdsCustomerId: text("google_ads_customer_id"),
+  /**
+   * Google Ads conversion-action resource name for the praxis's "Purchase"
+   * action (e.g. `customers/1234567890/conversionActions/9876543210`).
+   * Created once in Google Ads, then pasted here.
+   */
+  googleAdsConversionAction: text("google_ads_conversion_action"),
+  /**
+   * Optional per-praxis override for the MCC manager customer id used in
+   * the `login-customer-id` header. Defaults to the global
+   * `GOOGLE_ADS_LOGIN_CUSTOMER_ID` env var when null.
+   */
+  googleAdsLoginCustomerId: text("google_ads_login_customer_id"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -433,6 +458,15 @@ export const requestRecalls = pgTable(
     // --- EINS Stimme (kind = 'review_request') ---
     /** Random 32-byte opaque token; embedded in the patient email URL. */
     reviewToken: text("review_token").unique(),
+    /**
+     * Hard expiry for the review_token. Set to `createdAt + 90 days` on
+     * issue (migration 0035 backfilled this for legacy rows). Past this
+     * timestamp resolveReviewToken returns null, all token endpoints 404,
+     * and the row stays as a historical record.
+     */
+    reviewTokenExpiresAt: timestamp("review_token_expires_at", {
+      withTimezone: true,
+    }),
     /** Optional override email captured at intake time (patient mail). */
     reviewEmail: text("review_email"),
     /** Optional override name for greeting in the email. */
@@ -566,6 +600,39 @@ export const requests = pgTable(
      * a `Quelle: PVS` readonly badge to signal the override.
      */
     statusSource: text("status_source").notNull().default("manual"),
+    /**
+     * Meta's canonical leadgen id for source='meta' rows. Populated by the
+     * /api/webhooks/meta/leadgen route after retrieving field_data from
+     * Graph API. Unique-per-clinic (partial index in migration 0033) so
+     * Meta's aggressive retries dedupe at the database.
+     */
+    metaLeadId: text("meta_lead_id"),
+    /**
+     * Opaque client-supplied key from the `Idempotency-Key` header on
+     * /api/leads/intake. Unique-per-clinic (partial index in migration
+     * 0034) so a flaky network double-submit collapses into one row.
+     */
+    intakeIdempotencyKey: text("intake_idempotency_key"),
+    // --- Closed-loop ads attribution (0036) ---
+    /** Meta click id from the URL (`fbclid=…`). 90-day shelf life. */
+    fbclid: text("fbclid"),
+    /** Google click id from the URL (`gclid=…`). 90-day shelf life. */
+    gclid: text("gclid"),
+    /** Google iOS-14-era web-conversion fallback id. */
+    wbraid: text("wbraid"),
+    /** Google iOS-14-era app-conversion fallback id. */
+    gbraid: text("gbraid"),
+    /** Meta browser-set click id (`_fbc` cookie). */
+    fbc: text("fbc"),
+    /** Meta browser fingerprint (`_fbp` cookie). */
+    fbp: text("fbp"),
+    /** User-agent captured at lead intake, forwarded to CAPI user_data. */
+    clickUserAgent: text("click_user_agent"),
+    /**
+     * Anonymised client IP (last octet zeroed for IPv4 / last 4 hextets for
+     * IPv6). DSGVO-compliant geo signal for CAPI; never the raw IP.
+     */
+    clickIpAnon: text("click_ip_anon"),
   },
   (t) => ({
     aiScoreCheck: check(
@@ -885,6 +952,15 @@ export const platformCredentials = pgTable(
     scopes: text("scopes").array(),
     lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
     lastSyncError: text("last_sync_error"),
+    /**
+     * Meta-only: the Facebook Page that owns the lead forms producing
+     * leadgen webhook events. Indexed for the O(1) webhook lookup. Migration
+     * 0033 backfills NULL for existing rows — those clinics must reconnect
+     * (or hit the "Discover Page" admin action) to receive webhooks.
+     */
+    metaPageId: text("meta_page_id"),
+    /** Meta-only: page-scoped access token used to call /<leadgen_id>. */
+    metaPageAccessTokenEnc: bytea("meta_page_access_token_enc"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -894,6 +970,82 @@ export const platformCredentials = pgTable(
     platformCheck: check(
       "platform_credentials_platform_check",
       sql`${t.platform} IN ('meta','google','intake','pvs')`
+    ),
+  })
+);
+
+// ---------------------------------------------------------------
+// ADS CONVERSION OUTBOX (0036)
+// One row per (request, InvoicePaid event, channel) — the audit trail
+// for closed-loop revenue attribution to Meta CAPI + Google Ads OCI.
+// ---------------------------------------------------------------
+export const adsConversionOutbox = pgTable(
+  "ads_conversion_outbox",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => requests.id, { onDelete: "cascade" }),
+    /**
+     * The pvs_event_log row id of the InvoicePaid event that triggered
+     * this row. The (clinic_id, channel, pvs_event_log_id) UNIQUE
+     * constraint makes pvs-status-derive replays naturally idempotent.
+     */
+    pvsEventLogId: uuid("pvs_event_log_id").notNull(),
+    channel: text("channel").notNull(),
+    eventName: text("event_name").notNull(),
+    valueEur: numeric("value_eur", { precision: 10, scale: 2 }).notNull(),
+    /** PVS `paidAt` timestamp; sent to platforms as the conversion time. */
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    /**
+     * `pending` → queued, worker hasn't run; `sent` → 2xx from platform;
+     * `skipped` → preconditions not met (no click id / missing config),
+     * never enqueued; `failed` → retries exhausted, response_body holds
+     * the last error.
+     */
+    status: text("status").notNull().default("pending"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    responseCode: integer("response_code"),
+    responseBody: jsonb("response_body"),
+    /** Wire-level dedup key sent to the platform (Meta event_id / Google order_id). */
+    dedupKey: text("dedup_key").notNull(),
+    /** Hashed user_data sent on the wire; persisted for DSGVO + support. */
+    userDataSnapshot: jsonb("user_data_snapshot"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    uniq: unique("ads_conversion_outbox_unique").on(
+      t.clinicId,
+      t.channel,
+      t.pvsEventLogId
+    ),
+    statusIdx: index("ads_conversion_outbox_status_idx").on(
+      t.clinicId,
+      t.status,
+      t.createdAt
+    ),
+    requestIdx: index("ads_conversion_outbox_request_idx").on(t.requestId),
+    channelCheck: check(
+      "ads_conversion_outbox_channel_check",
+      sql`${t.channel} IN ('meta','google')`
+    ),
+    statusCheck: check(
+      "ads_conversion_outbox_status_check",
+      sql`${t.status} IN ('pending','sent','skipped','failed')`
+    ),
+    eventNameCheck: check(
+      "ads_conversion_outbox_event_name_check",
+      sql`${t.eventName} IN ('Purchase')`
     ),
   })
 );
@@ -912,6 +1064,7 @@ export {
   linkingFailures,
   pvsCsvUploads,
   pvsAgentEnrollmentTokens,
+  pvsLinkHealth,
 } from "./schema-pvs";
 
 // ---------------------------------------------------------------
@@ -938,6 +1091,53 @@ export const notifications = pgTable(
   },
   (t) => ({
     userIdx: index("notifications_user_idx").on(t.userId, t.createdAt),
+  })
+);
+
+// ---------------------------------------------------------------
+// DASHBOARD ALERTS (anomaly-scan worker → "Auffälligkeiten" widget)
+// ---------------------------------------------------------------
+export const dashboardAlerts = pgTable(
+  "dashboard_alerts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    severity: text("severity").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    /** Rule-provided default action steps. Empty = no action needed. */
+    actionSteps: jsonb("action_steps").notNull().default(sql`'[]'::jsonb`),
+    /** Optional LLM-added steps. NULL = enrichment did not run. */
+    aiActionSteps: text("ai_action_steps").array(),
+    metric: text("metric"),
+    baselineValue: numeric("baseline_value", { precision: 14, scale: 4 }),
+    observedValue: numeric("observed_value", { precision: 14, scale: 4 }),
+    dedupeKey: text("dedupe_key").notNull(),
+    snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    dedupeUnique: unique("dashboard_alerts_dedupe_unique").on(
+      t.clinicId,
+      t.dedupeKey
+    ),
+    severityCheck: check(
+      "dashboard_alerts_severity_check",
+      sql`${t.severity} IN ('info','warn','high','extreme')`
+    ),
+    activeIdx: index("dashboard_alerts_active_idx").on(
+      t.clinicId,
+      t.createdAt
+    ),
   })
 );
 
@@ -1217,6 +1417,55 @@ export const emailSuppression = pgTable(
       sql`${t.reason} IN ('unsubscribed','bounced','complained','manual')`
     ),
     clinicIdx: index("email_suppression_clinic_idx").on(t.clinicId, t.email),
+  })
+);
+
+// ---------------------------------------------------------------
+// FORECAST SNAPSHOTS — nightly precomputed 90-day cashflow forecast
+// per praxis. See migration 0037 for column rationale and src/server/
+// forecast/engine.ts for the shape of `weeklyBuckets` / `topKpis`.
+// ---------------------------------------------------------------
+export const forecastSnapshots = pgTable(
+  "forecast_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    snapshotDate: date("snapshot_date").notNull(),
+    horizonDays: integer("horizon_days").notNull().default(90),
+    /** Engine output: array of weekly bucket objects with p10/p50/p90 for
+     *  both booked + paid series. */
+    weeklyBuckets: jsonb("weekly_buckets").notNull(),
+    /** Top-line KPIs surfaced above the chart (pipelineValue + 30/60/90 cash). */
+    topKpis: jsonb("top_kpis").notNull(),
+    /** Total won deals at snapshot time. <30 means the UI gates the chart. */
+    sampleSizeWon: integer("sample_size_won").notNull(),
+    /** Open requests included in the forecast. */
+    openRequestCount: integer("open_request_count").notNull().default(0),
+    /** Open requests excluded due to treatment-level cold-start (zero won-history). */
+    excludedRequestCount: integer("excluded_request_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    uniq: unique("forecast_snapshots_clinic_date_unique").on(
+      t.clinicId,
+      t.snapshotDate
+    ),
+    latestIdx: index("forecast_snapshots_latest_idx").on(
+      t.clinicId,
+      t.snapshotDate.desc()
+    ),
+    horizonCheck: check(
+      "forecast_snapshots_horizon_check",
+      sql`${t.horizonDays} BETWEEN 7 AND 365`
+    ),
+    sampleCheck: check(
+      "forecast_snapshots_sample_check",
+      sql`${t.sampleSizeWon} >= 0`
+    ),
   })
 );
 

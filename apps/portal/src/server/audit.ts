@@ -24,14 +24,26 @@ export interface AuditInput {
   entityKind?: string;
   entityId?: string;
   diff?: Record<string, unknown>;
+  /**
+   * Optional pre-extracted request metadata. Pass this when the call site
+   * already has `headers()` resolved (or has captured IP/UA from a
+   * NextRequest) — lets the audit write run inside `after()` without
+   * re-entering the request-scoped headers() API after the response has
+   * been flushed.
+   */
+  requestMeta?: { ip?: string | null; ua?: string | null };
 }
 
 export async function writeAudit(input: AuditInput): Promise<void> {
   try {
-    const hdrs = await headers();
-    const ua = hdrs.get("user-agent") ?? null;
-    const ipRaw = hdrs.get("x-forwarded-for") ?? hdrs.get("x-real-ip") ?? "";
-    const ip = ipRaw.split(",")[0]?.trim() || null;
+    let ip = input.requestMeta?.ip ?? null;
+    let ua = input.requestMeta?.ua ?? null;
+    if (!input.requestMeta) {
+      const hdrs = await headers();
+      ua = hdrs.get("user-agent") ?? null;
+      const ipRaw = hdrs.get("x-forwarded-for") ?? hdrs.get("x-real-ip") ?? "";
+      ip = ipRaw.split(",")[0]?.trim() || null;
+    }
 
     await db.insert(schema.auditLog).values({
       clinicId: input.clinicId ?? undefined,

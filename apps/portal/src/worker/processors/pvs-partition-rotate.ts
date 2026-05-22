@@ -7,8 +7,15 @@ import { db } from "@/db/client";
  * The base table is partitioned by RANGE(occurred_at). Migration 0022
  * created the previous-, current-, and next-month partitions. This
  * processor keeps the window rolling forward: every day at 04:00 it
- * ensures the *next two* months exist (current+1 and current+2). It
- * also drops partitions older than the retention window if configured.
+ * ensures the next ~6 months exist. It also drops partitions older than
+ * the retention window if configured.
+ *
+ * Why 6 months runway: the cron itself can stop (failed deploy, Redis
+ * outage, mistakenly disabled). A 2-month buffer makes that outage
+ * invisible until events from the future fail to ingest — and PVS events
+ * routinely carry occurredAt dates 30–90 days out (scheduled appointments,
+ * recalls). 6 months gives ops time to notice + repair before any event
+ * hits ENOENT-partition. The created partitions are cheap (empty tables).
  *
  * Retention defaults to "keep forever" — DSGVO requires us to expire
  * lead-related PII after 2 years of inactivity, but the event log
@@ -17,27 +24,43 @@ import { db } from "@/db/client";
  */
 
 export interface PvsPartitionRotateJob {
-  // Future-knob: how many months ahead to ensure.
+  /** How many months ahead to ensure (default 6). */
   monthsAhead?: number;
 }
 
 export async function processPvsPartitionRotate(
   job: PvsPartitionRotateJob = {}
 ): Promise<void> {
-  const monthsAhead = job.monthsAhead ?? 2;
+  const monthsAhead = job.monthsAhead ?? 6;
   for (let i = 0; i <= monthsAhead; i++) {
-    const start = monthStart(addMonths(new Date(), i));
-    const end = monthStart(addMonths(new Date(), i + 1));
-    const partitionName = `pvs_event_log_${formatYm(start)}`;
-    // CREATE TABLE IF NOT EXISTS is partition-aware in PG 14+.
-    await db.execute(sql.raw(`
-      CREATE TABLE IF NOT EXISTS ${partitionName}
-      PARTITION OF pvs_event_log
-      FOR VALUES FROM ('${start.toISOString().slice(0, 10)}')
-                  TO ('${end.toISOString().slice(0, 10)}')
-    `));
+    await ensurePartitionForMonthOffset(i);
   }
   console.log(`[pvs-partition-rotate] ensured ${monthsAhead + 1} forward partitions`);
+}
+
+/**
+ * Ensure a partition exists for the month containing `target`. Idempotent.
+ * Exposed so applyPvsEvent can self-heal when an event arrives for a date
+ * outside the pre-created window (long gap in cron runs, far-future
+ * occurredAt, etc.).
+ *
+ * IF NOT EXISTS on partitioned table is partition-aware in PG 14+ and
+ * cheap on the rerun path.
+ */
+export async function ensurePartitionForMonth(target: Date): Promise<void> {
+  const start = monthStart(target);
+  const end = monthStart(addMonths(target, 1));
+  const partitionName = `pvs_event_log_${formatYm(start)}`;
+  await db.execute(sql.raw(`
+    CREATE TABLE IF NOT EXISTS ${partitionName}
+    PARTITION OF pvs_event_log
+    FOR VALUES FROM ('${start.toISOString().slice(0, 10)}')
+                TO ('${end.toISOString().slice(0, 10)}')
+  `));
+}
+
+async function ensurePartitionForMonthOffset(offset: number): Promise<void> {
+  await ensurePartitionForMonth(addMonths(new Date(), offset));
 }
 
 function monthStart(d: Date): Date {

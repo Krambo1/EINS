@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { requireAdmin } from "@/auth/admin-guards";
+import { requireAdminForApi } from "@/auth/admin-guards";
 import { exportClinicData } from "@/server/dsgvo";
 import { writeAudit } from "@/server/audit";
 
@@ -16,7 +16,10 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  const admin = await requireAdmin();
+  const gate = await requireAdminForApi();
+  if (!gate.ok) return gate.response;
+  const admin = gate.admin;
+
   const id = z.string().uuid().parse(params.id);
 
   await writeAudit({

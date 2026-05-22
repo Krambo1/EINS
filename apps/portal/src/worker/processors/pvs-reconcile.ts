@@ -1,12 +1,13 @@
-import { sql } from "drizzle-orm";
+import { and, eq, isNull, lt, sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { enqueuePvsStatusDerive } from "@/server/jobs";
+import { writeAudit } from "@/server/audit";
 
 /**
- * Nightly reconciliation — verify that derived state matches event-log
- * reality.
+ * Reconciliation — verify that derived state matches event-log reality
+ * and that bridges are alive.
  *
- * Two checks:
+ * Three checks:
  *
  *   1. Orphan check: pvs_event_log rows whose pvsPatientId has no
  *      pvs_patient_map row AND no open linking_failure. Caused by races
@@ -18,8 +19,16 @@ import { enqueuePvsStatusDerive } from "@/server/jobs";
  *      requests.status's matching activity row). Caused by a worker
  *      crash that lost the derive job. Action: re-enqueue derive.
  *
- * Logs per-clinic counts. Designed for daily run.
+ *   3. Stale-bridge check: pvs_link rows in status='connected' with
+ *      last_event_at older than STALE_BRIDGE_THRESHOLD_HOURS. Could be a
+ *      broken adapter, expired credentials, or a clinic that simply hasn't
+ *      had appointments today. Writes an audit row per stale link; we
+ *      debounce by skipping links we already audited as stale today.
+ *
+ * Logs per-clinic counts.
  */
+
+const STALE_BRIDGE_THRESHOLD_HOURS = 6;
 
 export interface PvsReconcileJob {
   clinicId?: string; // optional scope; default = all
@@ -95,7 +104,63 @@ export async function processPvsReconcile(
     orphansQueued += 1;
   }
 
+  // 3. Stale-bridge check.
+  const staleCutoff = new Date(
+    Date.now() - STALE_BRIDGE_THRESHOLD_HOURS * 60 * 60 * 1000
+  );
+  const staleLinks = await db
+    .select({
+      id: schema.pvsLink.id,
+      clinicId: schema.pvsLink.clinicId,
+      vendor: schema.pvsLink.pvsVendor,
+      lastEventAt: schema.pvsLink.lastEventAt,
+    })
+    .from(schema.pvsLink)
+    .where(
+      and(
+        eq(schema.pvsLink.status, "connected"),
+        job.clinicId
+          ? eq(schema.pvsLink.clinicId, job.clinicId)
+          : sql`1 = 1`,
+        // Either never sent an event, or last event is past the threshold.
+        sql`(${schema.pvsLink.lastEventAt} IS NULL OR ${schema.pvsLink.lastEventAt} < ${staleCutoff})`
+      )
+    );
+
+  let staleAudited = 0;
+  for (const link of staleLinks) {
+    // Debounce: skip if we already wrote a `pvs_bridge_stale` audit for
+    // this clinic in the last STALE_BRIDGE_THRESHOLD_HOURS window. Without
+    // this, every reconcile run would re-fire while the bridge is dead.
+    const alreadyAudited = await db.execute<{ count: string }>(sql`
+      SELECT count(*)::text AS count
+      FROM audit_log
+      WHERE clinic_id = ${link.clinicId}
+        AND action = 'pvs_bridge_stale'
+        AND created_at > now() - INTERVAL '${sql.raw(
+          String(STALE_BRIDGE_THRESHOLD_HOURS)
+        )} hours'
+    `);
+    const alreadyCount = Number(
+      (alreadyAudited as unknown as Array<{ count: string }>)[0]?.count ?? "0"
+    );
+    if (alreadyCount > 0) continue;
+
+    await writeAudit({
+      clinicId: link.clinicId,
+      action: "pvs_bridge_stale",
+      entityKind: "pvs_link",
+      entityId: link.id,
+      diff: {
+        vendor: link.vendor,
+        lastEventAt: link.lastEventAt?.toISOString() ?? null,
+        thresholdHours: STALE_BRIDGE_THRESHOLD_HOURS,
+      },
+    });
+    staleAudited += 1;
+  }
+
   console.log(
-    `[pvs-reconcile] re-enqueued=${reEnqueued} orphans-queued=${orphansQueued}`
+    `[pvs-reconcile] re-enqueued=${reEnqueued} orphans-queued=${orphansQueued} stale-bridges=${staleAudited}`
   );
 }

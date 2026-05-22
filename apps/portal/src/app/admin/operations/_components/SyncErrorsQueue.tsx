@@ -8,7 +8,7 @@ export function SyncErrorsQueue({ rows }: { rows: SyncErrorRow[] }) {
     <QueueShell
       id="sync-fehler"
       title="Sync-Fehler"
-      description="Plattform-Verbindungen mit aktivem Fehler. Reparatur erfolgt im Klinik-Reiter Integrationen."
+      description="Plattform-Verbindungen mit aktivem Fehler. Reparatur erfolgt im Praxis-Reiter Integrationen."
       count={rows.length}
       tone="bad"
       emptyMessage="Alle Plattform-Verbindungen synchronisieren ohne Fehler."
@@ -17,7 +17,7 @@ export function SyncErrorsQueue({ rows }: { rows: SyncErrorRow[] }) {
         <table className="w-full text-sm">
           <thead className="text-left text-xs text-fg-secondary">
             <tr>
-              <th className="py-2">Klinik</th>
+              <th className="py-2">Praxis</th>
               <th className="py-2">Plattform</th>
               <th className="py-2">Konto</th>
               <th className="py-2 text-right">Letzter Sync</th>

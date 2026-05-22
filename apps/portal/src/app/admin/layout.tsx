@@ -16,7 +16,7 @@ export const metadata = { title: "EINS Admin" };
 
 const NAV_LINKS = [
   { href: "/admin", label: "Übersicht" },
-  { href: "/admin/clinics", label: "Kliniken" },
+  { href: "/admin/clinics", label: "Praxen" },
   { href: "/admin/leads", label: "Leads" },
   { href: "/admin/leistung", label: "Leistung" },
   { href: "/admin/operations", label: "Operations" },

@@ -18,6 +18,12 @@ import { db, schema } from "@/db/client";
 
 const ANTI_SPAM_DAYS = 90;
 const REVIEW_TOKEN_BYTES = 32;
+/**
+ * Hard window for review tokens. Tokens older than this are rejected by
+ * resolveReviewToken — see migration 0035. 90 days matches the typical
+ * review-request follow-up cadence and limits the bounty for leaked URLs.
+ */
+const REVIEW_TOKEN_TTL_DAYS = 90;
 
 export interface PatientEventInput {
   clinicId: string;
@@ -147,6 +153,9 @@ export async function applyPatientEvent(
   const scheduledForStr = toDateOnly(scheduledFor);
 
   const reviewToken = randomBytes(REVIEW_TOKEN_BYTES).toString("hex");
+  const reviewTokenExpiresAt = new Date(
+    Date.now() + REVIEW_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000
+  );
 
   const [row] = await db
     .insert(schema.requestRecalls)
@@ -157,6 +166,7 @@ export async function applyPatientEvent(
       status: "pending",
       scheduledFor: scheduledForStr,
       reviewToken,
+      reviewTokenExpiresAt,
       reviewEmail: email,
       reviewPatientName: input.patient.fullName ?? null,
       reviewTreatmentLabel: input.treatmentLabel ?? null,

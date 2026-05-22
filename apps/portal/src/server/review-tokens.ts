@@ -1,5 +1,5 @@
 import "server-only";
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { unsubscribePatient } from "@/server/patient-events";
 import { enqueueEmail } from "@/server/jobs";
@@ -31,6 +31,7 @@ type RecallWithClinic = {
   clinicId: string;
   clinicName: string;
   googleReviewUrl: string | null;
+  googlePlaceId: string | null;
   jamedaReviewUrl: string | null;
   reviewRequestEnabled: boolean;
   patientId: string | null;
@@ -55,6 +56,7 @@ export async function resolveReviewToken(
       clinicId: schema.clinics.id,
       clinicName: schema.clinics.displayName,
       googleReviewUrl: schema.clinics.googleReviewUrl,
+      googlePlaceId: schema.clinics.googlePlaceId,
       jamedaReviewUrl: schema.clinics.jamedaReviewUrl,
       reviewRequestEnabled: schema.clinics.reviewRequestEnabled,
       reviewInboxEmail: schema.clinics.reviewInboxEmail,
@@ -66,6 +68,7 @@ export async function resolveReviewToken(
       ratingClickedAt: schema.requestRecalls.ratingClickedAt,
       publicClickedAt: schema.requestRecalls.publicClickedAt,
       feedbackAt: schema.requestRecalls.feedbackAt,
+      expiresAt: schema.requestRecalls.reviewTokenExpiresAt,
     })
     .from(schema.requestRecalls)
     .innerJoin(
@@ -74,7 +77,44 @@ export async function resolveReviewToken(
     )
     .where(eq(schema.requestRecalls.reviewToken, token))
     .limit(1);
-  return row ?? null;
+  if (!row) return null;
+  // Hard expiry check. NULL expiresAt means a legacy row that pre-dates
+  // migration 0035 — the migration backfills, but defend in code anyway
+  // so a missed migration in dev doesn't silently re-open the leak window.
+  if (!row.expiresAt || row.expiresAt < new Date()) {
+    return null;
+  }
+  // Strip expiresAt from the public shape — callers don't need it.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { expiresAt: _expiresAt, ...rest } = row;
+  return rest;
+}
+
+/**
+ * Resolve the final URL we want to send a Google reviewer to. The hard
+ * requirement: the patient must land on a "Write a review" prompt for the
+ * specific Place — never on Google search results. We prefer the Place ID
+ * because it produces the canonical `search.google.com/local/writereview`
+ * deeplink; fall back to a configured `googleReviewUrl` only when it
+ * already looks like a write-review URL (contains "writereview" or the
+ * older `g.page/.../review` short link). A search URL is rejected.
+ */
+export function resolveGoogleReviewTarget(input: {
+  googlePlaceId: string | null;
+  googleReviewUrl: string | null;
+}): string | null {
+  if (input.googlePlaceId && input.googlePlaceId.trim().length > 0) {
+    return `https://search.google.com/local/writereview?placeid=${encodeURIComponent(
+      input.googlePlaceId.trim()
+    )}`;
+  }
+  const url = input.googleReviewUrl?.trim();
+  if (!url) return null;
+  if (/\/search\b|search\.google\.com\/search\b/i.test(url)) return null;
+  if (/writereview|g\.page\b|\/review\b|maps\.app\.goo\.gl\b/i.test(url)) {
+    return url;
+  }
+  return null;
 }
 
 /**
@@ -179,30 +219,80 @@ export interface FeedbackSubmission {
   contactEmail: string | null;
 }
 
+export type RecordFeedbackResult =
+  | { ok: true; feedbackId: string; replayed: boolean }
+  | { ok: false; reason: "invalid" | "not_found" | "unsubscribed" };
+
 /**
  * Persist a private feedback submission. Returns the new patient_feedback
  * row id (used to deep-link from the alert email).
  *
- * Side effects: enqueues a feedback-alert email to the Praxisinhaber:in
- * (review_inbox_email → default_doctor_email → skip).
+ * Idempotency: at most one private feedback row per recall. A second POST
+ * with a valid token short-circuits to the existing row (replayed=true) and
+ * does NOT fire a duplicate alert email. The migration 0032 partial unique
+ * index closes the race window where two concurrent POSTs slip past the
+ * application-side check.
+ *
+ * Suppression: a patient who unsubscribed (via /r/unsubscribe or PMS
+ * patient_unsubscribed event) cannot submit feedback. We surface this as
+ * `reason: 'unsubscribed'` so the route can return 403 rather than silently
+ * accepting and never delivering the alert.
+ *
+ * Side effects on first call: enqueues a feedback-alert email to the
+ * Praxisinhaber:in (review_inbox_email → default_doctor_email → skip).
  */
 export async function recordFeedback(
   token: string,
   submission: FeedbackSubmission
-): Promise<{ ok: boolean; feedbackId?: string }> {
-  if (!isValidTokenShape(token)) return { ok: false };
+): Promise<RecordFeedbackResult> {
+  if (!isValidTokenShape(token)) return { ok: false, reason: "invalid" };
   if (
     !Number.isInteger(submission.rating) ||
     submission.rating < 1 ||
     submission.rating > 5
   ) {
-    return { ok: false };
+    return { ok: false, reason: "invalid" };
   }
 
   const recall = await resolveReviewToken(token);
-  if (!recall) return { ok: false };
+  if (!recall) return { ok: false, reason: "not_found" };
 
-  const [row] = await db
+  // Suppression gate: an unsubscribed patient may not submit feedback.
+  // We check both per-clinic email_suppression (the canonical store) and
+  // recall.patientEmail because the email lives only on the recall row when
+  // the patient came in via a non-PMS flow.
+  const suppressionEmail = recall.patientEmail?.trim().toLowerCase() ?? null;
+  if (suppressionEmail) {
+    const [suppressed] = await db
+      .select({ id: schema.emailSuppression.id })
+      .from(schema.emailSuppression)
+      .where(
+        and(
+          eq(schema.emailSuppression.clinicId, recall.clinicId),
+          eq(schema.emailSuppression.email, suppressionEmail)
+        )
+      )
+      .limit(1);
+    if (suppressed) {
+      return { ok: false, reason: "unsubscribed" };
+    }
+  }
+
+  // Replay guard: if this recall has already been answered, return the
+  // existing feedback row without inserting a duplicate or re-alerting.
+  if (recall.feedbackAt) {
+    const existing = await findExistingPrivateFeedback(recall.recallId);
+    if (existing) {
+      return { ok: true, feedbackId: existing, replayed: true };
+    }
+    // Shouldn't happen — feedback_at set without a row — fall through to
+    // insert path; the unique index will surface any conflict.
+  }
+
+  // Insert with ON CONFLICT DO NOTHING targeting the partial unique index
+  // from migration 0032. Race-safe: if a concurrent POST won the insert,
+  // ours returns no row and we look up the winner's id.
+  const [inserted] = await db
     .insert(schema.patientFeedback)
     .values({
       clinicId: recall.clinicId,
@@ -213,17 +303,32 @@ export async function recordFeedback(
       contactBackOk: submission.contactBackOk,
       contactEmail: submission.contactEmail ?? recall.patientEmail ?? null,
       contactName: submission.contactName ?? recall.patientName ?? null,
+      source: "private",
     })
+    .onConflictDoNothing()
     .returning({ id: schema.patientFeedback.id });
 
-  await db
-    .update(schema.requestRecalls)
-    .set({
-      feedbackAt: new Date(),
-      status: "completed",
-      ratingValue: submission.rating,
-    })
-    .where(eq(schema.requestRecalls.id, recall.recallId));
+  if (!inserted) {
+    const existing = await findExistingPrivateFeedback(recall.recallId);
+    if (existing) {
+      return { ok: true, feedbackId: existing, replayed: true };
+    }
+    // Conflict but no row found — concurrent delete? Treat as not_found.
+    return { ok: false, reason: "not_found" };
+  }
+
+  // First successful submission. Update the recall — note: ratingValue uses
+  // COALESCE so the *first* recorded rating wins (matches recordRatingClick
+  // semantics + closes the H-19 "replay overwrites rating" bug even though
+  // the replay path now short-circuits before this point).
+  const { sql } = await import("drizzle-orm");
+  await db.execute(sql`
+    UPDATE request_recalls
+       SET feedback_at  = now(),
+           status       = 'completed',
+           rating_value = COALESCE(rating_value, ${submission.rating})
+     WHERE id = ${recall.recallId}
+  `);
 
   // Alert the Praxis. Best-effort — failure must not break the patient flow.
   try {
@@ -232,7 +337,7 @@ export async function recordFeedback(
       const rendered = renderFeedbackAlertEmail({
         clinicName: recall.clinicName,
         portalOrigin: env.APP_ORIGIN,
-        feedbackId: row!.id,
+        feedbackId: inserted.id,
         rating: submission.rating,
         freeText: submission.freeText ?? null,
         patientName: submission.contactName ?? recall.patientName ?? null,
@@ -244,17 +349,36 @@ export async function recordFeedback(
         subject: rendered.subject,
         text: rendered.text,
         html: rendered.html,
+        clinicId: recall.clinicId,
+        klass: "transactional",
       });
     } else {
       console.warn(
-        `[review-tokens] no inbox configured for clinic=${recall.clinicId}, feedback ${row!.id} not alerted`
+        `[review-tokens] no inbox configured for clinic=${recall.clinicId}, feedback ${inserted.id} not alerted`
       );
     }
   } catch (err) {
     console.error("[review-tokens] alert enqueue failed:", err);
   }
 
-  return { ok: true, feedbackId: row!.id };
+  return { ok: true, feedbackId: inserted.id, replayed: false };
+}
+
+async function findExistingPrivateFeedback(
+  recallId: string
+): Promise<string | null> {
+  const [row] = await db
+    .select({ id: schema.patientFeedback.id })
+    .from(schema.patientFeedback)
+    .where(
+      and(
+        eq(schema.patientFeedback.recallId, recallId),
+        eq(schema.patientFeedback.source, "private")
+      )
+    )
+    .orderBy(desc(schema.patientFeedback.createdAt))
+    .limit(1);
+  return row?.id ?? null;
 }
 
 /**

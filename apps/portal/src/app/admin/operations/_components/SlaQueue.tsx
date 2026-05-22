@@ -19,7 +19,7 @@ export function SlaQueue({ rows }: { rows: SlaQueueRow[] }) {
         <table className="w-full text-sm">
           <thead className="text-left text-xs text-fg-secondary">
             <tr>
-              <th className="py-2">Klinik</th>
+              <th className="py-2">Praxis</th>
               <th className="py-2">Kontakt</th>
               <th className="py-2">Quelle</th>
               <th className="py-2">Status</th>

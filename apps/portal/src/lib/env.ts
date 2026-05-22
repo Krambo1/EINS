@@ -53,6 +53,27 @@ export const env = createEnv({
     META_APP_SECRET: z.string().optional(),
     META_REDIRECT_URI: z.string().url().optional(),
     META_API_VERSION: z.string().default("v21.0"),
+    /**
+     * Verify token Meta sends in the GET hub.verify_token query param when
+     * subscribing the webhook. We pick a random long string per environment
+     * and paste it into both the App dashboard and this env var. Any plain
+     * string ≥ 32 chars is fine; do NOT reuse META_APP_SECRET.
+     */
+    META_LEADGEN_VERIFY_TOKEN: z.string().optional(),
+
+    /**
+     * Resend webhook signing secret (issued in the Resend dashboard alongside
+     * the webhook URL). Verifies `Svix-Signature` on /api/webhooks/resend
+     * payloads so a hostile sender can't forge bounces/complaints into our
+     * suppression list. Format: `whsec_<base64>`.
+     */
+    RESEND_WEBHOOK_SECRET: z.string().optional(),
+    /**
+     * Reply-To header for all outbound mail. Set to a monitored inbox
+     * (e.g. `support@eins.ag`) so a patient hitting Reply on a review
+     * invite or magic-link doesn't bounce at the From address.
+     */
+    EMAIL_REPLY_TO: z.string().email().optional(),
 
     // Google
     GOOGLE_ADS_CLIENT_ID: z.string().optional(),
@@ -125,6 +146,9 @@ export const env = createEnv({
     META_APP_SECRET: process.env.META_APP_SECRET,
     META_REDIRECT_URI: process.env.META_REDIRECT_URI,
     META_API_VERSION: process.env.META_API_VERSION,
+    META_LEADGEN_VERIFY_TOKEN: process.env.META_LEADGEN_VERIFY_TOKEN,
+    RESEND_WEBHOOK_SECRET: process.env.RESEND_WEBHOOK_SECRET,
+    EMAIL_REPLY_TO: process.env.EMAIL_REPLY_TO,
     GOOGLE_ADS_CLIENT_ID: process.env.GOOGLE_ADS_CLIENT_ID,
     GOOGLE_ADS_CLIENT_SECRET: process.env.GOOGLE_ADS_CLIENT_SECRET,
     GOOGLE_ADS_DEVELOPER_TOKEN: process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
@@ -169,3 +193,54 @@ export function hasGoogle(): boolean {
 export function hasGooglePlaces(): boolean {
   return Boolean(env.GOOGLE_PLACES_API_KEY);
 }
+
+/**
+ * Sanity-check the env on first import. Catches config combinations that
+ * silently break flows that would otherwise look healthy in dev.
+ *
+ * Idempotent — module-level state guarantees this only fires once per
+ * process. Warnings only; never throws (env errors should fail loud at
+ * the @t3-oss/env-nextjs level, not here).
+ */
+function warnSuspiciousEnv(): void {
+  // EMAIL_DRIVER=resend with APP_ORIGIN pointing at admin.* breaks every
+  // clinic magic-link in dev: the middleware host-gates /api/auth/callback
+  // off the admin host, so links emailed to clinic users 404 when clicked.
+  // The fix is config: APP_ORIGIN must be the clinic host (typically
+  // http://localhost:3001) and ADMIN_ORIGIN (if separated) the admin one.
+  try {
+    const origin = env.APP_ORIGIN ?? "";
+    if (
+      env.NODE_ENV !== "production" &&
+      env.EMAIL_DRIVER === "resend" &&
+      /^https?:\/\/admin\./i.test(origin)
+    ) {
+      console.warn(
+        "[env] EMAIL_DRIVER=resend + APP_ORIGIN=" +
+          origin +
+          " — clinic magic-link URLs will be emitted with the admin host " +
+          "and 404 against the middleware host-gate. Switch APP_ORIGIN to " +
+          "the clinic host (e.g. http://localhost:3001) for dev."
+      );
+    }
+    // Resend's shared sandbox sender. No DKIM/SPF/DMARC for eins.ag, shared
+    // rate limits with every other Resend sandbox. Fine for dev; in prod
+    // it'll silently land everything in spam.
+    if (
+      env.EMAIL_DRIVER === "resend" &&
+      /@resend\.dev$/i.test(env.EMAIL_FROM ?? "")
+    ) {
+      console.warn(
+        "[env] EMAIL_FROM=" +
+          env.EMAIL_FROM +
+          " is the Resend sandbox sender — no DKIM/SPF for your domain " +
+          "and shared deliverability with every other Resend sandbox " +
+          "tenant. Configure a verified sending domain before going live."
+      );
+    }
+  } catch {
+    // env may be skipping validation in some build contexts; ignore.
+  }
+}
+
+warnSuspiciousEnv();

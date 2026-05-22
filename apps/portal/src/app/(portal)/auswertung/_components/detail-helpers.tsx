@@ -1,6 +1,7 @@
 import * as React from "react";
 import { ChevronRight } from "lucide-react";
 import { cn } from "@eins/ui";
+import { formatNumber } from "@/lib/formatting";
 
 /**
  * Small co-located helpers for the Auswertung deep-dive bundle. Kept inside
@@ -51,7 +52,7 @@ export function BreakdownBars({ rows }: { rows: BreakdownBarRow[] }) {
             <span className="truncate text-sm text-fg-primary">{r.label}</span>
             <div
               className="relative h-6 cursor-default rounded-full bg-bg-secondary/50"
-              title={`${labelStr}: ${r.value.toLocaleString("de-DE")} (${sharePct.toFixed(1).replace(".", ",")} % Anteil)`}
+              title={`${labelStr}: ${formatNumber(r.value)} (${sharePct.toFixed(1).replace(".", ",")} % Anteil)`}
             >
               <div
                 className={cn(
@@ -127,9 +128,7 @@ export function FunnelVisualization({ stages }: { stages: FunnelStage[] }) {
                 aria-hidden
                 title={`${prev!.label} → ${s.label}: ${stepConvPct
                   .toFixed(1)
-                  .replace(".", ",")} % Konversion · −${dropoff.toLocaleString(
-                  "de-DE"
-                )}`}
+                  .replace(".", ",")} % Konversion · −${formatNumber(dropoff)}`}
               >
                 <ChevronRight className="h-4 w-4 text-fg-tertiary" />
                 <span
@@ -141,16 +140,16 @@ export function FunnelVisualization({ stages }: { stages: FunnelStage[] }) {
                   {stepConvPct.toFixed(0)} %
                 </span>
                 <span className="text-fg-tertiary">
-                  −{dropoff.toLocaleString("de-DE")}
+                  −{formatNumber(dropoff)}
                 </span>
               </div>
             )}
             <div
               className="flex min-w-[5rem] flex-1 flex-col items-center"
-              title={`${s.label}: ${s.value.toLocaleString("de-DE")} · ${fromTopLabel}`}
+              title={`${s.label}: ${formatNumber(s.value)} · ${fromTopLabel}`}
             >
               <div className="font-display text-2xl font-semibold tabular-nums leading-none text-fg-primary">
-                {s.value.toLocaleString("de-DE")}
+                {formatNumber(s.value)}
               </div>
               <div
                 className="relative mt-2 w-full overflow-hidden rounded-md border border-border"
@@ -201,7 +200,7 @@ export function WeekdayHeatmap({
               style={{
                 backgroundColor: `rgba(88, 186, 181, ${0.05 + intensity * 0.45})`,
               }}
-              title={`${r.label}: ${r.count.toLocaleString("de-DE")} Anfragen${total > 0 ? ` · ${sharePct.toFixed(1).replace(".", ",")} % der Woche` : ""}`}
+              title={`${r.label}: ${formatNumber(r.count)} Anfragen${total > 0 ? ` · ${sharePct.toFixed(1).replace(".", ",")} % der Woche` : ""}`}
             >
               <div className="flex h-full items-center justify-center font-display text-lg tabular-nums text-fg-primary">
                 {r.count}
@@ -234,7 +233,7 @@ export function HourlyHeatmap({
                 style={{
                   backgroundColor: `rgba(88, 186, 181, ${0.05 + intensity * 0.55})`,
                 }}
-                title={`${String(r.hour).padStart(2, "0")}:00–${String(r.hour).padStart(2, "0")}:59 · ${r.count.toLocaleString("de-DE")} Anfragen`}
+                title={`${String(r.hour).padStart(2, "0")}:00–${String(r.hour).padStart(2, "0")}:59 · ${formatNumber(r.count)} Anfragen`}
               />
               <div className="mt-1 text-[10px] text-fg-secondary tabular-nums">
                 {r.hour}
@@ -272,7 +271,7 @@ export function ScoreDistribution({
             </span>
             <div
               className="relative h-5 cursor-default rounded-full bg-bg-secondary/50"
-              title={`${b.label} (${b.min}–${b.max}): ${b.count.toLocaleString("de-DE")} Anfragen${total > 0 ? ` · ${sharePct.toFixed(1).replace(".", ",")} % aller bewerteten Anfragen` : ""}`}
+              title={`${b.label} (${b.min}–${b.max}): ${formatNumber(b.count)} Anfragen${total > 0 ? ` · ${sharePct.toFixed(1).replace(".", ",")} % aller bewerteten Anfragen` : ""}`}
             >
               <div
                 className={cn(

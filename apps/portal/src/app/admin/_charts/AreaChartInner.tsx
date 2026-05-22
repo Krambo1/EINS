@@ -10,6 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { formatEuro, formatNumber } from "@/lib/formatting";
 import { makeRechartsTooltip } from "./ChartTooltip";
 
 export interface AreaChartSeries {
@@ -33,12 +34,6 @@ interface Props {
   showGrid?: boolean;
 }
 
-const eurFormatter = new Intl.NumberFormat("de-DE", {
-  style: "currency",
-  currency: "EUR",
-  maximumFractionDigits: 0,
-});
-const numFormatter = new Intl.NumberFormat("de-DE");
 const dateFormatter = new Intl.DateTimeFormat("de-DE", {
   day: "2-digit",
   month: "2-digit",
@@ -53,11 +48,7 @@ export function AreaChartInner({
 }: Props) {
   const formatY = React.useCallback(
     (v: number) =>
-      !Number.isFinite(v)
-        ? "–"
-        : yKind === "eur"
-          ? eurFormatter.format(v)
-          : numFormatter.format(v),
+      !Number.isFinite(v) ? "–" : yKind === "eur" ? formatEuro(v) : formatNumber(v),
     [yKind]
   );
 

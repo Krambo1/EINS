@@ -169,6 +169,7 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
       avatarUpdatedAt: schema.clinicUsers.avatarUpdatedAt,
       role: schema.clinicUsers.role,
       mfaEnrolled: schema.clinicUsers.mfaEnrolled,
+      mfaSecretEnc: schema.clinicUsers.mfaSecretEnc,
       archivedAt: schema.clinicUsers.archivedAt,
     })
     .from(schema.sessions)
@@ -198,6 +199,15 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
       console.warn("[session] lastSeenAt update failed", err);
     });
 
+  // Defensive: a `mfa_enrolled = true` row with `mfa_secret_enc = null` is
+  // a broken state (seed bug, half-applied migration, manual SQL edit). The
+  // MFA gate would then trap the user — they can't verify (no secret to
+  // verify against) and can't re-enroll (the enrol screen is gated on
+  // `mfa_enrolled = false`). Treat that combo as "not enrolled" so the
+  // enrollment flow is reachable. The next finalize call repopulates both
+  // fields atomically.
+  const enrolledEffective = row.mfaEnrolled && row.mfaSecretEnc !== null;
+
   return {
     sessionId: row.sessionId,
     userId: row.userId,
@@ -206,7 +216,7 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
     fullName: row.fullName,
     avatarUrl: avatarUrlForKey(row.avatarKey, row.avatarUpdatedAt),
     role: row.role as Role,
-    mfaEnrolled: row.mfaEnrolled,
+    mfaEnrolled: enrolledEffective,
     mfaVerified: row.mfaVerifiedSession,
     impersonatedByAdminId: row.impersonatedByAdminId,
   };

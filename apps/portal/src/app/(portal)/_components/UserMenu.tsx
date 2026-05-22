@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import {
   ChevronDown,
@@ -31,11 +31,24 @@ interface UserMenuProps {
   impersonating: boolean;
 }
 
+const TRIGGER_CLASSES = cn(
+  "group inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-bg-primary py-1.5 pl-1.5 pr-2 text-left transition",
+  "hover:bg-bg-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-fg-primary/40",
+  "data-[state=open]:bg-bg-secondary"
+);
+
 /**
  * Top-right account menu. The trigger doubles as the user-info chip: clicking
  * the name/role expands a Radix dropdown with account actions. When an admin
- * is currently impersonating a clinic user, an additional "Zurück zum Admin"
+ * is currently impersonating a praxis user, an additional "Zurück zum Admin"
  * item appears at the top — that's the in-place "switch profile" affordance.
+ *
+ * Hydration: Radix's DropdownMenu generates `useId` values for aria linkage,
+ * and under React 19 the SSR-produced id and the post-hydration id diverge
+ * (React's "won't be patched up" warning, fires every paint). We render a
+ * static chip on the server with the identical layout/styling, then mount
+ * the real DropdownMenu only after the client has hydrated. The result is
+ * no layout shift and no warning.
  */
 export function UserMenu({ user, impersonating }: UserMenuProps) {
   const displayName = user.fullName ?? user.email;
@@ -44,6 +57,10 @@ export function UserMenu({ user, impersonating }: UserMenuProps) {
 
   const [open, setOpen] = useState(false);
   const [endingImpersonation, startEnding] = useTransition();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const onEndImpersonation = () => {
     startEnding(async () => {
@@ -66,32 +83,48 @@ export function UserMenu({ user, impersonating }: UserMenuProps) {
     });
   };
 
+  const chipInner = (
+    <>
+      <Avatar
+        src={user.avatarUrl}
+        name={displayName}
+        size="sm"
+        className="rounded-lg"
+      />
+      <span className="hidden flex-col leading-tight md:flex">
+        <span className="text-sm font-medium">{displayName}</span>
+        <span className="text-xs text-fg-secondary">
+          {ROLE_LABELS[user.role]}
+        </span>
+      </span>
+      <ChevronDown
+        aria-hidden
+        className="h-4 w-4 shrink-0 text-fg-secondary transition-transform duration-200 group-data-[state=open]:rotate-180"
+      />
+    </>
+  );
+
+  if (!mounted) {
+    return (
+      <button
+        type="button"
+        className={TRIGGER_CLASSES}
+        aria-label="Konto-Menü öffnen"
+        aria-haspopup="menu"
+        aria-expanded={false}
+      >
+        {chipInner}
+      </button>
+    );
+  }
+
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
-        className={cn(
-          "group inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-bg-primary py-1.5 pl-1.5 pr-2 text-left transition",
-          "hover:bg-bg-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-fg-primary/40",
-          "data-[state=open]:bg-bg-secondary"
-        )}
+        className={TRIGGER_CLASSES}
         aria-label="Konto-Menü öffnen"
       >
-        <Avatar
-          src={user.avatarUrl}
-          name={displayName}
-          size="sm"
-          className="rounded-lg"
-        />
-        <span className="hidden flex-col leading-tight md:flex">
-          <span className="text-sm font-medium">{displayName}</span>
-          <span className="text-xs text-fg-secondary">
-            {ROLE_LABELS[user.role]}
-          </span>
-        </span>
-        <ChevronDown
-          aria-hidden
-          className="h-4 w-4 shrink-0 text-fg-secondary transition-transform duration-200 group-data-[state=open]:rotate-180"
-        />
+        {chipInner}
       </DropdownMenuTrigger>
 
       <DropdownMenuContent align="end" className="min-w-[16rem]">

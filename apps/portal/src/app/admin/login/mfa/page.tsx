@@ -21,7 +21,7 @@ import { EinsLogo } from "@/app/_components/EinsLogo";
 export const metadata = { title: "Zwei-Faktor-Anmeldung" };
 
 interface PageProps {
-  searchParams: { error?: string };
+  searchParams: Promise<{ error?: string }>;
 }
 
 /**
@@ -36,13 +36,14 @@ export default async function AdminMfaPage({ searchParams }: PageProps) {
     redirect("/admin");
   }
 
+  const params = await searchParams;
   const isEnrollment = !session.mfaEnrolled;
   const offer = isEnrollment
     ? await adminEnrollmentOffer(session.email)
     : null;
 
   const errorMsg =
-    searchParams.error === "invalid_code"
+    params.error === "invalid_code"
       ? "Der Code war nicht gültig. Bitte versuchen Sie es erneut."
       : null;
 

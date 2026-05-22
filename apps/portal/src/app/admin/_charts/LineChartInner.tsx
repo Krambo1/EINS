@@ -10,6 +10,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { formatEuro, formatNumber } from "@/lib/formatting";
 import { makeRechartsTooltip } from "./ChartTooltip";
 
 export interface LineSeries {
@@ -25,12 +26,6 @@ export interface LinePoint {
   [k: string]: number | string;
 }
 
-const numFormatter = new Intl.NumberFormat("de-DE");
-const eurFormatter = new Intl.NumberFormat("de-DE", {
-  style: "currency",
-  currency: "EUR",
-  maximumFractionDigits: 0,
-});
 const dateFormatter = new Intl.DateTimeFormat("de-DE", {
   day: "2-digit",
   month: "2-digit",
@@ -55,9 +50,7 @@ export function LineChartInner({
     (value: number, name: string) => {
       const kind = valueKindByName.get(name) ?? "number";
       if (!Number.isFinite(value)) return "–";
-      return kind === "eur"
-        ? eurFormatter.format(value)
-        : numFormatter.format(value);
+      return kind === "eur" ? formatEuro(value) : formatNumber(value);
     },
     [valueKindByName]
   );
@@ -81,7 +74,7 @@ export function LineChartInner({
         />
         <YAxis
           tick={{ fill: "var(--fg-secondary)", fontSize: 11 }}
-          tickFormatter={(v: number) => numFormatter.format(v)}
+          tickFormatter={(v: number) => formatNumber(v)}
           axisLine={false}
           tickLine={false}
           width={42}

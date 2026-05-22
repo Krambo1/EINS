@@ -5,6 +5,57 @@ import { db, schema } from "@/db/client";
 import { decryptString } from "@/lib/crypto";
 
 /**
+ * Process-local LRU for decrypted per-clinic HMAC secrets. PVS adapters
+ * occasionally fire bursts of N events from one clinic in quick succession
+ * (initial-sync from Tomedo / RED); without caching, every event re-hits
+ * the DB and re-runs `decryptString` to verify the signature.
+ *
+ * 30 s TTL is short enough that any rotate-secret action is effectively
+ * immediate, AND we explicitly invalidate from both rotation paths
+ * (mintAndStorePvsSecret here + rotateIntakeSecretAction in einstellungen/
+ * actions.ts) so a rotation doesn't strand callers using the new secret.
+ *
+ * Cache key is `(clinicId, platform)` — purpose is collapsed to platform
+ * because patients + leads share the same 'intake' row.
+ */
+const SECRET_CACHE_TTL_MS = 30_000;
+const SECRET_CACHE_MAX = 256;
+type CacheEntry = { secret: string | null; expiresAt: number };
+const secretCache = new Map<string, CacheEntry>();
+
+function cacheKey(clinicId: string, platform: "intake" | "pvs"): string {
+  return `${clinicId}:${platform}`;
+}
+
+function cacheGet(key: string): string | null | undefined {
+  const entry = secretCache.get(key);
+  if (!entry) return undefined;
+  if (entry.expiresAt < Date.now()) {
+    secretCache.delete(key);
+    return undefined;
+  }
+  // Refresh recency for naive LRU eviction.
+  secretCache.delete(key);
+  secretCache.set(key, entry);
+  return entry.secret;
+}
+
+function cacheSet(key: string, secret: string | null): void {
+  if (secretCache.size >= SECRET_CACHE_MAX) {
+    const oldest = secretCache.keys().next().value;
+    if (oldest !== undefined) secretCache.delete(oldest);
+  }
+  secretCache.set(key, { secret, expiresAt: Date.now() + SECRET_CACHE_TTL_MS });
+}
+
+export function invalidateSignatureSecretCache(
+  clinicId: string,
+  platform: "intake" | "pvs"
+): void {
+  secretCache.delete(cacheKey(clinicId, platform));
+}
+
+/**
  * Per-clinic HMAC-SHA256 verification for inbound webhooks.
  *
  * Two partitioned secrets per clinic, stored encrypted in
@@ -45,24 +96,61 @@ export async function verifyClinicSignature(
   if (provided.length !== 32) return false;
 
   const platform = platformForPurpose(purpose);
+  const key = cacheKey(clinicId, platform);
 
-  const [cred] = await db
-    .select({ accessTokenEnc: schema.platformCredentials.accessTokenEnc })
-    .from(schema.platformCredentials)
-    .where(
-      and(
-        eq(schema.platformCredentials.clinicId, clinicId),
-        eq(schema.platformCredentials.platform, platform)
+  let secret = cacheGet(key);
+  if (secret === undefined) {
+    const [cred] = await db
+      .select({ accessTokenEnc: schema.platformCredentials.accessTokenEnc })
+      .from(schema.platformCredentials)
+      .where(
+        and(
+          eq(schema.platformCredentials.clinicId, clinicId),
+          eq(schema.platformCredentials.platform, platform)
+        )
       )
-    )
-    .limit(1);
-  if (!cred?.accessTokenEnc) return false;
+      .limit(1);
+    secret = cred?.accessTokenEnc ? decryptString(cred.accessTokenEnc) : null;
+    // Cache misses (no credential row) are cached too — a hostile probe
+    // re-using a bogus clinic id shouldn't hit the DB on every request.
+    cacheSet(key, secret);
+  }
+  if (!secret) return false;
 
-  const secret = decryptString(cred.accessTokenEnc);
   const expected = createHmac("sha256", secret).update(rawBody).digest();
   return (
     expected.length === provided.length && timingSafeEqual(expected, provided)
   );
+}
+
+/**
+ * Cheap existence check used by audit-categorization paths: did this clinic
+ * ever set up an `intake` HMAC secret? Returns true if there's a row in
+ * `platform_credentials(platform='intake')` for this clinic. Used by the
+ * leads intake route to distinguish `bad_signature` (real clinic, wrong
+ * key) from `forged_clinic` (clinic doesn't exist or never onboarded).
+ *
+ * Reuses the same TTL cache: a known-null entry means we already proved
+ * absence within the cache window.
+ */
+export async function clinicHasIntakeSecret(clinicId: string): Promise<boolean> {
+  const key = cacheKey(clinicId, "intake");
+  const cached = cacheGet(key);
+  if (cached !== undefined) return cached !== null;
+  const [cred] = await db
+    .select({ id: schema.platformCredentials.id })
+    .from(schema.platformCredentials)
+    .where(
+      and(
+        eq(schema.platformCredentials.clinicId, clinicId),
+        eq(schema.platformCredentials.platform, "intake")
+      )
+    )
+    .limit(1);
+  // Don't pollute the secret cache with a fake value — we use a sentinel
+  // by checking the cache directly. The next verifyClinicSignature call
+  // for a real signature attempt will populate the real secret.
+  return Boolean(cred);
 }
 
 /**
@@ -105,6 +193,10 @@ export async function mintAndStorePvsSecret(
       },
     })
     .returning({ id: schema.platformCredentials.id });
+
+  // Rotated — flush any cached old secret so the next webhook verifies
+  // against the freshly minted value.
+  invalidateSignatureSecretCache(clinicId, "pvs");
 
   return {
     secretHex: secret,

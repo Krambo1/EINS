@@ -26,9 +26,9 @@ export function VerwaltungTab({
     <div className="space-y-5">
       <Card className={GLOW_CARD}>
         <CardHeader>
-          <CardTitle>Klinik-Status</CardTitle>
+          <CardTitle>Praxis-Status</CardTitle>
           <CardDescription>
-            Archivierte Kliniken sind für Nutzer gesperrt, bleiben aber in der
+            Archivierte Praxen sind für Nutzer gesperrt, bleiben aber in der
             Datenbank. Der Vorgang ist umkehrbar.
           </CardDescription>
         </CardHeader>
@@ -38,7 +38,7 @@ export function VerwaltungTab({
               <form action={unarchiveClinicAction}>
                 <input type="hidden" name="id" value={clinic.id} />
                 <Button type="submit" variant="outline">
-                  Klinik reaktivieren
+                  Praxis reaktivieren
                 </Button>
                 <p className="mt-2 text-xs text-fg-secondary">
                   Archiviert seit {formatDateTime(clinic.archivedAt)}.
@@ -48,7 +48,7 @@ export function VerwaltungTab({
               <form action={archiveClinicAction}>
                 <input type="hidden" name="id" value={clinic.id} />
                 <Button type="submit" variant="outline">
-                  Klinik archivieren
+                  Praxis archivieren
                 </Button>
               </form>
             )}

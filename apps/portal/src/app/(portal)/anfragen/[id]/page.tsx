@@ -49,6 +49,8 @@ import {
 
 export const metadata = { title: "Anfrage" };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export default async function AnfrageDetailPage({
   params,
 }: {
@@ -56,6 +58,10 @@ export default async function AnfrageDetailPage({
 }) {
   const session = await requireSession();
   const { id } = await params;
+
+  // Cheap pre-flight so a malformed id surfaces a clean 404 instead of a
+  // PG "invalid input syntax for type uuid" 500.
+  if (!UUID_RE.test(id)) notFound();
 
   const data = await getRequestWithActivities(session.clinicId, session.userId, id);
   if (!data) notFound();

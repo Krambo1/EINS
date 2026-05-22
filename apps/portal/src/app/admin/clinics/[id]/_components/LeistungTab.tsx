@@ -216,7 +216,7 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
           <h2 className="font-display text-xl font-semibold">Ziele</h2>
           {goals.length === 0 ? (
             <p className="text-sm text-fg-secondary">
-              Keine aktiven Ziele für diese Klinik.
+              Keine aktiven Ziele für diese Praxis.
             </p>
           ) : (
             <table className="w-full text-sm">

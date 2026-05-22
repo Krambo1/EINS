@@ -22,7 +22,7 @@ interface PageProps {
 }
 
 /**
- * DSGVO-Werkzeuge für eine einzelne Klinik. Export wird als Datei per GET
+ * DSGVO-Werkzeuge für eine einzelne Praxis. Export wird als Datei per GET
  * ausgeliefert (siehe /api/admin/clinics/[id]/dsgvo/export). Erasure ist
  * nur per Formular und expliziter Slug-Bestätigung möglich.
  */
@@ -61,7 +61,7 @@ export default async function ClinicDsgvoPage({ params }: PageProps) {
         <CardHeader>
           <CardTitle>Datenauskunft herunterladen</CardTitle>
           <CardDescription>
-            JSON-Datei mit allen klinik-bezogenen Datensätzen.
+            JSON-Datei mit allen praxisbezogenen Datensätzen.
             Cryptographische Geheimnisse (MFA-Secrets, OAuth-Tokens) werden
             herausgefiltert.
           </CardDescription>
@@ -83,9 +83,9 @@ export default async function ClinicDsgvoPage({ params }: PageProps) {
         <CardHeader>
           <CardTitle>Unwiderrufliche Löschung</CardTitle>
           <CardDescription>
-            Entfernt alle klinik-bezogenen Daten unwiderruflich aus der
+            Entfernt alle praxisbezogenen Daten unwiderruflich aus der
             Datenbank. Das Audit-Log bleibt erhalten, damit die Löschung
-            nachweisbar ist. Zur Bestätigung geben Sie den Klinik-Slug{" "}
+            nachweisbar ist. Zur Bestätigung geben Sie den Praxis-Slug{" "}
             <code className="rounded bg-bg-secondary px-1">
               {clinic.slug}
             </code>{" "}

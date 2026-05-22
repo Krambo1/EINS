@@ -120,7 +120,7 @@ export function ActivityTab({ data }: { data: ClinicActivity }) {
           </h2>
           {data.animationRequests.length === 0 ? (
             <p className="text-sm text-fg-secondary">
-              Diese Klinik hat noch keine Animationen angefragt.
+              Diese Praxis hat noch keine Animationen angefragt.
             </p>
           ) : (
             <table className="w-full text-sm">

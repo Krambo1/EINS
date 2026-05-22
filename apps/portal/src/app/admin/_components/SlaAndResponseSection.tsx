@@ -25,7 +25,7 @@ export function SlaAndResponseSection({
               SLA-Verstöße
             </span>
             <h2 className="mt-1 font-display text-xl font-semibold">
-              Top 5 Kliniken mit offenen Verstößen
+              Top 5 Praxen mit offenen Verstößen
             </h2>
           </header>
           {sla.length === 0 ? (
@@ -36,7 +36,7 @@ export function SlaAndResponseSection({
             <table className="w-full text-sm">
               <thead className="text-left text-xs text-fg-secondary">
                 <tr>
-                  <th className="py-2">Klinik</th>
+                  <th className="py-2">Praxis</th>
                   <th className="py-2 text-right">Offen</th>
                   <th className="py-2 text-right">Älteste</th>
                 </tr>
@@ -84,7 +84,7 @@ export function SlaAndResponseSection({
             <table className="w-full text-sm">
               <thead className="text-left text-xs text-fg-secondary">
                 <tr>
-                  <th className="py-2">Klinik</th>
+                  <th className="py-2">Praxis</th>
                   <th className="py-2 text-right">Median</th>
                   <th className="py-2 text-right">Verstoß %</th>
                 </tr>

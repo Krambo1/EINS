@@ -150,10 +150,15 @@ async function main() {
     const inhaberId = randomUUID();
     const marketingId = randomUUID();
     const frontdeskId = randomUUID();
+    // mfa_enrolled stays false for every demo user: a user is only ever
+    // marked enrolled by the TOTP-finalize flow, which atomically writes
+    // mfa_secret_enc + sets the flag. Seeding `mfa_enrolled = true` with
+    // no secret traps the user on /login/mfa with no path forward (the
+    // enrolment screen is gated on `mfa_enrolled = false`).
     await sql`
       INSERT INTO clinic_users (id, clinic_id, email, full_name, role, mfa_enrolled, last_login_at)
       VALUES
-        (${inhaberId},   ${clinicId}, 'inhaber@praxis-demo.de',   'Dr. Martin Demo', 'inhaber',  true,  now() - interval '2 hours'),
+        (${inhaberId},   ${clinicId}, 'inhaber@praxis-demo.de',   'Dr. Martin Demo', 'inhaber',  false, now() - interval '2 hours'),
         (${marketingId}, ${clinicId}, 'marketing@praxis-demo.de', 'Lisa Werbung',     'marketing', false, now() - interval '1 day'),
         (${frontdeskId}, ${clinicId}, 'frontdesk@praxis-demo.de', 'Sabine Empfang',   'frontdesk', false, now() - interval '3 hours')
     `;

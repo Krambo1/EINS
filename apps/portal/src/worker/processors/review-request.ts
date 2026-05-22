@@ -173,12 +173,21 @@ async function sendOne(row: {
     .where(eq(schema.requestRecalls.id, row.recallId));
 
   // Enqueue the actual delivery via the existing email-send queue.
+  // Marketing-class send: every suppression reason blocks (the worker's
+  // initial check above catches existing rows, but the queue check
+  // catches a window where suppression lands between the two).
+  // List-Unsubscribe header points to the same /r/unsubscribe path the
+  // email body uses — Gmail/Yahoo one-click goes through this URL.
+  const unsubscribeUrl = `${landingOrigin.replace(/\/$/, "")}/r/unsubscribe?token=${encodeURIComponent(row.reviewToken)}`;
   const { enqueueEmail } = await import("@/server/jobs");
   await enqueueEmail({
     to: row.reviewEmail,
     subject: rendered.subject,
     text: rendered.text,
     html: rendered.html,
+    clinicId: row.clinicId,
+    klass: "marketing",
+    unsubscribeUrl,
   });
 }
 

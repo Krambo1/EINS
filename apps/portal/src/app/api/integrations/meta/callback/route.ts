@@ -6,6 +6,7 @@ import { env, hasMeta } from "@/lib/env";
 import { encryptString } from "@/lib/crypto";
 import { verifyState, readStateCookie, clearStateCookie } from "@/server/oauth";
 import { writeAudit } from "@/server/audit";
+import { discoverAndStoreMetaPage } from "@/server/meta-pages";
 
 /**
  * Meta OAuth callback. Exchanges `code` for a long-lived access token and
@@ -99,6 +100,34 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // Discover + persist the user's first Facebook Page so the leadgen
+    // webhook can route inbound events to this clinic. Failure here is
+    // non-fatal — the user can hit "Reconnect" from the integrations page,
+    // or admin can patch via SQL. We just record the error on the row.
+    let pageName: string | null = null;
+    try {
+      const page = await discoverAndStoreMetaPage(
+        session.clinicId,
+        long.access_token
+      );
+      pageName = page?.name ?? null;
+    } catch (err) {
+      console.warn("[oauth/meta] page discovery failed:", err);
+      await db
+        .update(schema.platformCredentials)
+        .set({
+          lastSyncError: `page_discovery_failed: ${
+            err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200)
+          }`,
+        })
+        .where(
+          and(
+            eq(schema.platformCredentials.clinicId, session.clinicId),
+            eq(schema.platformCredentials.platform, "meta")
+          )
+        );
+    }
+
     await clearStateCookie();
     await writeAudit({
       clinicId: session.clinicId,
@@ -106,7 +135,7 @@ export async function GET(request: NextRequest) {
       actorEmail: session.email,
       action: "oauth_connect",
       entityKind: "platform_credential",
-      diff: { platform: "meta" },
+      diff: { platform: "meta", pageName },
     });
 
     return NextResponse.redirect(

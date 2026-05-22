@@ -24,22 +24,25 @@ const TABS = [
   { key: "protokoll", label: "Protokoll" },
 ] as const;
 
+type AuditSearchParams = {
+  tab?: string;
+  clinicId?: string;
+  actor?: string;
+  action?: string;
+  entity?: string;
+  page?: string;
+};
+
 interface PageProps {
-  searchParams: {
-    tab?: string;
-    clinicId?: string;
-    actor?: string;
-    action?: string;
-    entity?: string;
-    page?: string;
-  };
+  searchParams: Promise<AuditSearchParams>;
 }
 
 const PAGE_SIZE = 100;
 
 export default async function AdminAuditPage({ searchParams }: PageProps) {
   await requireAdmin();
-  const tab = TABS.find((t) => t.key === searchParams.tab)?.key ?? "uebersicht";
+  const params = await searchParams;
+  const tab = TABS.find((t) => t.key === params.tab)?.key ?? "uebersicht";
 
   return (
     <div className="space-y-8">
@@ -55,7 +58,7 @@ export default async function AdminAuditPage({ searchParams }: PageProps) {
       {tab === "uebersicht" ? (
         <AuditOverviewPanel data={await auditOverview(30)} />
       ) : (
-        <AuditProtokoll searchParams={searchParams} />
+        <AuditProtokoll searchParams={params} />
       )}
     </div>
   );
@@ -64,7 +67,7 @@ export default async function AdminAuditPage({ searchParams }: PageProps) {
 async function AuditProtokoll({
   searchParams,
 }: {
-  searchParams: PageProps["searchParams"];
+  searchParams: AuditSearchParams;
 }) {
   const page = Math.max(1, Number(searchParams.page ?? 1) || 1);
   const offset = (page - 1) * PAGE_SIZE;
@@ -123,7 +126,7 @@ async function AuditProtokoll({
             <input type="hidden" name="tab" value="protokoll" />
             <Input
               name="clinicId"
-              placeholder="Klinik-ID (UUID)"
+              placeholder="Praxis-ID (UUID)"
               defaultValue={searchParams.clinicId ?? ""}
             />
             <Input
@@ -152,7 +155,7 @@ async function AuditProtokoll({
             <thead className="border-b border-border bg-bg-secondary/40 text-left text-xs text-fg-secondary">
               <tr>
                 <th className="px-4 py-2">Zeit</th>
-                <th className="px-4 py-2">Klinik</th>
+                <th className="px-4 py-2">Praxis</th>
                 <th className="px-4 py-2">Akteur</th>
                 <th className="px-4 py-2">Aktion</th>
                 <th className="px-4 py-2">Entität</th>

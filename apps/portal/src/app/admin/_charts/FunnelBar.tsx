@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { formatNumber } from "@/lib/formatting";
 import { ChartTooltipCard } from "./ChartTooltip";
 
 export interface FunnelStage {
@@ -24,8 +25,6 @@ const toneSwatch: Record<NonNullable<FunnelStage["tone"]>, string> = {
   warn: "var(--tone-warn)",
   bad: "var(--tone-bad)",
 };
-
-const numFormatter = new Intl.NumberFormat("de-DE");
 
 /**
  * Stacked horizontal funnel — pure CSS bar. Each stage shows its count and
@@ -124,7 +123,7 @@ export function FunnelBar({ stages }: { stages: FunnelStage[] }) {
               rows={[
                 {
                   name: "Anzahl",
-                  value: `${numFormatter.format(activeStage.count)}${
+                  value: `${formatNumber(activeStage.count)}${
                     activePct != null ? ` · ${activePct} %` : ""
                   }`,
                   color: toneSwatch[activeStage.tone ?? "neutral"],

@@ -91,8 +91,10 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Skip Next internals, static assets, and the callback endpoint.
+  // Skip Next internals, static assets, the health probe, and the
+  // high-traffic web-vitals beacon (fires on every page nav and gains
+  // nothing from middleware's host/flash logic).
   matcher: [
-    "/((?!_next/|favicon\\.ico|api/health|robots\\.txt|sitemap\\.xml).*)",
+    "/((?!_next/|favicon\\.ico|api/health|api/vitals|robots\\.txt|sitemap\\.xml).*)",
   ],
 };

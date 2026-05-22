@@ -10,6 +10,7 @@ import { formatEuro, formatNumber, formatDate } from "@/lib/formatting";
 import { AuswertungTopMetricsEnhanced } from "./_components/AuswertungTopMetricsEnhanced";
 import { AuswertungDetailBundle } from "./_components/AuswertungDetailBundle";
 import { AuswertungDetailBundleSkeleton } from "./_components/AuswertungDetailBundleSkeleton";
+import { AuswertungTabs } from "./_components/AuswertungTabs";
 
 export const metadata = { title: "Auswertung" };
 
@@ -86,7 +87,9 @@ export default async function AuswertungPage({
         </p>
       </header>
 
-      <nav className="flex flex-wrap gap-2">
+      <AuswertungTabs active="overview" />
+
+      <nav className="flex flex-wrap gap-2" aria-label="Zeitraum">
         {(Object.keys(PERIODS) as PeriodKey[]).map((key) => {
           const isActive = key === periodKey;
           return (

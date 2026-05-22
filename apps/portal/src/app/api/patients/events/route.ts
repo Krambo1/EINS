@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, after, type NextRequest } from "next/server";
 import { z } from "zod";
 import { rateLimit } from "@/server/rate-limit";
 import { writeAudit } from "@/server/audit";
@@ -53,6 +53,14 @@ const Body = z.object({
 export async function POST(request: NextRequest) {
   const raw = await request.text();
   const sig = request.headers.get("x-eins-signature");
+  const ipRaw =
+    request.headers.get("x-forwarded-for") ??
+    request.headers.get("x-real-ip") ??
+    "";
+  const requestMeta = {
+    ip: ipRaw.split(",")[0]?.trim() || null,
+    ua: request.headers.get("user-agent") ?? null,
+  };
 
   let parsed: z.infer<typeof Body>;
   try {
@@ -88,12 +96,15 @@ export async function POST(request: NextRequest) {
     "patients"
   );
   if (!ok) {
-    await writeAudit({
-      clinicId: parsed.clinicId,
-      action: "patient_event_reject",
-      entityKind: "request_recall",
-      diff: { reason: "bad_signature", eventKind: parsed.eventKind },
-    });
+    after(() =>
+      writeAudit({
+        clinicId: parsed.clinicId,
+        action: "patient_event_reject",
+        entityKind: "request_recall",
+        diff: { reason: "bad_signature", eventKind: parsed.eventKind },
+        requestMeta,
+      })
+    );
     return genericFail();
   }
 
@@ -116,12 +127,15 @@ export async function POST(request: NextRequest) {
     });
 
     if (!result.ok) {
-      await writeAudit({
-        clinicId: parsed.clinicId,
-        action: "patient_event_reject",
-        entityKind: "request_recall",
-        diff: { reason: result.reason, eventKind: parsed.eventKind },
-      });
+      after(() =>
+        writeAudit({
+          clinicId: parsed.clinicId,
+          action: "patient_event_reject",
+          entityKind: "request_recall",
+          diff: { reason: result.reason, eventKind: parsed.eventKind },
+          requestMeta,
+        })
+      );
       const status =
         result.reason === "clinic_not_found"
           ? 404
@@ -134,13 +148,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    await writeAudit({
-      clinicId: parsed.clinicId,
-      action: "patient_event",
-      entityKind: "request_recall",
-      entityId: "recallId" in result ? result.recallId : undefined,
-      diff: { eventKind: parsed.eventKind, status: result.status },
-    });
+    after(() =>
+      writeAudit({
+        clinicId: parsed.clinicId,
+        action: "patient_event",
+        entityKind: "request_recall",
+        entityId: "recallId" in result ? result.recallId : undefined,
+        diff: { eventKind: parsed.eventKind, status: result.status },
+        requestMeta,
+      })
+    );
 
     return NextResponse.json({ ok: true, status: result.status }, { status: 201 });
   } catch (err) {

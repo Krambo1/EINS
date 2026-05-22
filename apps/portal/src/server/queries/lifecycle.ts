@@ -319,7 +319,7 @@ export interface StaffPerformanceRow {
   avgCaseValueEur: number | null;
 }
 
-export async function staffPerformance(
+async function staffPerformanceUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -379,3 +379,15 @@ export async function staffPerformance(
     });
   });
 }
+
+/**
+ * Cached wrapper — observed outlier of ~1090 ms on cold dashboard renders
+ * (5-way leftJoin + filter aggregates over requests). The dashboard / staff
+ * panel happily tolerates the same worker-bounded freshness as bySource and
+ * the rest of the KPI bundle.
+ */
+export const staffPerformance = cacheClinicQuery(
+  "staffPerformance",
+  staffPerformanceUncached,
+  { dateArgs: [0, 1] }
+);

@@ -1,6 +1,7 @@
 import "server-only";
 import { and, eq, sql } from "drizzle-orm";
 import { withClinicContext, schema } from "@/db/client";
+import { invalidateNavBadges } from "./navBadgesCache";
 
 /**
  * Stable section keys used in `user_nav_section_views.section`. Add to this
@@ -79,6 +80,9 @@ export async function markSectionSeen(
           }),
       `nav:mark-seen:${section}`
     );
+    // Flush the bundled badge cache so this user's next render computes
+    // the pill from the just-stamped last-seen timestamp.
+    invalidateNavBadges(clinicId, userId);
   } catch {
     // Non-critical — silently drop.
   }

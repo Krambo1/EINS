@@ -67,7 +67,7 @@ export function AnimationenQueue({ rows }: { rows: AnimationRow[] }) {
             </div>
             {r.requestNote && (
               <div className="mt-3 rounded-md border border-border bg-bg-secondary/40 p-3 text-sm">
-                <div className="text-xs text-fg-secondary">Notiz der Klinik</div>
+                <div className="text-xs text-fg-secondary">Notiz der Praxis</div>
                 <p className="mt-1 whitespace-pre-wrap">{r.requestNote}</p>
               </div>
             )}

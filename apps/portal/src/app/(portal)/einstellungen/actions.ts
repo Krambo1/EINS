@@ -14,6 +14,7 @@ import { ROLES } from "@/lib/constants";
 import { resetMfa } from "@/auth/totp";
 import { encryptString } from "@/lib/crypto";
 import { flashSuccess, flashError, flashMessageFromError } from "@/lib/flash";
+import { invalidateSignatureSecretCache } from "@/server/clinic-signature";
 
 const EmailSchema = z.string().email().max(200);
 
@@ -684,6 +685,10 @@ export async function rotateIntakeSecretAction() {
       set: { accessTokenEnc: ciphertext },
     });
 
+  // Drop the cached old secret so the next /api/leads/intake or
+  // /api/patients/events verification uses the freshly rotated value.
+  invalidateSignatureSecretCache(session.clinicId, "intake");
+
   await writeAudit({
     clinicId: session.clinicId,
     actorId: session.userId,
@@ -713,6 +718,112 @@ export async function consumeIntakeSecretFlash(): Promise<string | null> {
   if (!c) return null;
   jar.delete(INTAKE_SECRET_FLASH_COOKIE);
   return c.value;
+}
+
+// ============================================================
+// Closed-loop ads-conversion config (Meta CAPI + Google Ads OCI)
+// ============================================================
+
+/**
+ * Meta Pixel IDs are numeric, usually 15 digits but sometimes 16-17 on
+ * older accounts; we permit 10-20 to be safe and let Meta reject the
+ * actual value on the next CAPI call.
+ */
+const MetaPixelIdSchema = z
+  .string()
+  .regex(/^\d{10,20}$/, "Pixel-ID muss 10–20 Ziffern haben.");
+
+/** Google Ads customer id; accepts `123-456-7890` or `1234567890`. */
+const GoogleAdsCustomerIdSchema = z
+  .string()
+  .regex(
+    /^[0-9]{3}-?[0-9]{3}-?[0-9]{4}$/,
+    "Customer-ID hat das Format 123-456-7890."
+  );
+
+/**
+ * Conversion-action resource name from Google Ads, e.g.
+ * `customers/1234567890/conversionActions/9876543210`.
+ */
+const GoogleAdsConversionActionSchema = z
+  .string()
+  .regex(
+    /^customers\/[0-9]+\/conversionActions\/[0-9]+$/,
+    "Bitte vollständigen Resource-Name eingeben (customers/…/conversionActions/…)."
+  );
+
+const OptionalMccSchema = z
+  .string()
+  .regex(/^[0-9]{3}-?[0-9]{3}-?[0-9]{4}$/, "MCC-ID hat das Format 123-456-7890.")
+  .optional()
+  .or(z.literal(""));
+
+export async function updateAdsConversionConfigAction(formData: FormData) {
+  let clinicIdForRevalidate: string | null = null;
+  try {
+    const session = await requireSession();
+    clinicIdForRevalidate = session.clinicId;
+    if (!can(session.role, "settings.integrations")) {
+      throw new ForbiddenError("settings.integrations");
+    }
+
+    const input = z
+      .object({
+        metaPixelId: MetaPixelIdSchema.optional().or(z.literal("")),
+        googleAdsCustomerId: GoogleAdsCustomerIdSchema.optional().or(
+          z.literal("")
+        ),
+        googleAdsConversionAction:
+          GoogleAdsConversionActionSchema.optional().or(z.literal("")),
+        googleAdsLoginCustomerId: OptionalMccSchema,
+      })
+      .parse({
+        metaPixelId: formData.get("metaPixelId") ?? undefined,
+        googleAdsCustomerId: formData.get("googleAdsCustomerId") ?? undefined,
+        googleAdsConversionAction:
+          formData.get("googleAdsConversionAction") ?? undefined,
+        googleAdsLoginCustomerId:
+          formData.get("googleAdsLoginCustomerId") ?? undefined,
+      });
+
+    await withClinicContext(session.clinicId, session.userId, async (tx) => {
+      await tx
+        .update(schema.clinics)
+        .set({
+          metaPixelId: input.metaPixelId || null,
+          googleAdsCustomerId: input.googleAdsCustomerId || null,
+          googleAdsConversionAction: input.googleAdsConversionAction || null,
+          googleAdsLoginCustomerId: input.googleAdsLoginCustomerId || null,
+        })
+        .where(eq(schema.clinics.id, session.clinicId));
+    });
+
+    await writeAudit({
+      clinicId: session.clinicId,
+      actorId: session.userId,
+      actorEmail: session.email,
+      action: "update",
+      entityKind: "clinic_ads_conversion_config",
+      diff: {
+        hasMetaPixelId: Boolean(input.metaPixelId),
+        hasGoogleAdsCustomerId: Boolean(input.googleAdsCustomerId),
+        hasGoogleAdsConversionAction: Boolean(input.googleAdsConversionAction),
+        hasGoogleAdsLoginCustomerIdOverride: Boolean(
+          input.googleAdsLoginCustomerId
+        ),
+      },
+    });
+
+    await flashSuccess("Conversion-Einstellungen gespeichert");
+  } catch (err) {
+    await flashError("Speichern fehlgeschlagen", flashMessageFromError(err));
+  } finally {
+    if (clinicIdForRevalidate) {
+      revalidateTag(`clinic:${clinicIdForRevalidate}`);
+    }
+    revalidatePath("/einstellungen/integrationen/ads-conversion");
+    revalidatePath("/einstellungen/integrationen");
+  }
 }
 
 // Manual review-snapshot entry was removed: the portal listens to Google /

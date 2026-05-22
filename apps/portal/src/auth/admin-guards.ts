@@ -1,4 +1,5 @@
 import "server-only";
+import { NextResponse } from "next/server";
 import { redirect } from "next/navigation";
 import { getAdminSession, type ResolvedAdmin } from "./admin";
 
@@ -18,4 +19,45 @@ export async function requireAdmin(opts: { skipMfa?: boolean } = {}): Promise<Re
     }
   }
   return session;
+}
+
+/**
+ * Guard for `/api/admin/*` JSON routes. Same checks as `requireAdmin` but
+ * never redirects — instead returns a NextResponse the caller can short-
+ * circuit with. Page-style `redirect()` on a JSON endpoint produces a
+ * 307→/admin/login HTML body to a fetch() client, which has to be parsed as
+ * JSON and explodes; 403 with a structured error is the right answer.
+ *
+ * Usage:
+ *   const gate = await requireAdminForApi();
+ *   if (!gate.ok) return gate.response;
+ *   const admin = gate.admin;
+ */
+export type RequireAdminApiResult =
+  | { ok: true; admin: ResolvedAdmin }
+  | { ok: false; response: NextResponse };
+
+export async function requireAdminForApi(
+  opts: { skipMfa?: boolean } = {}
+): Promise<RequireAdminApiResult> {
+  const session = await getAdminSession();
+  if (!session) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: { code: "not_authenticated" } },
+        { status: 401 }
+      ),
+    };
+  }
+  if (!opts.skipMfa && (!session.mfaEnrolled || !session.mfaVerified)) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: { code: "mfa_required" } },
+        { status: 403 }
+      ),
+    };
+  }
+  return { ok: true, admin: session };
 }

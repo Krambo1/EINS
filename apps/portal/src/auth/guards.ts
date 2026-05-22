@@ -2,7 +2,6 @@ import "server-only";
 import { redirect } from "next/navigation";
 import { getSession, type ResolvedSession } from "./session";
 import { can, type Permission, ForbiddenError } from "../lib/roles";
-import type { Role } from "../lib/constants";
 
 /**
  * Guards — thin wrappers around getSession() with idiomatic redirect/throw
@@ -44,17 +43,6 @@ export async function requireSession(opts?: {
 /** Returns a session OR null, without redirect. Useful for marketing-y pages. */
 export async function optionalSession(): Promise<ResolvedSession | null> {
   return await getSession();
-}
-
-/** Redirect-version of role check. */
-export async function requireRoleOrRedirect(
-  allowed: readonly Role[]
-): Promise<ResolvedSession> {
-  const session = await requireSession();
-  if (!allowed.includes(session.role)) {
-    redirect("/?denied=1");
-  }
-  return session;
 }
 
 /** Redirect-version of permission check. */

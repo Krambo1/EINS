@@ -53,7 +53,7 @@ export function AuditOverviewPanel({ data }: { data: AuditOverview }) {
       <Card className={GLOW_CARD}>
         <CardContent className="space-y-4 pt-6">
           <h2 className="font-display text-xl font-semibold">
-            Top-Kliniken × Aktionen
+            Top-Praxen × Aktionen
           </h2>
           <p className="text-xs text-fg-secondary">
             Wer macht was? Mint-Skala — dunkler = mehr Ereignisse.

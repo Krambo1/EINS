@@ -5,11 +5,11 @@ import { db, schema } from "@/db/client";
 /**
  * DSGVO-Werkzeuge (Art. 15 Auskunft / Art. 17 Löschung).
  *
- * Export: gibt ein JSON-Objekt zurück, das alle klinik-scopeten Tabellen
- * enthält. Kein Streaming nötig — die Datenmenge pro Klinik ist klein.
+ * Export: gibt ein JSON-Objekt zurück, das alle praxis-scopeten Tabellen
+ * enthält. Kein Streaming nötig — die Datenmenge pro Praxis ist klein.
  *
- * Löschung (Erasure): hard delete aller klinik-bezogenen Zeilen in
- * abhängiger Reihenfolge, anschließend der Klinik selbst. Audit wird vom
+ * Löschung (Erasure): hard delete aller praxisbezogenen Zeilen in
+ * abhängiger Reihenfolge, anschließend der Praxis selbst. Audit wird vom
  * Aufrufer geschrieben.
  *
  * Beide Funktionen gehören in admin-gated Server-Actions / API-Routen.

@@ -97,13 +97,16 @@ async function main() {
     { pattern: "0 4 * * *" },
     "pvs-partition-rotate-daily-0400"
   );
-  // PVS Bridge — nightly reconciliation 02:15 (before kpi-rebuild).
+  // PVS Bridge — reconciliation every 4 hours so the stale-bridge alert
+  // (audit `pvs_bridge_stale`) fires reasonably soon after a connected
+  // link goes quiet. Orphan + stale-derive checks are cheap and benefit
+  // from the increased frequency.
   await scheduleRepeating(
     QUEUES.pvsReconcile,
     "reconcile",
     {},
-    { pattern: "15 2 * * *" },
-    "pvs-reconcile-daily-0215"
+    { pattern: "15 */4 * * *" },
+    "pvs-reconcile-every-4h"
   );
   // PVS Bridge — daily treatment auto-mapping suggestions 04:30.
   await scheduleRepeating(
@@ -112,6 +115,17 @@ async function main() {
     {},
     { pattern: "30 4 * * *" },
     "pvs-treatment-suggest-daily-0430"
+  );
+  // Anomaly scan: every 6 hours (00:30, 06:30, 12:30, 18:30 UTC). Offset
+  // by 30 minutes from the per-clinic syncs at top-of-hour so baseline
+  // queries see freshly-aggregated kpi_daily rows on the 06:30 run that
+  // follows the 03:00 nightly kpi-rebuild.
+  await scheduleRepeating(
+    QUEUES.anomalyScan,
+    "scan",
+    {},
+    { pattern: "30 */6 * * *" },
+    "anomaly-scan-every-6h"
   );
 
   // --- Per-clinic jobs: one recurring schedule each ---
@@ -168,6 +182,15 @@ async function main() {
       { clinicId: c.id },
       { pattern: "20 4 * * *" },
       `sync-reviews-jameda-${c.id}`
+    );
+    // Forecast snapshot — 03:15 UTC, after kpi-rebuild (03:00) so the
+    // engine sees yesterday's rates fully aggregated.
+    await scheduleRepeating(
+      QUEUES.forecastSnapshot,
+      "snapshot",
+      { clinicId: c.id },
+      { pattern: "15 3 * * *" },
+      `forecast-snapshot-${c.id}`
     );
   }
 

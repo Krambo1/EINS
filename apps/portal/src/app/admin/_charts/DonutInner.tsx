@@ -9,6 +9,7 @@ import {
   Sector,
   Tooltip,
 } from "recharts";
+import { formatEuro, formatNumber } from "@/lib/formatting";
 import { ChartTooltipCard } from "./ChartTooltip";
 
 export interface DonutSlice {
@@ -27,13 +28,6 @@ interface Props {
   /** "EUR" or "Anzahl" — used in the tooltip value formatter. */
   valueKind?: "eur" | "number";
 }
-
-const numFormatter = new Intl.NumberFormat("de-DE");
-const eurFormatter = new Intl.NumberFormat("de-DE", {
-  style: "currency",
-  currency: "EUR",
-  maximumFractionDigits: 0,
-});
 
 interface ActiveShapeProps {
   cx: number;
@@ -81,8 +75,8 @@ export function DonutInner({
       !Number.isFinite(v)
         ? "–"
         : valueKind === "eur"
-          ? eurFormatter.format(v)
-          : numFormatter.format(v),
+          ? formatEuro(v)
+          : formatNumber(v),
     [valueKind]
   );
 

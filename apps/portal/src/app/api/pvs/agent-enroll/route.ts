@@ -83,9 +83,13 @@ export async function POST(request: NextRequest) {
         machineFingerprint: body.machineFingerprint,
       },
     });
-    // Return a generic error to avoid leaking which check failed.
+    // Return a generic error to avoid leaking which check failed. The
+    // specific reason is in the audit log above for ops debugging; the
+    // wire-level response stays opaque so token-spray attacks can't
+    // distinguish "wrong token" from "token expired" from "wrong machine
+    // fingerprint" — all of which would help an attacker iterate.
     return NextResponse.json(
-      { error: { code: "enrollment_failed", detail: result.reason } },
+      { error: { code: "enrollment_failed" } },
       { status: 401 }
     );
   }

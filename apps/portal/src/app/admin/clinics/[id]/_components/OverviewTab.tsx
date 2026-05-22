@@ -86,7 +86,7 @@ export function OverviewTab({
         <MetricTile
           label="Dokumente"
           value={formatNumber(totals.documents)}
-          sublabel="im Klinik-Ordner"
+          sublabel="im Praxis-Ordner"
         />
         <MetricTile
           label="Medien"

@@ -10,7 +10,7 @@ export function MfaMissingQueue({ rows }: { rows: MfaMissingRow[] }) {
     <QueueShell
       id="mfa"
       title="MFA fehlt"
-      description="Aktive Klinik-Mitglieder ohne aktivierten zweiten Faktor."
+      description="Aktive Praxis-Mitglieder ohne aktivierten zweiten Faktor."
       count={rows.length}
       tone="warn"
       emptyMessage="Alle aktiven Mitglieder haben MFA aktiviert."
@@ -19,7 +19,7 @@ export function MfaMissingQueue({ rows }: { rows: MfaMissingRow[] }) {
         <table className="w-full text-sm">
           <thead className="text-left text-xs text-fg-secondary">
             <tr>
-              <th className="py-2">Klinik</th>
+              <th className="py-2">Praxis</th>
               <th className="py-2">E-Mail</th>
               <th className="py-2">Rolle</th>
               <th className="py-2 text-right">Letzter Login</th>

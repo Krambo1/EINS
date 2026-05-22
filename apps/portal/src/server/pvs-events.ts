@@ -8,6 +8,7 @@ import {
   recordLinkingFailure,
   upsertPatientFromPvs,
 } from "@/server/pvs-linking";
+import { ensurePartitionForMonth } from "@/worker/processors/pvs-partition-rotate";
 
 /**
  * PVS Bridge — inbound canonical event handler.
@@ -41,6 +42,8 @@ const BridgeSource = z.enum([
   "tomedo",
   "healthhub",
   "red",
+  "pabau",
+  "consentz",
   "gdt_agent",
   "csv_upload",
   "n8n_custom",
@@ -262,28 +265,11 @@ export async function applyPvsEvent(
   // 2) Insert event_log (idempotent).
   let eventLogId: string;
   try {
-    const [row] = await db
-      .insert(schema.pvsEventLog)
-      .values({
-        clinicId: input.clinicId,
-        bridgeSource: input.bridgeSource,
-        pvsExternalEventId: input.pvsExternalEventId,
-        kind: input.kind,
-        occurredAt: new Date(input.occurredAt),
-        payload: input as unknown as Record<string, unknown>,
-      })
-      .onConflictDoNothing({
-        // The unique index is (clinic_id, bridge_source, pvs_external_event_id,
-        // occurred_at). Drizzle's onConflictDoNothing without target falls
-        // back to ON CONFLICT DO NOTHING (no target) which matches any
-        // conflict, including this one.
-      })
-      .returning({ id: schema.pvsEventLog.id });
-    if (!row) {
+    eventLogId = await insertEventLogWithPartitionHeal(input);
+  } catch (err) {
+    if (isDedupeSentinel(err)) {
       return { ok: true, status: "deduped" };
     }
-    eventLogId = row.id;
-  } catch (err) {
     console.error("[pvs-events] event_log insert failed:", err);
     return { ok: false, reason: "internal_error" };
   }
@@ -353,8 +339,13 @@ export async function applyPvsEvent(
     }
   } catch (err) {
     console.error("[pvs-events] linking failed:", err);
-    // We've still inserted the event log; the nightly reconciliation job
-    // will retry. Don't roll back.
+    // The event_log row is already persisted (committed at step 2) so
+    // reconciliation can retry. But the producer (n8n, GDT-Agent, CSV
+    // worker) needs a non-2xx signal — silently returning "ingested"
+    // would let the failure go unnoticed and break the "PVS gewinnt
+    // immer" guarantee. Surface as internal_error → 500 so the producer
+    // retries with backoff.
+    return { ok: false, reason: "internal_error" };
   }
 
   // 4) Enqueue derive for the resolved patient.
@@ -379,6 +370,83 @@ export async function applyPvsEvent(
 // ---------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------
+
+const DEDUPE_SENTINEL = Symbol("eins.pvs.dedupe");
+
+function isDedupeSentinel(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    (err as { __sentinel?: symbol }).__sentinel === DEDUPE_SENTINEL
+  );
+}
+
+/**
+ * Insert the event_log row. On the "no partition of relation X found for row"
+ * error (PG SQLSTATE 23514, fired when occurredAt falls outside any existing
+ * partition window) we self-heal: create the missing month partition via
+ * `ensurePartitionForMonth` and retry once. Retrying further would mask a
+ * deeper bug, so we re-raise after one attempt.
+ *
+ * Throws an internal sentinel for the dedupe case so the outer try/catch can
+ * route to `{status: 'deduped'}` instead of `{reason: 'internal_error'}`.
+ */
+async function insertEventLogWithPartitionHeal(
+  input: PvsEvent
+): Promise<string> {
+  const doInsert = async () => {
+    const [row] = await db
+      .insert(schema.pvsEventLog)
+      .values({
+        clinicId: input.clinicId,
+        bridgeSource: input.bridgeSource,
+        pvsExternalEventId: input.pvsExternalEventId,
+        kind: input.kind,
+        occurredAt: new Date(input.occurredAt),
+        payload: input as unknown as Record<string, unknown>,
+      })
+      .onConflictDoNothing()
+      .returning({ id: schema.pvsEventLog.id });
+    if (!row) {
+      // Signal dedupe to outer handler. Throwing is the cleanest way to
+      // bail out of the try-block without polluting the return type.
+      throw { __sentinel: DEDUPE_SENTINEL };
+    }
+    return row.id;
+  };
+
+  try {
+    return await doInsert();
+  } catch (err) {
+    if (isDedupeSentinel(err)) throw err;
+    if (isMissingPartitionError(err)) {
+      console.warn(
+        `[pvs-events] missing partition for occurredAt=${input.occurredAt}; self-healing`
+      );
+      await ensurePartitionForMonth(new Date(input.occurredAt));
+      // Retry exactly once. If this still fails, propagate — something
+      // weirder is going on.
+      return await doInsert();
+    }
+    throw err;
+  }
+}
+
+/**
+ * PG raises SQLSTATE 23514 (check_violation) with message
+ * "no partition of relation \"pvs_event_log\" found for row" when inserting
+ * a row whose occurred_at doesn't fall into any existing partition.
+ */
+function isMissingPartitionError(err: unknown): boolean {
+  const e = err as { code?: string; message?: string } | null;
+  if (!e) return false;
+  const msg = String(e.message ?? "");
+  return (
+    e.code === "23514" &&
+    msg.includes("no partition of relation") &&
+    msg.includes("pvs_event_log")
+  );
+}
 
 function snapshotOf(input: PvsEvent): Record<string, unknown> {
   // Only carry fields that would help an MFA visually recognise the patient

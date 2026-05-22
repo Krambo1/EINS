@@ -17,7 +17,7 @@ import {
 } from "@/lib/constants";
 import { formatDateTime, formatRelative } from "@/lib/formatting";
 import { AlertTriangle, Inbox, Sparkles } from "lucide-react";
-import { withBrandLogos } from "@/app/_components/Brand";
+import { SourceLabel } from "@/app/_components/Brand";
 import { AnfragenFilters } from "./_components/AnfragenFilters";
 
 export const metadata = { title: "Anfragen" };
@@ -33,7 +33,10 @@ type Search = {
   page?: string;
 };
 
-const PAGE_SIZE = 50;
+// 25 rows × per-row component graph keeps the list page's HTML payload
+// inside ~250 KB. Was 50 — observed shipping ~1.1 MB in dev for a single
+// list render with that page size.
+const PAGE_SIZE = 25;
 
 export default async function AnfragenPage({
   searchParams,
@@ -172,7 +175,14 @@ export default async function AnfragenPage({
                       </div>
 
                       <div className="hidden min-w-0 truncate text-sm text-fg-primary md:block">
-                        {withBrandLogos(SOURCE_LABELS[r.source as keyof typeof SOURCE_LABELS] ?? r.source)}
+                        <SourceLabel
+                          source={r.source}
+                          label={
+                            SOURCE_LABELS[
+                              r.source as keyof typeof SOURCE_LABELS
+                            ] ?? r.source
+                          }
+                        />
                       </div>
 
                       <div className="hidden items-center gap-1 text-sm tabular-nums text-fg-secondary md:flex">

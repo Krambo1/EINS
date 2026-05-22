@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { formatNumber } from "@/lib/formatting";
 import { ChartTooltipCard } from "./ChartTooltip";
 
 interface Props {
@@ -9,8 +10,6 @@ interface Props {
   /** When the highest cell exceeds this, gradient saturation tops out earlier. */
   ceiling?: number;
 }
-
-const numFormatter = new Intl.NumberFormat("de-DE");
 
 /**
  * Mint-scale heatmap. Cell intensity = value / max-in-grid; capped to 1 for
@@ -161,7 +160,7 @@ export function Heatmap({ rows, columnLabels, ceiling }: Props) {
             rows={[
               {
                 name: "",
-                value: numFormatter.format(hover.value),
+                value: formatNumber(hover.value),
                 color:
                   hover.value === 0
                     ? "var(--fg-tertiary)"

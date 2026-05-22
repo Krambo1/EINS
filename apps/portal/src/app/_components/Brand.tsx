@@ -121,6 +121,34 @@ export function Brand({
   );
 }
 
+/**
+ * Direct source → brand-decorated label. Avoids the regex-split + variadic
+ * <Brand> render that `withBrandLogos` produces, which is expensive for
+ * list pages that render this once per row (e.g. /anfragen).
+ *
+ * Falls back to a plain text label for sources without a registered brand
+ * (today: `whatsapp`).
+ */
+const SOURCE_TO_BRAND: Record<string, BrandKey> = {
+  meta: "meta",
+  google: "google",
+  formular: "formular",
+  manuell: "manuell",
+  jameda: "jameda",
+};
+
+export function SourceLabel({
+  source,
+  label,
+}: {
+  source: string;
+  label: string;
+}) {
+  const brand = SOURCE_TO_BRAND[source];
+  if (!brand) return <>{label}</>;
+  return <Brand brand={brand}>{label}</Brand>;
+}
+
 const BRAND_PATTERN =
   /(Google Ads|Google Maps|Google Authenticator|Google|Jameda|Meta|Zielseiten-Formular|Manueller Eintrag)/g;
 

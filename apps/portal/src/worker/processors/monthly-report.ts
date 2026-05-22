@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { kpiSummaryAdmin } from "@/server/queries/kpis";
 import { getEmailSender } from "@/server/email";
+import { isEmailSuppressed } from "@/server/email-suppression";
 import { env } from "@/lib/env";
 
 /**
@@ -99,18 +100,39 @@ export async function processMonthlyReport(job: MonthlyReportJob): Promise<void>
   const link = `${env.APP_ORIGIN}/dokumente`;
   const sender = getEmailSender();
   for (const u of inhaber) {
-    await sender.send({
-      to: u.email,
-      subject: `Ihre Monats-Auswertung ${period} ist bereit`,
-      text:
-        `Guten Tag${u.fullName ? " " + u.fullName : ""},\n\n` +
-        `Ihre Monats-Auswertung für ${period} liegt im Portal bereit.\n\n` +
-        `Zur Auswertung: ${link}\n\n` +
-        `Herzliche Grüße\nEINS`,
-      html: `<p>Guten Tag${u.fullName ? " " + u.fullName : ""},</p>
-             <p>Ihre Monats-Auswertung für <strong>${period}</strong> liegt im Portal bereit.</p>
-             <p><a href="${link}">Zur Auswertung</a></p>
-             <p>Herzliche Grüße<br>EINS</p>`,
-    });
+    // Suppression — check per-recipient. A single dead inhaber address
+    // shouldn't break the whole batch. Try/catch so one Resend 5xx also
+    // doesn't blow up subsequent sends (the original code threw on the
+    // first failure and BullMQ replayed → duplicate PDFs).
+    try {
+      const reason = await isEmailSuppressed(clinicId, u.email, "transactional");
+      if (reason) {
+        console.log(
+          `[monthly-report] skipping to=${u.email} clinic=${clinicId} reason=${reason}`
+        );
+        continue;
+      }
+      await sender.send({
+        to: u.email,
+        subject: `Ihre Monats-Auswertung ${period} ist bereit`,
+        text:
+          `Guten Tag${u.fullName ? " " + u.fullName : ""},\n\n` +
+          `Ihre Monats-Auswertung für ${period} liegt im Portal bereit.\n\n` +
+          `Zur Auswertung: ${link}\n\n` +
+          `Herzliche Grüße\nEINS`,
+        html: `<p>Guten Tag${u.fullName ? " " + u.fullName : ""},</p>
+               <p>Ihre Monats-Auswertung für <strong>${period}</strong> liegt im Portal bereit.</p>
+               <p><a href="${link}">Zur Auswertung</a></p>
+               <p>Herzliche Grüße<br>EINS</p>`,
+      });
+    } catch (err) {
+      console.error(
+        `[monthly-report] send to ${u.email} clinic ${clinicId} failed:`,
+        err
+      );
+      // continue — the document is already in storage; partial-batch
+      // failure shouldn't bounce the whole job to BullMQ and re-render
+      // the PDF on retry.
+    }
   }
 }

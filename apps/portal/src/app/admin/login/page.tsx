@@ -5,7 +5,7 @@ import { LoginForm } from "./_components/LoginForm";
 export const metadata = { title: "Admin-Anmeldung" };
 
 interface PageProps {
-  searchParams: { error?: string };
+  searchParams: Promise<{ error?: string }>;
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -16,10 +16,9 @@ const ERROR_MESSAGES: Record<string, string> = {
     "Der Link ist abgelaufen oder wurde bereits verwendet. Bitte fordern Sie einen neuen an.",
 };
 
-export default function AdminLoginPage({ searchParams }: PageProps) {
-  const error = searchParams.error
-    ? ERROR_MESSAGES[searchParams.error]
-    : undefined;
+export default async function AdminLoginPage({ searchParams }: PageProps) {
+  const params = await searchParams;
+  const error = params.error ? ERROR_MESSAGES[params.error] : undefined;
 
   return (
     <div className="mx-auto flex min-h-[80vh] max-w-md flex-col justify-center gap-6 py-12">

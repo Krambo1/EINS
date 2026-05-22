@@ -27,7 +27,7 @@ export const metadata = { title: "Leistung · Admin" };
 const GLOW_CARD = "!bg-bg-secondary/60";
 
 interface PageProps {
-  searchParams: { period?: string };
+  searchParams: Promise<{ period?: string }>;
 }
 
 const PERIODS: Record<string, number> = {
@@ -39,7 +39,8 @@ const PERIODS: Record<string, number> = {
 
 export default async function AdminLeistungPage({ searchParams }: PageProps) {
   await requireAdmin();
-  const periodKey = searchParams.period ?? "90d";
+  const params = await searchParams;
+  const periodKey = params.period ?? "90d";
   const days = PERIODS[periodKey] ?? 90;
 
   const [
@@ -220,7 +221,7 @@ export default async function AdminLeistungPage({ searchParams }: PageProps) {
             <table className="w-full text-sm">
               <thead className="text-left text-xs text-fg-secondary">
                 <tr>
-                  <th className="py-2">Klinik</th>
+                  <th className="py-2">Praxis</th>
                   <th className="py-2">Plattform</th>
                   <th className="py-2">Konto</th>
                   <th className="py-2 text-right">Letzter Sync</th>
@@ -277,7 +278,7 @@ function CampaignTable({
       <table className="w-full text-sm">
         <thead className="text-left text-xs text-fg-secondary">
           <tr>
-            <th className="py-2">Klinik</th>
+            <th className="py-2">Praxis</th>
             <th className="py-2">Quelle</th>
             <th className="py-2">Kampagne</th>
             <th className="py-2 text-right">Leads</th>

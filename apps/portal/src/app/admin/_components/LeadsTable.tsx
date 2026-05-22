@@ -52,7 +52,7 @@ export function LeadsTable({
           <table className="w-full text-sm">
             <thead className="border-b border-border bg-bg-secondary/40 text-left text-xs text-fg-secondary">
               <tr>
-                {!hideClinic && <th className="px-4 py-2">Klinik</th>}
+                {!hideClinic && <th className="px-4 py-2">Praxis</th>}
                 <th className="px-4 py-2">Kontakt</th>
                 <th className="px-4 py-2">Quelle</th>
                 <th className="px-4 py-2">Status</th>

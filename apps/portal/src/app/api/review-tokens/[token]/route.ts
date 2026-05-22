@@ -3,6 +3,7 @@ import { rateLimit } from "@/server/rate-limit";
 import {
   resolveReviewToken,
   isValidTokenShape,
+  resolveGoogleReviewTarget,
 } from "@/server/review-tokens";
 
 /**
@@ -44,8 +45,16 @@ export async function GET(
   const recall = await resolveReviewToken(token);
   if (!recall) return notFound();
 
-  // Suggested public platform: prefer Google when both are configured.
-  const suggestedPlatform: "google" | "jameda" | null = recall.googleReviewUrl
+  // Resolve the canonical Google write-review URL up here so the same logic
+  // is reused by the public-click redirector (which calls this endpoint).
+  // A configured "search.google.com/search?q=..." fallback is rejected —
+  // patients hit a write-review prompt or they hit nothing.
+  const resolvedGoogleUrl = resolveGoogleReviewTarget({
+    googlePlaceId: recall.googlePlaceId,
+    googleReviewUrl: recall.googleReviewUrl,
+  });
+
+  const suggestedPlatform: "google" | "jameda" | null = resolvedGoogleUrl
     ? "google"
     : recall.jamedaReviewUrl
     ? "jameda"
@@ -55,7 +64,7 @@ export async function GET(
     {
       clinic: {
         displayName: recall.clinicName,
-        googleReviewUrl: recall.googleReviewUrl,
+        googleReviewUrl: resolvedGoogleUrl,
         jamedaReviewUrl: recall.jamedaReviewUrl,
         suggestedPlatform,
       },

@@ -6,6 +6,7 @@ import { env } from "../lib/env";
 import { MAGIC_LINK_TTL_SECONDS } from "../lib/constants";
 import { generateToken, sha256Hex } from "../lib/crypto";
 import { sendMagicLinkEmail } from "../server/email";
+import { isEmailSuppressed } from "../server/email-suppression";
 import { createSession } from "./session";
 
 /**
@@ -54,9 +55,13 @@ export async function issueMagicLink(opts: IssueMagicLinkOpts): Promise<void> {
   // For `login` intent we resolve the user by email so the token row carries
   // user_id for fast consumption. If no user matches, do nothing (neutral).
   let userId = opts.userId ?? null;
+  let userClinicId: string | null = null;
   if (!userId && intent === "login") {
     const existing = await db
-      .select({ id: schema.clinicUsers.id })
+      .select({
+        id: schema.clinicUsers.id,
+        clinicId: schema.clinicUsers.clinicId,
+      })
       .from(schema.clinicUsers)
       .where(
         and(
@@ -66,7 +71,28 @@ export async function issueMagicLink(opts: IssueMagicLinkOpts): Promise<void> {
       )
       .limit(1);
     userId = existing[0]?.id ?? null;
+    userClinicId = existing[0]?.clinicId ?? null;
     if (!userId) return; // silent drop — don't reveal account existence
+  } else if (userId) {
+    const [u] = await db
+      .select({ clinicId: schema.clinicUsers.clinicId })
+      .from(schema.clinicUsers)
+      .where(eq(schema.clinicUsers.id, userId))
+      .limit(1);
+    userClinicId = u?.clinicId ?? null;
+  }
+
+  // Suppression — only hard signals (bounced/complained/manual) block
+  // transactional sends like magic-links. An unsubscribed user can still
+  // receive their login link because login is operationally required.
+  if (userClinicId) {
+    const reason = await isEmailSuppressed(userClinicId, email, "transactional");
+    if (reason) {
+      console.log(
+        `[magic-link] suppressed to=${email} clinic=${userClinicId} reason=${reason}`
+      );
+      return;
+    }
   }
 
   const token = generateToken(32);

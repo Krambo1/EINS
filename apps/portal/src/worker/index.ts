@@ -54,6 +54,22 @@ import {
   processPvsTreatmentSuggest,
   type PvsTreatmentSuggestJob,
 } from "./processors/pvs-treatment-suggest";
+import {
+  processCapiPurchase,
+  type CapiPurchaseJob,
+} from "./processors/capi-purchase";
+import {
+  processOciPurchase,
+  type OciPurchaseJob,
+} from "./processors/oci-purchase";
+import {
+  processForecastSnapshot,
+  type ForecastSnapshotJob,
+} from "./processors/forecast-snapshot";
+import {
+  processAnomalyScan,
+  type AnomalyScanJob,
+} from "./processors/anomaly-scan";
 
 /**
  * Worker entry point — run as `pnpm worker`.
@@ -178,6 +194,35 @@ const workers: Worker[] = [
   new Worker<PvsTreatmentSuggestJob>(
     QUEUES.pvsTreatmentSuggest,
     wrap("pvs-treatment-suggest", processPvsTreatmentSuggest),
+    { connection, concurrency: 1 }
+  ),
+  // Closed-loop ads attribution — kept at low concurrency to stay well
+  // below Meta and Google rate limits (Graph API: 200 req/hour/token for
+  // smaller accounts; Google Ads OCI: 15 req/min/account).
+  new Worker<CapiPurchaseJob>(
+    QUEUES.capiPurchase,
+    wrap("capi-purchase", processCapiPurchase),
+    { connection, concurrency: 2 }
+  ),
+  new Worker<OciPurchaseJob>(
+    QUEUES.ociPurchase,
+    wrap("oci-purchase", processOciPurchase),
+    { connection, concurrency: 2 }
+  ),
+  // Forecast snapshots: bootstrap is CPU-bound (~50ms per clinic at 500
+  // resamples, dominated by sort cost). Concurrency 2 keeps the nightly
+  // run quick without monopolizing the worker.
+  new Worker<ForecastSnapshotJob>(
+    QUEUES.forecastSnapshot,
+    wrap("forecast-snapshot", processForecastSnapshot),
+    { connection, concurrency: 2 }
+  ),
+  // Anomaly scanner. Runs every 6h, sweeps all clinics. Per-clinic cost is
+  // dominated by the LLM enrichment path which only fires for "extreme"
+  // candidates (rare in steady state), so concurrency 1 is plenty.
+  new Worker<AnomalyScanJob>(
+    QUEUES.anomalyScan,
+    wrap("anomaly-scan", processAnomalyScan),
     { connection, concurrency: 1 }
   ),
 ];

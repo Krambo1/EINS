@@ -80,26 +80,49 @@ export async function POST(
     contactEmail: parsed.contactEmail ?? null,
   });
   if (!result.ok) {
+    if (result.reason === "unsubscribed") {
+      // The patient unsubscribed from this clinic; their token is dead.
+      // 410 Gone is the precise status (the resource is intentionally
+      // permanently unavailable), and we hand the client a translatable
+      // code so the UI can show "Du hast dich abgemeldet" rather than a
+      // generic error.
+      return NextResponse.json(
+        { error: { code: "unsubscribed" } },
+        { status: 410 }
+      );
+    }
+    if (result.reason === "not_found") {
+      return NextResponse.json(
+        { error: { code: "not_found" } },
+        { status: 404 }
+      );
+    }
     return NextResponse.json(
       { error: { code: "invalid_request" } },
       { status: 400 }
     );
   }
 
-  await writeAudit({
-    clinicId: recall.clinicId,
-    action: "patient_feedback_create",
-    entityKind: "patient_feedback",
-    entityId: result.feedbackId,
-    diff: {
-      rating: parsed.rating,
-      contactBackOk: parsed.contactBackOk,
-      hasFreeText: Boolean(parsed.freeText),
-    },
-  });
+  // Only audit + return 201 on the first successful submission. A replay
+  // returns 200 + the existing feedbackId so an idempotent client (PWA
+  // resubmit, double-tap) sees a stable result without spamming the audit
+  // log or duplicating the Praxis-side alert email.
+  if (!result.replayed) {
+    await writeAudit({
+      clinicId: recall.clinicId,
+      action: "patient_feedback_create",
+      entityKind: "patient_feedback",
+      entityId: result.feedbackId,
+      diff: {
+        rating: parsed.rating,
+        contactBackOk: parsed.contactBackOk,
+        hasFreeText: Boolean(parsed.freeText),
+      },
+    });
+  }
 
   return NextResponse.json(
-    { ok: true, feedbackId: result.feedbackId },
-    { status: 201 }
+    { ok: true, feedbackId: result.feedbackId, replayed: result.replayed },
+    { status: result.replayed ? 200 : 201 }
   );
 }

@@ -3,7 +3,7 @@ import { requireSession } from "@/auth/guards";
 import {
   currentMonthSummary,
   currentGoals,
-  kpiSummaryUncached,
+  kpiSummary,
 } from "@/server/queries/kpis";
 import {
   requestStatusCounts,
@@ -16,12 +16,37 @@ import {
   DASHBOARD_RANGE_KEYS,
   dashboardRangeWindow,
   parseDashboardRange,
+  type DashboardRange,
 } from "@/lib/dashboard-range";
 import { DashboardTopMetricsEnhanced } from "./_components/DashboardTopMetricsEnhanced";
 import { DashboardDetailBundle } from "./_components/DashboardDetailBundle";
 import { DetailBundleSkeleton } from "./_components/DetailBundleSkeleton";
+import { ForecastStrip } from "./_components/ForecastStrip";
+import {
+  AnomalyAlertsWidget,
+  AnomalyAlertsSkeleton,
+} from "./_components/AnomalyAlertsWidget";
 
 export const metadata = { title: "Übersicht" };
+
+/**
+ * Tageszeit-gerechte Begrüßung. Vier Fenster:
+ *   05–09 → "Guten Morgen"
+ *   10–16 → "Guten Tag"
+ *   17–21 → "Guten Abend"
+ *   22–04 → "Gute Nacht"
+ *
+ * Inhaber:innen, die nach Mitternacht den Posteingang prüfen, bekommen so
+ * eine Begrüßung, die den realen Tageszeitpunkt trifft, ohne den 22:00-Uhr-
+ * Patient:in nach Feierabend mit einer Schlafwunsch-Begrüßung zu konfrontieren.
+ */
+function germanGreeting(d: Date): string {
+  const h = d.getHours();
+  if (h >= 5 && h < 10) return "Guten Morgen";
+  if (h >= 10 && h < 17) return "Guten Tag";
+  if (h >= 17 && h < 22) return "Guten Abend";
+  return "Gute Nacht";
+}
 
 export default async function DashboardPage({
   searchParams,
@@ -39,83 +64,24 @@ export default async function DashboardPage({
   const totalRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.total]);
   const staffRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.staff]);
   const sourcesRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.sources]);
-  const leadsWindow = dashboardRangeWindow(leadsRange);
-  const revenueWindow = dashboardRangeWindow(revenueRange);
-  const openWindow = dashboardRangeWindow(openRange);
-  const totalWindow = dashboardRangeWindow(totalRange);
 
-  // Base bundle. The three `*Summary` calls are scoped to each card's
-  // selected range; `monthlySummary` stays monthly for the goal bars and
-  // ROAS traffic-light below. The detail bundle (7 more) is streamed
-  // inside <Suspense> so the shell paints before the deep-dive queries
-  // finish.
-  const [
-    monthlySummary,
-    leadsBreakdown,
-    revenueSummary,
-    openSummary,
-    totalSummary,
-    goals,
-    statusCounts,
-    slaBreaches,
-    relationshipStartedAt,
-  ] = await Promise.all([
-    currentMonthSummary(session.clinicId, session.userId),
-    // Leads card pulls qualified/won counts from the live `requests` table
-    // — same source as `totalSummary` — so qualified ≤ total is guaranteed
-    // and the cards stay consistent even when kpi_daily is stale.
-    qualifiedLeadsInRangeWithComparison(
-      session.clinicId,
-      session.userId,
-      leadsWindow.from,
-      leadsWindow.to
-    ),
-    kpiSummaryUncached(
-      session.clinicId,
-      session.userId,
-      revenueWindow.from,
-      revenueWindow.to
-    ),
-    kpiSummaryUncached(
-      session.clinicId,
-      session.userId,
-      openWindow.from,
-      openWindow.to
-    ),
-    totalRequestsInRangeWithComparison(
-      session.clinicId,
-      session.userId,
-      totalWindow.from,
-      totalWindow.to
-    ),
-    currentGoals(session.clinicId, session.userId),
-    requestStatusCounts(session.clinicId, session.userId),
-    slaBreachedCount(session.clinicId, session.userId),
-    getClinicRelationshipStart(session.clinicId),
-  ]);
-  const summary = monthlySummary;
-
-  const leadsGoal = goals.find((g) => g.metric === "qualified_leads");
-  const revenueGoal = goals.find((g) => g.metric === "revenue");
-  const totalGoal = goals.find((g) => g.metric === "total_requests");
-
-  const openRequests =
-    (statusCounts.neu ?? 0) + (statusCounts.qualifiziert ?? 0);
+  const now = new Date();
+  const greeting = germanGreeting(now);
 
   return (
     <div className="space-y-10">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-sm text-fg-secondary">Guten Tag,</p>
-          <h2 className="text-3xl font-semibold md:text-4xl">
+          <p className="text-sm text-fg-secondary">{greeting},</p>
+          <h1 className="text-3xl font-semibold md:text-4xl">
             {session.fullName ?? session.email.split("@")[0]}.
-          </h2>
+          </h1>
           <p className="mt-2 text-base text-fg-primary md:text-lg">
             So läuft es aktuell in Ihrer Praxis.
           </p>
         </div>
         <div className="text-sm text-fg-secondary">
-          {new Date().toLocaleDateString("de-DE", {
+          {now.toLocaleDateString("de-DE", {
             weekday: "long",
             day: "2-digit",
             month: "long",
@@ -125,47 +91,152 @@ export default async function DashboardPage({
       </div>
 
       {/* Top metrics — four MetricTile cards, each with its own range toggle.
-          Streamed inside Suspense so the shell paints before the parallel
-          range-window queries finish on initial load. We deliberately do
-          NOT key the boundary by the active ranges: a key change unmounts
-          the subtree and reverts to the skeleton on every toggle click,
-          which both flashes the cards and destroys the TimeRangeToggle's
-          sliding-pill animation. With no key, `startTransition` keeps the
-          old cards visible while the new RSC payload streams in, the
-          toggle stays mounted, and its pill animates to the new value. */}
+          Data fetching happens INSIDE this Suspense boundary's child so the
+          shell (greeting + date) paints immediately and TTFB is no longer
+          held hostage by the parallel range-window queries. */}
       <Suspense fallback={<TopMetricsSkeleton />}>
-        <DashboardTopMetricsEnhanced
+        <DashboardTopMetricsLoader
           clinicId={session.clinicId}
           userId={session.userId}
-          leadsBreakdown={leadsBreakdown}
-          revenueSummary={revenueSummary}
-          openSummary={openSummary}
-          totalSummary={totalSummary}
-          slaBreaches={slaBreaches}
-          openRequests={openRequests}
-          leadsGoal={leadsGoal}
-          revenueGoal={revenueGoal}
-          totalGoal={totalGoal}
           leadsRange={leadsRange}
           revenueRange={revenueRange}
           openRange={openRange}
           totalRange={totalRange}
-          relationshipStartedAt={relationshipStartedAt}
+        />
+      </Suspense>
+
+      {/* Forecast strip — three numbers + link to /auswertung/forecast.
+          Hidden during cold-start (sample < MIN_SAMPLE_WON). Suspense so
+          the snapshot read doesn't block the shell. */}
+      <Suspense fallback={null}>
+        <ForecastStrip clinicId={session.clinicId} userId={session.userId} />
+      </Suspense>
+
+      {/* Anomaly alerts: rule-based detection with optional KI-sauce on the
+          rare extreme/multi-signal cases. Own Suspense so a slow alerts
+          read never blocks the deep-dive bundle and vice versa. */}
+      <Suspense fallback={<AnomalyAlertsSkeleton />}>
+        <AnomalyAlertsWidget
+          clinicId={session.clinicId}
+          userId={session.userId}
         />
       </Suspense>
 
       {/* Deep dive — streamed inside Suspense so the shell paints before its
           8 parallel queries finish. */}
       <Suspense fallback={<DetailBundleSkeleton />}>
-        <DashboardDetailBundle
+        <DashboardDetailLoader
           clinicId={session.clinicId}
           userId={session.userId}
-          summary={summary}
           staffRange={staffRange}
           sourcesRange={sourcesRange}
         />
       </Suspense>
     </div>
+  );
+}
+
+async function DashboardTopMetricsLoader({
+  clinicId,
+  userId,
+  leadsRange,
+  revenueRange,
+  openRange,
+  totalRange,
+}: {
+  clinicId: string;
+  userId: string;
+  leadsRange: DashboardRange;
+  revenueRange: DashboardRange;
+  openRange: DashboardRange;
+  totalRange: DashboardRange;
+}) {
+  const leadsWindow = dashboardRangeWindow(leadsRange);
+  const revenueWindow = dashboardRangeWindow(revenueRange);
+  const openWindow = dashboardRangeWindow(openRange);
+  const totalWindow = dashboardRangeWindow(totalRange);
+
+  const [
+    leadsBreakdown,
+    revenueSummary,
+    openSummary,
+    totalSummary,
+    goals,
+    statusCounts,
+    slaBreaches,
+    relationshipStartedAt,
+  ] = await Promise.all([
+    qualifiedLeadsInRangeWithComparison(
+      clinicId,
+      userId,
+      leadsWindow.from,
+      leadsWindow.to
+    ),
+    // Cached version (60 s default cap + worker `revalidateTag('kpi:<id>')`
+    // on rebuilds keeps freshness). The brief intra-day staleness is the
+    // explicit tradeoff for cutting two ~340 ms calls per dashboard render.
+    kpiSummary(clinicId, userId, revenueWindow.from, revenueWindow.to),
+    kpiSummary(clinicId, userId, openWindow.from, openWindow.to),
+    totalRequestsInRangeWithComparison(
+      clinicId,
+      userId,
+      totalWindow.from,
+      totalWindow.to
+    ),
+    currentGoals(clinicId, userId),
+    requestStatusCounts(clinicId, userId),
+    slaBreachedCount(clinicId, userId),
+    getClinicRelationshipStart(clinicId),
+  ]);
+
+  const leadsGoal = goals.find((g) => g.metric === "qualified_leads");
+  const revenueGoal = goals.find((g) => g.metric === "revenue");
+  const totalGoal = goals.find((g) => g.metric === "total_requests");
+  const openRequests =
+    (statusCounts.neu ?? 0) + (statusCounts.qualifiziert ?? 0);
+
+  return (
+    <DashboardTopMetricsEnhanced
+      clinicId={clinicId}
+      userId={userId}
+      leadsBreakdown={leadsBreakdown}
+      revenueSummary={revenueSummary}
+      openSummary={openSummary}
+      totalSummary={totalSummary}
+      slaBreaches={slaBreaches}
+      openRequests={openRequests}
+      leadsGoal={leadsGoal}
+      revenueGoal={revenueGoal}
+      totalGoal={totalGoal}
+      leadsRange={leadsRange}
+      revenueRange={revenueRange}
+      openRange={openRange}
+      totalRange={totalRange}
+      relationshipStartedAt={relationshipStartedAt}
+    />
+  );
+}
+
+async function DashboardDetailLoader({
+  clinicId,
+  userId,
+  staffRange,
+  sourcesRange,
+}: {
+  clinicId: string;
+  userId: string;
+  staffRange: DashboardRange;
+  sourcesRange: DashboardRange;
+}) {
+  const summary = await currentMonthSummary(clinicId, userId);
+  return (
+    <DashboardDetailBundle
+      clinicId={clinicId}
+      userId={userId}
+      summary={summary}
+      staffRange={staffRange}
+      sourcesRange={sourcesRange}
+    />
   );
 }
 

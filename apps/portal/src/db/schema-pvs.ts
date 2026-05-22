@@ -37,6 +37,11 @@ export const pvsLink = pgTable(
       .references(() => clinics.id, { onDelete: "cascade" }),
     pvsVendor: text("pvs_vendor").notNull(),
     status: text("status").notNull().default("unconfigured"),
+    // 'auto' (default) lets the bridge pick; 'rest' forces the cloud scheduler
+    // to own the path; 'db_read' forces the on-prem SQL-introspection agent
+    // to own it (cloud scheduler skips). Multi-path vendors (Tomedo) are the
+    // only case this matters today; single-path vendors leave it on 'auto'.
+    preferredPath: text("preferred_path").notNull().default("auto"),
     connectionConfig: jsonb("connection_config")
       .notNull()
       .default(sql`'{}'::jsonb`),
@@ -52,11 +57,15 @@ export const pvsLink = pgTable(
     uniqClinic: unique("pvs_link_clinic_unique").on(t.clinicId),
     vendorCheck: check(
       "pvs_link_vendor_check",
-      sql`${t.pvsVendor} IN ('tomedo','healthhub','red','gdt_agent','csv_upload','n8n_custom','none')`
+      sql`${t.pvsVendor} IN ('tomedo','healthhub','red','pabau','consentz','gdt_agent','csv_upload','n8n_custom','none')`
     ),
     statusCheck: check(
       "pvs_link_status_check",
       sql`${t.status} IN ('unconfigured','akkreditierung','pending','connected','error','disconnected')`
+    ),
+    preferredPathCheck: check(
+      "pvs_link_preferred_path_check",
+      sql`${t.preferredPath} IN ('auto', 'rest', 'db_read')`
     ),
     statusIdx: index("pvs_link_status_idx").on(t.status),
     vendorIdx: index("pvs_link_vendor_idx").on(t.pvsVendor),
@@ -90,7 +99,7 @@ export const pvsEventLog = pgTable(
   (t) => ({
     bridgeSourceCheck: check(
       "pvs_event_log_bridge_source_check",
-      sql`${t.bridgeSource} IN ('tomedo','healthhub','red','gdt_agent','csv_upload','n8n_custom')`
+      sql`${t.bridgeSource} IN ('tomedo','healthhub','red','pabau','consentz','gdt_agent','csv_upload','n8n_custom')`
     ),
     kindCheck: check(
       "pvs_event_log_kind_check",
@@ -385,6 +394,72 @@ export const pvsAgentEnrollmentTokens = pgTable(
     clinicIdx: index("pvs_agent_enrollment_tokens_clinic_idx").on(
       t.clinicId,
       t.createdAt.desc()
+    ),
+  })
+);
+
+// ---------------------------------------------------------------
+// PVS_LINK_HEALTH: per-stream operational signals from the bridge.
+// ---------------------------------------------------------------
+// Schema-drift reports + transient stream errors that the SQL-introspection
+// agent (apps/bridge/agent/src/db-adapters/framework.ts) or a cloud adapter
+// flags as actionable. One row per (clinic, vendor, stream, event_kind,
+// detected_at) tuple. The agent retries POSTs to /api/pvs/health until 2xx;
+// the dedup index makes that retry safe.
+//
+// The integrations UI reads `resolved_at IS NULL` rows to render the per-
+// stream warning card the Phase 4 brief requires.
+//
+// Schema mirrors migration 0040_pvs_link_health.sql verbatim.
+export const pvsLinkHealth = pgTable(
+  "pvs_link_health",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    pvsVendor: text("pvs_vendor").notNull(),
+    bridgeSource: text("bridge_source").notNull(),
+    streamKind: text("stream_kind").notNull(),
+    eventKind: text("event_kind").notNull(),
+    severity: text("severity").notNull().default("warn"),
+    message: text("message").notNull(),
+    detail: jsonb("detail").notNull().default(sql`'{}'::jsonb`),
+    detectedAt: timestamp("detected_at", { withTimezone: true }).notNull(),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolutionNote: text("resolution_note"),
+    receivedAt: timestamp("received_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    dedup: unique("pvs_link_health_dedup_idx").on(
+      t.clinicId,
+      t.pvsVendor,
+      t.streamKind,
+      t.eventKind,
+      t.detectedAt
+    ),
+    eventKindCheck: check(
+      "pvs_link_health_event_kind_check",
+      sql`${t.eventKind} IN (
+        'schema_drift',
+        'schema_recovered',
+        'stream_error',
+        'stream_recovered',
+        'auth_expired',
+        'connection_lost',
+        'rate_limited'
+      )`
+    ),
+    severityCheck: check(
+      "pvs_link_health_severity_check",
+      sql`${t.severity} IN ('info','warn','error')`
+    ),
+    openIdx: index("pvs_link_health_open_idx").on(
+      t.clinicId,
+      t.resolvedAt,
+      t.detectedAt.desc()
     ),
   })
 );

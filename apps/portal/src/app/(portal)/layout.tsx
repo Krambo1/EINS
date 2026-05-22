@@ -4,17 +4,11 @@ import { requireSession } from "@/auth/guards";
 import { PortalShell } from "./_components/PortalShell";
 import { ActionFlashToast } from "./_components/ActionFlashToast";
 import { getClinicHeader } from "@/server/queries/clinic";
-import { hasUserPassedLeitfadenQuiz } from "@/server/queries/leitfaden";
-import { countNewRequests } from "@/server/queries/requests";
-import { countNewPatientFeedback } from "@/server/queries/stimme";
-import { hasRecentTimelineUpdate } from "@/server/queries/timeline";
-import { hasNewMedia } from "@/server/queries/assets";
-import { hasNewDocuments } from "@/server/queries/documents";
 import {
   markSectionSeen,
   type NavSection,
 } from "@/server/queries/navBadges";
-import { can } from "@/lib/roles";
+import { getNavBadges } from "@/server/queries/navBadgesCache";
 import type { Role } from "@/lib/constants";
 import { readActionFlash } from "@/lib/flash";
 
@@ -40,48 +34,30 @@ function currentSection(pathname: string | null): NavSection | null {
 export default async function PortalLayout({ children }: { children: ReactNode }) {
   const session = await requireSession();
 
-  // Clear the active section's "Neu" pill *before* the badge queries run —
+  // Clear the active section's "Neu" pill *before* the badge bundle runs —
   // otherwise the layout would compute the badge from pre-mark state and
-  // the pill would only disappear on the next navigation.
+  // the pill would only disappear on the next navigation. markSectionSeen
+  // calls invalidateNavBadges internally so the bundle refetch below sees
+  // the updated last-seen timestamp.
   const h = await headers();
   const section = currentSection(h.get("x-portal-pathname"));
   if (section) {
     await markSectionSeen(session.clinicId, session.userId, section);
   }
 
-  const [
-    clinic,
-    hasPassedLeitfaden,
+  const [clinic, badges, actionFlash] = await Promise.all([
+    getClinicHeader(session.clinicId),
+    getNavBadges(session.clinicId, session.userId, session.role as Role),
+    readActionFlash(),
+  ]);
+  const {
     newRequests,
     newFeedback,
     timelineHasUpdate,
     medienHasUpdate,
     dokumenteHasUpdate,
-    actionFlash,
-  ] = await Promise.all([
-    getClinicHeader(session.clinicId),
-    can(session.role, "leitfaden.quiz")
-      ? hasUserPassedLeitfadenQuiz(session.clinicId, session.userId)
-      : Promise.resolve(true),
-    can(session.role, "requests.view")
-      ? countNewRequests(session.clinicId, session.userId)
-      : Promise.resolve(0),
-    can(session.role, "stimme.view")
-      ? countNewPatientFeedback(session.clinicId, session.userId)
-      : Promise.resolve(0),
-    hasRecentTimelineUpdate(session.clinicId, session.userId),
-    can(session.role, "assets.view")
-      ? hasNewMedia(session.clinicId, session.userId)
-      : Promise.resolve(false),
-    can(session.role, "documents.view.marketing")
-      ? hasNewDocuments(
-          session.clinicId,
-          session.userId,
-          session.role as Role
-        )
-      : Promise.resolve(false),
-    readActionFlash(),
-  ]);
+    hasPassedLeitfaden,
+  } = badges;
 
   return (
     <>

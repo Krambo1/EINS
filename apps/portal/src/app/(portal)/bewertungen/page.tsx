@@ -1,5 +1,7 @@
-import { Star } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, MessageSquare, Star } from "lucide-react";
 import {
+  Badge,
   Card,
   CardContent,
   CardHeader,
@@ -9,6 +11,7 @@ import {
 import { requirePermissionOrRedirect } from "@/auth/guards";
 import { db, schema } from "@/db/client";
 import { eq } from "drizzle-orm";
+import { can } from "@/lib/roles";
 import { formatDateTime, formatNumber } from "@/lib/formatting";
 import {
   bewertungenPageData,
@@ -16,6 +19,10 @@ import {
   type ReviewTrendRow,
   type listReviews,
 } from "@/server/queries/reviews";
+import {
+  countNewPatientFeedback,
+  listPatientFeedback,
+} from "@/server/queries/stimme";
 import { PlatformTile } from "./_components/PlatformTile";
 import {
   TRACKED_PLATFORMS,
@@ -29,15 +36,30 @@ export const metadata = { title: "Bewertungen" };
 export default async function BewertungenPage() {
   const session = await requirePermissionOrRedirect("reviews.view");
 
-  const [clinicRows, { latest, trend, history }] = await Promise.all([
-    db
-      .select({ displayName: schema.clinics.displayName })
-      .from(schema.clinics)
-      .where(eq(schema.clinics.id, session.clinicId))
-      .limit(1),
-    bewertungenPageData(session.clinicId, session.userId, 6),
-  ]);
+  // The /bewertungen sidebar badge counts new patient feedback rows, but
+  // until now the index itself didn't surface them — users would see "1 neu"
+  // in the navigation and find an empty platform-tile page. Pull the count
+  // and a short preview here so the new feedback is visible from the
+  // landing tab, with a one-click jump into the dedicated sub-tab.
+  const canViewStimme = can(session.role, "stimme.view");
+
+  const [clinicRows, { latest, trend, history }, newFeedbackCount, feedbackPreview] =
+    await Promise.all([
+      db
+        .select({ displayName: schema.clinics.displayName })
+        .from(schema.clinics)
+        .where(eq(schema.clinics.id, session.clinicId))
+        .limit(1),
+      bewertungenPageData(session.clinicId, session.userId, 6),
+      canViewStimme
+        ? countNewPatientFeedback(session.clinicId, session.userId)
+        : Promise.resolve(0),
+      canViewStimme
+        ? listPatientFeedback(session.clinicId, session.userId, { status: "neu" })
+        : Promise.resolve([] as Awaited<ReturnType<typeof listPatientFeedback>>),
+    ]);
   const clinic = clinicRows[0];
+  const recentNewFeedback = feedbackPreview.slice(0, 3);
 
   const byPlatform = new Map<string, ReviewSnapshot>();
   for (const snap of latest) byPlatform.set(snap.platform, snap);
@@ -57,6 +79,62 @@ export default async function BewertungenPage() {
           Ihre Reputation auf <Brand brand="google" />, <Brand brand="jameda" /> &amp; Co. an einem Ort.
         </p>
       </header>
+
+      {canViewStimme && newFeedbackCount > 0 && (
+        <Card className="border-tone-warn/40 bg-[var(--tone-warn-bg)]/40">
+          <CardContent className="flex flex-col gap-4 pt-6 md:flex-row md:items-center md:justify-between">
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-tone-warn/15 text-tone-warn">
+                <MessageSquare className="h-4 w-4" aria-hidden />
+              </span>
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-base font-semibold">
+                    Neues Patientenfeedback
+                  </h2>
+                  <Badge tone="warn">{newFeedbackCount} neu</Badge>
+                </div>
+                <p className="text-sm text-fg-secondary">
+                  {newFeedbackCount === 1
+                    ? "Eine Patientin oder ein Patient hat seit dem letzten Besuch geantwortet."
+                    : `${newFeedbackCount} Rückmeldungen warten auf Sichtung.`}
+                </p>
+                {recentNewFeedback.length > 0 && (
+                  <ul className="mt-2 space-y-1 text-sm">
+                    {recentNewFeedback.map((f) => (
+                      <li key={f.id} className="flex items-center gap-2">
+                        <span
+                          className="inline-flex items-center gap-0.5 text-tone-warn tabular-nums"
+                          aria-label={`${f.rating ?? "—"} von 5 Sternen`}
+                        >
+                          {f.rating ?? "—"}
+                          <Star className="h-3 w-3 fill-current" aria-hidden />
+                        </span>
+                        <Link
+                          href={`/bewertungen/feedback/${f.id}`}
+                          className="truncate text-fg-primary hover:text-accent"
+                        >
+                          {f.freeText?.trim() || "Ohne Kommentar"}
+                        </Link>
+                        <span className="ml-auto shrink-0 text-xs text-fg-tertiary">
+                          {formatDateTime(f.createdAt)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+            <Link
+              href="/bewertungen/feedback"
+              className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-md border border-border bg-bg-primary px-3 py-2 text-sm font-medium text-fg-primary hover:bg-bg-secondary md:self-center"
+            >
+              Alle ansehen
+              <ArrowRight className="h-4 w-4" aria-hidden />
+            </Link>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Per-platform tiles */}
       <section

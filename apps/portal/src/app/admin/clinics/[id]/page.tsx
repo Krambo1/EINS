@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { Badge } from "@eins/ui";
 import { requireAdmin } from "@/auth/admin-guards";
 import { db, schema } from "@/db/client";
@@ -32,7 +32,7 @@ import { IntegrationenTab } from "./_components/IntegrationenTab";
 import { VerwaltungTab } from "./_components/VerwaltungTab";
 import { FortschrittTab } from "./_components/FortschrittTab";
 
-export const metadata = { title: "Klinik-Details" };
+export const metadata = { title: "Praxis-Details" };
 
 const TABS = [
   { key: "uebersicht", label: "Übersicht" },
@@ -151,7 +151,7 @@ export default async function AdminClinicDetailPage({
   } else if (tab === "stammdaten") {
     renderedTab = <StammdatenTab clinic={clinic} />;
   } else if (tab === "integrationen") {
-    const [creds, syncEvents] = await Promise.all([
+    const [creds, syncEvents, outboxRows, outboxCounts] = await Promise.all([
       db
         .select()
         .from(schema.platformCredentials)
@@ -172,8 +172,44 @@ export default async function AdminClinicDetailPage({
         )
         .orderBy(desc(schema.auditLog.createdAt))
         .limit(20),
+      db
+        .select({
+          id: schema.adsConversionOutbox.id,
+          channel: schema.adsConversionOutbox.channel,
+          status: schema.adsConversionOutbox.status,
+          valueEur: schema.adsConversionOutbox.valueEur,
+          createdAt: schema.adsConversionOutbox.createdAt,
+          sentAt: schema.adsConversionOutbox.sentAt,
+          responseCode: schema.adsConversionOutbox.responseCode,
+          responseBody: schema.adsConversionOutbox.responseBody,
+        })
+        .from(schema.adsConversionOutbox)
+        .where(eq(schema.adsConversionOutbox.clinicId, clinic.id))
+        .orderBy(desc(schema.adsConversionOutbox.createdAt))
+        .limit(20),
+      db
+        .select({
+          status: schema.adsConversionOutbox.status,
+          n: sql<number>`count(*)::int`,
+        })
+        .from(schema.adsConversionOutbox)
+        .where(eq(schema.adsConversionOutbox.clinicId, clinic.id))
+        .groupBy(schema.adsConversionOutbox.status),
     ]);
-    renderedTab = <IntegrationenTab creds={creds} syncHistory={syncEvents} />;
+    const adsConversion = {
+      pending: outboxCounts.find((r) => r.status === "pending")?.n ?? 0,
+      sent: outboxCounts.find((r) => r.status === "sent")?.n ?? 0,
+      skipped: outboxCounts.find((r) => r.status === "skipped")?.n ?? 0,
+      failed: outboxCounts.find((r) => r.status === "failed")?.n ?? 0,
+      recent: outboxRows,
+    };
+    renderedTab = (
+      <IntegrationenTab
+        creds={creds}
+        syncHistory={syncEvents}
+        adsConversion={adsConversion}
+      />
+    );
   } else if (tab === "verwaltung") {
     renderedTab = <VerwaltungTab clinic={clinic} />;
   } else {
@@ -188,7 +224,7 @@ export default async function AdminClinicDetailPage({
         <div className="space-y-3">
           <div className="text-xs text-fg-secondary">
             <Link href="/admin/clinics" className="hover:text-accent">
-              Kliniken
+              Praxen
             </Link>
             <span className="mx-1">/</span>
             <span className="font-mono">{clinic.slug}</span>
