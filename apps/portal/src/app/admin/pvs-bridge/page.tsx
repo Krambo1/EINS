@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { sql } from "drizzle-orm";
 import { requireAdmin } from "@/auth/admin-guards";
 import { db, schema } from "@/db/client";
@@ -8,6 +9,7 @@ import {
   CardTitle,
   CardDescription,
   Badge,
+  Button,
 } from "@eins/ui";
 import { formatDateTime, formatRelative } from "@/lib/formatting";
 import { AdminPageHeader } from "../_components/AdminPageHeader";
@@ -125,6 +127,11 @@ export default async function AdminPvsBridgePage() {
       <AdminPageHeader
         title="PVS-Bridge Health"
         subtitle="Operational view of every clinic's PVS connection. Read-only."
+        actions={
+          <Button asChild variant="ghost">
+            <Link href="/admin/pvs-bridge/events">Event-Trace öffnen →</Link>
+          </Button>
+        }
       />
 
       <div className="grid gap-3 sm:grid-cols-4">

@@ -45,6 +45,18 @@ export function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // API routes are host-agnostic: the auth/permission gate lives in the
+  // route handler (requireAdminForApi / requireSessionForApi). Without
+  // this bypass, an `/api/admin/...` call on the admin host would be
+  // rewritten to `/admin/api/admin/...` — a path Next can't resolve, so
+  // every admin-side fetch (DSGVO download, PVS event detail, replay)
+  // 404s.
+  if (url.pathname.startsWith("/api/")) {
+    return NextResponse.next({
+      request: { headers: forwardedHeaders(req) },
+    });
+  }
+
   // Only clear the flash on top-level navigations (GET HTML), not on
   // Server Action POSTs / data fetches — those are the ones that *set* it.
   const isNav =
