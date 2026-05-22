@@ -12,6 +12,8 @@ export type BridgeSource =
   | "tomedo"
   | "healthhub"
   | "red"
+  | "pabau"
+  | "consentz"
   | "gdt_agent"
   | "csv_upload"
   | "n8n_custom";

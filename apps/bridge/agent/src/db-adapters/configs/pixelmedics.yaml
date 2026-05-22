@@ -1,0 +1,211 @@
+# EINS PVS Bridge: Pixelmedics (Borealys GmbH) DB-read.
+#
+# Engine: SQLite (HYPOTHESIS, pending vendor confirmation).
+#
+# Borealys GmbH is a small specialised vendor; the brief lists their
+# product as 100% in-segment (aesthetic Praxen). Public docs do not
+# disclose the storage layer. Karam owns the direct vendor
+# conversation; once they confirm cloud-only architecture, this config
+# moves to a REST adapter under apps/bridge/src/adapters/pixelmedics/
+# (Bucket B pattern). If they confirm on-prem Postgres or MariaDB, we
+# change `driver:` here and adjust the SQL syntax.
+#
+# Until then, SQLite is the most defensible default: small vendor +
+# small data volumes + likely Electron-style stack = file-based store.
+# The schema-drift detector and the SqliteDriver's fileMustExist:true
+# guarantee a wrong-engine guess fails loudly at the first poll, not
+# silently with empty events.
+#
+# Status: SCHEMA-DISCOVERY DRAFT. Column names below are hypotheses
+# based on common aesthetic-PVS naming. Confirmed schema lands at
+# first-customer onboarding.
+#
+# Worker contract reminder applies.
+
+vendor: pixelmedics-db
+driver: sqlite
+bridgeSource: gdt_agent
+defaultIntervalSeconds: 90
+batchSize: 500
+
+connection:
+  credentialId: pixelmedics-db-default
+  # SQLite ignores port; the agent's secure-store still requires a
+  # credentialId entry (left empty / placeholder for file-only DBs).
+  database: ""
+  options: {}
+
+streams:
+  # ----- 1. Patients ----------------------------------------------------
+  - kind: PatientUpserted
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        CAST(id AS TEXT)    AS id,
+        first_name          AS vorname,
+        last_name           AS nachname,
+        email               AS email,
+        phone_mobile        AS telefon_mobil,
+        phone_home          AS telefon_privat,
+        date_of_birth       AS geburtsdatum,
+        gender              AS geschlecht,
+        notes               AS bemerkung,
+        modified_at         AS modified_at
+      FROM patients
+      WHERE modified_at > :cursor
+      ORDER BY modified_at ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "pixelmedics:patient:{id}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: id
+      fullName: { template: "{vorname} {nachname}" }
+      email: { from: email, transform: lowerEmail }
+      phone: { from: telefon_mobil, transform: phone }
+      dob: { from: geburtsdatum, transform: isoDate }
+      gender: { from: geschlecht, transform: gender }
+      bemerkung: { from: bemerkung, transform: bemerkung }
+
+  # ----- 2. Appointments ------------------------------------------------
+  - kind: AppointmentCreated
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        CAST(id AS TEXT)         AS id,
+        CAST(patient_id AS TEXT) AS patient_id,
+        scheduled_at             AS termin_zeit,
+        treatment_code           AS leistung_code,
+        treatment_name           AS leistung_name,
+        room_id                  AS raum_id,
+        room_name                AS raum_name,
+        notes                    AS notiz,
+        modified_at              AS modified_at
+      FROM appointments
+      WHERE modified_at > :cursor
+      ORDER BY modified_at ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "pixelmedics:appointment:{id}" }
+      occurredAt: { from: termin_zeit, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      scheduledAt: { from: termin_zeit, transform: isoDateTime }
+      treatmentCode: leistung_code
+      treatmentLabel: leistung_name
+      locationCode: raum_id
+      locationLabel: raum_name
+      bemerkung: { from: notiz, transform: bemerkung }
+
+  # ----- 3. Appointment status changes -----------------------------------
+  - kind: AppointmentStatusChanged
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        CAST(id AS TEXT)         AS id,
+        CAST(patient_id AS TEXT) AS patient_id,
+        status                   AS status,
+        modified_at              AS modified_at
+      FROM appointments
+      WHERE modified_at > :cursor
+        AND status IS NOT NULL
+      ORDER BY modified_at ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "pixelmedics:appointment-status:{id}:{status}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      newStatus: { from: status, transform: appointmentStatus }
+      changedAt: { from: modified_at, transform: isoDateTime }
+
+  # ----- 4. Encounters --------------------------------------------------
+  - kind: EncounterCompleted
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        CAST(id AS TEXT)             AS id,
+        CAST(patient_id AS TEXT)     AS patient_id,
+        CAST(appointment_id AS TEXT) AS termin_id,
+        completed_at                 AS behandlung_datum,
+        treatment_code               AS leistung_code,
+        treatment_name               AS leistung_name,
+        practitioner_name            AS behandler_name,
+        modified_at                  AS modified_at
+      FROM encounters
+      WHERE modified_at > :cursor
+        AND appointment_id IS NOT NULL
+      ORDER BY modified_at ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "pixelmedics:encounter:{id}" }
+      occurredAt: { from: behandlung_datum, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsEncounterId: id
+      pvsAppointmentId: termin_id
+      completedAt: { from: behandlung_datum, transform: isoDateTime }
+      treatmentCode: leistung_code
+      treatmentLabel: leistung_name
+      practitionerLabel: behandler_name
+
+  # ----- 5. Invoices ----------------------------------------------------
+  # amountToCents handles "199,00 EUR" / "199.00" / numeric forms; the
+  # vendor's actual storage convention is part of the schema-discovery
+  # work before going live.
+  - kind: InvoicePaid
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        CAST(id AS TEXT)             AS id,
+        CAST(patient_id AS TEXT)     AS patient_id,
+        CAST(appointment_id AS TEXT) AS termin_id,
+        CAST(encounter_id AS TEXT)   AS behandlung_id,
+        amount_total                 AS betrag,
+        paid_at                      AS bezahlt_am,
+        status                       AS status,
+        modified_at                  AS modified_at
+      FROM invoices
+      WHERE modified_at > :cursor
+        AND status = 'paid'
+        AND appointment_id IS NOT NULL
+      ORDER BY modified_at ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "pixelmedics:invoice:{id}" }
+      occurredAt: { from: bezahlt_am, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsInvoiceId: id
+      pvsAppointmentId: termin_id
+      pvsEncounterId: behandlung_id
+      amountCents: { from: betrag, transform: amountToCents }
+      currency: { literal: "EUR" }
+      paidAt: { from: bezahlt_am, transform: isoDateTime }
+
+  # ----- 6. Recalls ----------------------------------------------------
+  - kind: RecallScheduled
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        CAST(id AS TEXT)         AS id,
+        CAST(patient_id AS TEXT) AS patient_id,
+        recall_at                AS recall_zeit,
+        treatment_code           AS leistung_code,
+        treatment_name           AS leistung_name,
+        modified_at              AS modified_at
+      FROM recalls
+      WHERE modified_at > :cursor
+      ORDER BY modified_at ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "pixelmedics:recall:{id}" }
+      occurredAt: { from: recall_zeit, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsRecallId: id
+      recallAt: { from: recall_zeit, transform: isoDateTime }
+      treatmentCode: leistung_code
+      treatmentLabel: leistung_name

@@ -1,0 +1,197 @@
+# EINS PVS Bridge: QUINCY (FREY ADV) Firebird DB-read.
+#
+# Engine: Firebird (confirmed via FREY's own backup documentation,
+# which references the `gbak` tool and the Firebird /bin folder). The
+# product is "QUINCY win"; Frey ADV GmbH is based in Königs
+# Wusterhausen.
+#
+# Status: SCHEMA-DISCOVERY DRAFT. FREY does not publish the QUINCY
+# schema. Column names below are hypotheses based on common German PVS
+# naming and the QUINCY UI labels exposed in the Frey training PDFs.
+# Schema-drift detector halts streams whose first poll returns
+# different columns; a wrong guess fails loudly at first run, not
+# silently with empty events.
+#
+# Worker contract reminder applies.
+
+vendor: quincy-db
+driver: firebird
+bridgeSource: gdt_agent
+defaultIntervalSeconds: 90
+batchSize: 500
+
+connection:
+  credentialId: quincy-db-default
+  port: 3050
+  # Absolute path to the QUINCY .fdb file on the Praxis server.
+  # FREY install defaults to C:\Frey\QUINCY\Daten\QUINCY.FDB; the IT
+  # contact confirms the actual path at --enable-db-adapter time.
+  database: ""
+  options:
+    wireEncryption: true
+
+streams:
+  # ----- 1. Patients ----------------------------------------------------
+  - kind: PatientUpserted
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT FIRST :limit
+        CAST(PATIENT_ID AS VARCHAR(40))   AS id,
+        VORNAME                           AS vorname,
+        NACHNAME                          AS nachname,
+        EMAIL                             AS email,
+        TEL_MOBIL                         AS telefon_mobil,
+        TEL_PRIVAT                        AS telefon_privat,
+        GEBURTSDATUM                      AS geburtsdatum,
+        GESCHLECHT                        AS geschlecht,
+        BEMERKUNG                         AS bemerkung,
+        AENDERUNGSZEIT                    AS modified_at
+      FROM PATIENT
+      WHERE AENDERUNGSZEIT > :cursor
+      ORDER BY AENDERUNGSZEIT ASC
+    map:
+      pvsExternalEventId: { template: "quincy:patient:{id}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: id
+      fullName: { template: "{vorname} {nachname}" }
+      email: { from: email, transform: lowerEmail }
+      phone: { from: telefon_mobil, transform: phone }
+      dob: { from: geburtsdatum, transform: isoDate }
+      gender: { from: geschlecht, transform: gender }
+      bemerkung: { from: bemerkung, transform: bemerkung }
+
+  # ----- 2. Appointments ------------------------------------------------
+  - kind: AppointmentCreated
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT FIRST :limit
+        CAST(TERMIN_ID AS VARCHAR(40))    AS id,
+        CAST(PATIENT_ID AS VARCHAR(40))   AS patient_id,
+        TERMIN_BEGINN                     AS termin_beginn,
+        LEISTUNG_KUERZEL                  AS leistung_kuerzel,
+        LEISTUNG_BEZEICHNUNG              AS leistung_bezeichnung,
+        RAUM_ID                           AS raum_id,
+        RAUM_BEZEICHNUNG                  AS raum_bezeichnung,
+        BEMERKUNG                         AS bemerkung,
+        AENDERUNGSZEIT                    AS modified_at
+      FROM TERMIN
+      WHERE AENDERUNGSZEIT > :cursor
+      ORDER BY AENDERUNGSZEIT ASC
+    map:
+      pvsExternalEventId: { template: "quincy:appointment:{id}" }
+      occurredAt: { from: termin_beginn, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      scheduledAt: { from: termin_beginn, transform: isoDateTime }
+      treatmentCode: leistung_kuerzel
+      treatmentLabel: leistung_bezeichnung
+      locationCode: raum_id
+      locationLabel: raum_bezeichnung
+      bemerkung: { from: bemerkung, transform: bemerkung }
+
+  # ----- 3. Appointment status changes -----------------------------------
+  - kind: AppointmentStatusChanged
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT FIRST :limit
+        CAST(TERMIN_ID AS VARCHAR(40))    AS id,
+        CAST(PATIENT_ID AS VARCHAR(40))   AS patient_id,
+        STATUS                            AS status,
+        AENDERUNGSZEIT                    AS modified_at
+      FROM TERMIN
+      WHERE AENDERUNGSZEIT > :cursor
+        AND STATUS IS NOT NULL
+      ORDER BY AENDERUNGSZEIT ASC
+    map:
+      pvsExternalEventId: { template: "quincy:appointment-status:{id}:{status}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      newStatus: { from: status, transform: appointmentStatus }
+      changedAt: { from: modified_at, transform: isoDateTime }
+
+  # ----- 4. Encounters --------------------------------------------------
+  - kind: EncounterCompleted
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT FIRST :limit
+        CAST(BEHANDLUNG_ID AS VARCHAR(40))  AS id,
+        CAST(PATIENT_ID AS VARCHAR(40))     AS patient_id,
+        CAST(TERMIN_ID AS VARCHAR(40))      AS termin_id,
+        BEHANDLUNG_DATUM                    AS behandlung_datum,
+        LEISTUNG_KUERZEL                    AS leistung_kuerzel,
+        LEISTUNG_BEZEICHNUNG                AS leistung_bezeichnung,
+        BEHANDLER_KUERZEL                   AS behandler_kuerzel,
+        AENDERUNGSZEIT                      AS modified_at
+      FROM BEHANDLUNG
+      WHERE AENDERUNGSZEIT > :cursor
+        AND TERMIN_ID IS NOT NULL
+      ORDER BY AENDERUNGSZEIT ASC
+    map:
+      pvsExternalEventId: { template: "quincy:encounter:{id}" }
+      occurredAt: { from: behandlung_datum, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsEncounterId: id
+      pvsAppointmentId: termin_id
+      completedAt: { from: behandlung_datum, transform: isoDateTime }
+      treatmentCode: leistung_kuerzel
+      treatmentLabel: leistung_bezeichnung
+      practitionerLabel: behandler_kuerzel
+
+  # ----- 5. Invoices ----------------------------------------------------
+  - kind: InvoicePaid
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT FIRST :limit
+        CAST(RECHNUNG_ID AS VARCHAR(40))    AS id,
+        CAST(PATIENT_ID AS VARCHAR(40))     AS patient_id,
+        CAST(TERMIN_ID AS VARCHAR(40))      AS termin_id,
+        CAST(BEHANDLUNG_ID AS VARCHAR(40))  AS behandlung_id,
+        BETRAG_GESAMT                       AS betrag,
+        BEZAHLT_AM                          AS bezahlt_am,
+        STATUS                              AS status,
+        AENDERUNGSZEIT                      AS modified_at
+      FROM RECHNUNG
+      WHERE AENDERUNGSZEIT > :cursor
+        AND STATUS = 'bezahlt'
+        AND TERMIN_ID IS NOT NULL
+      ORDER BY AENDERUNGSZEIT ASC
+    map:
+      pvsExternalEventId: { template: "quincy:invoice:{id}" }
+      occurredAt: { from: bezahlt_am, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsInvoiceId: id
+      pvsAppointmentId: termin_id
+      pvsEncounterId: behandlung_id
+      amountCents: { from: betrag, transform: amountToCents }
+      currency: { literal: "EUR" }
+      paidAt: { from: bezahlt_am, transform: isoDateTime }
+
+  # ----- 6. Recalls ----------------------------------------------------
+  - kind: RecallScheduled
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT FIRST :limit
+        CAST(WIEDERVORLAGE_ID AS VARCHAR(40))  AS id,
+        CAST(PATIENT_ID AS VARCHAR(40))        AS patient_id,
+        WIEDERVORLAGE_AM                       AS recall_zeit,
+        LEISTUNG_KUERZEL                       AS leistung_kuerzel,
+        LEISTUNG_BEZEICHNUNG                   AS leistung_bezeichnung,
+        AENDERUNGSZEIT                         AS modified_at
+      FROM WIEDERVORLAGE
+      WHERE AENDERUNGSZEIT > :cursor
+      ORDER BY AENDERUNGSZEIT ASC
+    map:
+      pvsExternalEventId: { template: "quincy:recall:{id}" }
+      occurredAt: { from: recall_zeit, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsRecallId: id
+      recallAt: { from: recall_zeit, transform: isoDateTime }
+      treatmentCode: leistung_kuerzel
+      treatmentLabel: leistung_bezeichnung

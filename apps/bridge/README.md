@@ -1,23 +1,58 @@
 # EINS PVS Bridge
 
-Native-adapter service for the EINS PVS Bridge. Reads from PVS systems
-(Tomedo via REST polling, HealthHub + RED via FHIR Subscriptions) and
-forwards canonical events to the EINS Portal's `/api/pvs/events` endpoint,
-signed per-clinic with HMAC-SHA256.
+Multi-path PVS integration layer for EINS Visuals. Reads from PVS systems
+across four paths and forwards canonical events to the EINS Portal's
+`/api/pvs/events` endpoint, signed per-clinic with HMAC-SHA256.
+
+The five paths in production (May 2026):
+
+1. **Cloud REST adapters** (`src/adapters/tomedo/`, `src/adapters/red/`,
+   `src/adapters/pabau/`, `src/adapters/consentz/`).
+   Scheduler-driven, polling. Tomedo + RED awaiting vendor sandbox creds;
+   Pabau + Consentz shipped 2026-05-21 per Phase 3 of
+   UNIVERSAL_ADAPTER_BUILD.md.
+2. **Cloud FHIR push** (`src/adapters/healthhub/`). Shelved; do not retry.
+3. **On-prem GDT-Agent** (`agent/`). chokidar folder watcher for GDT files,
+   plus Honorar-CSV watcher. Production today.
+4. **On-prem SQL-introspection** (`agent/src/db-adapters/`). Direct DB read
+   via vendor YAML config; ships AppointmentCreated, AppointmentStatusChanged,
+   EncounterCompleted, InvoicePaid, RecallScheduled events that GDT cannot
+   produce. Six drivers (postgres, firebird, mssql, sqlite, mysql, oracle)
+   and nine Bucket A configs: tomedo (postgres), medatixx + cgm-turbomed +
+   quincy (firebird), cgm-albis (postgres, post-2022 migration),
+   cgm-m1pro (mssql, newer installs) + cgm-m1pro-oracle (oracle,
+   dominant install base; oracledb v6+ Thin mode, no Instant Client
+   needed), indamed (mysql/MariaDB), pixelmedics (sqlite, vendor-engine
+   TBD). Per-vendor onboarding docs under `docs/onboarding-per-vendor/`;
+   verified open questions from the build brief Section 11 recorded in
+   `docs/section-11-verification.md`.
+5. **Tomedo Lua hooks** (`apps/portal/public/pvs-bridge/tomedo-lua/`).
+   Defense-in-depth POSTer that runs inside Tomedo's Skript-Engine and
+   covers the same event types as path 4. Idempotent against path 4 via
+   the portal's (clinicId, bridgeSource, pvsExternalEventId, occurredAt)
+   UNIQUE dedup.
 
 ## Architecture
 
 ```
-   PVS (Tomedo, HealthHub, RED)
-              │
-              ▼
-   apps/bridge (this app)
-              │
-              ▼
-   apps/portal /api/pvs/events
-              │
-              ▼
-   pvs_event_log  →  pvs-status-derive worker  →  requests.status
+   PVS sources                          adapter / path
+   ─────────────────────────────────────────────────────────────────
+   Tomedo / RED / Pabau /     → apps/bridge/src/adapters (REST/FHIR)
+   Consentz cloud
+   HealthHub                  → (shelved)
+   GDT files                  → apps/bridge/agent (chokidar)
+   Honorar CSVs               → apps/bridge/agent (chokidar)
+   PVS local Postgres/        → apps/bridge/agent/db-adapters
+   Firebird/MSSQL/SQLite        (vendor YAML + driver)
+   Tomedo Lua workflow hooks  → apps/portal/public/pvs-bridge/tomedo-lua
+                                     │
+                                     ▼
+                       apps/portal /api/pvs/events
+                                     │
+                                     ▼
+                       pvs_event_log → pvs-status-derive worker
+                                     → requests.status, revenue,
+                                       Forecast, Ads conversions
 ```
 
 ## Layout
@@ -34,7 +69,7 @@ signed per-clinic with HMAC-SHA256.
 - `src/canonical/sign.ts` — HMAC-SHA256 helper used both by the Bridge
   and by the GDT-Agent (shared via workspace symlink).
 - `src/adapters/Adapter.ts` — interface that each PVS vendor implements.
-- `src/adapters/{tomedo,healthhub,red}/` — per-vendor implementations.
+- `src/adapters/{tomedo,healthhub,red,pabau,consentz}/` — per-vendor implementations.
 - `src/adapters/_fhir/normalize-shared.ts` — code shared between
   HealthHub and RED (both FHIR-based).
 - `src/inbound/` — Fastify routes for the two push adapters:
@@ -42,8 +77,12 @@ signed per-clinic with HMAC-SHA256.
 - `src/sync/` — initial-sync streamer, incremental-poll, scheduler.
 - `src/db/client.ts` — read-only postgres-js connection used to load
   `pvs_link`, `pvs_sync_status`, `platform_credentials` rows.
-- `n8n-templates/canonical-emitter.json` — n8n workflow template for
-  long-tail PVSs.
+- `n8n-templates/canonical-emitter.json` — reference copy of the n8n
+  workflow template. The file actually served to Praxis admins lives at
+  `apps/portal/public/pvs-bridge/n8n-templates/canonical-emitter.json`
+  (served as a static asset under `/pvs-bridge/n8n-templates/…`). Keep
+  these two in lockstep when changing the template — the portal copy is
+  what ships to Vercel.
 - `agent/` — the on-prem GDT-Agent (separate buildable sub-project).
 
 ## Production deployment
@@ -53,10 +92,38 @@ A single Node container next to the portal (Fly.io / Hetzner). Public URL
 
 ## Acceptance status
 
-- V1.5 Tomedo: adapter ready, awaiting Zollsoft sandbox credentials.
-- V1.5 RED:    adapter ready, awaiting RED sandbox.
-- V1.5 HealthHub: adapter ready, gated on medatixx Akkreditierung
-  (4–8 weeks Vorlauf).
+- **Tomedo (REST)**: adapter ready, awaiting Zollsoft sandbox credentials.
+  Karam's escalation channel open as of 2026-05-20. Customers on Tomedo
+  are routed to the DB-read path below in the meantime.
+- **Tomedo (DB-read)**: shipped 2026-05-20. Postgres adapter framework +
+  YAML config + Lua defense-in-depth bundle. Zollsoft 3rd-Level-Support
+  officially provisions the read-only DB account per AVV (see forum
+  thread #86195). End-to-end pilot with first Tomedo Praxis scheduled.
+  Onboarding: `docs/onboarding-per-vendor/tomedo.md`.
+- **RED**: adapter ready, awaiting RED sandbox.
+- **HealthHub**: code retained, **shelved**. The medatixx
+  Software-Partner-Antrag was rejected in 2026-05; do not retry. medatixx
+  Praxen use GDT-Agent + (Phase 2) Firebird DB-read.
+- **medatixx, CGM Albis/Turbomed/M1Pro, Indamed, Quincy, Pixelmedics
+  (DB-read)**: Phase 2 shipped 2026-05-20. Drivers + configs +
+  onboarding docs in place; awaiting first-customer schema validation.
+  See `UNIVERSAL_ADAPTER_BUILD.md`, `docs/section-11-verification.md`.
+- **Pabau, Consentz (REST)**: Phase 3 shipped 2026-05-21. Per-Praxis
+  api_token / Bearer-token model, no vendor partner program required.
+  Pabau API verified against
+  support.pabau.com/en/api/api-reference (rate limits, auth header,
+  pagination). Consentz API scaffolded; first-Praxis onboarding
+  calibrates against vendor-issued tenant docs (Section 11 doc).
+  Adapters at `src/adapters/pabau/` and `src/adapters/consentz/`.
+  Onboarding docs at `docs/onboarding-per-vendor/{pabau,consentz}.md`.
+  Section 11 verification appended to
+  `docs/section-11-verification.md`. Schema migration
+  `apps/portal/src/db/migrations/0039_pvs_bucket_b.sql` extends the
+  pvs_link.pvs_vendor and pvs_event_log.bridge_source CHECK
+  constraints to admit `pabau` and `consentz`.
 
-All three implement the same `Adapter` interface and produce identical
-canonical events.
+All paths produce identical canonical events from `src/canonical/types.ts`.
+The portal dedups across paths via the
+`(clinicId, bridge_source, pvs_external_event_id, occurred_at)` UNIQUE
+index, so a Tomedo Praxis can safely run DB-read AND Lua simultaneously
+for redundancy.

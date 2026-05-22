@@ -1,0 +1,238 @@
+# EINS PVS Bridge: Tomedo Postgres DB-read configuration.
+#
+# Reads from the local Tomedo Server's PostgreSQL instance (port 5432 by
+# default) using a read-only account that Zollsoft's 3rd-Level Support
+# provisions on the Praxis's behalf. AVV (Auftragsverarbeitungsvertrag)
+# between the Praxis and EINS Visuals explicitly authorises this read
+# under DSGVO Art. 20 (Datenportabilitaet) and Art. 28 (Auftragsverarbeitung).
+#
+# Status: SCHEMA-DISCOVERY DRAFT. Column names below are derived from
+# common Tomedo schema conventions and the published REST adapter's
+# field names. Before going live on any production Praxis, run the
+# discovery probe in apps/bridge/docs/onboarding-per-vendor/tomedo.md
+# section "Schema discovery" and adjust the column names below to match
+# the install's actual schema. The schema-drift detector in framework.ts
+# will halt any stream whose first poll returns different columns than
+# this file declares; that is the safety net, not the primary check.
+#
+# Worker contract reminder (do NOT relax):
+#   - AppointmentCreated needs: pvsPatientId, pvsAppointmentId, scheduledAt
+#   - AppointmentStatusChanged needs: pvsAppointmentId, newStatus
+#   - EncounterCompleted needs: pvsAppointmentId (CRITICAL; without it the
+#     portal worker silently drops the event)
+#   - InvoicePaid needs: pvsAppointmentId (CRITICAL for ROI attribution)
+#   - All canonical events carry a clinicId stamp set by the runner.
+
+vendor: tomedo-db
+driver: postgres
+bridgeSource: tomedo
+defaultIntervalSeconds: 60
+batchSize: 500
+
+connection:
+  credentialId: tomedo-db-default
+  port: 5432
+  # Default Postgres database name per Zollsoft 3rd-Level-Support (forum
+  # thread #86195, confirmed by Toni Ringling). Bespoke deployments may
+  # use "tomedo_prod" or a praxis-specific slug; the operator overrides
+  # the YAML default at enrollment via:
+  #   ./eins-agent --enable-db-adapter tomedo-db --db-database <name> ...
+  # See apps/bridge/docs/onboarding-per-vendor/tomedo.md, step 4.
+  database: tomedo
+  options: {}
+
+streams:
+  # ----- 1. Patients -------------------------------------------------------
+  # Emits PatientUpserted per modified row. Re-poll of a patient whose
+  # demographics changed produces a new event (modified_at advances), so
+  # the portal sees the latest values via the upsert pipeline.
+  - kind: PatientUpserted
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        id::text          AS id,
+        vorname           AS vorname,
+        nachname          AS nachname,
+        email             AS email,
+        telefon_mobil     AS telefon_mobil,
+        telefon_privat    AS telefon_privat,
+        geburtsdatum      AS geburtsdatum,
+        geschlecht        AS geschlecht,
+        bemerkung         AS bemerkung,
+        modified_at       AS modified_at
+      FROM patient
+      WHERE modified_at > :cursor
+      ORDER BY modified_at ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "tomedo:patient:{id}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: id
+      fullName: { template: "{vorname} {nachname}" }
+      email: { from: email, transform: lowerEmail }
+      phone: { from: telefon_mobil, transform: phone }
+      dob: { from: geburtsdatum, transform: isoDate }
+      gender: { from: geschlecht, transform: gender }
+      bemerkung: { from: bemerkung, transform: bemerkung }
+
+  # ----- 2. Appointments (creation) ---------------------------------------
+  # Emits AppointmentCreated. The portal dedups on
+  # (clinicId, bridge_source, pvsExternalEventId, occurredAt); pvsExternalEventId
+  # is stable per appointment id, so re-polls of an appointment whose
+  # demographics changed are no-ops. Status changes are emitted by the
+  # next stream as a distinct event kind.
+  - kind: AppointmentCreated
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        id::text          AS id,
+        patient_id::text  AS patient_id,
+        termin_zeit       AS termin_zeit,
+        behandlung_code   AS behandlung_code,
+        behandlung_name   AS behandlung_name,
+        raum_id::text     AS raum_id,
+        raum_name         AS raum_name,
+        kommentar         AS kommentar,
+        modified_at       AS modified_at
+      FROM termin
+      WHERE modified_at > :cursor
+      ORDER BY modified_at ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "tomedo:appointment:{id}" }
+      occurredAt: { from: termin_zeit, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      scheduledAt: { from: termin_zeit, transform: isoDateTime }
+      treatmentCode: behandlung_code
+      treatmentLabel: behandlung_name
+      locationCode: raum_id
+      locationLabel: raum_name
+      bemerkung: { from: kommentar, transform: bemerkung }
+
+  # ----- 3. Appointment status changes -----------------------------------
+  # Emits AppointmentStatusChanged when an appointment row carries a
+  # mappable status value. The pvsExternalEventId includes the modified_at
+  # so each status transition produces a distinct event in the event log
+  # (so the worker's foldEvents loop sees the order).
+  - kind: AppointmentStatusChanged
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        id::text         AS id,
+        patient_id::text AS patient_id,
+        status           AS status,
+        modified_at      AS modified_at
+      FROM termin
+      WHERE modified_at > :cursor
+        AND status IS NOT NULL
+      ORDER BY modified_at ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "tomedo:appointment-status:{id}:{status}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      newStatus: { from: status, transform: appointmentStatus }
+      changedAt: { from: modified_at, transform: isoDateTime }
+
+  # ----- 4. Encounters (treatment performed) -----------------------------
+  # Behandlung table in Tomedo. Linked to a termin via appointment_id; we
+  # MUST emit the appointment id or pvs-status-derive.ts:foldEvents skips
+  # the event entirely (see worker contract). The behandler_name column
+  # is the Tomedo user that performed the treatment.
+  - kind: EncounterCompleted
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        id::text                  AS id,
+        patient_id::text          AS patient_id,
+        termin_id::text           AS termin_id,
+        behandlung_zeit           AS behandlung_zeit,
+        behandlung_code           AS behandlung_code,
+        behandlung_name           AS behandlung_name,
+        behandler_name            AS behandler_name,
+        modified_at               AS modified_at
+      FROM behandlung
+      WHERE modified_at > :cursor
+        AND termin_id IS NOT NULL
+      ORDER BY modified_at ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "tomedo:encounter:{id}" }
+      occurredAt: { from: behandlung_zeit, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsEncounterId: id
+      pvsAppointmentId: termin_id
+      completedAt: { from: behandlung_zeit, transform: isoDateTime }
+      treatmentCode: behandlung_code
+      treatmentLabel: behandlung_name
+      practitionerLabel: behandler_name
+
+  # ----- 5. Invoices (money in) ------------------------------------------
+  # Rechnung table. We accept only rows that are paid (status = 'bezahlt')
+  # and that link to an appointment, because unlinked invoices can't drive
+  # request status. Honorar-amounts in Tomedo are stored as numeric EUR
+  # (e.g. 125.50), so the amountToCents transform multiplies by 100.
+  - kind: InvoicePaid
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        id::text                 AS id,
+        patient_id::text         AS patient_id,
+        termin_id::text          AS termin_id,
+        behandlung_id::text      AS behandlung_id,
+        betrag                   AS betrag,
+        bezahlt_am               AS bezahlt_am,
+        status                   AS status,
+        modified_at              AS modified_at
+      FROM rechnung
+      WHERE modified_at > :cursor
+        AND status = 'bezahlt'
+        AND termin_id IS NOT NULL
+      ORDER BY modified_at ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "tomedo:invoice:{id}" }
+      occurredAt: { from: bezahlt_am, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsInvoiceId: id
+      pvsAppointmentId: termin_id
+      pvsEncounterId: behandlung_id
+      amountCents: { from: betrag, transform: amountToCents }
+      currency: { literal: "EUR" }
+      paidAt: { from: bezahlt_am, transform: isoDateTime }
+
+  # ----- 6. Recalls (Nachsorge / Wiedervorlage) --------------------------
+  # Tomedo stores recalls in a separate table (recall / wiedervorlage).
+  # Confirm table + column names against the discovery probe before going
+  # live. Recalls don't drive request status today but the portal records
+  # them for the Anfragen detail timeline and future automation.
+  - kind: RecallScheduled
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        id::text          AS id,
+        patient_id::text  AS patient_id,
+        recall_zeit       AS recall_zeit,
+        behandlung_code   AS behandlung_code,
+        behandlung_name   AS behandlung_name,
+        modified_at       AS modified_at
+      FROM recall
+      WHERE modified_at > :cursor
+      ORDER BY modified_at ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "tomedo:recall:{id}" }
+      occurredAt: { from: recall_zeit, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsRecallId: id
+      recallAt: { from: recall_zeit, transform: isoDateTime }
+      treatmentCode: behandlung_code
+      treatmentLabel: behandlung_name

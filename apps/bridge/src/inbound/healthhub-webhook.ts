@@ -35,9 +35,10 @@ export async function healthHubWebhook(
     clinic_id: string;
     pvs_vendor: string;
     status: string;
+    preferred_path: string;
     connection_config: Record<string, unknown>;
   }[]>`
-    SELECT id, clinic_id, pvs_vendor, status, connection_config
+    SELECT id, clinic_id, pvs_vendor, status, preferred_path, connection_config
     FROM pvs_link WHERE id = ${linkId} LIMIT 1
   `;
   const link = rows[0]
@@ -46,6 +47,10 @@ export async function healthHubWebhook(
         clinicId: rows[0].clinic_id,
         pvsVendor: rows[0].pvs_vendor,
         status: rows[0].status,
+        preferredPath:
+          rows[0].preferred_path === "rest" || rows[0].preferred_path === "db_read"
+            ? (rows[0].preferred_path as "rest" | "db_read")
+            : ("auto" as const),
         connectionConfig: rows[0].connection_config,
       }
     : null;

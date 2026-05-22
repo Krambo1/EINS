@@ -30,7 +30,7 @@ export interface AdapterPollResult {
 }
 
 export interface Adapter {
-  vendor: "tomedo" | "healthhub" | "red";
+  vendor: "tomedo" | "healthhub" | "red" | "pabau" | "consentz";
 
   /**
    * Sanity-check the link's credentials. Called once per (re)configuration

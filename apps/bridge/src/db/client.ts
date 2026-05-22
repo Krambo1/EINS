@@ -27,12 +27,19 @@ export function db() {
   return cached;
 }
 
+export type PreferredPath = "auto" | "rest" | "db_read";
+
 export interface PvsLinkRow {
   id: string;
   clinicId: string;
   pvsVendor: string;
   status: string;
+  preferredPath: PreferredPath;
   connectionConfig: Record<string, unknown>;
+}
+
+function coercePreferredPath(value: unknown): PreferredPath {
+  return value === "rest" || value === "db_read" ? value : "auto";
 }
 
 export async function listConnectedLinks(): Promise<PvsLinkRow[]> {
@@ -41,9 +48,10 @@ export async function listConnectedLinks(): Promise<PvsLinkRow[]> {
     clinic_id: string;
     pvs_vendor: string;
     status: string;
+    preferred_path: string;
     connection_config: Record<string, unknown>;
   }[]>`
-    SELECT id, clinic_id, pvs_vendor, status, connection_config
+    SELECT id, clinic_id, pvs_vendor, status, preferred_path, connection_config
     FROM pvs_link
     WHERE status IN ('connected','pending')
   `;
@@ -52,23 +60,31 @@ export async function listConnectedLinks(): Promise<PvsLinkRow[]> {
     clinicId: r.clinic_id,
     pvsVendor: r.pvs_vendor,
     status: r.status,
+    preferredPath: coercePreferredPath(r.preferred_path),
     connectionConfig: r.connection_config,
   }));
 }
 
 export async function loadDueLinks(now: Date): Promise<PvsLinkRow[]> {
+  // The cloud scheduler only owns the REST/poll path. A link with
+  // preferred_path='db_read' is opted out: the on-prem SQL-introspection
+  // agent owns it instead. preferred_path='auto' and 'rest' both flow
+  // through here so the scheduler stays the source of truth for
+  // single-path vendors that don't have a db-read counterpart.
   const rows = await db()<{
     id: string;
     clinic_id: string;
     pvs_vendor: string;
     status: string;
+    preferred_path: string;
     connection_config: Record<string, unknown>;
   }[]>`
-    SELECT l.id, l.clinic_id, l.pvs_vendor, l.status, l.connection_config
+    SELECT l.id, l.clinic_id, l.pvs_vendor, l.status, l.preferred_path, l.connection_config
     FROM pvs_link l
     LEFT JOIN pvs_sync_status s ON s.pvs_link_id = l.id
     WHERE l.status = 'connected'
-      AND l.pvs_vendor IN ('tomedo')  -- polling adapters only
+      AND l.pvs_vendor IN ('tomedo','pabau','consentz')  -- polling adapters only
+      AND l.preferred_path <> 'db_read'                  -- skip on-prem-owned links
       AND (s.next_poll_at IS NULL OR s.next_poll_at <= ${now})
     ORDER BY s.next_poll_at NULLS FIRST
     LIMIT 50
@@ -78,6 +94,7 @@ export async function loadDueLinks(now: Date): Promise<PvsLinkRow[]> {
     clinicId: r.clinic_id,
     pvsVendor: r.pvs_vendor,
     status: r.status,
+    preferredPath: coercePreferredPath(r.preferred_path),
     connectionConfig: r.connection_config,
   }));
 }
@@ -91,9 +108,10 @@ export async function getLinkByClinicAndVendor(
     clinic_id: string;
     pvs_vendor: string;
     status: string;
+    preferred_path: string;
     connection_config: Record<string, unknown>;
   }[]>`
-    SELECT id, clinic_id, pvs_vendor, status, connection_config
+    SELECT id, clinic_id, pvs_vendor, status, preferred_path, connection_config
     FROM pvs_link
     WHERE clinic_id = ${clinicId} AND pvs_vendor = ${vendor}
     LIMIT 1
@@ -104,6 +122,7 @@ export async function getLinkByClinicAndVendor(
         clinicId: rows[0].clinic_id,
         pvsVendor: rows[0].pvs_vendor,
         status: rows[0].status,
+        preferredPath: coercePreferredPath(rows[0].preferred_path),
         connectionConfig: rows[0].connection_config,
       }
     : null;

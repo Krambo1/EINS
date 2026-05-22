@@ -1,0 +1,33 @@
+# HAPI FHIR R4 server for testing HealthHub + RED adapters.
+#
+# Usage:
+#   docker compose -f apps/bridge/test-harness/docker-compose.yml up -d
+#   # wait ~30s for HAPI to come up — http://127.0.0.1:8090/fhir/metadata
+#   pnpm --filter bridge-test-harness fhir:seed
+#   pnpm --filter bridge-test-harness harness:fhir
+#
+# The container is stateless — data lives in an in-memory H2 by default,
+# so `docker compose down && up` gives you a clean slate every time.
+
+services:
+  hapi-fhir:
+    image: hapiproject/hapi:latest
+    container_name: eins-bridge-hapi-fhir
+    ports:
+      - "127.0.0.1:8090:8080"
+    environment:
+      # FHIR R4 is what HealthHub and RED both speak.
+      hapi.fhir.fhir_version: R4
+      # Permit POSTed Subscriptions so the bridge's setupSubscription path
+      # exercises the same FHIR R4 Subscription handshake medatixx/RED use.
+      hapi.fhir.subscription.resthook_enabled: "true"
+      # Quieter logs.
+      hapi.fhir.empty_partition_id: "false"
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "wget -q -O - http://127.0.0.1:8080/fhir/metadata > /dev/null || exit 1"
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s

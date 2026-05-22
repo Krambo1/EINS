@@ -1,0 +1,196 @@
+# EINS PVS Bridge: CGM TURBOMED Firebird DB-read.
+#
+# Engine: Firebird (the modern Turbomed practice store; legacy installs
+# may still carry a FastObjects/Versant side-store and an Apache Derby
+# for satellite features, but those are not needed for status
+# derivation). Default port 3050.
+#
+# Status: SCHEMA-DISCOVERY DRAFT. CGM does not publish the Turbomed
+# Firebird schema. Column names below are reverse-engineered from
+# discussions on vondoczudoc.de and from the CGM-published Turbomed
+# database administration handbook. The schema-drift detector halts
+# any stream whose first poll returns columns that don't match this
+# declaration.
+#
+# Worker contract reminder applies (see other configs).
+
+vendor: cgm-turbomed-db
+driver: firebird
+bridgeSource: gdt_agent
+defaultIntervalSeconds: 90
+batchSize: 500
+
+connection:
+  credentialId: cgm-turbomed-db-default
+  port: 3050
+  # Absolute path to TURBOMED.FDB on the Praxis server. Typical:
+  #   C:\Program Files (x86)\CGM\TURBOMED\Datenbank\TURBOMED.FDB
+  database: ""
+  options:
+    wireEncryption: true
+
+streams:
+  # ----- 1. Patients -----------------------------------------------------
+  - kind: PatientUpserted
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT FIRST :limit
+        CAST(PATIENT_ID AS VARCHAR(40))   AS id,
+        VORNAME                           AS vorname,
+        NAME                              AS nachname,
+        EMAIL                             AS email,
+        TELEFON_MOBIL                     AS telefon_mobil,
+        TELEFON                           AS telefon_privat,
+        GEBURTSDATUM                      AS geburtsdatum,
+        GESCHLECHT                        AS geschlecht,
+        BEMERKUNG                         AS bemerkung,
+        GEAENDERT                         AS modified_at
+      FROM PATIENT
+      WHERE GEAENDERT > :cursor
+      ORDER BY GEAENDERT ASC
+    map:
+      pvsExternalEventId: { template: "cgm-turbomed:patient:{id}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: id
+      fullName: { template: "{vorname} {nachname}" }
+      email: { from: email, transform: lowerEmail }
+      phone: { from: telefon_mobil, transform: phone }
+      dob: { from: geburtsdatum, transform: isoDate }
+      gender: { from: geschlecht, transform: gender }
+      bemerkung: { from: bemerkung, transform: bemerkung }
+
+  # ----- 2. Appointments -------------------------------------------------
+  - kind: AppointmentCreated
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT FIRST :limit
+        CAST(TERMIN_ID AS VARCHAR(40))    AS id,
+        CAST(PATIENT_ID AS VARCHAR(40))   AS patient_id,
+        TERMIN_BEGINN                     AS termin_beginn,
+        LEISTUNG_KUERZEL                  AS leistung_kuerzel,
+        LEISTUNG_BEZEICHNUNG              AS leistung_bezeichnung,
+        ARBEITSPLATZ                      AS arbeitsplatz,
+        ARBEITSPLATZ_NAME                 AS arbeitsplatz_name,
+        KOMMENTAR                         AS kommentar,
+        GEAENDERT                         AS modified_at
+      FROM TERMIN
+      WHERE GEAENDERT > :cursor
+      ORDER BY GEAENDERT ASC
+    map:
+      pvsExternalEventId: { template: "cgm-turbomed:appointment:{id}" }
+      occurredAt: { from: termin_beginn, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      scheduledAt: { from: termin_beginn, transform: isoDateTime }
+      treatmentCode: leistung_kuerzel
+      treatmentLabel: leistung_bezeichnung
+      locationCode: arbeitsplatz
+      locationLabel: arbeitsplatz_name
+      bemerkung: { from: kommentar, transform: bemerkung }
+
+  # ----- 3. Appointment status changes -----------------------------------
+  - kind: AppointmentStatusChanged
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT FIRST :limit
+        CAST(TERMIN_ID AS VARCHAR(40))    AS id,
+        CAST(PATIENT_ID AS VARCHAR(40))   AS patient_id,
+        STATUS                            AS status,
+        GEAENDERT                         AS modified_at
+      FROM TERMIN
+      WHERE GEAENDERT > :cursor
+        AND STATUS IS NOT NULL
+      ORDER BY GEAENDERT ASC
+    map:
+      pvsExternalEventId: { template: "cgm-turbomed:appointment-status:{id}:{status}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      newStatus: { from: status, transform: appointmentStatus }
+      changedAt: { from: modified_at, transform: isoDateTime }
+
+  # ----- 4. Encounters (Behandlung) --------------------------------------
+  - kind: EncounterCompleted
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT FIRST :limit
+        CAST(BEHANDLUNG_ID AS VARCHAR(40))  AS id,
+        CAST(PATIENT_ID AS VARCHAR(40))     AS patient_id,
+        CAST(TERMIN_ID AS VARCHAR(40))      AS termin_id,
+        BEHANDLUNG_DATUM                    AS behandlung_datum,
+        LEISTUNG_KUERZEL                    AS leistung_kuerzel,
+        LEISTUNG_BEZEICHNUNG                AS leistung_bezeichnung,
+        BEHANDLER                           AS behandler,
+        GEAENDERT                           AS modified_at
+      FROM BEHANDLUNG
+      WHERE GEAENDERT > :cursor
+        AND TERMIN_ID IS NOT NULL
+      ORDER BY GEAENDERT ASC
+    map:
+      pvsExternalEventId: { template: "cgm-turbomed:encounter:{id}" }
+      occurredAt: { from: behandlung_datum, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsEncounterId: id
+      pvsAppointmentId: termin_id
+      completedAt: { from: behandlung_datum, transform: isoDateTime }
+      treatmentCode: leistung_kuerzel
+      treatmentLabel: leistung_bezeichnung
+      practitionerLabel: behandler
+
+  # ----- 5. Invoices -----------------------------------------------------
+  - kind: InvoicePaid
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT FIRST :limit
+        CAST(RECHNUNG_ID AS VARCHAR(40))    AS id,
+        CAST(PATIENT_ID AS VARCHAR(40))     AS patient_id,
+        CAST(TERMIN_ID AS VARCHAR(40))      AS termin_id,
+        CAST(BEHANDLUNG_ID AS VARCHAR(40))  AS behandlung_id,
+        BETRAG                              AS betrag,
+        BEZAHLT_AM                          AS bezahlt_am,
+        STATUS                              AS status,
+        GEAENDERT                           AS modified_at
+      FROM RECHNUNG
+      WHERE GEAENDERT > :cursor
+        AND STATUS = 'bezahlt'
+        AND TERMIN_ID IS NOT NULL
+      ORDER BY GEAENDERT ASC
+    map:
+      pvsExternalEventId: { template: "cgm-turbomed:invoice:{id}" }
+      occurredAt: { from: bezahlt_am, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsInvoiceId: id
+      pvsAppointmentId: termin_id
+      pvsEncounterId: behandlung_id
+      amountCents: { from: betrag, transform: amountToCents }
+      currency: { literal: "EUR" }
+      paidAt: { from: bezahlt_am, transform: isoDateTime }
+
+  # ----- 6. Recalls -----------------------------------------------------
+  - kind: RecallScheduled
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT FIRST :limit
+        CAST(WIEDERVORLAGE_ID AS VARCHAR(40))  AS id,
+        CAST(PATIENT_ID AS VARCHAR(40))        AS patient_id,
+        WIEDERVORLAGE_AM                       AS recall_zeit,
+        LEISTUNG_KUERZEL                       AS leistung_kuerzel,
+        LEISTUNG_BEZEICHNUNG                   AS leistung_bezeichnung,
+        GEAENDERT                              AS modified_at
+      FROM WIEDERVORLAGE
+      WHERE GEAENDERT > :cursor
+      ORDER BY GEAENDERT ASC
+    map:
+      pvsExternalEventId: { template: "cgm-turbomed:recall:{id}" }
+      occurredAt: { from: recall_zeit, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsRecallId: id
+      recallAt: { from: recall_zeit, transform: isoDateTime }
+      treatmentCode: leistung_kuerzel
+      treatmentLabel: leistung_bezeichnung

@@ -11,6 +11,21 @@ import type { CsvMapping } from "./csv-mapper.js";
  * Linux:   ~/.config/eins-agent/config.json + secret in plaintext (with warning)
  */
 
+/**
+ * Connection params for a single enabled DB-adapter. The password is
+ * stored separately in secure-store under `credentialId`; this struct
+ * carries only the non-secret half. `vendor` matches a `vendor:` field in
+ * one of the bundled YAML configs (apps/bridge/agent/src/db-adapters/configs).
+ */
+export interface DbAdapterEnrollment {
+  vendor: string;
+  credentialId: string;
+  host: string;
+  port?: number;
+  database?: string;
+  username: string;
+}
+
 export interface AgentConfig {
   clinicId: string;
   portalBaseUrl: string;
@@ -24,7 +39,14 @@ export interface AgentConfig {
    */
   honorarCsvFolder?: string;
   honorarCsvMapping?: CsvMapping;
-  // Secret is read from secure-store, never persisted in this JSON.
+  /**
+   * SQL-introspection adapter enrollments. Each entry references a bundled
+   * vendor config by id and stores the connection parameters captured at
+   * enrollment time. The DB password lives in secure-store, never in
+   * config.json.
+   */
+  dbAdapters?: DbAdapterEnrollment[];
+  // PVS HMAC secret is read from secure-store, never persisted in this JSON.
 }
 
 export function configDir(): string {

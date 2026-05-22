@@ -3,20 +3,24 @@ import { loadDueLinks, checkpointSync, recordFailure } from "../db/client.js";
 import type { Adapter } from "../adapters/Adapter.js";
 import { postAll } from "../portal-client.js";
 import { tomedoAdapter } from "../adapters/tomedo/index.js";
+import { pabauAdapter } from "../adapters/pabau/index.js";
+import { consentzAdapter } from "../adapters/consentz/index.js";
 
 /**
  * Bridge sync scheduler.
  *
  * Ticks every SCHEDULER_TICK_MS (30s default), pulls `pvs_link` rows
  * whose `next_poll_at <= now` AND whose vendor is a polling adapter
- * (Tomedo only), and runs incremental-poll for each.
+ * (Tomedo, Pabau, Consentz), and runs incremental-poll for each.
  *
- * Push adapters (HealthHub, RED) bypass the scheduler — their events
+ * Push adapters (HealthHub, RED) bypass the scheduler: their events
  * arrive via inbound webhooks and are dispatched directly to postEvent.
  */
 
 const ADAPTERS: Record<string, Adapter | undefined> = {
   tomedo: tomedoAdapter,
+  pabau: pabauAdapter,
+  consentz: consentzAdapter,
 };
 
 export function startScheduler(): { stop: () => void } {

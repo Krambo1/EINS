@@ -1,0 +1,212 @@
+# EINS PVS Bridge: CGM ALBIS Postgres DB-read.
+#
+# Engine: PostgreSQL. CGM migrated ALBIS to Postgres starting with the
+# 2022 update wave (Update 26, "Erhoehte Datensicherheit"). Pre-2022
+# installs ran on a proprietary store + Firebird side-tables and are
+# EOL; those Praxen go through the GDT-Agent path.
+#
+# Status: SCHEMA-DISCOVERY DRAFT. CGM does not publish the ALBIS
+# Postgres schema; the column names below are reverse-engineered from
+# the CGM ALBIS ODBC export (which exposes the same logical tables)
+# and community forum discussions on community.albis.cgm.com. The
+# schema-drift detector halts any stream whose first poll returns
+# columns that don't match this declaration; a wrong guess fails loudly
+# at first run, not silently with empty events.
+#
+# Worker contract reminder (do NOT relax):
+#   - AppointmentCreated needs: pvsPatientId, pvsAppointmentId, scheduledAt
+#   - AppointmentStatusChanged needs: pvsAppointmentId, newStatus
+#   - EncounterCompleted needs: pvsAppointmentId (CRITICAL)
+#   - InvoicePaid needs: pvsAppointmentId (CRITICAL)
+
+vendor: cgm-albis-db
+driver: postgres
+bridgeSource: gdt_agent
+defaultIntervalSeconds: 60
+batchSize: 500
+
+connection:
+  credentialId: cgm-albis-db-default
+  port: 5432
+  # ALBIS Postgres database name. CGM installer defaults to 'albis';
+  # large practices on terminal-server setups may have renamed to
+  # 'albis_prod' or '<praxis-slug>'. The IT contact confirms at
+  # --enable-db-adapter time.
+  database: albis
+  options: {}
+
+streams:
+  # ----- 1. Patients ------------------------------------------------------
+  - kind: PatientUpserted
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        patient_id::text  AS id,
+        vorname           AS vorname,
+        nachname          AS nachname,
+        email             AS email,
+        telefon_mobil     AS telefon_mobil,
+        telefon_privat    AS telefon_privat,
+        geburtsdatum      AS geburtsdatum,
+        geschlecht        AS geschlecht,
+        notiz             AS bemerkung,
+        geaendert_am      AS modified_at
+      FROM patient
+      WHERE geaendert_am > :cursor
+      ORDER BY geaendert_am ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "cgm-albis:patient:{id}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: id
+      fullName: { template: "{vorname} {nachname}" }
+      email: { from: email, transform: lowerEmail }
+      phone: { from: telefon_mobil, transform: phone }
+      dob: { from: geburtsdatum, transform: isoDate }
+      gender: { from: geschlecht, transform: gender }
+      bemerkung: { from: bemerkung, transform: bemerkung }
+
+  # ----- 2. Appointments (Praxistimer) -----------------------------------
+  # CGM ALBIS appointments live in the praxistimer module; the underlying
+  # table is `termin_praxistimer` in the migrated Postgres schema.
+  - kind: AppointmentCreated
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        termin_id::text   AS id,
+        patient_id::text  AS patient_id,
+        termin_zeit       AS termin_zeit,
+        leistungs_code    AS leistungs_code,
+        leistungs_text    AS leistungs_text,
+        raum_id::text     AS raum_id,
+        raum_name         AS raum_name,
+        notiz             AS notiz,
+        geaendert_am      AS modified_at
+      FROM termin_praxistimer
+      WHERE geaendert_am > :cursor
+      ORDER BY geaendert_am ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "cgm-albis:appointment:{id}" }
+      occurredAt: { from: termin_zeit, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      scheduledAt: { from: termin_zeit, transform: isoDateTime }
+      treatmentCode: leistungs_code
+      treatmentLabel: leistungs_text
+      locationCode: raum_id
+      locationLabel: raum_name
+      bemerkung: { from: notiz, transform: bemerkung }
+
+  # ----- 3. Appointment status changes -----------------------------------
+  - kind: AppointmentStatusChanged
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        termin_id::text   AS id,
+        patient_id::text  AS patient_id,
+        status            AS status,
+        geaendert_am      AS modified_at
+      FROM termin_praxistimer
+      WHERE geaendert_am > :cursor
+        AND status IS NOT NULL
+      ORDER BY geaendert_am ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "cgm-albis:appointment-status:{id}:{status}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      newStatus: { from: status, transform: appointmentStatus }
+      changedAt: { from: modified_at, transform: isoDateTime }
+
+  # ----- 4. Encounters (Karteieintrag) ----------------------------------
+  # ALBIS stores treatments as karteieintrag rows; termin_id is the link
+  # back to the appointment.
+  - kind: EncounterCompleted
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        karteieintrag_id::text  AS id,
+        patient_id::text        AS patient_id,
+        termin_id::text         AS termin_id,
+        eintrag_zeit            AS eintrag_zeit,
+        leistungs_code          AS leistungs_code,
+        leistungs_text          AS leistungs_text,
+        behandler_kuerzel       AS behandler_kuerzel,
+        geaendert_am            AS modified_at
+      FROM karteieintrag
+      WHERE geaendert_am > :cursor
+        AND termin_id IS NOT NULL
+      ORDER BY geaendert_am ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "cgm-albis:encounter:{id}" }
+      occurredAt: { from: eintrag_zeit, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsEncounterId: id
+      pvsAppointmentId: termin_id
+      completedAt: { from: eintrag_zeit, transform: isoDateTime }
+      treatmentCode: leistungs_code
+      treatmentLabel: leistungs_text
+      practitionerLabel: behandler_kuerzel
+
+  # ----- 5. Invoices -----------------------------------------------------
+  - kind: InvoicePaid
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        rechnung_id::text       AS id,
+        patient_id::text        AS patient_id,
+        termin_id::text         AS termin_id,
+        karteieintrag_id::text  AS behandlung_id,
+        betrag_gesamt           AS betrag,
+        bezahlt_am              AS bezahlt_am,
+        status                  AS status,
+        geaendert_am            AS modified_at
+      FROM rechnung
+      WHERE geaendert_am > :cursor
+        AND status = 'bezahlt'
+        AND termin_id IS NOT NULL
+      ORDER BY geaendert_am ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "cgm-albis:invoice:{id}" }
+      occurredAt: { from: bezahlt_am, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsInvoiceId: id
+      pvsAppointmentId: termin_id
+      pvsEncounterId: behandlung_id
+      amountCents: { from: betrag, transform: amountToCents }
+      currency: { literal: "EUR" }
+      paidAt: { from: bezahlt_am, transform: isoDateTime }
+
+  # ----- 6. Recalls -----------------------------------------------------
+  - kind: RecallScheduled
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        wiedervorlage_id::text  AS id,
+        patient_id::text        AS patient_id,
+        wv_zeit                 AS recall_zeit,
+        leistungs_code          AS leistungs_code,
+        leistungs_text          AS leistungs_text,
+        geaendert_am            AS modified_at
+      FROM wiedervorlage
+      WHERE geaendert_am > :cursor
+      ORDER BY geaendert_am ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "cgm-albis:recall:{id}" }
+      occurredAt: { from: recall_zeit, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsRecallId: id
+      recallAt: { from: recall_zeit, transform: isoDateTime }
+      treatmentCode: leistungs_code
+      treatmentLabel: leistungs_text

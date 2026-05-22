@@ -1,0 +1,227 @@
+# EINS PVS Bridge: medatixx (x.isynet / x.concept / x.comfort) DB-read.
+#
+# Engine: Firebird (Windows service, default port 3050). All three medatixx
+# product variants share the same core data model; differences are
+# UI-level only.
+#
+# Status: SCHEMA-DISCOVERY DRAFT. medatixx does not publish its schema;
+# column names below were reverse-engineered from the ODBC export tool
+# on a demo install plus published community knowledge of the historical
+# (pre-2015) schema, which is largely intact. Before going live on any
+# production Praxis, run the discovery probe in
+# apps/bridge/docs/onboarding-per-vendor/medatixx.md "Schema discovery"
+# and adjust columns to match. The schema-drift detector in framework.ts
+# halts any stream whose first poll returns a different column list
+# than this file declares; that catches a wrong guess at the first run.
+#
+# Read-only safety: the AVV (apps/bridge/legal/AVV-template-DE.md)
+# requires the IT contact to provision a dedicated read-only Firebird
+# user. SYSDBA is never used. Grants per table referenced below.
+#
+# Worker contract reminder (do NOT relax):
+#   - AppointmentCreated needs: pvsPatientId, pvsAppointmentId, scheduledAt
+#   - AppointmentStatusChanged needs: pvsAppointmentId, newStatus
+#   - EncounterCompleted needs: pvsAppointmentId (CRITICAL)
+#   - InvoicePaid needs: pvsAppointmentId (CRITICAL for ROI attribution)
+#   - clinicId is stamped by the runner.
+
+vendor: medatixx-db
+driver: firebird
+bridgeSource: gdt_agent
+defaultIntervalSeconds: 90
+batchSize: 500
+
+connection:
+  credentialId: medatixx-db-default
+  port: 3050
+  # The database field is the absolute path to the .fdb file on the
+  # Praxis server. Typical install paths:
+  #   C:\Program Files (x86)\medatixx\daten\PRAXIS.FDB
+  #   D:\medatixx\daten\PRAXIS.FDB
+  # The IT contact sets the actual path at --enable-db-adapter time.
+  database: ""
+  options:
+    # Firebird wire encryption: on for any 3.x/4.x server. Set to false
+    # only if the Praxis still runs Firebird 2.5 (deprecated by Indamed
+    # / medatixx since 2019; very rare on a current PVS install).
+    wireEncryption: true
+
+streams:
+  # ----- 1. Patients (PAT) ------------------------------------------------
+  # PAT table holds patient master data. modified_at is named DAT_MOD in
+  # the historical medatixx schema; we alias to lower-case to match the
+  # framework's lowercase_keys driver setting.
+  - kind: PatientUpserted
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT FIRST :limit
+        CAST(PAT_ID AS VARCHAR(40))    AS id,
+        VORNAME                        AS vorname,
+        NACHNAME                       AS nachname,
+        EMAIL                          AS email,
+        TELEFON_MOBIL                  AS telefon_mobil,
+        TELEFON_PRIVAT                 AS telefon_privat,
+        GEBURTSDATUM                   AS geburtsdatum,
+        GESCHLECHT                     AS geschlecht,
+        BEMERKUNG                      AS bemerkung,
+        DAT_MOD                        AS modified_at
+      FROM PAT
+      WHERE DAT_MOD > :cursor
+      ORDER BY DAT_MOD ASC
+    map:
+      pvsExternalEventId: { template: "medatixx:patient:{id}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: id
+      fullName: { template: "{vorname} {nachname}" }
+      email: { from: email, transform: lowerEmail }
+      phone: { from: telefon_mobil, transform: phone }
+      dob: { from: geburtsdatum, transform: isoDate }
+      gender: { from: geschlecht, transform: gender }
+      bemerkung: { from: bemerkung, transform: bemerkung }
+
+  # ----- 2. Appointments (TER) -------------------------------------------
+  # TER (Termine) holds appointment rows. medatixx commonly stores the
+  # treatment as a free-text BEZEICHNUNG plus an internal LEISTUNG_ID.
+  - kind: AppointmentCreated
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT FIRST :limit
+        CAST(TER_ID AS VARCHAR(40))    AS id,
+        CAST(PAT_ID AS VARCHAR(40))    AS patient_id,
+        TERMIN_BEGINN                  AS termin_beginn,
+        BEZEICHNUNG                    AS bezeichnung,
+        LEISTUNG_CODE                  AS leistung_code,
+        RAUM_ID                        AS raum_id,
+        RAUM_BEZEICHNUNG               AS raum_bezeichnung,
+        KOMMENTAR                      AS kommentar,
+        DAT_MOD                        AS modified_at
+      FROM TER
+      WHERE DAT_MOD > :cursor
+      ORDER BY DAT_MOD ASC
+    map:
+      pvsExternalEventId: { template: "medatixx:appointment:{id}" }
+      occurredAt: { from: termin_beginn, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      scheduledAt: { from: termin_beginn, transform: isoDateTime }
+      treatmentCode: leistung_code
+      treatmentLabel: bezeichnung
+      locationCode: raum_id
+      locationLabel: raum_bezeichnung
+      bemerkung: { from: kommentar, transform: bemerkung }
+
+  # ----- 3. Appointment status changes -----------------------------------
+  # medatixx stores the appointment status in TER.STATUS (numeric or
+  # short string). The appointmentStatus transform handles both.
+  - kind: AppointmentStatusChanged
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT FIRST :limit
+        CAST(TER_ID AS VARCHAR(40))    AS id,
+        CAST(PAT_ID AS VARCHAR(40))    AS patient_id,
+        STATUS                         AS status,
+        DAT_MOD                        AS modified_at
+      FROM TER
+      WHERE DAT_MOD > :cursor
+        AND STATUS IS NOT NULL
+      ORDER BY DAT_MOD ASC
+    map:
+      pvsExternalEventId: { template: "medatixx:appointment-status:{id}:{status}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      newStatus: { from: status, transform: appointmentStatus }
+      changedAt: { from: modified_at, transform: isoDateTime }
+
+  # ----- 4. Encounters (BEH = Behandlung) --------------------------------
+  # BEH links to TER via TER_ID; we require that link or
+  # pvs-status-derive silently drops the event (worker contract).
+  - kind: EncounterCompleted
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT FIRST :limit
+        CAST(BEH_ID AS VARCHAR(40))    AS id,
+        CAST(PAT_ID AS VARCHAR(40))    AS patient_id,
+        CAST(TER_ID AS VARCHAR(40))    AS termin_id,
+        BEHANDLUNG_DATUM               AS behandlung_datum,
+        LEISTUNG_CODE                  AS leistung_code,
+        BEZEICHNUNG                    AS bezeichnung,
+        BEHANDLER_NAME                 AS behandler_name,
+        DAT_MOD                        AS modified_at
+      FROM BEH
+      WHERE DAT_MOD > :cursor
+        AND TER_ID IS NOT NULL
+      ORDER BY DAT_MOD ASC
+    map:
+      pvsExternalEventId: { template: "medatixx:encounter:{id}" }
+      occurredAt: { from: behandlung_datum, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsEncounterId: id
+      pvsAppointmentId: termin_id
+      completedAt: { from: behandlung_datum, transform: isoDateTime }
+      treatmentCode: leistung_code
+      treatmentLabel: bezeichnung
+      practitionerLabel: behandler_name
+
+  # ----- 5. Invoices (RECH = Rechnung) -----------------------------------
+  # medatixx Honorar-Rechnungen sit in RECH; we filter to paid status
+  # ('B' for bezahlt) and require a TER_ID link for ROI attribution.
+  # Note: medatixx must be configured to write Honorar-FK to the GDT
+  # export OR the data must be visible in RECH directly; the latter is
+  # the default.
+  - kind: InvoicePaid
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT FIRST :limit
+        CAST(RECH_ID AS VARCHAR(40))   AS id,
+        CAST(PAT_ID AS VARCHAR(40))    AS patient_id,
+        CAST(TER_ID AS VARCHAR(40))    AS termin_id,
+        CAST(BEH_ID AS VARCHAR(40))    AS behandlung_id,
+        BETRAG_GESAMT                  AS betrag,
+        BEZAHLT_AM                     AS bezahlt_am,
+        STATUS                         AS status,
+        DAT_MOD                        AS modified_at
+      FROM RECH
+      WHERE DAT_MOD > :cursor
+        AND STATUS = 'B'
+        AND TER_ID IS NOT NULL
+      ORDER BY DAT_MOD ASC
+    map:
+      pvsExternalEventId: { template: "medatixx:invoice:{id}" }
+      occurredAt: { from: bezahlt_am, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsInvoiceId: id
+      pvsAppointmentId: termin_id
+      pvsEncounterId: behandlung_id
+      amountCents: { from: betrag, transform: amountToCents }
+      currency: { literal: "EUR" }
+      paidAt: { from: bezahlt_am, transform: isoDateTime }
+
+  # ----- 6. Recalls (WV = Wiedervorlage) ---------------------------------
+  - kind: RecallScheduled
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT FIRST :limit
+        CAST(WV_ID AS VARCHAR(40))     AS id,
+        CAST(PAT_ID AS VARCHAR(40))    AS patient_id,
+        WV_DATUM                       AS recall_datum,
+        LEISTUNG_CODE                  AS leistung_code,
+        BEZEICHNUNG                    AS bezeichnung,
+        DAT_MOD                        AS modified_at
+      FROM WV
+      WHERE DAT_MOD > :cursor
+      ORDER BY DAT_MOD ASC
+    map:
+      pvsExternalEventId: { template: "medatixx:recall:{id}" }
+      occurredAt: { from: recall_datum, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsRecallId: id
+      recallAt: { from: recall_datum, transform: isoDateTime }
+      treatmentCode: leistung_code
+      treatmentLabel: bezeichnung

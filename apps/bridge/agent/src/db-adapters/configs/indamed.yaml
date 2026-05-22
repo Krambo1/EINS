@@ -1,0 +1,202 @@
+# EINS PVS Bridge: INDAMED MEDICAL OFFICE MariaDB DB-read.
+#
+# Engine: MariaDB (the brief said "PostgreSQL or proprietary"; verified
+# against the Indamed Anwenderforum + SEC-Consult advisory that the
+# product splits storage: MariaDB for core practice data (patients,
+# appointments, billing) and Firebird for statistical reporting. Only
+# the MariaDB side is required for status derivation; the Firebird
+# stats store stays untouched.
+#
+# Status: SCHEMA-DISCOVERY DRAFT. Indamed does not publish the schema.
+# Column names below are derived from the open-source archive viewer
+# project (github.com/crispinus2/archivviewer) which reverse-engineered
+# the patient/document tables, plus published forum discussions.
+# The schema-drift detector halts streams whose first poll returns
+# different columns than declared here.
+#
+# Worker contract reminder applies.
+
+vendor: indamed-db
+driver: mysql
+bridgeSource: gdt_agent
+defaultIntervalSeconds: 60
+batchSize: 500
+
+connection:
+  credentialId: indamed-db-default
+  port: 3306
+  # MEDICAL OFFICE default MariaDB database name.
+  database: medoff
+  options: {}
+
+streams:
+  # ----- 1. Patients -----------------------------------------------------
+  - kind: PatientUpserted
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        CAST(pat_id AS CHAR(40))    AS id,
+        vorname                     AS vorname,
+        nachname                    AS nachname,
+        email                       AS email,
+        telefon_mobil               AS telefon_mobil,
+        telefon_privat              AS telefon_privat,
+        geburtsdatum                AS geburtsdatum,
+        geschlecht                  AS geschlecht,
+        anmerkung                   AS bemerkung,
+        geaendert_am                AS modified_at
+      FROM patient
+      WHERE geaendert_am > :cursor
+      ORDER BY geaendert_am ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "indamed:patient:{id}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: id
+      fullName: { template: "{vorname} {nachname}" }
+      email: { from: email, transform: lowerEmail }
+      phone: { from: telefon_mobil, transform: phone }
+      dob: { from: geburtsdatum, transform: isoDate }
+      gender: { from: geschlecht, transform: gender }
+      bemerkung: { from: bemerkung, transform: bemerkung }
+
+  # ----- 2. Appointments -------------------------------------------------
+  - kind: AppointmentCreated
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        CAST(termin_id AS CHAR(40)) AS id,
+        CAST(pat_id AS CHAR(40))    AS patient_id,
+        termin_zeit                 AS termin_zeit,
+        leistung_kuerzel            AS leistung_kuerzel,
+        leistung_text               AS leistung_text,
+        raum_id                     AS raum_id,
+        raum_name                   AS raum_name,
+        notiz                       AS notiz,
+        geaendert_am                AS modified_at
+      FROM termin
+      WHERE geaendert_am > :cursor
+      ORDER BY geaendert_am ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "indamed:appointment:{id}" }
+      occurredAt: { from: termin_zeit, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      scheduledAt: { from: termin_zeit, transform: isoDateTime }
+      treatmentCode: leistung_kuerzel
+      treatmentLabel: leistung_text
+      locationCode: raum_id
+      locationLabel: raum_name
+      bemerkung: { from: notiz, transform: bemerkung }
+
+  # ----- 3. Appointment status changes -----------------------------------
+  - kind: AppointmentStatusChanged
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        CAST(termin_id AS CHAR(40)) AS id,
+        CAST(pat_id AS CHAR(40))    AS patient_id,
+        status                      AS status,
+        geaendert_am                AS modified_at
+      FROM termin
+      WHERE geaendert_am > :cursor
+        AND status IS NOT NULL
+      ORDER BY geaendert_am ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "indamed:appointment-status:{id}:{status}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      newStatus: { from: status, transform: appointmentStatus }
+      changedAt: { from: modified_at, transform: isoDateTime }
+
+  # ----- 4. Encounters --------------------------------------------------
+  - kind: EncounterCompleted
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        CAST(beh_id AS CHAR(40))    AS id,
+        CAST(pat_id AS CHAR(40))    AS patient_id,
+        CAST(termin_id AS CHAR(40)) AS termin_id,
+        behandlung_datum            AS behandlung_datum,
+        leistung_kuerzel            AS leistung_kuerzel,
+        leistung_text               AS leistung_text,
+        behandler_kuerzel           AS behandler_kuerzel,
+        geaendert_am                AS modified_at
+      FROM behandlung
+      WHERE geaendert_am > :cursor
+        AND termin_id IS NOT NULL
+      ORDER BY geaendert_am ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "indamed:encounter:{id}" }
+      occurredAt: { from: behandlung_datum, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsEncounterId: id
+      pvsAppointmentId: termin_id
+      completedAt: { from: behandlung_datum, transform: isoDateTime }
+      treatmentCode: leistung_kuerzel
+      treatmentLabel: leistung_text
+      practitionerLabel: behandler_kuerzel
+
+  # ----- 5. Invoices ----------------------------------------------------
+  - kind: InvoicePaid
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        CAST(rech_id AS CHAR(40))   AS id,
+        CAST(pat_id AS CHAR(40))    AS patient_id,
+        CAST(termin_id AS CHAR(40)) AS termin_id,
+        CAST(beh_id AS CHAR(40))    AS behandlung_id,
+        betrag_gesamt               AS betrag,
+        bezahlt_am                  AS bezahlt_am,
+        status                      AS status,
+        geaendert_am                AS modified_at
+      FROM rechnung
+      WHERE geaendert_am > :cursor
+        AND status = 'bezahlt'
+        AND termin_id IS NOT NULL
+      ORDER BY geaendert_am ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "indamed:invoice:{id}" }
+      occurredAt: { from: bezahlt_am, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsInvoiceId: id
+      pvsAppointmentId: termin_id
+      pvsEncounterId: behandlung_id
+      amountCents: { from: betrag, transform: amountToCents }
+      currency: { literal: "EUR" }
+      paidAt: { from: bezahlt_am, transform: isoDateTime }
+
+  # ----- 6. Recalls ----------------------------------------------------
+  - kind: RecallScheduled
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT
+        CAST(wv_id AS CHAR(40))     AS id,
+        CAST(pat_id AS CHAR(40))    AS patient_id,
+        wv_zeit                     AS recall_zeit,
+        leistung_kuerzel            AS leistung_kuerzel,
+        leistung_text               AS leistung_text,
+        geaendert_am                AS modified_at
+      FROM wiedervorlage
+      WHERE geaendert_am > :cursor
+      ORDER BY geaendert_am ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "indamed:recall:{id}" }
+      occurredAt: { from: recall_zeit, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsRecallId: id
+      recallAt: { from: recall_zeit, transform: isoDateTime }
+      treatmentCode: leistung_kuerzel
+      treatmentLabel: leistung_text

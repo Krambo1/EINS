@@ -1,0 +1,28 @@
+{
+  "name": "bridge-test-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local end-to-end harness for the EINS PVS Bridge — no real PVS required.",
+  "scripts": {
+    "harness:portal": "tsx src/stub-portal.ts",
+    "harness:tomedo-mock": "tsx src/tomedo-mock.ts",
+    "harness:canonical": "tsx src/run-canonical.ts",
+    "harness:tomedo": "tsx src/run-tomedo.ts",
+    "harness:fhir": "tsx src/run-fhir.ts",
+    "harness:gdt": "tsx src/run-gdt.ts",
+    "harness:csv": "tsx src/run-csv.ts",
+    "harness:all": "tsx src/run-all.ts",
+    "fhir:seed": "tsx src/fhir-seeder.ts"
+  },
+  "dependencies": {
+    "fastify": "^5.0.0",
+    "iconv-lite": "^0.6.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}

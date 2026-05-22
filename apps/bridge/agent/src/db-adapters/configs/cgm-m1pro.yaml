@@ -1,0 +1,200 @@
+# EINS PVS Bridge: CGM M1 PRO MS SQL Server DB-read.
+#
+# Engine: MS SQL Server. This config covers the newer SQL-Server-
+# flavoured M1 PRO deployments. The dominant install base runs on
+# Oracle; that path lives in cgm-m1pro-oracle.yaml (oracle driver,
+# node-oracledb Thin mode, no Instant Client needed). Operators
+# enable whichever variant matches the Praxis's actual engine via
+# --enable-db-adapter cgm-m1pro  (MSSQL) or
+# --enable-db-adapter cgm-m1pro-oracle  (Oracle).
+#
+# Status: SCHEMA-DISCOVERY DRAFT. CGM does not publish the M1 PRO
+# schema. Column names below are derived from CGM M1 PRO Praxisservice
+# documentation and align with the company's "Healthcare Software" line
+# naming. Schema-drift detector halts streams whose first poll returns
+# different columns; wrong guess fails loudly.
+#
+# Worker contract reminder applies.
+
+vendor: cgm-m1pro-db
+driver: mssql
+bridgeSource: gdt_agent
+defaultIntervalSeconds: 60
+batchSize: 500
+
+connection:
+  credentialId: cgm-m1pro-db-default
+  port: 1433
+  # M1 PRO default database name. Some installs put practice data in
+  # 'M1PRO' or '<praxis-slug>_prod'; the IT contact confirms at
+  # --enable-db-adapter time.
+  database: M1PRO
+  options:
+    encrypt: true
+    trustServerCertificate: true
+
+streams:
+  # ----- 1. Patients -----------------------------------------------------
+  - kind: PatientUpserted
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT TOP (:limit)
+        CAST(PatientId AS varchar(40))   AS id,
+        Vorname                          AS vorname,
+        Nachname                         AS nachname,
+        Email                            AS email,
+        TelefonMobil                     AS telefon_mobil,
+        TelefonPrivat                    AS telefon_privat,
+        Geburtsdatum                     AS geburtsdatum,
+        Geschlecht                       AS geschlecht,
+        Bemerkung                        AS bemerkung,
+        ModifiedAt                       AS modified_at
+      FROM Patient
+      WHERE ModifiedAt > :cursor
+      ORDER BY ModifiedAt ASC
+    map:
+      pvsExternalEventId: { template: "cgm-m1pro:patient:{id}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: id
+      fullName: { template: "{vorname} {nachname}" }
+      email: { from: email, transform: lowerEmail }
+      phone: { from: telefon_mobil, transform: phone }
+      dob: { from: geburtsdatum, transform: isoDate }
+      gender: { from: geschlecht, transform: gender }
+      bemerkung: { from: bemerkung, transform: bemerkung }
+
+  # ----- 2. Appointments -------------------------------------------------
+  - kind: AppointmentCreated
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT TOP (:limit)
+        CAST(TerminId AS varchar(40))    AS id,
+        CAST(PatientId AS varchar(40))   AS patient_id,
+        TerminBeginn                     AS termin_beginn,
+        LeistungCode                     AS leistung_code,
+        LeistungBezeichnung              AS leistung_bezeichnung,
+        RaumId                           AS raum_id,
+        RaumName                         AS raum_name,
+        Kommentar                        AS kommentar,
+        ModifiedAt                       AS modified_at
+      FROM Termin
+      WHERE ModifiedAt > :cursor
+      ORDER BY ModifiedAt ASC
+    map:
+      pvsExternalEventId: { template: "cgm-m1pro:appointment:{id}" }
+      occurredAt: { from: termin_beginn, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      scheduledAt: { from: termin_beginn, transform: isoDateTime }
+      treatmentCode: leistung_code
+      treatmentLabel: leistung_bezeichnung
+      locationCode: raum_id
+      locationLabel: raum_name
+      bemerkung: { from: kommentar, transform: bemerkung }
+
+  # ----- 3. Appointment status changes -----------------------------------
+  - kind: AppointmentStatusChanged
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT TOP (:limit)
+        CAST(TerminId AS varchar(40))    AS id,
+        CAST(PatientId AS varchar(40))   AS patient_id,
+        Status                           AS status,
+        ModifiedAt                       AS modified_at
+      FROM Termin
+      WHERE ModifiedAt > :cursor
+        AND Status IS NOT NULL
+      ORDER BY ModifiedAt ASC
+    map:
+      pvsExternalEventId: { template: "cgm-m1pro:appointment-status:{id}:{status}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      newStatus: { from: status, transform: appointmentStatus }
+      changedAt: { from: modified_at, transform: isoDateTime }
+
+  # ----- 4. Encounters --------------------------------------------------
+  - kind: EncounterCompleted
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT TOP (:limit)
+        CAST(BehandlungId AS varchar(40))  AS id,
+        CAST(PatientId AS varchar(40))     AS patient_id,
+        CAST(TerminId AS varchar(40))      AS termin_id,
+        BehandlungDatum                    AS behandlung_datum,
+        LeistungCode                       AS leistung_code,
+        LeistungBezeichnung                AS leistung_bezeichnung,
+        BehandlerKuerzel                   AS behandler_kuerzel,
+        ModifiedAt                         AS modified_at
+      FROM Behandlung
+      WHERE ModifiedAt > :cursor
+        AND TerminId IS NOT NULL
+      ORDER BY ModifiedAt ASC
+    map:
+      pvsExternalEventId: { template: "cgm-m1pro:encounter:{id}" }
+      occurredAt: { from: behandlung_datum, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsEncounterId: id
+      pvsAppointmentId: termin_id
+      completedAt: { from: behandlung_datum, transform: isoDateTime }
+      treatmentCode: leistung_code
+      treatmentLabel: leistung_bezeichnung
+      practitionerLabel: behandler_kuerzel
+
+  # ----- 5. Invoices ----------------------------------------------------
+  - kind: InvoicePaid
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT TOP (:limit)
+        CAST(RechnungId AS varchar(40))    AS id,
+        CAST(PatientId AS varchar(40))     AS patient_id,
+        CAST(TerminId AS varchar(40))      AS termin_id,
+        CAST(BehandlungId AS varchar(40))  AS behandlung_id,
+        BetragGesamt                       AS betrag,
+        BezahltAm                          AS bezahlt_am,
+        Status                             AS status,
+        ModifiedAt                         AS modified_at
+      FROM Rechnung
+      WHERE ModifiedAt > :cursor
+        AND Status = 'bezahlt'
+        AND TerminId IS NOT NULL
+      ORDER BY ModifiedAt ASC
+    map:
+      pvsExternalEventId: { template: "cgm-m1pro:invoice:{id}" }
+      occurredAt: { from: bezahlt_am, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsInvoiceId: id
+      pvsAppointmentId: termin_id
+      pvsEncounterId: behandlung_id
+      amountCents: { from: betrag, transform: amountToCents }
+      currency: { literal: "EUR" }
+      paidAt: { from: bezahlt_am, transform: isoDateTime }
+
+  # ----- 6. Recalls ----------------------------------------------------
+  - kind: RecallScheduled
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT TOP (:limit)
+        CAST(WiedervorlageId AS varchar(40))  AS id,
+        CAST(PatientId AS varchar(40))        AS patient_id,
+        WiedervorlageAm                       AS recall_zeit,
+        LeistungCode                          AS leistung_code,
+        LeistungBezeichnung                   AS leistung_bezeichnung,
+        ModifiedAt                            AS modified_at
+      FROM Wiedervorlage
+      WHERE ModifiedAt > :cursor
+      ORDER BY ModifiedAt ASC
+    map:
+      pvsExternalEventId: { template: "cgm-m1pro:recall:{id}" }
+      occurredAt: { from: recall_zeit, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsRecallId: id
+      recallAt: { from: recall_zeit, transform: isoDateTime }
+      treatmentCode: leistung_code
+      treatmentLabel: leistung_bezeichnung

@@ -1,0 +1,235 @@
+# EINS PVS Bridge: CGM M1 PRO Oracle DB-read.
+#
+# Engine: Oracle Database (the dominant install base per CGM SystemHaus
+# product documentation; the "Oracle SQL database" is the M1 PRO standard).
+# Newer SQL-Server-flavoured deployments are covered by the sibling
+# cgm-m1pro.yaml (driver: mssql).
+#
+# Wire library: oracledb v6+ in **Thin mode** (default). No Oracle Instant
+# Client distribution required; the agent stays a single self-contained
+# binary. Thin mode supports Oracle Database 12.1 and later (12c, 18c,
+# 19c, 21c, 23ai). Legacy 11g installs (rare on modern M1 PRO fleets)
+# would need a Thick-mode build variant; we revisit when first
+# encountered. See apps/bridge/agent/src/db-adapters/drivers/oracle.ts.
+#
+# Status: SCHEMA-DISCOVERY DRAFT. CGM does not publish the M1 PRO Oracle
+# schema. Object names below follow Oracle conventions (uppercase) and
+# mirror the field intent of the MSSQL variant. The schema-drift detector
+# halts streams whose first poll returns different columns; wrong guesses
+# fail loudly. First-Praxis onboarding pins the real names via the
+# discovery probe in apps/bridge/docs/onboarding-per-vendor/cgm-m1pro.md.
+#
+# Worker contract reminder applies (EncounterCompleted and InvoicePaid
+# MUST emit pvsAppointmentId; without it pvs-status-derive drops the
+# event).
+
+vendor: cgm-m1pro-oracle-db
+driver: oracle
+bridgeSource: gdt_agent
+defaultIntervalSeconds: 60
+batchSize: 500
+
+connection:
+  credentialId: cgm-m1pro-oracle-db-default
+  port: 1521
+  # The Oracle service name (modern Easy Connect form) or SID. CGM's
+  # M1 PRO installer typically names the service "M1PRO" but bespoke
+  # deployments override this. The Praxis IT contact confirms at
+  # --enable-db-adapter time via --db-database.
+  #
+  # Operators with a TNSNAMES alias or a bespoke connect-descriptor
+  # set options.connectString to override the Easy Connect string
+  # composed by the driver; see oracle.ts buildConnectString().
+  database: M1PRO
+  options: {}
+
+streams:
+  # ----- 1. Patients -----------------------------------------------------
+  # Oracle returns DATE / TIMESTAMP columns as JS Date objects via
+  # node-oracledb; the isoDateTime transform coerces them to ISO 8601.
+  # Numeric IDs are coerced to text with TO_CHAR so the canonical event's
+  # pvsPatientId / pvsAppointmentId stay strings (the portal schema
+  # rejects non-string IDs).
+  - kind: PatientUpserted
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT * FROM (
+        SELECT
+          TO_CHAR(patient_id)   AS id,
+          vorname               AS vorname,
+          nachname              AS nachname,
+          email                 AS email,
+          telefon_mobil         AS telefon_mobil,
+          telefon_privat        AS telefon_privat,
+          geburtsdatum          AS geburtsdatum,
+          geschlecht            AS geschlecht,
+          bemerkung             AS bemerkung,
+          modified_at           AS modified_at
+        FROM patient
+        WHERE modified_at > :cursor
+        ORDER BY modified_at ASC
+      )
+      WHERE ROWNUM <= :limit
+    map:
+      pvsExternalEventId: { template: "cgm-m1pro:patient:{id}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: id
+      fullName: { template: "{vorname} {nachname}" }
+      email: { from: email, transform: lowerEmail }
+      phone: { from: telefon_mobil, transform: phone }
+      dob: { from: geburtsdatum, transform: isoDate }
+      gender: { from: geschlecht, transform: gender }
+      bemerkung: { from: bemerkung, transform: bemerkung }
+
+  # ----- 2. Appointments -------------------------------------------------
+  - kind: AppointmentCreated
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT * FROM (
+        SELECT
+          TO_CHAR(termin_id)    AS id,
+          TO_CHAR(patient_id)   AS patient_id,
+          termin_beginn         AS termin_beginn,
+          leistung_code         AS leistung_code,
+          leistung_bezeichnung  AS leistung_bezeichnung,
+          raum_id               AS raum_id,
+          raum_name             AS raum_name,
+          kommentar             AS kommentar,
+          modified_at           AS modified_at
+        FROM termin
+        WHERE modified_at > :cursor
+        ORDER BY modified_at ASC
+      )
+      WHERE ROWNUM <= :limit
+    map:
+      pvsExternalEventId: { template: "cgm-m1pro:appointment:{id}" }
+      occurredAt: { from: termin_beginn, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      scheduledAt: { from: termin_beginn, transform: isoDateTime }
+      treatmentCode: leistung_code
+      treatmentLabel: leistung_bezeichnung
+      locationCode: raum_id
+      locationLabel: raum_name
+      bemerkung: { from: kommentar, transform: bemerkung }
+
+  # ----- 3. Appointment status changes -----------------------------------
+  - kind: AppointmentStatusChanged
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT * FROM (
+        SELECT
+          TO_CHAR(termin_id)    AS id,
+          TO_CHAR(patient_id)   AS patient_id,
+          status                AS status,
+          modified_at           AS modified_at
+        FROM termin
+        WHERE modified_at > :cursor
+          AND status IS NOT NULL
+        ORDER BY modified_at ASC
+      )
+      WHERE ROWNUM <= :limit
+    map:
+      pvsExternalEventId: { template: "cgm-m1pro:appointment-status:{id}:{status}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      newStatus: { from: status, transform: appointmentStatus }
+      changedAt: { from: modified_at, transform: isoDateTime }
+
+  # ----- 4. Encounters --------------------------------------------------
+  - kind: EncounterCompleted
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT * FROM (
+        SELECT
+          TO_CHAR(behandlung_id) AS id,
+          TO_CHAR(patient_id)    AS patient_id,
+          TO_CHAR(termin_id)     AS termin_id,
+          behandlung_datum       AS behandlung_datum,
+          leistung_code          AS leistung_code,
+          leistung_bezeichnung   AS leistung_bezeichnung,
+          behandler_kuerzel      AS behandler_kuerzel,
+          modified_at            AS modified_at
+        FROM behandlung
+        WHERE modified_at > :cursor
+          AND termin_id IS NOT NULL
+        ORDER BY modified_at ASC
+      )
+      WHERE ROWNUM <= :limit
+    map:
+      pvsExternalEventId: { template: "cgm-m1pro:encounter:{id}" }
+      occurredAt: { from: behandlung_datum, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsEncounterId: id
+      pvsAppointmentId: termin_id
+      completedAt: { from: behandlung_datum, transform: isoDateTime }
+      treatmentCode: leistung_code
+      treatmentLabel: leistung_bezeichnung
+      practitionerLabel: behandler_kuerzel
+
+  # ----- 5. Invoices ----------------------------------------------------
+  # Oracle stores Honorar amounts as NUMBER (e.g. 125.5); the
+  # amountToCents transform multiplies by 100 and rounds.
+  - kind: InvoicePaid
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT * FROM (
+        SELECT
+          TO_CHAR(rechnung_id)   AS id,
+          TO_CHAR(patient_id)    AS patient_id,
+          TO_CHAR(termin_id)     AS termin_id,
+          TO_CHAR(behandlung_id) AS behandlung_id,
+          betrag_gesamt          AS betrag,
+          bezahlt_am             AS bezahlt_am,
+          status                 AS status,
+          modified_at            AS modified_at
+        FROM rechnung
+        WHERE modified_at > :cursor
+          AND status = 'bezahlt'
+          AND termin_id IS NOT NULL
+        ORDER BY modified_at ASC
+      )
+      WHERE ROWNUM <= :limit
+    map:
+      pvsExternalEventId: { template: "cgm-m1pro:invoice:{id}" }
+      occurredAt: { from: bezahlt_am, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsInvoiceId: id
+      pvsAppointmentId: termin_id
+      pvsEncounterId: behandlung_id
+      amountCents: { from: betrag, transform: amountToCents }
+      currency: { literal: "EUR" }
+      paidAt: { from: bezahlt_am, transform: isoDateTime }
+
+  # ----- 6. Recalls ----------------------------------------------------
+  - kind: RecallScheduled
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT * FROM (
+        SELECT
+          TO_CHAR(wiedervorlage_id) AS id,
+          TO_CHAR(patient_id)       AS patient_id,
+          wiedervorlage_am          AS recall_zeit,
+          leistung_code             AS leistung_code,
+          leistung_bezeichnung      AS leistung_bezeichnung,
+          modified_at               AS modified_at
+        FROM wiedervorlage
+        WHERE modified_at > :cursor
+        ORDER BY modified_at ASC
+      )
+      WHERE ROWNUM <= :limit
+    map:
+      pvsExternalEventId: { template: "cgm-m1pro:recall:{id}" }
+      occurredAt: { from: recall_zeit, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsRecallId: id
+      recallAt: { from: recall_zeit, transform: isoDateTime }
+      treatmentCode: leistung_code
+      treatmentLabel: leistung_bezeichnung

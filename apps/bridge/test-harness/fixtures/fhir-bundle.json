@@ -1,0 +1,112 @@
+{
+  "resourceType": "Bundle",
+  "type": "collection",
+  "entry": [
+    {
+      "fullUrl": "Patient/p-201",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "p-201",
+        "meta": { "lastUpdated": "2026-05-10T10:00:00.000Z" },
+        "name": [{ "given": ["Marie"], "family": "Wagner" }],
+        "telecom": [
+          { "system": "email", "value": "marie.wagner@example.test" },
+          { "system": "phone", "value": "+49 30 5550201" }
+        ],
+        "birthDate": "1988-09-22",
+        "gender": "female",
+        "note": [{ "text": "EINS-Lead-feedface — Erstkontakt Hyaluron" }]
+      }
+    },
+    {
+      "fullUrl": "Patient/p-202",
+      "resource": {
+        "resourceType": "Patient",
+        "id": "p-202",
+        "meta": { "lastUpdated": "2026-05-11T11:00:00.000Z" },
+        "name": [{ "given": ["Jonas"], "family": "Krüger" }],
+        "telecom": [
+          { "system": "email", "value": "jonas.krueger@example.test" },
+          { "system": "phone", "value": "+49 89 5550202" }
+        ],
+        "birthDate": "1979-03-14",
+        "gender": "male"
+      }
+    },
+    {
+      "fullUrl": "Appointment/a-301",
+      "resource": {
+        "resourceType": "Appointment",
+        "id": "a-301",
+        "meta": { "lastUpdated": "2026-05-10T10:05:00.000Z" },
+        "status": "booked",
+        "start": "2026-05-20T09:00:00.000Z",
+        "participant": [
+          {
+            "actor": { "reference": "Patient/p-201", "display": "Marie Wagner" },
+            "status": "accepted"
+          }
+        ],
+        "serviceType": [
+          {
+            "coding": [
+              { "code": "BTX-STIRN", "display": "Botox Stirnpartie" }
+            ]
+          }
+        ],
+        "comment": "Erstberatung"
+      }
+    },
+    {
+      "fullUrl": "Appointment/a-302",
+      "resource": {
+        "resourceType": "Appointment",
+        "id": "a-302",
+        "meta": { "lastUpdated": "2026-05-20T09:50:00.000Z" },
+        "status": "fulfilled",
+        "start": "2026-05-20T09:00:00.000Z",
+        "participant": [
+          { "actor": { "reference": "Patient/p-201" }, "status": "accepted" }
+        ],
+        "serviceType": [
+          {
+            "coding": [
+              { "code": "BTX-STIRN", "display": "Botox Stirnpartie" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "Encounter/e-401",
+      "resource": {
+        "resourceType": "Encounter",
+        "id": "e-401",
+        "meta": { "lastUpdated": "2026-05-20T09:50:00.000Z" },
+        "status": "finished",
+        "subject": { "reference": "Patient/p-201" },
+        "appointment": [{ "reference": "Appointment/a-302" }],
+        "period": { "end": "2026-05-20T09:45:00.000Z" },
+        "type": [
+          {
+            "coding": [
+              { "code": "BTX-STIRN", "display": "Botox Stirnpartie" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fullUrl": "Invoice/inv-501",
+      "resource": {
+        "resourceType": "Invoice",
+        "id": "inv-501",
+        "meta": { "lastUpdated": "2026-05-20T10:00:00.000Z" },
+        "status": "balanced",
+        "subject": { "reference": "Patient/p-201" },
+        "totalGross": { "value": 390.0, "currency": "EUR" },
+        "date": "2026-05-20T10:00:00.000Z"
+      }
+    }
+  ]
+}
