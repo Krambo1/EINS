@@ -102,6 +102,7 @@ beforeEach(() => {
       vendor_id TEXT NOT NULL,
       stream_kind TEXT NOT NULL,
       cursor TEXT NOT NULL DEFAULT '',
+      cursor_tiebreak TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'idle',
       last_run_at INTEGER,
       last_error TEXT,

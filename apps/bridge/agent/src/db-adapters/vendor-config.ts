@@ -319,12 +319,46 @@ function validateStream(
 
   const intervalSeconds = optionalNumberField(raw, "intervalSeconds");
 
+  // Keyset pagination (review finding 6): tiebreakColumn + the :cursorTiebreak
+  // bind must agree, or the query fails at runtime (driver throws on an
+  // unbound placeholder) or silently keeps the single-column skip bug.
+  let tiebreakColumn: string | undefined;
+  if (raw.tiebreakColumn !== undefined && raw.tiebreakColumn !== null) {
+    if (
+      typeof raw.tiebreakColumn !== "string" ||
+      raw.tiebreakColumn.trim() === ""
+    ) {
+      throw new VendorConfigError(
+        vendor,
+        path,
+        `${where}: tiebreakColumn must be a non-empty string when present`
+      );
+    }
+    tiebreakColumn = raw.tiebreakColumn;
+  }
+  const usesTiebreakBind = /:cursorTiebreak\b/.test(query);
+  if (tiebreakColumn && !usesTiebreakBind) {
+    throw new VendorConfigError(
+      vendor,
+      path,
+      `${where}: tiebreakColumn is set but the query never references :cursorTiebreak (keyset predicate missing)`
+    );
+  }
+  if (!tiebreakColumn && usesTiebreakBind) {
+    throw new VendorConfigError(
+      vendor,
+      path,
+      `${where}: query references :cursorTiebreak but no tiebreakColumn is set`
+    );
+  }
+
   return {
     kind,
     cursorColumn,
     cursorType: cursorTypeRaw,
     query,
     map,
+    tiebreakColumn,
     intervalSeconds,
   };
 }

@@ -159,11 +159,31 @@ export interface StreamConfig {
    *  poll (max of cursorColumn across the returned rows). */
   cursorColumn: string;
   cursorType: "timestamp" | "integer" | "string";
-  /** SQL with `:cursor` and `:limit` placeholders. Drivers translate
-   *  placeholders to native bind syntax. */
+  /** SQL with `:cursor` and `:limit` placeholders (plus `:cursorTiebreak`
+   *  when tiebreakColumn is set). Drivers translate placeholders to native
+   *  bind syntax. */
   query: string;
   /** Field → column / transform / template. */
   map: StreamFieldMap;
+  /** Optional tiebreak column for keyset pagination (review finding 6).
+   *
+   *  Without it, `WHERE cursorColumn > :cursor ORDER BY cursorColumn LIMIT n`
+   *  silently SKIPS rows whenever more than `batchSize` rows share one
+   *  cursorColumn value at a batch boundary (a bulk import / mass update sets
+   *  an identical modified_at on many rows). The cursor jumps past that whole
+   *  timestamp and the overflow is never read again.
+   *
+   *  When set, the framework also binds `:cursorTiebreak` and advances a
+   *  composite (cursorColumn, tiebreakColumn) cursor. The query MUST express
+   *  the keyset predicate and a matching two-column ORDER BY, e.g.
+   *    WHERE (modified_at > :cursor
+   *           OR (modified_at = :cursor AND id > :cursorTiebreak))
+   *    ORDER BY modified_at ASC, id ASC
+   *    LIMIT :limit
+   *  The tiebreak column must be unique within a single cursorColumn value
+   *  (a primary key is the natural choice). Streams without it keep the plain
+   *  single-column behaviour, so existing configs are unaffected. */
+  tiebreakColumn?: string;
   /** Optional poll cadence override. Default per-vendor at the file level. */
   intervalSeconds?: number;
 }
@@ -203,6 +223,10 @@ export interface StreamState {
   vendorId: string;
   streamKind: CanonicalEventKind;
   cursor: string;
+  /** Composite-cursor tiebreak value for keyset pagination (review finding
+   *  6). Empty string unless the stream sets tiebreakColumn. Persisted
+   *  alongside `cursor` and bound as :cursorTiebreak on the next poll. */
+  cursorTiebreak: string;
   status: StreamStatus;
   lastRunAt: number | null;
   lastError: string | null;

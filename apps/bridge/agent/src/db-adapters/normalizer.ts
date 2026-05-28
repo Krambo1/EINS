@@ -237,20 +237,59 @@ function mapAppointmentStatus(
 
 function amountToCents(v: unknown): number | undefined {
   if (v === null || v === undefined || v === "") return undefined;
-  if (typeof v === "number") return Math.round(v * 100);
+  if (typeof v === "number") {
+    if (!Number.isFinite(v) || v < 0) return undefined;
+    return Math.round(v * 100);
+  }
   const s = String(v).replace(/EUR/gi, "").replace(/€/g, "").replace(/\s/g, "");
   if (!s) return undefined;
-  const lastComma = s.lastIndexOf(",");
-  const lastDot = s.lastIndexOf(".");
-  let normalised: string;
-  if (lastComma > lastDot) {
-    normalised = s.replace(/\./g, "").replace(",", ".");
-  } else {
-    normalised = s.replace(/,/g, "");
-  }
+  const normalised = normaliseDecimalString(s);
+  if (normalised === undefined) return undefined;
   const num = Number(normalised);
   if (!Number.isFinite(num) || num < 0) return undefined;
   return Math.round(num * 100);
+}
+
+/**
+ * Turn a localized money string into a plain JS-number string ("1234.56").
+ *
+ * The dangerous case (review finding 7) is a SINGLE separator with no clear
+ * decimal intent. Currency never has three decimal places, so a group of
+ * exactly three digits after a lone separator is a THOUSANDS group, not a
+ * fraction. The old code read "1.234" as 1.234 -> EUR 1.23, a 1000x
+ * under-count of a EUR 1,234 invoice.
+ *
+ *   "1.234"      -> "1234"     (German thousands; was the EUR 1.23 bug)
+ *   "1,234"      -> "1234"     (English thousands)
+ *   "1.50"       -> "1.50"     (two decimals -> fraction)
+ *   "1,5"        -> "1.5"      (one decimal -> fraction)
+ *   "1.234,56"   -> "1234.56"  (two separators -> the LAST is the decimal)
+ *   "1,234.56"   -> "1234.56"
+ *   "1.234.567"  -> "1234567"  (repeated separator -> all grouping)
+ */
+function normaliseDecimalString(s: string): string | undefined {
+  const hasComma = s.includes(",");
+  const hasDot = s.includes(".");
+
+  if (hasComma && hasDot) {
+    // Two separator types present: the rightmost one is the decimal point.
+    return s.lastIndexOf(",") > s.lastIndexOf(".")
+      ? s.replace(/\./g, "").replace(",", ".")
+      : s.replace(/,/g, "");
+  }
+
+  const sep = hasComma ? "," : hasDot ? "." : "";
+  if (sep === "") return s; // no separator -> plain integer
+
+  const parts = s.split(sep);
+  if (parts.length > 2) {
+    // Repeated single separator -> it can only be a grouping separator.
+    return parts.join("");
+  }
+  const trailing = parts[1] ?? "";
+  // Exactly three trailing digits -> thousands separator (currency has <=2
+  // decimals, so ".234" is never a fraction). Otherwise it is the decimal.
+  return trailing.length === 3 ? parts[0] + trailing : `${parts[0]}.${trailing}`;
 }
 
 function integerCents(v: unknown): number | undefined {

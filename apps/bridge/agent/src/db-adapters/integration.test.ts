@@ -22,6 +22,8 @@ vi.mock("pg", () => {
 
 import {
   _setStateDbForTesting,
+  loadState,
+  pendingDriftReports,
   pollOnce,
 } from "./framework.js";
 import { loadVendorConfigFile } from "./vendor-config.js";
@@ -48,6 +50,7 @@ beforeEach(() => {
       vendor_id TEXT NOT NULL,
       stream_kind TEXT NOT NULL,
       cursor TEXT NOT NULL DEFAULT '',
+      cursor_tiebreak TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'idle',
       last_run_at INTEGER,
       last_error TEXT,
@@ -277,6 +280,122 @@ describe("integration: pg-mem driven Tomedo poll", () => {
     });
     expect(third.emitted).toBe(1);
     expect(third.newCursor > cursorAfterFirst).toBe(true);
+
+    await driver.close();
+  });
+
+  // Closes the mock-vs-reality seam in framework.test.ts: those tests inject a
+  // synthetic 42703 error, so they prove the classifier logic but not that a
+  // REAL renamed column in a real Postgres dialect actually throws an error
+  // whose shape isSchemaError() catches. This drives the rename through the
+  // real PostgresDriver against pg-mem (review finding 2).
+  it("classifies a real renamed column as schema drift and halts the stream", async () => {
+    const vendor = await loadVendorConfigFile(TOMEDO_YAML);
+    const stream = vendor.streams.find((s) => s.kind === "AppointmentCreated")!;
+
+    const driver = new PostgresDriver();
+    await driver.connect({
+      host: "127.0.0.1",
+      port: 5432,
+      database: "tomedo",
+      username: "readonly",
+      password: "x",
+    });
+
+    // Healthy first poll: emits and snapshots the column set.
+    const healthy = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream,
+      driver,
+      sink: () => void 0,
+    });
+    expect(healthy.emitted).toBe(1);
+    expect(healthy.driftDetected).toBe(false);
+
+    // A PVS update renames a column the stream's SELECT depends on. The
+    // explicit-column query now THROWS "column ... does not exist" rather than
+    // returning a different shape, so the column-snapshot detector never sees
+    // it; only the error-classifier (finding 2) can catch this.
+    memDb.public.none(
+      `ALTER TABLE termin RENAME COLUMN termin_zeit TO termin_zeit_v2;`
+    );
+
+    const drifted = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream,
+      driver,
+      sink: () => {
+        throw new Error("sink must not run once the query errors");
+      },
+    });
+
+    // Loud, not silent: classified as drift, zero events, stream halted, and a
+    // report queued for drift-publisher -> /api/pvs/health.
+    expect(drifted.driftDetected).toBe(true);
+    expect(drifted.emitted).toBe(0);
+    expect(drifted.driftReport).not.toBeNull();
+    expect(drifted.driftReport!.missing.length).toBeGreaterThan(0);
+
+    const state = loadState(vendor.vendor, "AppointmentCreated");
+    expect(state.status).toBe("schema_drift");
+    expect(pendingDriftReports().length).toBeGreaterThan(0);
+
+    await driver.close();
+  });
+
+  // Review finding 6: keyset pagination. With the old single-column
+  // `WHERE modified_at > :cursor`, a cluster of rows that all share one
+  // modified_at and overflows a batch was split — the cursor jumped PAST the
+  // timestamp and the overflow was never read again. Proven here against a
+  // real Postgres dialect by forcing the boundary with a tiny batch size.
+  it("emits every row when a batch boundary splits one shared timestamp", async () => {
+    const vendor = await loadVendorConfigFile(TOMEDO_YAML);
+    const stream = vendor.streams.find((s) => s.kind === "PatientUpserted")!;
+    // Tiny batch so a single shared-timestamp cluster overflows it repeatedly.
+    const smallBatch = { ...vendor, batchSize: 3 };
+
+    const driver = new PostgresDriver();
+    await driver.connect({
+      host: "127.0.0.1",
+      port: 5432,
+      database: "tomedo",
+      username: "readonly",
+      password: "x",
+    });
+
+    // Replace the seed with one fat cluster: 7 patients that all carry the
+    // EXACT same modified_at (a bulk import stamps one transaction timestamp
+    // on every row). 7 > batchSize 3, so the cluster spans batch boundaries.
+    memDb.public.none(`DELETE FROM patient;`);
+    const ts = "2026-07-01 00:00:00";
+    const ids = [101, 102, 103, 104, 105, 106, 107];
+    for (const id of ids) {
+      memDb.public.none(
+        `INSERT INTO patient (id, vorname, nachname, email, telefon_mobil, geburtsdatum, geschlecht, bemerkung, modified_at)
+         VALUES (${id}, 'P${id}', 'Test', 'p${id}@praxis.de', '+49 30 0', '1980-01-01', 'w', '', '${ts}');`
+      );
+    }
+
+    const seen: string[] = [];
+    // Drain until a poll emits nothing. The iteration cap is a livelock guard:
+    // a regression that re-reads the cluster without advancing would spin here.
+    for (let i = 0; i < 20; i++) {
+      const out = await pollOnce({
+        clinicId: "c1",
+        vendor: smallBatch,
+        stream,
+        driver,
+        sink: (e) => seen.push(String(e.pvsPatientId)),
+      });
+      if (out.emitted === 0) break;
+    }
+
+    // Every patient emitted exactly once: no skip at the boundary (old bug),
+    // no duplicate from re-reading the cluster (>= over-correction).
+    expect(seen.slice().sort()).toEqual(ids.map(String).sort());
+    expect(new Set(seen).size).toBe(ids.length);
 
     await driver.close();
   });

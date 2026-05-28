@@ -3,7 +3,7 @@
 # Reads from the local Tomedo Server's PostgreSQL instance (port 5432 by
 # default) using a read-only account that Zollsoft's 3rd-Level Support
 # provisions on the Praxis's behalf. AVV (Auftragsverarbeitungsvertrag)
-# between the Praxis and EINS Visuals explicitly authorises this read
+# between the Praxis and EINS explicitly authorises this read
 # under DSGVO Art. 20 (Datenportabilitaet) and Art. 28 (Auftragsverarbeitung).
 #
 # Status: SCHEMA-DISCOVERY DRAFT. Column names below are derived from
@@ -49,6 +49,7 @@ streams:
   - kind: PatientUpserted
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         id::text          AS id,
@@ -62,8 +63,8 @@ streams:
         bemerkung         AS bemerkung,
         modified_at       AS modified_at
       FROM patient
-      WHERE modified_at > :cursor
-      ORDER BY modified_at ASC
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND id > :cursorTiebreak))
+      ORDER BY modified_at ASC, id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "tomedo:patient:{id}:{modified_at}" }
@@ -85,6 +86,7 @@ streams:
   - kind: AppointmentCreated
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         id::text          AS id,
@@ -97,8 +99,8 @@ streams:
         kommentar         AS kommentar,
         modified_at       AS modified_at
       FROM termin
-      WHERE modified_at > :cursor
-      ORDER BY modified_at ASC
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND id > :cursorTiebreak))
+      ORDER BY modified_at ASC, id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "tomedo:appointment:{id}" }
@@ -120,6 +122,7 @@ streams:
   - kind: AppointmentStatusChanged
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         id::text         AS id,
@@ -127,9 +130,9 @@ streams:
         status           AS status,
         modified_at      AS modified_at
       FROM termin
-      WHERE modified_at > :cursor
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND id > :cursorTiebreak))
         AND status IS NOT NULL
-      ORDER BY modified_at ASC
+      ORDER BY modified_at ASC, id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "tomedo:appointment-status:{id}:{status}:{modified_at}" }
@@ -147,6 +150,7 @@ streams:
   - kind: EncounterCompleted
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         id::text                  AS id,
@@ -158,9 +162,9 @@ streams:
         behandler_name            AS behandler_name,
         modified_at               AS modified_at
       FROM behandlung
-      WHERE modified_at > :cursor
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND id > :cursorTiebreak))
         AND termin_id IS NOT NULL
-      ORDER BY modified_at ASC
+      ORDER BY modified_at ASC, id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "tomedo:encounter:{id}" }
@@ -181,6 +185,7 @@ streams:
   - kind: InvoicePaid
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         id::text                 AS id,
@@ -192,10 +197,10 @@ streams:
         status                   AS status,
         modified_at              AS modified_at
       FROM rechnung
-      WHERE modified_at > :cursor
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND id > :cursorTiebreak))
         AND status = 'bezahlt'
         AND termin_id IS NOT NULL
-      ORDER BY modified_at ASC
+      ORDER BY modified_at ASC, id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "tomedo:invoice:{id}" }
@@ -216,6 +221,7 @@ streams:
   - kind: RecallScheduled
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         id::text          AS id,
@@ -225,8 +231,8 @@ streams:
         behandlung_name   AS behandlung_name,
         modified_at       AS modified_at
       FROM recall
-      WHERE modified_at > :cursor
-      ORDER BY modified_at ASC
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND id > :cursorTiebreak))
+      ORDER BY modified_at ASC, id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "tomedo:recall:{id}" }

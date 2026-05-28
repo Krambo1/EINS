@@ -50,7 +50,45 @@ durability boundary).
 - `src/portal-client.ts` — HMAC-signed POST helper (duplicates apps/bridge
   to keep the agent zero-dep on the bridge package).
 
+## Build & package
+
+`pnpm --filter eins-agent build:bundle` produces `bundle/` — a
+self-contained, runnable agent: the compiled `dist/`, a FLAT, real-file
+production `node_modules` (native bindings included), and per-platform
+launchers (`eins-agent.cmd`, `eins-agent`). The signed `.msi` (Windows) /
+`.dmg` (macOS) installer wraps this folder plus a pinned Node runtime and
+drops it under Program Files / Applications.
+
+Native bindings the bundle must carry: `better-sqlite3-multiple-ciphers`
+(the SQLCipher outbox), `better-sqlite3` (the read-only SQLite vendor
+adapter, e.g. Pixelmedics), and `oracledb` (CGM M1 PRO). The build asserts
+the SQLCipher binding is present and aborts if it is not, so a bundle that
+cannot open the outbox can never ship silently.
+
+> **ABI invariant:** `better-sqlite3(-multiple-ciphers)` is a V8-ABI (NAN)
+> addon — its prebuilt binary is Node-MAJOR-version specific (the filename
+> carries the tag: `node-v137` == Node 24, `node-v115` == Node 20). Build
+> the bundle under the **same Node major** the installer ships, or the
+> agent dies at startup with "Could not locate the bindings file".
+> `oracledb` is N-API and ABI-stable across Node majors.
+
+Not `pkg` (the former `build:bin`): pkg snapshots JS into one executable
+but does not embed native `.node` addons; its only work-around extracts
+them to a temp dir on first run, which a locked-down Praxis workstation
+(AV / AppLocker / non-writable `%TEMP%`) can silently block. A folder of
+real files has no such failure mode.
+
+Dependency builds run only when allowlisted: pnpm 10 disables dependency
+install scripts unless the package is in the root `package.json`'s
+`pnpm.onlyBuiltDependencies`. Both SQLite drivers are listed there; without
+it, `pnpm install` produces a tree with no SQLCipher binding and the agent
+cannot boot.
+
 ## Tests
 
 `vitest run` exercises the GDT parser against captured fixtures from
-several PVS exports (anonymised).
+several PVS exports (anonymised), plus the SQL-introspection framework,
+the encrypted outbox, secure-store, and the watcher mtime cursor. All
+state stores (outbox queue, `watcher_state`, `db_adapter_state`) share the
+single SQLCipher-keyed connection from `outbox.ts:outboxConnection()`;
+none of them open the outbox file with a second, plaintext driver.

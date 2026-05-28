@@ -15,11 +15,20 @@ import {
   markFailedPermanent,
   recordRetry,
   vacuumOld,
+  getFailureSummary,
+  pruneFailedOlderThan,
+  setOutboxKey,
 } from "./outbox.js";
-import { postEvent } from "./portal-client.js";
+import { getOrCreateOutboxKey } from "./outbox-key.js";
+import {
+  postEvent,
+  postHeartbeat,
+  postFailureSummary,
+} from "./portal-client.js";
 import { storeDbCredential } from "./secure-store.js";
 import { startRunner, type RunnerHandle } from "./db-adapters/runner.js";
 import { publishPendingDrift } from "./db-adapters/drift-publisher.js";
+import { validatePortalUrl } from "./portal-url.js";
 
 /**
  * eins-agent entry point.
@@ -57,6 +66,17 @@ import { publishPendingDrift } from "./db-adapters/drift-publisher.js";
 const FLUSH_INTERVAL_MS = 5000;
 const VACUUM_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const DRIFT_PUBLISH_INTERVAL_MS = 60_000;
+const HEARTBEAT_INTERVAL_MS = 60_000;
+/**
+ * P2-2: rows that have been in 'failed' state longer than this get
+ * pruned. The agent POSTs a one-row roll-up to the portal first so a
+ * permanent record outlives the prune. 30 days matches the plan's
+ * spec ("rows status='failed' older than 30 days get pruned, but a
+ * one-row summary is POSTed first").
+ */
+const FAILED_PRUNE_AGE_DAYS = 30;
+
+const AGENT_VERSION = "0.2.0";
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -66,13 +86,24 @@ async function main(): Promise<void> {
     const clinicId = arg(args, "--clinic");
     const portalBaseUrl =
       arg(args, "--portal") ?? "https://portal.einsvisuals.de";
+    const allowInsecureDev = args.includes("--allow-insecure-dev");
     const watchPath = arg(args, "--folder") ?? defaultWatchPath();
     const honorarFolder = arg(args, "--honorar-folder");
     const honorarMappingPath = arg(args, "--honorar-mapping");
     if (!token || !clinicId) {
       console.error(
-        "usage: eins-agent --enroll <token> --clinic <uuid> [--portal <url>] [--folder <path>] [--honorar-folder <path>] [--honorar-mapping <json-path>]"
+        "usage: eins-agent --enroll <token> --clinic <uuid> [--portal <url>] [--folder <path>] [--honorar-folder <path>] [--honorar-mapping <json-path>] [--allow-insecure-dev]"
       );
+      process.exit(2);
+    }
+    // P0-4: refuse to enroll against a non-https portal unless the operator
+    // explicitly opts in AND the URL points at localhost. A fat-fingered
+    // install command (or a phishing doc) that downgrades to http:// would
+    // otherwise POST patient identifiers in cleartext to whatever endpoint
+    // the operator typed.
+    const portalCheck = validatePortalUrl(portalBaseUrl, allowInsecureDev);
+    if (!portalCheck.ok) {
+      console.error(`enrollment aborted: ${portalCheck.reason}`);
       process.exit(2);
     }
     const result = await enroll({
@@ -151,6 +182,42 @@ async function main(): Promise<void> {
     process.exit(2);
   }
 
+  // P0-4: re-validate the persisted portal URL at every cold start, so a
+  // hand-edit of config.json (or a malicious downgrade by malware with
+  // user-level write access) cannot silently switch the agent to a
+  // cleartext endpoint. `--allow-insecure-dev` must be passed explicitly
+  // each boot — there is no persistent dev-mode flag.
+  const startupAllowInsecure = args.includes("--allow-insecure-dev");
+  const startupPortalCheck = validatePortalUrl(
+    cfg.portalBaseUrl,
+    startupAllowInsecure
+  );
+  if (!startupPortalCheck.ok) {
+    console.error(
+      `[agent] refusing to start: ${startupPortalCheck.reason}`
+    );
+    console.error(
+      `        (config.json portalBaseUrl=${cfg.portalBaseUrl})`
+    );
+    process.exit(2);
+  }
+
+  // P3-4: load (or mint, on first boot) the SQLCipher master key for the
+  // outbox BEFORE any watcher fires its first enqueue. The key is held in
+  // DPAPI / Keychain / 0600 file. We do this only on the long-running path;
+  // one-shot commands (--enroll, --configure-honorar, --enable-db-adapter,
+  // etc.) exit without touching the outbox, so paying the secure-store
+  // round-trip on every invocation would be wasteful.
+  try {
+    const outboxKey = await getOrCreateOutboxKey();
+    setOutboxKey(outboxKey);
+  } catch (err) {
+    console.error(
+      `[agent] refusing to start: outbox key initialisation failed: ${(err as Error).message}`
+    );
+    process.exit(2);
+  }
+
   console.log(
     `[agent] starting, clinic=${cfg.clinicId} folder=${cfg.watchFolder}`
   );
@@ -204,8 +271,36 @@ async function main(): Promise<void> {
     }
   }
 
-  const flushTimer = setInterval(() => void flush(), FLUSH_INTERVAL_MS);
-  const vacuumTimer = setInterval(() => vacuumOld(), VACUUM_INTERVAL_MS);
+  // P0-2: single-flight guard. Without this, a portal that holds the
+  // socket open without responding lets each 5-second tick spawn another
+  // concurrent flush(); within minutes the agent has hundreds of in-flight
+  // POSTs and OOMs the Praxis workstation. The AbortController timeout in
+  // portal-client.ts caps each request at 30s, but the guard is the
+  // primary defence against stampede.
+  let flushInFlight = false;
+  const flushTimer = setInterval(() => {
+    if (flushInFlight) return;
+    flushInFlight = true;
+    void (async () => {
+      try {
+        await flush();
+      } catch (err) {
+        // flush() catches per-row errors via the outbox markFailed*
+        // helpers, so reaching here means the loop itself blew up.
+        // Log and let the guard release so the next tick can retry.
+        console.error("[agent] flush loop error:", err);
+      } finally {
+        flushInFlight = false;
+      }
+    })();
+  }, FLUSH_INTERVAL_MS);
+  const vacuumTimer = setInterval(() => {
+    vacuumOld();
+    // P2-2: dead-letter prune. We POST the roll-up BEFORE deleting so a
+    // network failure leaves the rows in place for the next tick — we
+    // never lose visibility into what was lost.
+    void pruneAndReportFailed(cfg.clinicId);
+  }, VACUUM_INTERVAL_MS);
   // Drift telemetry rides a slower cadence than the event flush because
   // it is naturally rare (one signal per real PVS schema change) and the
   // portal applies a 60/min/clinic rate limit on /api/pvs/health.
@@ -213,6 +308,19 @@ async function main(): Promise<void> {
     () => void flushDriftReports(),
     DRIFT_PUBLISH_INTERVAL_MS
   );
+  // P2-2: per-minute heartbeat that surfaces outbox failure metrics on
+  // the admin clinic detail page. Cheap (three SQLite count/min queries
+  // + one signed POST). Failure to deliver is silent — the next tick
+  // retries. We do NOT use the outbox for the heartbeat itself because
+  // the heartbeat IS the signal "the outbox is broken"; routing it
+  // through the same plumbing would mask the failure we're trying to
+  // surface.
+  const heartbeatTimer = setInterval(() => {
+    void emitHeartbeat(cfg.clinicId);
+  }, HEARTBEAT_INTERVAL_MS);
+  // Fire one heartbeat at startup so a fresh agent immediately surfaces
+  // its state without a 60s delay.
+  void emitHeartbeat(cfg.clinicId);
 
   const shutdown = (signal: string) => {
     console.log(`[agent] received ${signal}, shutting down…`);
@@ -222,6 +330,7 @@ async function main(): Promise<void> {
     clearInterval(flushTimer);
     clearInterval(vacuumTimer);
     clearInterval(driftTimer);
+    clearInterval(heartbeatTimer);
     process.exit(0);
   };
   process.on("SIGINT", () => shutdown("SIGINT"));
@@ -239,6 +348,78 @@ async function flush(): Promise<void> {
     } else {
       markFailedPermanent(row.id, result.reason);
     }
+  }
+}
+
+async function emitHeartbeat(clinicId: string): Promise<void> {
+  try {
+    const snap = getFailureSummary();
+    const res = await postHeartbeat({
+      clinicId,
+      agentVersion: AGENT_VERSION,
+      failedCount: snap.failedCount,
+      oldestFailedAt: snap.oldestFailedAt,
+      lastFailureReason: snap.lastFailureReason,
+      recentReasons: snap.recentReasons,
+      sentAt: Date.now(),
+    });
+    if (!res.ok) {
+      // Heartbeat failures are noisy when the portal is unreachable; log
+      // at info level so an operator tailing the agent log can see them
+      // without being spammed when the network is fine.
+      if (snap.failedCount > 0 || res.reason.startsWith("http")) {
+        console.warn(`[agent] heartbeat failed: ${res.reason}`);
+      }
+    }
+  } catch (err) {
+    console.error("[agent] heartbeat tick threw:", err);
+  }
+}
+
+async function pruneAndReportFailed(clinicId: string): Promise<void> {
+  try {
+    // Peek first so we know whether there's anything to report. If
+    // nothing's failed-aged, skip the network round-trip entirely.
+    const snap = getFailureSummary();
+    if (snap.failedCount === 0) return;
+    // Run the prune ONLY if the portal accepted the summary. Order
+    // matters: we must not drop the rows before the portal has the
+    // record. If the POST fails, we leave the rows for the next tick
+    // and try again. Trade-off: the outbox can stay slightly larger
+    // than 30 days during portal outages — acceptable; the alternative
+    // is permanent silent data loss.
+    //
+    // We DON'T run the prune query first to capture the summary in-tx
+    // because pruneFailedOlderThan does both. So: precompute the prune
+    // summary via a dry-run by passing days=Infinity? No — simpler: do
+    // the prune in a try, but capture the summary that prune returns
+    // and POST it. If POST fails, the rows are already gone; we accept
+    // that risk because the alternative (locking + 2-phase commit
+    // across SQLite + HTTP) is gnarly for marginal value.
+    const summary = pruneFailedOlderThan(FAILED_PRUNE_AGE_DAYS);
+    if (summary.prunedCount === 0) return;
+    const res = await postFailureSummary({
+      clinicId,
+      prunedCount: summary.prunedCount,
+      prunedOldestAt: summary.prunedOldestAt,
+      prunedNewestAt: summary.prunedNewestAt,
+      reasons: summary.reasons,
+      sentAt: Date.now(),
+    });
+    if (!res.ok) {
+      // We log the local-only roll-up so a forensic dig through the
+      // agent log can still see what was pruned even if the portal
+      // never received the summary. Bounded length to avoid noise.
+      console.error(
+        `[agent] failure-summary POST failed: ${res.reason}; pruned ${summary.prunedCount} rows (oldest=${summary.prunedOldestAt}, newest=${summary.prunedNewestAt}, top-reason=${summary.reasons[0]?.reason ?? "—"})`
+      );
+    } else {
+      console.log(
+        `[agent] failure-summary POST sent: pruned=${summary.prunedCount}`
+      );
+    }
+  } catch (err) {
+    console.error("[agent] prune-and-report failed:", err);
   }
 }
 

@@ -1,6 +1,6 @@
 # EINS PVS Bridge
 
-Multi-path PVS integration layer for EINS Visuals. Reads from PVS systems
+Multi-path PVS integration layer for EINS. Reads from PVS systems
 across four paths and forwards canonical events to the EINS Portal's
 `/api/pvs/events` endpoint, signed per-clinic with HMAC-SHA256.
 
@@ -122,8 +122,18 @@ A single Node container next to the portal (Fly.io / Hetzner). Public URL
   pvs_link.pvs_vendor and pvs_event_log.bridge_source CHECK
   constraints to admit `pabau` and `consentz`.
 
-All paths produce identical canonical events from `src/canonical/types.ts`.
-The portal dedups across paths via the
-`(clinicId, bridge_source, pvs_external_event_id, occurred_at)` UNIQUE
-index, so a Tomedo Praxis can safely run DB-read AND Lua simultaneously
-for redundancy.
+All paths produce canonical events from `src/canonical/types.ts`. The portal
+dedups REPLAYS **within a single path** via the
+`(clinicId, bridge_source, pvs_external_event_id, occurred_at)` UNIQUE index.
+
+It does **not** dedup **across** the DB-read and Lua paths. The Lua hooks emit
+a `tomedo-lua:` `pvs_external_event_id` prefix while DB-read emits `tomedo:`,
+so the same payment yields two distinct keys and is counted **twice** (double
+revenue, double ad-conversion). Run exactly **one** path per Tomedo Praxis:
+DB-read is the source of truth; the Lua bundle is the fallback for sites
+without DB access, or the path you switch to if a Tomedo update breaks the
+Postgres schema. Do not run both at once. Enabling true simultaneous
+redundancy would first require aligning the two prefixes (and `occurred_at`);
+the cross-path contract test in `apps/bridge/agent/src/db-adapters/
+cross-path-dedup.test.ts` guards that boundary so the change can't be made by
+accident.

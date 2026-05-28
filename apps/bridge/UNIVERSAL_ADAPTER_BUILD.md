@@ -38,7 +38,7 @@ Legal + docs:
 - [x] `apps/bridge/docs/section-11-verification.md`: Open-question deltas vs the brief (Albis is postgres since 2022, M1 Pro is Oracle-dominant, Indamed is MariaDB).
 
 Test state:
-- [x] Tests: 118 of 144 vitest cases pass on the dev machine; the remaining 26 require the native better-sqlite3 binding rebuilt for Node 24 (the dev machine lacks Visual Studio C++ Build Tools). On a CI image with Node 20 + a fresh `pnpm install`, all 144 pass. The brief assumed Node 20 prebuilt for local execution.
+- [x] Tests: all 234 agent vitest cases pass on the dev machine (Node 24). The earlier "26 failing on Node 24" report was a misdiagnosis: the cause was NOT a missing C++ toolchain. pnpm 10 disables dependency build scripts unless the package is in the root `pnpm.onlyBuiltDependencies` allowlist, and `better-sqlite3-multiple-ciphers` (the encrypted-outbox driver) was not listed, so its `install` script (`prebuild-install`) never ran and no native binding was fetched. A Node-24 prebuild exists upstream (node-v137 win32-x64), so no compiler is needed. Fix: added `better-sqlite3-multiple-ciphers` to `onlyBuiltDependencies`; a fresh `pnpm install` now fetches the prebuilt binding and all cases pass.
 
 Owner-side TODOs (no engineering work left):
 - [ ] Counsel review of the AVV template (Karam to schedule with the practice's Datenschutzbeauftragte and ideally a Fachanwalt:in IT-Medizinrecht).
@@ -56,7 +56,7 @@ This replaces the current strategy of waiting on Zollsoft and RED sandbox creden
 
 ## 2. Strategic context (why this matters)
 
-The EINS PVS Bridge is the **category-defining moat** for EINS Visuals, not a feature. No DACH marketing-agency competitor (ScaleBeauty, ESTIQ, ÄSTHETIK ADS, Docleads, Ganssimpel, KLINIKA, Hello Beauty) reads PVS-level data. Horizontal reporting platforms (AgencyAnalytics, Whatagraph, DashThis, Funnel.io, Triple Whale) have zero PVS integrations.
+The EINS PVS Bridge is the **category-defining moat** for EINS, not a feature. No DACH marketing-agency competitor (ScaleBeauty, ESTIQ, ÄSTHETIK ADS, Docleads, Ganssimpel, KLINIKA, Hello Beauty) reads PVS-level data. Horizontal reporting platforms (AgencyAnalytics, Whatagraph, DashThis, Funnel.io, Triple Whale) have zero PVS integrations.
 
 Today the bridge has three production-quality paths (Tomedo REST, RED FHIR, GDT-Agent), but two are blocked on vendor sandbox access and one (GDT-Agent) cannot emit `AppointmentCreated`, `AppointmentStatusChanged`, `AppointmentCancelled`, `RecallScheduled` events at all, which breaks the portal's differentiated surface (Auswertung, Forecast, Werbebudget ROI, Ads conversion outbox).
 

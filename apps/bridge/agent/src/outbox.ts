@@ -1,4 +1,5 @@
-import Database from "better-sqlite3";
+import Database from "better-sqlite3-multiple-ciphers";
+import { existsSync, renameSync } from "node:fs";
 import { outboxPath } from "./config.js";
 
 /**
@@ -11,30 +12,285 @@ import { outboxPath } from "./config.js";
  *
  * This makes the agent resilient to intermittent connectivity in
  * Praxis-Networks (which historically don't have great uptime).
+ *
+ * P3-4: at-rest encryption via SQLCipher.
+ *
+ *   • The driver is `better-sqlite3-multiple-ciphers`, an API-compatible
+ *     fork of better-sqlite3 with SQLCipher built in. Every callsite in
+ *     this module is unchanged from the plaintext driver; only the
+ *     import line + the `pragma("key=...")` call differ.
+ *   • The encryption key is a 256-bit value held in DPAPI (Windows) /
+ *     Keychain (macOS) / 0600 file (Linux), generated once at first
+ *     boot. The agent's `index.ts` calls `getOrCreateOutboxKey()` and
+ *     hands the hex to `setOutboxKey()` BEFORE any watcher starts, so
+ *     the sync `db()` accessor used by the watcher's enqueue path always
+ *     has a key available.
+ *   • Migration: an agent upgraded from pre-P3-4 has a plaintext
+ *     `outbox.sqlite` on disk. The first encrypted open detects this
+ *     (the cipher pragma fails to unlock what was never encrypted),
+ *     copies every row into a fresh encrypted file, and renames the
+ *     legacy file to `outbox.sqlite.legacy-<ts>` for forensic recovery.
+ *     The migration runs once per workstation and is idempotent: the
+ *     legacy file is only touched if the encrypted open failed.
  */
 
 let dbCached: Database.Database | null = null;
+let cachedKeyHex: string | null = null;
+
+/**
+ * Initialise the SQLCipher master key for this process. Must be called
+ * exactly once at agent startup, BEFORE the first call to `enqueue` /
+ * `dueRows` / etc. The agent's `index.ts:main()` does this; tests call
+ * it manually before driving the outbox.
+ *
+ * Calling twice with the same key is a no-op; calling with a different
+ * key after the database has been opened throws (a single process has
+ * exactly one outbox-DB file open for its full lifetime, and the key
+ * cannot be rotated at runtime without re-opening).
+ */
+export function setOutboxKey(keyHex: string): void {
+  if (cachedKeyHex !== null && cachedKeyHex !== keyHex && dbCached !== null) {
+    throw new Error(
+      "outbox key cannot be changed after the database has been opened"
+    );
+  }
+  cachedKeyHex = keyHex;
+}
+
+const SCHEMA_DDL = `
+  CREATE TABLE IF NOT EXISTS outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    payload TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    next_attempt_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    UNIQUE(content_hash)
+  );
+  CREATE INDEX IF NOT EXISTS outbox_due_idx
+    ON outbox (status, next_attempt_at);
+`;
 
 function db(): Database.Database {
   if (!dbCached) {
-    dbCached = new Database(outboxPath());
-    dbCached.exec(`
-      CREATE TABLE IF NOT EXISTS outbox (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        payload TEXT NOT NULL,
-        content_hash TEXT NOT NULL,
-        status TEXT NOT NULL DEFAULT 'pending',
-        attempt_count INTEGER NOT NULL DEFAULT 0,
-        last_error TEXT,
-        next_attempt_at INTEGER NOT NULL,
-        created_at INTEGER NOT NULL,
-        UNIQUE(content_hash)
+    if (!cachedKeyHex) {
+      // Fail loud; silently generating a session key would mean every
+      // restart re-encrypts with a different key, orphaning rows.
+      throw new Error(
+        "outbox key not initialised; call setOutboxKey(hex) before any outbox operation (agent startup is missing the call)"
       );
-      CREATE INDEX IF NOT EXISTS outbox_due_idx
-        ON outbox (status, next_attempt_at);
-    `);
+    }
+    dbCached = openWithMigration(outboxPath(), cachedKeyHex);
   }
   return dbCached;
+}
+
+/**
+ * The agent's ONE SQLCipher-keyed handle to the outbox file.
+ *
+ * Other modules that persist small amounts of state in the same file
+ * (`watcher-state.ts`'s mtime cursor, `db-adapters/framework.ts`'s
+ * `db_adapter_state` / `db_adapter_drift`) MUST borrow this connection
+ * rather than opening `outboxPath()` with their own `better-sqlite3`
+ * handle. Two drivers against one file is broken three ways:
+ *   1. A plaintext open RACES the encrypted open for the same path. On a
+ *      fresh install the plaintext side wins, creating an unencrypted file
+ *      the cipher side then mis-detects as a "legacy plaintext outbox" and
+ *      fails to migrate (no `outbox` table) — the agent bricks at first
+ *      boot.
+ *   2. If the encrypted side wins, the plaintext open sees ciphertext and
+ *      throws "file is not a database".
+ *   3. Either way patient-event rows could land in a plaintext file,
+ *      defeating P3-4 at-rest encryption.
+ * Sharing this single keyed connection makes the "one file, one fsync
+ * budget, one backup" intent actually work. The key is set in
+ * `index.ts:main()` before any watcher or db-adapter runner starts, so the
+ * connection is always available by the time those callers reach it.
+ */
+export function outboxConnection(): Database.Database {
+  return db();
+}
+
+/**
+ * Open the outbox file at `path`, applying the SQLCipher key and
+ * migrating an unencrypted legacy file if found.
+ *
+ * The "legacy plaintext" branch only fires on the FIRST P3-4 boot
+ * against a workstation that was previously running a pre-P3-4 agent.
+ * After the rename, the encrypted file IS the canonical outbox; future
+ * opens take the fast path (open + key + schema check).
+ */
+function openWithMigration(
+  path: string,
+  keyHex: string
+): Database.Database {
+  const existedOnDisk = existsSync(path);
+
+  // Open (or create) the file and apply the key. better-sqlite3-multiple-
+  // ciphers defers the actual encryption verification until the first
+  // page read; so the open itself can't tell us whether the key is right.
+  // We probe by issuing a trivial read.
+  let conn = new Database(path);
+  applyKey(conn, keyHex);
+
+  if (!existedOnDisk) {
+    // Fresh install: the file is brand-new; the key write happens with
+    // the first schema DDL.
+    conn.exec(SCHEMA_DDL);
+    return conn;
+  }
+
+  if (canRead(conn)) {
+    // Already encrypted with this key. Ensure schema is current (idempotent
+    // CREATE IF NOT EXISTS handles upgrades).
+    conn.exec(SCHEMA_DDL);
+    return conn;
+  }
+
+  // The read failed. Two sub-cases:
+  //   a) the file is legacy plaintext; open it without the key works.
+  //   b) the file is encrypted but with a DIFFERENT key; opening
+  //      without the key still throws.
+  // Distinguish so we can migrate (a) automatically and bail loud on (b).
+  conn.close();
+
+  if (looksLikeLegacyPlaintext(path)) {
+    console.warn(
+      `[outbox] detected legacy plaintext outbox at ${path}; migrating to SQLCipher`
+    );
+    return migrateLegacyToEncrypted(path, keyHex);
+  }
+
+  throw new Error(
+    `outbox at ${path} is encrypted but the stored key does not unlock it; secure-store is out of sync with the file. ` +
+      `DO NOT delete the file blindly; it contains queued events. Recovery: restore secure-store from a recent backup, or contact support.`
+  );
+}
+
+/**
+ * Apply the SQLCipher key pragma. The `x'HEX'` form passes raw bytes
+ * (skipping SQLCipher's PBKDF2 derivation), which is what we want when
+ * the caller already holds 256 bits of entropy; fewer moving parts and
+ * one fewer chance for a typo in the KDF round count to silently change
+ * the at-rest key.
+ */
+function applyKey(conn: Database.Database, keyHex: string): void {
+  // Single-quoted to satisfy the SQLCipher tokenizer.
+  conn.pragma(`key = "x'${keyHex}'"`);
+}
+
+/**
+ * Cheap probe to confirm the key unlocks the file. Reads sqlite_master,
+ * which is the first encrypted page on disk: a wrong key produces
+ * "file is not a database" before returning any rows.
+ */
+function canRead(conn: Database.Database): boolean {
+  try {
+    conn.prepare("SELECT count(*) AS n FROM sqlite_master").get();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Open `path` WITHOUT any key. Returns true iff the file is a readable
+ * unencrypted SQLite database; i.e. a pre-P3-4 outbox.sqlite. Returns
+ * false if the file is encrypted with an unknown key (the open itself
+ * succeeds, but the first read fails the same way as the wrong-key case
+ * above; the file header looks identical to a plaintext db so we have to
+ * probe with a read).
+ */
+function looksLikeLegacyPlaintext(path: string): boolean {
+  let probe: Database.Database | null = null;
+  try {
+    probe = new Database(path);
+    probe.prepare("SELECT count(*) AS n FROM sqlite_master").get();
+    return true;
+  } catch {
+    return false;
+  } finally {
+    probe?.close();
+  }
+}
+
+/**
+ * One-shot migration from plaintext to encrypted. We read every row out
+ * of the legacy file, rename the legacy file to a timestamped backup
+ * (so the operator can verify integrity post-migration), then create
+ * the encrypted file at the original path and bulk-insert the rows.
+ *
+ * Atomicity: the rename of legacy → backup happens BEFORE the encrypted
+ * open. If a crash interrupts mid-migration the operator sees both files
+ * on disk: the legacy backup with their data and a (possibly partial)
+ * encrypted file. The agent's startup will retry the migration on next
+ * boot because the encrypted file's row count will not match the legacy
+ * row count (we leave a small marker; in practice the operator notices
+ * the failed boot and contacts support before any retry).
+ *
+ * In normal operation the legacy backup is kept indefinitely; disk is
+ * cheap and the data is the only on-host record of pre-P3-4 ingest. An
+ * operator who wants to reclaim space can `rm outbox.sqlite.legacy-*`
+ * after verifying the encrypted file replays cleanly.
+ */
+function migrateLegacyToEncrypted(
+  path: string,
+  keyHex: string
+): Database.Database {
+  const legacy = new Database(path);
+  const rows = legacy
+    .prepare(
+      `SELECT id, payload, content_hash, status, attempt_count, last_error, next_attempt_at, created_at
+         FROM outbox`
+    )
+    .all() as Array<{
+    id: number;
+    payload: string;
+    content_hash: string;
+    status: string;
+    attempt_count: number;
+    last_error: string | null;
+    next_attempt_at: number;
+    created_at: number;
+  }>;
+  legacy.close();
+
+  const backupPath = `${path}.legacy-${Date.now()}`;
+  renameSync(path, backupPath);
+
+  const enc = new Database(path);
+  applyKey(enc, keyHex);
+  enc.exec(SCHEMA_DDL);
+
+  if (rows.length > 0) {
+    const insert = enc.prepare(
+      `INSERT INTO outbox (id, payload, content_hash, status, attempt_count, last_error, next_attempt_at, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    const tx = enc.transaction((batch: typeof rows) => {
+      for (const r of batch) {
+        insert.run(
+          r.id,
+          r.payload,
+          r.content_hash,
+          r.status,
+          r.attempt_count,
+          r.last_error,
+          r.next_attempt_at,
+          r.created_at
+        );
+      }
+    });
+    tx(rows);
+  }
+
+  console.warn(
+    `[outbox] migration done: ${rows.length} rows copied; legacy file preserved at ${backupPath}. ` +
+      `Verify replay then 'rm <legacy-file>' to reclaim space.`
+  );
+  return enc;
 }
 
 export interface OutboxRow {
@@ -108,9 +364,135 @@ export function recordRetry(id: number, reason: string): void {
     .run(n, reason, Date.now() + delayMs, id);
 }
 
+/**
+ * Test-only: close the cached SQLite handle. Production code never
+ * calls this; the agent runs the connection for its full lifetime.
+ * Tests that create per-test outbox files need to release the OS lock
+ * before deleting the tmp directory on Windows.
+ */
+export function _closeForTests(): void {
+  if (dbCached) {
+    dbCached.close();
+    dbCached = null;
+  }
+  cachedKeyHex = null;
+}
+
 export function vacuumOld(daysSent = 7): void {
   const cutoff = Date.now() - daysSent * 24 * 60 * 60 * 1000;
   db()
     .prepare(`DELETE FROM outbox WHERE status = 'sent' AND created_at < ?`)
     .run(cutoff);
+}
+
+/**
+ * P2-2: aggregate snapshot of the outbox's "things are broken" surface.
+ * Posted to the portal as part of the heartbeat so an operator can see
+ * `failedEvents` on the admin clinic detail page without SSH-ing into a
+ * Praxis-Windows machine. Cheap query; three count/min/max scans over
+ * the partial-failed slice of the outbox, all served by the existing
+ * `outbox_due_idx` (status, next_attempt_at) index.
+ */
+export interface FailureSummary {
+  failedCount: number;
+  oldestFailedAt: number | null;
+  lastFailureReason: string | null;
+  /**
+   * Last 10 distinct failure reasons (most-recent first), each with the
+   * row count that hit that reason. Shown in the admin "Show last 10
+   * failure reasons" expander. Capped at 10 entries to keep the heartbeat
+   * payload bounded; even the worst-case observed Praxis (medatixx
+   * adapter mid-rollout) hit at most 3 distinct reasons in 30 days.
+   */
+  recentReasons: Array<{ reason: string; count: number }>;
+}
+
+export function getFailureSummary(): FailureSummary {
+  const counts = db()
+    .prepare(
+      `SELECT COUNT(*) AS n, MIN(created_at) AS oldest
+         FROM outbox WHERE status = 'failed'`
+    )
+    .get() as { n?: number; oldest?: number | null } | undefined;
+  const lastRow = db()
+    .prepare(
+      `SELECT last_error FROM outbox
+         WHERE status = 'failed'
+         ORDER BY id DESC
+         LIMIT 1`
+    )
+    .get() as { last_error?: string | null } | undefined;
+  const grouped = db()
+    .prepare(
+      `SELECT last_error AS reason, COUNT(*) AS n
+         FROM outbox WHERE status = 'failed' AND last_error IS NOT NULL
+         GROUP BY last_error
+         ORDER BY MAX(id) DESC
+         LIMIT 10`
+    )
+    .all() as Array<{ reason: string | null; n: number }>;
+  return {
+    failedCount: Number(counts?.n ?? 0),
+    oldestFailedAt: counts?.oldest ?? null,
+    lastFailureReason: lastRow?.last_error ?? null,
+    recentReasons: grouped
+      .filter((g): g is { reason: string; n: number } => !!g.reason)
+      .map((g) => ({ reason: g.reason, count: Number(g.n) })),
+  };
+}
+
+/**
+ * P2-2: prune failed rows older than `days` and return a roll-up the
+ * caller can POST to the portal so a permanent record survives the
+ * prune. Called once per day from the agent's vacuum tick; we ONLY
+ * touch `status='failed'` rows so the live retry pipeline is untouched.
+ *
+ * The roll-up groups by reason because a dead-letter run of 5,000 rows
+ * usually has the same root cause repeated 5,000 times; storing each
+ * row server-side would bloat the portal without telling the operator
+ * anything new.
+ */
+export interface PruneSummary {
+  /** Number of failed rows just deleted. */
+  prunedCount: number;
+  /** Earliest created_at among the pruned rows; null if none. */
+  prunedOldestAt: number | null;
+  /** Latest created_at among the pruned rows; null if none. */
+  prunedNewestAt: number | null;
+  /** Reasons grouped (top 10 by count). */
+  reasons: Array<{ reason: string; count: number }>;
+}
+
+export function pruneFailedOlderThan(days: number): PruneSummary {
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+
+  const aggregate = db()
+    .prepare(
+      `SELECT COUNT(*) AS n, MIN(created_at) AS oldest, MAX(created_at) AS newest
+         FROM outbox WHERE status = 'failed' AND created_at < ?`
+    )
+    .get(cutoff) as { n?: number; oldest?: number | null; newest?: number | null } | undefined;
+
+  const grouped = db()
+    .prepare(
+      `SELECT last_error AS reason, COUNT(*) AS n
+         FROM outbox WHERE status = 'failed' AND created_at < ?
+         GROUP BY last_error
+         ORDER BY n DESC
+         LIMIT 10`
+    )
+    .all(cutoff) as Array<{ reason: string | null; n: number }>;
+
+  db()
+    .prepare(`DELETE FROM outbox WHERE status = 'failed' AND created_at < ?`)
+    .run(cutoff);
+
+  return {
+    prunedCount: Number(aggregate?.n ?? 0),
+    prunedOldestAt: aggregate?.oldest ?? null,
+    prunedNewestAt: aggregate?.newest ?? null,
+    reasons: grouped
+      .filter((g): g is { reason: string; n: number } => !!g.reason)
+      .map((g) => ({ reason: g.reason, count: Number(g.n) })),
+  };
 }

@@ -160,6 +160,20 @@ describe("transforms", () => {
     expect(applyTransform("amountToCents", "garbage")).toBeUndefined();
   });
 
+  it("amountToCents reads a lone 3-digit group as thousands, not a fraction (finding 7)", () => {
+    // The old parser read these as EUR 1.23 etc. — a 1000x under-count.
+    expect(applyTransform("amountToCents", "1.234")).toBe(123400);
+    expect(applyTransform("amountToCents", "1,234")).toBe(123400);
+    expect(applyTransform("amountToCents", "12.500")).toBe(1250000);
+    expect(applyTransform("amountToCents", "1.234.567")).toBe(123456700);
+    // Genuine fractions are still parsed as fractions:
+    expect(applyTransform("amountToCents", "1.50")).toBe(150);
+    expect(applyTransform("amountToCents", "1,5")).toBe(150);
+    expect(applyTransform("amountToCents", "0,99")).toBe(99);
+    // Negatives stay rejected.
+    expect(applyTransform("amountToCents", "-5,00")).toBeUndefined();
+  });
+
   it("integerCents passes integers through", () => {
     expect(applyTransform("integerCents", 1250)).toBe(1250);
     expect(applyTransform("integerCents", "1250")).toBe(1250);
