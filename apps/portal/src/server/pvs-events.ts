@@ -144,7 +144,20 @@ const EncounterCompletedSchema = z.object({
 });
 export type EncounterCompletedEvent = z.infer<typeof EncounterCompletedSchema>;
 
-// 6) InvoicePaid — money in. amountCents is integer cents (EUR-only in v1).
+// 6) InvoicePaid — money in. amountCents is integer cents.
+//
+// Currency accepts EUR and CHF (the DACH set: DE/AT bill in EUR, CH in CHF).
+// Review finding 12: a hard z.literal("EUR") rejected a Swiss Praxis's
+// invoices with a 400, which the agent then drops permanently (a 400 is
+// non-retryable), so every CHF payment vanished silently. Widening the enum
+// stops that data loss; the real currency is preserved on the event payload.
+//
+// NOT YET multi-currency downstream: lifetimeRevenueEur (column name + €
+// display) and the ads-conversion upload (capi-purchase.ts hardcodes
+// currency:"EUR") still assume EUR. So a CHF Praxis's revenue is captured
+// with correct cents but labelled/attributed as EUR. Before onboarding any
+// CHF Praxis, thread `currency` through derive -> ads_conversion_outbox ->
+// CAPI/OCI and fix the € display. Tracked as a follow-up, not silent.
 const InvoicePaidSchema = z.object({
   kind: z.literal("InvoicePaid"),
   ...baseFields,
@@ -153,7 +166,7 @@ const InvoicePaidSchema = z.object({
   pvsAppointmentId: z.string().min(1).max(200).optional(),
   pvsEncounterId: z.string().min(1).max(200).optional(),
   amountCents: z.number().int().nonnegative(),
-  currency: z.literal("EUR").default("EUR"),
+  currency: z.enum(["EUR", "CHF"]).default("EUR"),
   paidAt: isoDatetime,
 });
 export type InvoicePaidEvent = z.infer<typeof InvoicePaidSchema>;
