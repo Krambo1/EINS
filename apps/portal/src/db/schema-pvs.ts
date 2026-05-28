@@ -399,6 +399,56 @@ export const pvsAgentEnrollmentTokens = pgTable(
 );
 
 // ---------------------------------------------------------------
+// PVS_AGENT_STATUS: GDT-Agent heartbeat surface (P2-2).
+// ---------------------------------------------------------------
+// One row per clinic, upserted on every heartbeat. The admin clinic
+// detail page reads this to show "agent healthy / N failed events".
+export const pvsAgentStatus = pgTable("pvs_agent_status", {
+  clinicId: uuid("clinic_id")
+    .primaryKey()
+    .references(() => clinics.id, { onDelete: "cascade" }),
+  agentVersion: text("agent_version"),
+  lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  failedEvents: integer("failed_events").notNull().default(0),
+  oldestFailedAt: timestamp("oldest_failed_at", { withTimezone: true }),
+  lastFailureReason: text("last_failure_reason"),
+  recentReasons: jsonb("recent_reasons")
+    .notNull()
+    .default(sql`'[]'::jsonb`),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+// ---------------------------------------------------------------
+// PVS_AGENT_FAILURE_SUMMARY: append-only dead-letter prune log (P2-2).
+// ---------------------------------------------------------------
+export const pvsAgentFailureSummary = pgTable(
+  "pvs_agent_failure_summary",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    prunedCount: integer("pruned_count").notNull(),
+    prunedOldestAt: timestamp("pruned_oldest_at", { withTimezone: true }),
+    prunedNewestAt: timestamp("pruned_newest_at", { withTimezone: true }),
+    reasons: jsonb("reasons").notNull().default(sql`'[]'::jsonb`),
+    reportedAt: timestamp("reported_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    clinicIdx: index("pvs_agent_failure_summary_clinic_idx").on(
+      t.clinicId,
+      t.reportedAt.desc()
+    ),
+  })
+);
+
+// ---------------------------------------------------------------
 // PVS_LINK_HEALTH: per-stream operational signals from the bridge.
 // ---------------------------------------------------------------
 // Schema-drift reports + transient stream errors that the SQL-introspection

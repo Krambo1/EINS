@@ -1065,6 +1065,8 @@ export {
   pvsCsvUploads,
   pvsAgentEnrollmentTokens,
   pvsLinkHealth,
+  pvsAgentStatus,
+  pvsAgentFailureSummary,
 } from "./schema-pvs";
 
 // ---------------------------------------------------------------
