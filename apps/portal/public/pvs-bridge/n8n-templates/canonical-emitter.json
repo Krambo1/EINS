@@ -1,5 +1,5 @@
 {
-  "name": "EINS Visuals — PVS canonical event emitter",
+  "name": "EINS — PVS canonical event emitter",
   "nodes": [
     {
       "parameters": {
@@ -108,7 +108,7 @@
   "settings": { "executionOrder": "v1" },
   "tags": [{ "name": "eins-pvs-bridge" }],
   "_doc": {
-    "description": "EINS Visuals PVS bridge — example workflow translating any PVS's REST output into the canonical envelope. Customize the trigger + GET node to match your PVS, edit the canonical-event JS to map your fields. Variables needed in n8n: CLINIC_ID, EINS_PVS_SECRET, EINS_PORTAL_URL, PVS_API_URL, PVS_TOKEN.",
+    "description": "EINS PVS bridge — example workflow translating any PVS's REST output into the canonical envelope. Customize the trigger + GET node to match your PVS, edit the canonical-event JS to map your fields. Variables needed in n8n: CLINIC_ID, EINS_PVS_SECRET, EINS_PORTAL_URL, PVS_API_URL, PVS_TOKEN.",
     "supportedKinds": [
       "PatientUpserted",
       "AppointmentCreated",

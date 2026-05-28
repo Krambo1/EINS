@@ -5,11 +5,18 @@
 -- recall_scheduled). Computes an HMAC-SHA256 signature with the per-Praxis
 -- secret and POSTs the canonical JSON envelope to bridge.einsvisuals.de.
 --
--- Why this exists alongside the DB-read path: redundancy. A Tomedo software
--- update could break the Postgres schema; this Lua path keeps emitting
--- AppointmentCreated etc. so the Praxis never sees a portal outage. Both
--- paths produce identical canonical events; the portal deduplicates on the
--- (clinicId, bridge_source, pvsExternalEventId, occurredAt) UNIQUE index.
+-- Why this exists alongside the DB-read path: it is a FALLBACK, not a
+-- simultaneous redundant feed. A Tomedo software update could break the
+-- Postgres schema; switch the Praxis to this Lua path and it keeps emitting
+-- AppointmentCreated etc. so the portal never goes dark.
+--
+-- IMPORTANT: do NOT run this Lua path AND the DB-read path at the same time.
+-- The portal dedups REPLAYS within one path on the
+-- (clinicId, bridge_source, pvsExternalEventId, occurredAt) UNIQUE index, but
+-- these hooks emit a "tomedo-lua:" pvsExternalEventId prefix while DB-read
+-- emits "tomedo:" — so the two paths produce DIFFERENT keys for the same
+-- event and the portal counts it twice (double revenue, double conversions).
+-- Run exactly one path per Praxis. See apps/bridge/README.md.
 --
 -- Portability:
 --   * Tomedo runs on macOS; both `curl` and `openssl` are present on every
