@@ -2,8 +2,20 @@ import { describe, expect, it } from "vitest";
 import {
   clampActivityTimestamp,
   clampKpiRebuildRange,
+  deriveStatusForBucket,
+  foldEvents,
   revenueSwingExceedsThreshold,
 } from "./pvs-status-derive";
+
+/** Build a fold input event. foldEvents reads payload.kind + the kind-specific
+ *  fields only (it does not re-validate the Zod schema), so test payloads can
+ *  omit the envelope baseFields. */
+const ev = (payload: Record<string, unknown>, occurredAt: string, id: string) => ({
+  id,
+  kind: payload.kind as string,
+  occurredAt: new Date(occurredAt),
+  payload,
+});
 
 /**
  * P2-3 cascade-attribution alarm — predicate tests.
@@ -104,5 +116,48 @@ describe("future occurredAt clamping (finding 8)", () => {
       now
     );
     expect(range).toEqual({ from: "2026-05-20", to: "2026-05-27" });
+  });
+});
+
+describe("foldEvents · #9 appt-less invoice attribution (play it safe)", () => {
+  it("bridges an appt-less invoice to its appointment via pvsEncounterId", () => {
+    const events = [
+      ev({ kind: "AppointmentCreated", pvsAppointmentId: "A1", scheduledAt: "2026-05-20T09:00:00.000Z" }, "2026-05-19T09:00:00.000Z", "e1"),
+      ev({ kind: "EncounterCompleted", pvsEncounterId: "E1", pvsAppointmentId: "A1", completedAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e2"),
+      // invoice carries the encounter id but NO appointment id:
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsEncounterId: "E1", amountCents: 50000, paidAt: "2026-05-21T10:00:00.000Z" }, "2026-05-21T10:00:00.000Z", "e3"),
+    ];
+    const b = foldEvents(events);
+    expect(b.invoiceTotalsCents).toBe(50000);
+    expect(b.byAppt.get("A1")?.invoiceCents).toBe(50000);
+    expect(deriveStatusForBucket(b.byAppt.get("A1")!)).toBe("gewonnen");
+  });
+
+  it("bridges even when the invoice sorts BEFORE its encounter (pre-scan)", () => {
+    const events = [
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsEncounterId: "E1", amountCents: 30000, paidAt: "2026-05-18T10:00:00.000Z" }, "2026-05-18T10:00:00.000Z", "e1"),
+      ev({ kind: "EncounterCompleted", pvsEncounterId: "E1", pvsAppointmentId: "A1", completedAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e2"),
+    ];
+    const b = foldEvents(events);
+    expect(b.byAppt.get("A1")?.invoiceCents).toBe(30000);
+  });
+
+  it("never guesses: a truly appt-less, no-encounter invoice stays in patient total only", () => {
+    const events = [
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", amountCents: 40000, paidAt: "2026-05-21T10:00:00.000Z" }, "2026-05-21T10:00:00.000Z", "e1"),
+    ];
+    const b = foldEvents(events);
+    expect(b.invoiceTotalsCents).toBe(40000); // visible at the patient aggregate
+    expect(b.byAppt.size).toBe(0); // but never attached to a request/campaign
+  });
+
+  it("does not bridge when the encounter itself has no appointment", () => {
+    const events = [
+      ev({ kind: "EncounterCompleted", pvsEncounterId: "E1", completedAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e1"),
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsEncounterId: "E1", amountCents: 25000, paidAt: "2026-05-21T10:00:00.000Z" }, "2026-05-21T10:00:00.000Z", "e2"),
+    ];
+    const b = foldEvents(events);
+    expect(b.invoiceTotalsCents).toBe(25000);
+    expect(b.byAppt.size).toBe(0);
   });
 });
