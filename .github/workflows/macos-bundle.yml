@@ -1,0 +1,125 @@
+name: macOS agent bundle
+
+# Builds the PVS-Bridge agent bundle on a real macOS runner and probes the
+# encrypted outbox. This closes the one packaging unknown we cannot verify on
+# Windows: that the SQLCipher native binding (and oracledb) load and really
+# encrypt on darwin, on both Apple Silicon (Tomedo's platform) and Intel.
+#
+# It needs NO Mac and NO local setup: open the repo's Actions tab on
+# github.com, pick this workflow, click "Run workflow". Each architecture
+# turns green (PASS) or red (FAIL), and the run summary spells it out. The
+# built darwin bundle is uploaded as an artifact, so this is also where the
+# eventual signed .dmg payload comes from.
+#
+# ABI invariant: better-sqlite3(-multiple-ciphers) is a V8-ABI addon, so its
+# binding is Node-MAJOR specific. The bundle MUST be built under the same Node
+# major the .dmg installer ships. The `node-version` input below selects that
+# major; keep it equal to the ship runtime. (oracledb is N-API/ABI-stable, so
+# only its platform matters.) See apps/bridge/agent/scripts/bundle.mjs.
+
+on:
+  workflow_dispatch:
+    inputs:
+      node-version:
+        description: "Node MAJOR to build under (must equal the .dmg's shipped Node; the binding is Node-major specific)"
+        required: true
+        default: "20"
+        type: choice
+        options:
+          - "20"
+          - "22"
+          - "24"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-bundle-${{ github.ref }}-${{ github.event.inputs.node-version }}
+  cancel-in-progress: true
+
+jobs:
+  bundle:
+    name: ${{ matrix.label }} · Node ${{ github.event.inputs.node-version }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            label: apple-silicon-arm64
+          - runner: macos-13
+            label: intel-x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ github.event.inputs.node-version }}
+          cache: pnpm
+
+      - name: Print toolchain
+        run: |
+          echo "runner   = ${{ matrix.runner }} (${{ matrix.label }})"
+          echo "node     = $(node -v)"
+          echo "arch     = $(node -p process.arch)"
+          echo "platform = $(node -p process.platform)"
+          echo "pnpm     = $(pnpm -v)"
+
+      # Installs workspace deps and, because the two SQLite drivers are in the
+      # root pnpm.onlyBuiltDependencies allowlist, runs their build scripts so
+      # prebuild-install fetches the darwin prebuilt binding for this Node
+      # major + arch.
+      #
+      # --no-frozen-lockfile is deliberate: GitHub Actions sets CI=true, which
+      # makes pnpm default to a frozen install. This workflow runs against an
+      # in-flight feature branch whose committed pnpm-lock.yaml can lag its
+      # committed package.json, and a lockfile technicality must not mask the
+      # one signal we are here for (does the darwin binding build + encrypt?).
+      # The lockfile is never committed from CI, so this only affects the
+      # ephemeral runner. ci.yml keeps the strict frozen install on main.
+      - name: Install (builds native bindings)
+        run: pnpm install --no-frozen-lockfile
+
+      # tsc + copy-assets + bundle.mjs. bundle.mjs FAILS LOUD if the SQLCipher
+      # .node is missing, prunes foreign-platform oracle binaries, and writes
+      # the flat real-file node_modules the .dmg wraps.
+      - name: Build the agent bundle
+        run: pnpm --filter eins-agent build:bundle
+
+      # Loads the SHIPPED binding from inside the bundle and proves it
+      # encrypts (keyed round-trip + reopen, on-disk header not plaintext,
+      # wrong key rejected). Exits non-zero on any failure.
+      - name: Probe the encrypted outbox
+        id: probe
+        continue-on-error: true
+        run: node apps/bridge/agent/scripts/probe-outbox.mjs apps/bridge/agent/bundle
+
+      - name: Record result in run summary
+        if: always()
+        run: |
+          if [ "${{ steps.probe.outcome }}" = "success" ]; then
+            echo "✅ **${{ matrix.label }}** (Node ${{ github.event.inputs.node-version }}): bundle builds, SQLCipher binding loads, encrypted outbox round-trips." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "❌ **${{ matrix.label }}** (Node ${{ github.event.inputs.node-version }}): probe FAILED. Open the 'Probe the encrypted outbox' step log for the reason." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      # The built darwin payload, for inspection or as the .dmg input. Kept
+      # even when the probe fails, so a failure can be debugged.
+      - name: Upload the darwin bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eins-agent-bundle-${{ matrix.label }}-node${{ github.event.inputs.node-version }}
+          path: apps/bridge/agent/bundle
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Fail the job if the probe failed
+        if: steps.probe.outcome != 'success'
+        run: |
+          echo "Probe failed on ${{ matrix.label }}; see the step log above." >&2
+          exit 1
