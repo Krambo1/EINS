@@ -445,7 +445,7 @@ async function raiseStaleClickIdAlarm(args: {
 // Fold events → buckets
 // ---------------------------------------------------------------
 
-function foldEvents(
+export function foldEvents(
   events: Array<{
     id: string;
     kind: string;
@@ -458,6 +458,24 @@ function foldEvents(
   let minAt: Date | null = null;
   let maxAt: Date | null = null;
   let hadMerge = false;
+
+  // #9: an appt-less invoice that carries a pvsEncounterId can still be
+  // attributed PRECISELY (not guessed) by bridging through the encounter to
+  // its appointment. Pre-scan EncounterCompleted first, because an InvoicePaid
+  // may sort before the encounter that links it (occurredAt is paidAt vs
+  // completedAt). Truly appt-less, no-encounter invoices stay in patient
+  // lifetime revenue only and are never guessed onto a request.
+  const encounterToAppt = new Map<string, string>();
+  for (const e of events) {
+    const p = e.payload as PvsEvent;
+    if (
+      p.kind === "EncounterCompleted" &&
+      p.pvsEncounterId &&
+      p.pvsAppointmentId
+    ) {
+      encounterToAppt.set(p.pvsEncounterId, p.pvsAppointmentId);
+    }
+  }
 
   const ensure = (id: string): AppointmentBucket => {
     let b = byAppt.get(id);
@@ -527,8 +545,17 @@ function foldEvents(
       }
       case "InvoicePaid": {
         invoiceTotalsCents += payload.amountCents;
-        if (payload.pvsAppointmentId) {
-          const b = ensure(payload.pvsAppointmentId);
+        // #9: prefer the explicit appointment; otherwise bridge via the
+        // encounter. No appointment and no resolvable encounter means the
+        // payment counts toward patient lifetime revenue but is never guessed
+        // onto a lead.
+        const apptId =
+          payload.pvsAppointmentId ??
+          (payload.pvsEncounterId
+            ? encounterToAppt.get(payload.pvsEncounterId)
+            : undefined);
+        if (apptId) {
+          const b = ensure(apptId);
           b.invoiceCents += payload.amountCents;
           const paid = new Date(payload.paidAt);
           if (!b.earliestInvoiceAt || paid < b.earliestInvoiceAt) {
@@ -637,7 +664,7 @@ async function applyAppointmentBuckets(
   }
 }
 
-function deriveStatusForBucket(
+export function deriveStatusForBucket(
   b: AppointmentBucket
 ):
   | "gewonnen"
