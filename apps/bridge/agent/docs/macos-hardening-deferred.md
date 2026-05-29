@@ -1,12 +1,12 @@
-# macOS hardening — deferred, needs a Mac
+# macOS hardening: deferred, needs a Mac
 
 Two PVS-bridge review items can only be finished and verified on a real Mac.
 This runbook is implementation-ready so a future session (or Karam, on a Mac)
 can close them turnkey. Neither was shipped blind from Windows.
 
-- **#11** — the macOS Keychain writer leaks the plaintext secret on the
+- **#11**: the macOS Keychain writer leaks the plaintext secret on the
   process command line.
-- **#2** — the macOS agent bundle + `.dmg` packaging / notarization is unbuilt
+- **#2**: the macOS agent bundle + `.dmg` packaging / notarization is unbuilt
   and unverified.
 
 Both matter because **Tomedo, a priority PVS, runs on macOS** (Zollsoft
@@ -14,7 +14,7 @@ read-only Postgres; see the Tomedo onboarding doc).
 
 ---
 
-## #11 — Keychain secret leaks on the command line
+## #11: Keychain secret leaks on the command line
 
 ### The bug
 
@@ -51,7 +51,7 @@ on the captured pipe, never on argv. Only the **store** path leaks.
 ### The fix (recommended)
 
 Route the secret-bearing `add` through `security -i` (interactive batch mode),
-which **reads its commands from stdin** — so the command (and the secret in it)
+which **reads its commands from stdin**, so the command (and the secret in it)
 never lands in argv. Only `security -i` shows up in `ps`.
 
 Because the interactive reader tokenizes each line shell-style, an arbitrary DB
@@ -120,7 +120,7 @@ function spawnFeedStdin(
 
 The existing P0-3 test (`src/secure-store.test.ts`) mocks `node:child_process`
 and asserts argv hygiene cross-platform by forcing `process.platform`. Add a
-darwin block the same way — it runs in CI on any OS and locks the leak shut:
+darwin block the same way: it runs in CI on any OS and locks the leak shut:
 
 ```ts
 describe("secure-store · macOS Keychain argv hygiene (#11)", () => {
@@ -161,7 +161,7 @@ describe("secure-store · macOS Keychain argv hygiene (#11)", () => {
 
 The argv-hygiene test proves the secret is off the command line. It does NOT
 prove the new invocation actually works against the real `security` binary. A
-wrong assumption here would brick macOS enrollment — worse than the leak — so
+wrong assumption here would brick macOS enrollment, worse than the leak, so
 do not ship to a Praxis until these three are confirmed on a Mac:
 
 1. **`security -i` reads a piped (non-tty) stdin and runs the subcommand.**
@@ -202,14 +202,14 @@ HMAC secret + outbox master key are stored and that a subsequent boot loads them
 ### Fallback if `security -i` is unreliable headlessly
 
 There is no `-w @file` flag, so a temp file does not help directly. The robust
-fallback is a Keychain write via the Security framework (`SecItemAdd`) — either
+fallback is a Keychain write via the Security framework (`SecItemAdd`): either
 a tiny signed/notarized helper binary, or the `@napi-rs/keyring` N-API module.
 Both add a native dependency to the bundle, so they intersect with #2 below
 (ABI / signing). Prefer the `security -i` fix if the three checks pass.
 
 ---
 
-## #2 — macOS agent bundle + `.dmg` (build, verify, notarize)
+## #2: macOS agent bundle + `.dmg` (build, verify, notarize)
 
 The Windows path of this exact smoke test already passes. Reproduce it on macOS,
 then package.
@@ -222,7 +222,7 @@ From [`scripts/bundle.mjs`](../scripts/bundle.mjs): build the bundle under the
   is Node-major-specific (`node-v137` = Node 24, `node-v127` = Node 22,
   `node-v115` = Node 20). A binding built under the wrong major dies at startup
   with "Could not locate the bindings file".
-- `oracledb` is N-API, keyed by platform+arch only — ABI-stable across majors.
+- `oracledb` is N-API, keyed by platform+arch only; ABI-stable across majors.
 
 Dev Node here is **24.15.0**. If shipping Node 24, build the bundle under Node 24
 on the Mac. `bundle.mjs` asserts the SQLCipher `.node` is present and aborts the
@@ -236,7 +236,7 @@ pnpm --filter eins-agent build:bundle
 
 Runs `tsc` + `copy-assets.mjs` + `bundle.mjs`: compiles `dist/`, materializes a
 flat real-file production `node_modules` via `npm install --omit=dev` (fetches
-the SQLCipher prebuild for darwin-<arch> + this Node major — **needs network**),
+the SQLCipher prebuild for darwin-<arch> + this Node major, **needs network**),
 fail-louds if the binding is missing, and prunes foreign-platform `oracledb`
 binaries (keeps `darwin-<arch>.node`).
 
@@ -286,12 +286,12 @@ Confirm ALL of:
 4. `xcrun stapler staple EINS-Agent.dmg` and verify with `spctl -a -vvv`.
 
 Hardened runtime is required for notarization; unsigned `.node` files are the
-usual notarization rejection — sign them explicitly.
+usual notarization rejection: sign them explicitly.
 
 ---
 
 ## Sequencing
 
-Fix **#11 first**, then run **#2** — the #2 smoke test stores the outbox master
+Fix **#11 first**, then run **#2**: the #2 smoke test stores the outbox master
 key through the same `storeMacOsKeychain` path, so doing #11 first means the
 smoke test does not itself leak the master key on argv.
