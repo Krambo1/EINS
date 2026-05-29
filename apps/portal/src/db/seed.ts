@@ -13,6 +13,14 @@
 import "../lib/load-env";
 import postgres from "postgres";
 import { randomUUID } from "node:crypto";
+import { hash as argon2Hash } from "@node-rs/argon2";
+
+/**
+ * Dev-only Default-Passwort für alle Demo-Seed-User. Stimmt mit dem RUN.md
+ * überein, damit Karam nach `pnpm db:seed` direkt mit Passwort einloggen
+ * kann ohne Magic-Link Theater.
+ */
+const DEMO_PASSWORD = "DemoPasswort123!";
 
 /**
  * Fixed UUID for the demo clinic so the landing-app template
@@ -87,19 +95,18 @@ const TREATMENT_CATEGORIES: Array<{
   name: string;
   slug: string;
   keywords: string;
-  defaultRecallMonths: number | null;
 }> = [
-  { name: "Filler",             slug: "filler",            keywords: "filler,hyaluron,lippen,jawline,wangen", defaultRecallMonths: 9 },
-  { name: "Botox",              slug: "botox",             keywords: "botox,falten,zornesfalte,stirnfalten",   defaultRecallMonths: 4 },
-  { name: "Laser",              slug: "laser",             keywords: "laser,haarentfernung,couperose",          defaultRecallMonths: 6 },
-  { name: "Microneedling",      slug: "microneedling",     keywords: "microneedling,needling,skinpen",          defaultRecallMonths: 3 },
-  { name: "Profhilo",           slug: "profhilo",          keywords: "profhilo,bioremodeling",                  defaultRecallMonths: 6 },
-  { name: "Skinbooster",        slug: "skinbooster",       keywords: "skinbooster,booster,hydratation",         defaultRecallMonths: 6 },
-  { name: "Peeling",            slug: "peeling",           keywords: "peeling,chemisch,fruchtsäure",            defaultRecallMonths: 4 },
-  { name: "Fadenlifting",       slug: "fadenlifting",      keywords: "fadenlifting,faden,lift",                 defaultRecallMonths: 12 },
-  { name: "Kryolipolyse",       slug: "kryolipolyse",      keywords: "kryolipolyse,fettabbau,cool,coolsculpting", defaultRecallMonths: 6 },
-  { name: "Beratung",           slug: "beratung",          keywords: "beratung,consulting,gespräch",            defaultRecallMonths: null },
-  { name: "Sonstige",           slug: "sonstige",          keywords: "",                                        defaultRecallMonths: null },
+  { name: "Filler",             slug: "filler",            keywords: "filler,hyaluron,lippen,jawline,wangen" },
+  { name: "Botox",              slug: "botox",             keywords: "botox,falten,zornesfalte,stirnfalten" },
+  { name: "Laser",              slug: "laser",             keywords: "laser,haarentfernung,couperose" },
+  { name: "Microneedling",      slug: "microneedling",     keywords: "microneedling,needling,skinpen" },
+  { name: "Profhilo",           slug: "profhilo",          keywords: "profhilo,bioremodeling" },
+  { name: "Skinbooster",        slug: "skinbooster",       keywords: "skinbooster,booster,hydratation" },
+  { name: "Peeling",            slug: "peeling",           keywords: "peeling,chemisch,fruchtsäure" },
+  { name: "Fadenlifting",       slug: "fadenlifting",      keywords: "fadenlifting,faden,lift" },
+  { name: "Kryolipolyse",       slug: "kryolipolyse",      keywords: "kryolipolyse,fettabbau,cool,coolsculpting" },
+  { name: "Beratung",           slug: "beratung",          keywords: "beratung,consulting,gespräch" },
+  { name: "Sonstige",           slug: "sonstige",          keywords: "" },
 ];
 const MESSAGES = [
   "Ich hätte gern ein kurzes Vorgespräch per Telefon. Wann ist das möglich?",
@@ -114,6 +121,17 @@ const MESSAGES = [
 const SOURCES = ["meta", "google", "formular", "manuell"] as const;
 
 async function main() {
+  // Hard guard: this script writes accounts with the well-known DEMO_PASSWORD
+  // and TRUNCATEs every clinic-scoped table. Running it against a production
+  // database would either nuke real data or seed three trivially-known
+  // credentials. Bail out before any side-effect.
+  if (process.env.NODE_ENV === "production") {
+    console.error(
+      "✗ seed.ts darf nicht in Produktion laufen — DEMO_PASSWORD wäre eine known credential und TRUNCATE würde Echtdaten löschen."
+    );
+    process.exit(1);
+  }
+
   const url = process.env.DATABASE_URL;
   if (!url) {
     console.error("✗ DATABASE_URL is not set");
@@ -150,17 +168,20 @@ async function main() {
     const inhaberId = randomUUID();
     const marketingId = randomUUID();
     const frontdeskId = randomUUID();
-    // mfa_enrolled stays false for every demo user: a user is only ever
-    // marked enrolled by the TOTP-finalize flow, which atomically writes
-    // mfa_secret_enc + sets the flag. Seeding `mfa_enrolled = true` with
-    // no secret traps the user on /login/mfa with no path forward (the
-    // enrolment screen is gated on `mfa_enrolled = false`).
+    // Default-Passwort wird gesetzt, damit `pnpm db:seed` einen
+    // sofort-loginfähigen Account produziert. Siehe DEMO_PASSWORD oben + RUN.md.
+    const demoHash = await argon2Hash(DEMO_PASSWORD, {
+      memoryCost: 19456,
+      timeCost: 2,
+      outputLen: 32,
+      parallelism: 1,
+    });
     await sql`
-      INSERT INTO clinic_users (id, clinic_id, email, full_name, role, mfa_enrolled, last_login_at)
+      INSERT INTO clinic_users (id, clinic_id, email, full_name, role, password_hash, password_set_at, last_login_at)
       VALUES
-        (${inhaberId},   ${clinicId}, 'inhaber@praxis-demo.de',   'Dr. Martin Demo', 'inhaber',  false, now() - interval '2 hours'),
-        (${marketingId}, ${clinicId}, 'marketing@praxis-demo.de', 'Lisa Werbung',     'marketing', false, now() - interval '1 day'),
-        (${frontdeskId}, ${clinicId}, 'frontdesk@praxis-demo.de', 'Sabine Empfang',   'frontdesk', false, now() - interval '3 hours')
+        (${inhaberId},   ${clinicId}, 'inhaber@praxis-demo.de',   'Dr. Martin Demo', 'inhaber',   ${demoHash}, now(), now() - interval '2 hours'),
+        (${marketingId}, ${clinicId}, 'marketing@praxis-demo.de', 'Lisa Werbung',     'marketing', ${demoHash}, now(), now() - interval '1 day'),
+        (${frontdeskId}, ${clinicId}, 'frontdesk@praxis-demo.de', 'Sabine Empfang',   'frontdesk', ${demoHash}, now(), now() - interval '3 hours')
     `;
 
     // --- treatments (per-clinic categories) ---
@@ -170,8 +191,8 @@ async function main() {
       const id = randomUUID();
       treatmentIdBySlug[cat.slug] = id;
       await sql`
-        INSERT INTO treatments (id, clinic_id, name, slug, display_order, default_recall_months, keywords)
-        VALUES (${id}, ${clinicId}, ${cat.name}, ${cat.slug}, ${i}, ${cat.defaultRecallMonths}, ${cat.keywords})
+        INSERT INTO treatments (id, clinic_id, name, slug, display_order, keywords)
+        VALUES (${id}, ${clinicId}, ${cat.name}, ${cat.slug}, ${i}, ${cat.keywords})
       `;
     }
 
@@ -203,8 +224,7 @@ async function main() {
     //   30% in prior month  (delta-vs-prior comparisons)
     //   10% two months back (longer trend lines, cohorts)
     const statuses = [
-      "neu","neu","neu",
-      "qualifiziert","qualifiziert",
+      "neu","neu","neu","neu","neu",
       "termin_vereinbart","termin_vereinbart",
       "beratung_erschienen",
       "gewonnen","gewonnen","gewonnen",
@@ -222,9 +242,6 @@ async function main() {
       string,
       { name: string; phone: string; firstSeen: Date; lastSeen: Date; revenue: number; reqCount: number; wonCount: number; firstSource: string }
     > = {};
-    /** Map request_id → won_at so we can build recalls below. */
-    const wonRequests: Array<{ requestId: string; patientId: string; treatmentId: string | null; wonAt: Date }> = [];
-
     for (let i = 0; i < REQUEST_COUNT; i++) {
       const r = Math.random();
       const bucket: 0 | 1 | 2 = r < 0.6 ? 0 : r < 0.9 ? 1 : 2;
@@ -356,15 +373,6 @@ async function main() {
           ${sql.json({ source })}
         )
       `;
-      if (status === "gewonnen") {
-        wonRequests.push({
-          requestId,
-          patientId,
-          treatmentId,
-          wonAt: new Date(createdAt.getTime() + 7 * 24 * 60 * 60_000),
-        });
-      }
-
       // Seed one activity — Status change or note
       if (status !== "neu") {
         await sql`
@@ -393,36 +401,19 @@ async function main() {
       `;
     }
 
-    // --- request_recalls — one recall per won request, scheduled 4-9 months out ---
-    for (const won of wonRequests) {
-      const months = randomInt(4, 9);
-      const scheduled = new Date(won.wonAt);
-      scheduled.setMonth(scheduled.getMonth() + months);
-      await sql`
-        INSERT INTO request_recalls (
-          clinic_id, request_id, patient_id, scheduled_for, kind, status, note, created_by
-        ) VALUES (
-          ${clinicId}, ${won.requestId}, ${won.patientId},
-          ${scheduled.toISOString().slice(0, 10)},
-          'recall',
-          ${scheduled.getTime() < Date.now() ? "completed" : "pending"},
-          ${'Auffrischungs-Termin nach ' + months + ' Monaten'},
-          ${marketingId}
-        )
-      `;
-    }
-
-    // A handful of recalls due in the next 30 days so the dashboard widget shows.
+    // --- review_email_schedule — Bewertungsanfrage-Email-Versand-Plan.
+    // Seed a handful of pending rows so /stimme analytics + the worker
+    // dry-run have something to chew on.
     const nearTermPatients = Object.values(patientIdByEmail).slice(0, 4);
     for (let i = 0; i < nearTermPatients.length; i++) {
       const due = new Date();
       due.setDate(due.getDate() + 7 + i * 5);
       await sql`
-        INSERT INTO request_recalls (
+        INSERT INTO review_email_schedule (
           clinic_id, patient_id, scheduled_for, kind, status, note, created_by
         ) VALUES (
           ${clinicId}, ${nearTermPatients[i]}, ${due.toISOString().slice(0, 10)},
-          ${pick(["followup", "review_request"])},
+          'review_request',
           'pending',
           'Bewertung erbitten',
           ${marketingId}
@@ -512,7 +503,7 @@ async function main() {
       await sql`
         INSERT INTO kpi_daily (
           clinic_id, date,
-          qualified_leads, cost_per_qualified_lead,
+          leads, cost_per_lead,
           appointments, consultations_held, cases_won,
           total_spend_eur, revenue_attributed_eur, roas, no_show_rate
         )
@@ -539,7 +530,7 @@ async function main() {
     await sql`
       INSERT INTO goals (clinic_id, metric, target_value, period_start, period_end, created_by)
       VALUES
-        (${clinicId}, 'qualified_leads', 30, ${monthStart}, ${monthEnd}, ${inhaberId}),
+        (${clinicId}, 'leads', 30, ${monthStart}, ${monthEnd}, ${inhaberId}),
         (${clinicId}, 'revenue', 25000, ${monthStart}, ${monthEnd}, ${inhaberId}),
         (${clinicId}, 'total_requests', 50, ${monthStart}, ${monthEnd}, ${inhaberId})
     `;

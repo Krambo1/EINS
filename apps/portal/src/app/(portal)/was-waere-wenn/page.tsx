@@ -22,7 +22,7 @@ export default async function WasWaereWennPage() {
 
   // Fallback baseline for empty clinics so sliders start with sensible values.
   const defaults = {
-    qualifiedLeads: baseline.qualifiedLeads > 0 ? baseline.qualifiedLeads : 40,
+    leads: baseline.leads > 0 ? baseline.leads : 40,
     appointments: baseline.appointments > 0 ? baseline.appointments : 28,
     consultationsHeld:
       baseline.consultationsHeld > 0 ? baseline.consultationsHeld : 22,
@@ -53,7 +53,7 @@ export default async function WasWaereWennPage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
-            <Stat label="Anfragen" value={defaults.qualifiedLeads} unit="" />
+            <Stat label="Anfragen" value={defaults.leads} unit="" />
             <Stat label="Termine" value={defaults.appointments} unit="" />
             <Stat label="Beratungen" value={defaults.consultationsHeld} unit="" />
             <Stat label="Behandlungen" value={defaults.casesWon} unit="" />
@@ -76,7 +76,7 @@ export default async function WasWaereWennPage() {
               unit="%"
             />
           </div>
-          {baseline.qualifiedLeads === 0 && (
+          {baseline.leads === 0 && (
             <p className="mt-3 text-sm text-fg-secondary">
               Noch keine Monatszahlen vorhanden — wir rechnen mit sinnvollen
               Beispielwerten, damit Sie die Größenordnung sehen.
@@ -87,7 +87,7 @@ export default async function WasWaereWennPage() {
 
       <WhatIfCalculator
         baseline={{
-          leads: defaults.qualifiedLeads,
+          leads: defaults.leads,
           appointments: defaults.appointments,
           consultations: defaults.consultationsHeld,
           casesWon: defaults.casesWon,

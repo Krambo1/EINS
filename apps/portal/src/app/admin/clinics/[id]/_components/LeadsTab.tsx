@@ -16,7 +16,7 @@ const PAGE_SIZE = 50;
 interface Props {
   rows: AdminLeadRow[];
   total: number;
-  aggregates: { total: number; qualified: number; won: number; revenueEur: number };
+  aggregates: { total: number; inFunnel: number; won: number; revenueEur: number };
   page: number;
   filters: AdminLeadFilters;
   searchParams: Record<string, string | string[] | undefined>;

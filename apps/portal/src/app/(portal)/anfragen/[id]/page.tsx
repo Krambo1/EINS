@@ -18,8 +18,12 @@ import {
 import { requireSession } from "@/auth/guards";
 import { db, schema } from "@/db/client";
 import { getRequestWithActivities, markRequestViewed } from "@/server/queries/requests";
+import { listFollowupsForRequest } from "@/server/queries/followups";
 import { leadTokenForRequestId } from "@/server/pvs-token";
+import { can } from "@/lib/roles";
 import { PvsTokenCard } from "./_pvs-token-card";
+import { LeadCockpit } from "./_lead-cockpit";
+import { Followups } from "./_followups";
 import {
   siblingRequests,
   patientLifetimeRevenue,
@@ -41,9 +45,12 @@ import {
   ArrowLeft,
   Mail,
   Phone,
+  PhoneCall,
   MessageSquare,
   CheckCircle2,
   Clock,
+  Timer,
+  CalendarClock,
   Sparkles,
 } from "lucide-react";
 
@@ -75,7 +82,9 @@ export default async function AnfrageDetailPage({
     await markRequestViewed(session.clinicId, session.userId, id);
   }
 
-  const [siblings, patientLtv, auditTrail, pvsLinkRow] = await Promise.all([
+  const canWork = can(session.role, "requests.update");
+
+  const [siblings, patientLtv, auditTrail, pvsLinkRow, followups] = await Promise.all([
     siblingRequests(session.clinicId, session.userId, id),
     request.patientId
       ? patientLifetimeRevenue(session.clinicId, session.userId, request.patientId)
@@ -106,7 +115,19 @@ export default async function AnfrageDetailPage({
       .where(eq(schema.pvsLink.clinicId, session.clinicId))
       .limit(1)
       .then((rows) => rows[0] ?? null),
+    listFollowupsForRequest(session.clinicId, session.userId, id),
   ]);
+
+  // Accountability counters for the proof summary. Cheap — reuse the
+  // already-loaded `activities` array for the call count, and the
+  // followups list (pending-first) for the next due Wiedervorlage.
+  const callCount = activities.filter((a) => a.kind === "call").length;
+  const reactionMs =
+    request.firstContactedAt != null
+      ? request.firstContactedAt.getTime() - request.createdAt.getTime()
+      : null;
+  const nextFollowup = followups.find((f) => f.status === "pending") ?? null;
+  const pvsControlled = request.pvsAppointmentId !== null;
 
   // Direction A: only surface the EINS-Lead token while the request hasn't
   // already been linked to a PVS appointment. Once linked, the token has
@@ -309,13 +330,61 @@ export default async function AnfrageDetailPage({
         </div>
       </Card>
 
+      {/* Lead-Cockpit — Reaktions-Proof (alle Rollen) + Arbeitsfläche. Die
+          Vor-Buchungs-Phase ist portal-nativ; sobald die Anfrage an einen
+          PVS-Termin gekoppelt ist, sperrt die Status-Steuerung (PVS gewinnt;
+          siehe _lead-cockpit.tsx + actions.ts). Anrufe, Notizen und
+          Wiedervorlagen bleiben immer erlaubt. */}
+      {canWork && (
+        <Card className="p-5 md:p-6">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <ProofStat
+              icon={<Timer className="h-4 w-4" />}
+              label="Reaktionszeit"
+              value={reactionMs != null ? formatDuration(reactionMs) : "Noch kein Kontakt"}
+              tone={reactionMs == null && slaBreached ? "bad" : "default"}
+            />
+            <ProofStat
+              icon={<PhoneCall className="h-4 w-4" />}
+              label="Anrufversuche"
+              value={callCount === 0 ? "Noch keine" : String(callCount)}
+            />
+            <ProofStat
+              icon={<CheckCircle2 className="h-4 w-4" />}
+              label="Status"
+              value={
+                <span className="inline-flex flex-wrap items-center gap-1.5">
+                  <StatusPill status={request.status} />
+                  {request.statusSource === "pvs" && (
+                    <Badge tone="neutral">Quelle: PVS</Badge>
+                  )}
+                </span>
+              }
+            />
+            <ProofStat
+              icon={<CalendarClock className="h-4 w-4" />}
+              label="Nächste Wiedervorlage"
+              value={nextFollowup ? formatDateTime(nextFollowup.dueAt) : "Keine"}
+            />
+          </div>
+
+          <div className="mt-4 border-t border-border pt-4">
+            <LeadCockpit
+              requestId={request.id}
+              currentStatus={request.status}
+              pvsControlled={pvsControlled}
+            />
+          </div>
+        </Card>
+      )}
+
       {pvsLeadToken && (
         <PvsTokenCard token={pvsLeadToken} pvsVendor={pvsLinkRow?.vendor ?? null} />
       )}
 
-      {/* Verlauf — read-only activity log. Status, calls, notes, Folgetermine
-          and assignment are all owned upstream (PVS / phone system); the
-          portal listens and renders. */}
+      {/* Verlauf — Aktivitäts-Protokoll. Anrufe, Notizen und Status-Wechsel
+          der Vor-Buchungs-Phase werden hier portal-nativ erfasst; PVS-Events
+          (Termin, Behandlung, no-show) laufen weiterhin automatisch ein. */}
       <div className="grid gap-4">
         <div>
           <Card className="p-5 md:p-6">
@@ -325,9 +394,8 @@ export default async function AnfrageDetailPage({
             <CardContent className="space-y-0">
               {activities.length === 0 ? (
                 <p className="py-4 text-sm text-fg-secondary">
-                  Noch kein Verlauf. Aktivitäten erscheinen automatisch hier,
-                  sobald sie aus der PVS oder anderen verbundenen Systemen
-                  übernommen werden.
+                  Noch kein Verlauf. Protokollieren Sie den ersten Anruf oder
+                  hinterlassen Sie eine Notiz.
                 </p>
               ) : (
                 <ul className="divide-y divide-border">
@@ -379,6 +447,7 @@ export default async function AnfrageDetailPage({
           </Card>
         </div>
 
+        {canWork && <Followups requestId={request.id} followups={followups} />}
       </div>
 
           {/* Sibling requests + Patient LTV */}
@@ -521,6 +590,34 @@ export default async function AnfrageDetailPage({
               </AccordionItem>
             )}
           </Accordion>
+    </div>
+  );
+}
+
+function ProofStat({
+  icon,
+  label,
+  value,
+  tone = "default",
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: React.ReactNode;
+  tone?: "default" | "bad";
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-fg-secondary">
+        {icon}
+        {label}
+      </div>
+      <div
+        className={`mt-1 text-base font-semibold ${
+          tone === "bad" ? "text-tone-bad" : "text-fg-primary"
+        }`}
+      >
+        {value}
+      </div>
     </div>
   );
 }

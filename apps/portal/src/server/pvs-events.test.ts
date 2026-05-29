@@ -70,6 +70,37 @@ describe("pvs-events Zod schema", () => {
     expect(neg.success).toBe(false);
   });
 
+  it("accepts EUR and CHF currency, defaults to EUR, rejects others (finding 12)", () => {
+    const mk = (currency?: string) =>
+      PvsEventSchema.safeParse({
+        ...base,
+        kind: "InvoicePaid",
+        pvsPatientId: "P-1",
+        pvsInvoiceId: "I-1",
+        amountCents: 45000,
+        ...(currency === undefined ? {} : { currency }),
+        paidAt: base.occurredAt,
+      });
+
+    // CHF must not be rejected: a 400 here is permanently dropped by the
+    // agent, so a Swiss Praxis's revenue would vanish silently.
+    const chf = mk("CHF");
+    expect(chf.success).toBe(true);
+    if (chf.success && chf.data.kind === "InvoicePaid") {
+      expect(chf.data.currency).toBe("CHF");
+    }
+
+    // Omitted -> defaults to EUR (back-compat with every shipped config).
+    const def = mk(undefined);
+    expect(def.success).toBe(true);
+    if (def.success && def.data.kind === "InvoicePaid") {
+      expect(def.data.currency).toBe("EUR");
+    }
+
+    // An unsupported currency is still rejected (we only support the DACH set).
+    expect(mk("USD").success).toBe(false);
+  });
+
   it("requires AppointmentStatusChanged.newStatus to be one of the enum values", () => {
     const r = PvsEventSchema.safeParse({
       ...base,
@@ -89,5 +120,29 @@ describe("pvs-events Zod schema", () => {
       toPvsPatientId: "P-2",
     });
     expect(r.success).toBe(true);
+  });
+
+  it("accepts InvoiceRefunded and rejects a negative refundedAmountCents (#10)", () => {
+    const ok = PvsEventSchema.safeParse({
+      ...base,
+      kind: "InvoiceRefunded",
+      pvsPatientId: "P-1",
+      pvsInvoiceId: "I-1",
+      refundedAmountCents: 5000,
+      refundedAt: base.occurredAt,
+    });
+    expect(ok.success).toBe(true);
+
+    // refundedAmountCents is a positive magnitude; the derive worker subtracts
+    // it. A negative would be a producer bug, so reject it at the door.
+    const neg = PvsEventSchema.safeParse({
+      ...base,
+      kind: "InvoiceRefunded",
+      pvsPatientId: "P-1",
+      pvsInvoiceId: "I-1",
+      refundedAmountCents: -5000,
+      refundedAt: base.occurredAt,
+    });
+    expect(neg.success).toBe(false);
   });
 });

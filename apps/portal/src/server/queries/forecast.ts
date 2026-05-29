@@ -25,16 +25,16 @@ import { canonicalSource, type ForecastSource } from "@/lib/sources";
 // Forecast-relevant stages.
 // ---------------------------------------------------------------
 // Stages that are "in flight" toward gewonnen. We treat:
-//   - 'neu' / 'qualifiziert' / 'termin_vereinbart' / 'beratung_erschienen'
+//   - 'neu' / 'termin_vereinbart' / 'beratung_erschienen'
 //     as open pipeline (forecastable).
 //   - 'behandelt' as "treatment done but invoice pending": still cash to
 //     come in via the paid series.
-//   - 'no_show' as recyclable (count it as if it bounced back to
-//     qualifiziert, with no urgency premium).
+//   - 'no_show' as recyclable (count it as if it bounced back to 'neu',
+//     with no urgency premium).
 //   - 'gewonnen' / 'verloren' / 'spam' as terminal (not open).
+// Seit Migration 0046 gibt es keine 'qualifiziert'-Stage mehr.
 export const FORECAST_OPEN_STAGES = [
   "neu",
-  "qualifiziert",
   "termin_vereinbart",
   "beratung_erschienen",
   "behandelt",
@@ -153,7 +153,7 @@ async function queryOpenPipeline(clinicId: string): Promise<OpenPipelineRow[]> {
     .where(
       and(
         eq(schema.requests.clinicId, clinicId),
-        sql`${schema.requests.status} IN ('neu','qualifiziert','termin_vereinbart','beratung_erschienen','behandelt','no_show')`
+        sql`${schema.requests.status} IN ('neu','termin_vereinbart','beratung_erschienen','behandelt','no_show')`
       )
     );
 
@@ -192,17 +192,20 @@ async function queryStageCloseRates(clinicId: string): Promise<StageRateRow[]> {
         r.status AS final_status,
         COALESCE(
           (
+            -- Historische Stage-Tiefe: deepest stage entered. 'qualifiziert'
+            -- existiert seit Migration 0046 nicht mehr; bestehende
+            -- status_change-Activities mit 'qualifiziert' werden hier
+            -- ignoriert (wer dort hängengeblieben ist, fällt zurück auf 'neu').
             SELECT a.meta->>'to'
             FROM request_activities a
             WHERE a.request_id = r.id
               AND a.kind = 'status_change'
-              AND a.meta->>'to' IN ('qualifiziert','termin_vereinbart','beratung_erschienen','behandelt')
+              AND a.meta->>'to' IN ('termin_vereinbart','beratung_erschienen','behandelt')
             ORDER BY
               CASE a.meta->>'to'
-                WHEN 'qualifiziert' THEN 1
-                WHEN 'termin_vereinbart' THEN 2
-                WHEN 'beratung_erschienen' THEN 3
-                WHEN 'behandelt' THEN 4
+                WHEN 'termin_vereinbart' THEN 1
+                WHEN 'beratung_erschienen' THEN 2
+                WHEN 'behandelt' THEN 3
               END DESC NULLS LAST,
               a.created_at DESC
             LIMIT 1
@@ -277,7 +280,7 @@ async function queryStageDurations(clinicId: string): Promise<StageDurationRow[]
       FROM recent_wins rw
       JOIN request_activities a ON a.request_id = rw.id
       WHERE a.kind = 'status_change'
-        AND a.meta->>'to' IN ('qualifiziert','termin_vereinbart','beratung_erschienen','behandelt','no_show')
+        AND a.meta->>'to' IN ('termin_vereinbart','beratung_erschienen','behandelt','no_show')
       GROUP BY rw.id, rw.won_at, rw.created_at, a.meta->>'to'
     )
     SELECT

@@ -9,7 +9,7 @@ und die EINS-Bridge ruft die Pabau-API direkt vom EINS-Server aus auf.
 1. Pabau-Account ist aktiv; die Praxis hat Admin-Zugriff auf
    `Setup → Developer & Other → Private Apps` (alle Pabau-Plans
    verfuegen ueber API-Zugang).
-2. Praxis hat einen AVV (Auftragsverarbeitungsvertrag) mit EINS Visuals
+2. Praxis hat einen AVV (Auftragsverarbeitungsvertrag) mit EINS
    GmbH unterschrieben. Vorlage: `apps/bridge/legal/AVV-template-DE.md`.
    Hinweis: bei Pabau liegt die Datenhoheit ebenfalls bei der Praxis;
    die Pabau-AGB erlauben den Zugriff via API-Token explizit.

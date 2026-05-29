@@ -50,7 +50,7 @@ export interface PatientEventInput {
 }
 
 export type PatientEventResult =
-  | { ok: true; status: "scheduled"; recallId: string; scheduledFor: string }
+  | { ok: true; status: "scheduled"; reviewRequestId: string; scheduledFor: string }
   | { ok: true; status: "consent_recorded" }
   | { ok: true; status: "unsubscribed" }
   | { ok: true; status: "deduped" }
@@ -123,27 +123,27 @@ export async function applyPatientEvent(
     return { ok: true, status: "deduped" };
   }
 
-  // 5) Anti-spam — collapse to a no-op if a recall for this patient was
-  //    created within the last ANTI_SPAM_DAYS.
+  // 5) Anti-spam — collapse to a no-op if a review-request for this
+  //    patient was created within the last ANTI_SPAM_DAYS.
   const cutoff = new Date(Date.now() - ANTI_SPAM_DAYS * 24 * 60 * 60 * 1000);
-  const [recentRecall] = await db
-    .select({ id: schema.requestRecalls.id })
-    .from(schema.requestRecalls)
+  const [recentRequest] = await db
+    .select({ id: schema.reviewEmailSchedule.id })
+    .from(schema.reviewEmailSchedule)
     .where(
       and(
-        eq(schema.requestRecalls.clinicId, input.clinicId),
-        eq(schema.requestRecalls.patientId, patientId),
-        eq(schema.requestRecalls.kind, "review_request"),
-        gt(schema.requestRecalls.createdAt, cutoff)
+        eq(schema.reviewEmailSchedule.clinicId, input.clinicId),
+        eq(schema.reviewEmailSchedule.patientId, patientId),
+        eq(schema.reviewEmailSchedule.kind, "review_request"),
+        gt(schema.reviewEmailSchedule.createdAt, cutoff)
       )
     )
-    .orderBy(desc(schema.requestRecalls.createdAt))
+    .orderBy(desc(schema.reviewEmailSchedule.createdAt))
     .limit(1);
-  if (recentRecall) {
+  if (recentRequest) {
     return { ok: true, status: "deduped" };
   }
 
-  // 6) Schedule the new recall.
+  // 6) Schedule the new review-request email.
   const baseDate =
     input.appointmentCompletedAt ?? new Date(); // default: now
   const scheduledFor = new Date(baseDate);
@@ -158,7 +158,7 @@ export async function applyPatientEvent(
   );
 
   const [row] = await db
-    .insert(schema.requestRecalls)
+    .insert(schema.reviewEmailSchedule)
     .values({
       clinicId: input.clinicId,
       patientId,
@@ -171,12 +171,12 @@ export async function applyPatientEvent(
       reviewPatientName: input.patient.fullName ?? null,
       reviewTreatmentLabel: input.treatmentLabel ?? null,
     })
-    .returning({ id: schema.requestRecalls.id });
+    .returning({ id: schema.reviewEmailSchedule.id });
 
   return {
     ok: true,
     status: "scheduled",
-    recallId: row!.id,
+    reviewRequestId: row!.id,
     scheduledFor: scheduledForStr,
   };
 }

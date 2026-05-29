@@ -44,14 +44,13 @@ export async function exportClinicData(clinicId: string): Promise<DsgvoExport> {
 
   const users = await db
     .select({
-      // Redact MFA secrets and backup-code hashes from the export — they
-      // are cryptographic material, not personal data the user asked for.
+      // Password-hashes are filtered out: they are cryptographic material,
+      // not personal data the user asked for.
       id: schema.clinicUsers.id,
       clinicId: schema.clinicUsers.clinicId,
       email: schema.clinicUsers.email,
       fullName: schema.clinicUsers.fullName,
       role: schema.clinicUsers.role,
-      mfaEnrolled: schema.clinicUsers.mfaEnrolled,
       invitedAt: schema.clinicUsers.invitedAt,
       lastLoginAt: schema.clinicUsers.lastLoginAt,
       createdAt: schema.clinicUsers.createdAt,

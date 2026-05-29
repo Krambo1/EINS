@@ -10,132 +10,31 @@
  * Set DISABLE_WORKER=1 to skip it (e.g. when running the worker yourself
  * in another terminal for focused debugging).
  *
- * Node-version pin: Vercel runs Node 20. Newer Node (22+) ships an undici
- * with tighter headers timeouts that makes Next's internal "forward action
- * response" fetch spam `UND_ERR_HEADERS_TIMEOUT` in dev. If the parent
- * Node is >20 we look for a Node 20 binary on disk (scoop / nvm-windows /
- * fnm / volta / Program Files) and prepend its directory to PATH for the
- * child processes, so `next` and `tsx` resolve to Node 20 even when the
- * user's default `node` is newer.
+ * Node-version pin: see scripts/find-node20.cjs at the repo root — newer
+ * Node (22+) ships an undici with tighter headers timeouts that makes
+ * Next's "forward action response" fetch spam UND_ERR_HEADERS_TIMEOUT.
  */
-const { spawn, execFileSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
 const readline = require("node:readline");
-const fs = require("node:fs");
 const path = require("node:path");
+const { pinNode20IntoEnv } = require(path.join(__dirname, "..", "..", "..", "scripts", "find-node20.cjs"));
 
-function verifyNode20(binary) {
-  try {
-    const out = execFileSync(binary, ["--version"], { encoding: "utf8" }).trim();
-    return out.startsWith("v20.") ? binary : null;
-  } catch {
-    return null;
-  }
-}
+// Port + worker are parameterizable so the preview tooling can run several
+// portal instances in parallel (see .claude/launch.json: portal / portal-b /
+// portal-c). Pass `--port=3005` and `--no-worker` after a `--` separator:
+//   pnpm --filter portal dev -- --port=3005 --no-worker
+const cliArgs = process.argv.slice(2);
+const portArg = cliArgs.find((a) => a.startsWith("--port="));
+const port = portArg ? portArg.slice("--port=".length) : process.env.PORT || "3001";
+const noWorker = cliArgs.includes("--no-worker");
 
-function findNode20() {
-  const currentMajor = Number(process.versions.node.split(".")[0]);
-  if (currentMajor === 20) return process.execPath;
+const childEnv = pinNode20IntoEnv({ ...process.env, FORCE_COLOR: "1" }, "[dev]");
 
-  const exe = process.platform === "win32" ? "node.exe" : "node";
-  const candidates = [];
-  const home = process.env.USERPROFILE || process.env.HOME;
-
-  // scoop (Windows) — what Karam has installed
-  if (home) {
-    candidates.push(path.join(home, "scoop", "apps", "nodejs20", "current", exe));
-    candidates.push(path.join(home, "scoop", "apps", "nodejs", "current", exe));
-  }
-
-  // nvm-windows
-  const nvmHome = process.env.NVM_HOME;
-  if (nvmHome) {
-    try {
-      for (const d of fs.readdirSync(nvmHome)) {
-        if (d.startsWith("v20.")) candidates.push(path.join(nvmHome, d, exe));
-      }
-    } catch {}
-  }
-
-  // nvm (unix)
-  if (home) {
-    const nvmDir = process.env.NVM_DIR || path.join(home, ".nvm");
-    try {
-      const root = path.join(nvmDir, "versions", "node");
-      for (const d of fs.readdirSync(root)) {
-        if (d.startsWith("v20.")) candidates.push(path.join(root, d, "bin", exe));
-      }
-    } catch {}
-  }
-
-  // fnm
-  const fnmDir = process.env.FNM_DIR || (home && path.join(home, ".fnm"));
-  if (fnmDir) {
-    try {
-      const root = path.join(fnmDir, "node-versions");
-      for (const d of fs.readdirSync(root)) {
-        if (d.startsWith("v20.")) {
-          candidates.push(path.join(root, d, "installation", exe));
-          candidates.push(path.join(root, d, "installation", "bin", exe));
-        }
-      }
-    } catch {}
-  }
-
-  // volta
-  const voltaHome =
-    process.env.VOLTA_HOME ||
-    (process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "Volta")) ||
-    (home && path.join(home, ".volta"));
-  if (voltaHome) {
-    try {
-      const root = path.join(voltaHome, "tools", "image", "node");
-      for (const d of fs.readdirSync(root)) {
-        if (d.startsWith("20.")) {
-          candidates.push(path.join(root, d, exe));
-          candidates.push(path.join(root, d, "bin", exe));
-        }
-      }
-    } catch {}
-  }
-
-  // system install
-  if (process.platform === "win32") {
-    candidates.push("C:\\Program Files\\nodejs\\node.exe");
-  } else {
-    candidates.push("/usr/local/bin/node", "/opt/homebrew/bin/node");
-  }
-
-  for (const c of candidates) {
-    if (fs.existsSync(c)) {
-      const ok = verifyNode20(c);
-      if (ok) return ok;
-    }
-  }
-  return null;
-}
-
-const currentMajor = Number(process.versions.node.split(".")[0]);
-let childEnv = { ...process.env, FORCE_COLOR: "1" };
-
-if (currentMajor !== 20) {
-  const node20 = findNode20();
-  if (node20) {
-    const node20Dir = path.dirname(node20);
-    const pathKey = process.platform === "win32" ? "Path" : "PATH";
-    const existing = childEnv[pathKey] || childEnv.PATH || childEnv.Path || "";
-    childEnv[pathKey] = `${node20Dir}${path.delimiter}${existing}`;
-    process.stdout.write(
-      `[dev] parent Node is ${process.version}; pinning children to Node 20 at ${node20Dir}\n`,
-    );
-  } else {
-    process.stdout.write(
-      `[dev] WARN: running on ${process.version}, but project targets Node 20. ` +
-        `Newer Node ships an undici with tighter timeouts that triggers ` +
-        `"failed to forward action response / UND_ERR_HEADERS_TIMEOUT" spam in dev. ` +
-        `Install Node 20 (e.g. \`scoop install nodejs20\`) to silence these.\n`,
-    );
-  }
-}
+// Each parallel `next dev` needs its own build dir, otherwise concurrent
+// instances clobber a shared .next cache (HMR corruption, lock contention).
+// The default port keeps `.next` so the normal single-instance case and any
+// existing tooling are unchanged. next.config.ts reads NEXT_DIST_DIR.
+if (port !== "3001") childEnv.NEXT_DIST_DIR = `.next-${port}`;
 
 // `--turbopack` is a 5–10× win for first-nav-per-route compile in this app
 // (the dependency graph here — recharts, radix × 13, lazy AWS SDK, drizzle
@@ -143,7 +42,7 @@ if (currentMajor !== 20) {
 // reduces it to sub-second). Set DISABLE_TURBOPACK=1 to fall back if Turbo
 // ever breaks on a dependency upgrade.
 const useTurbo = process.env.DISABLE_TURBOPACK !== "1";
-const nextArgs = ["dev", "-p", "3001"];
+const nextArgs = ["dev", "-p", port];
 if (useTurbo) nextArgs.push("--turbopack");
 
 const nextChild = spawn("next", nextArgs, {
@@ -156,11 +55,11 @@ const nextOut = readline.createInterface({ input: nextChild.stdout });
 nextOut.on("line", (line) => {
   process.stdout.write(line + "\n");
   if (line.includes("- Local:")) {
-    process.stdout.write("   - Admin:        http://admin.localhost:3001\n");
+    process.stdout.write(`   - Admin:        http://admin.localhost:${port}\n`);
   }
 });
 
-const workerEnabled = process.env.DISABLE_WORKER !== "1";
+const workerEnabled = process.env.DISABLE_WORKER !== "1" && !noWorker;
 const workerChild = workerEnabled
   ? spawn("pnpm", ["worker"], {
       stdio: ["inherit", "pipe", "pipe"],

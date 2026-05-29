@@ -624,7 +624,12 @@ export function PortalShell({
                       <span>{item.label}</span>
                       {badge && (
                         <span
-                          className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-md bg-[var(--tone-good-bg)] px-1.5 py-0.5 text-xs font-semibold tabular-nums text-tone-good"
+                          className={cn(
+                            "ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums text-tone-good",
+                            exactlyActive
+                              ? "bg-bg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
+                              : "bg-[var(--tone-good-bg)]"
+                          )}
                           aria-label={
                             /^\d+(\+)?$/.test(badge) ? `${badge} neu` : badge
                           }
@@ -659,7 +664,12 @@ export function PortalShell({
                               <span>{sub.label}</span>
                               {subBadge && (
                                 <span
-                                  className="ml-auto inline-flex min-w-[1.125rem] items-center justify-center rounded-md bg-[var(--tone-good-bg)] px-1.5 py-0.5 text-[0.6875rem] font-semibold tabular-nums text-tone-good"
+                                  className={cn(
+                                    "ml-auto inline-flex min-w-[1.125rem] items-center justify-center rounded-md px-1.5 py-0.5 text-[0.6875rem] font-semibold tabular-nums text-tone-good",
+                                    subActive
+                                      ? "bg-bg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
+                                      : "bg-[var(--tone-good-bg)]"
+                                  )}
                                   aria-label={
                                     /^\d+(\+)?$/.test(subBadge)
                                       ? `${subBadge} neu`
@@ -779,7 +789,12 @@ export function PortalShell({
                           <span>{item.label}</span>
                           {badge && (
                             <span
-                              className="ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-md bg-[var(--tone-good-bg)] px-1.5 py-0.5 text-xs font-semibold tabular-nums text-tone-good"
+                              className={cn(
+                                "ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums text-tone-good",
+                                exactlyActive
+                                  ? "bg-bg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
+                                  : "bg-[var(--tone-good-bg)]"
+                              )}
                               aria-label={
                                 /^\d+(\+)?$/.test(badge) ? `${badge} neu` : badge
                               }
@@ -814,7 +829,12 @@ export function PortalShell({
                                   <span>{sub.label}</span>
                                   {subBadge && (
                                     <span
-                                      className="ml-auto inline-flex min-w-[1.125rem] items-center justify-center rounded-md bg-[var(--tone-good-bg)] px-1.5 py-0.5 text-[0.6875rem] font-semibold tabular-nums text-tone-good"
+                                      className={cn(
+                                        "ml-auto inline-flex min-w-[1.125rem] items-center justify-center rounded-md px-1.5 py-0.5 text-[0.6875rem] font-semibold tabular-nums text-tone-good",
+                                        subActive
+                                          ? "bg-bg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
+                                          : "bg-[var(--tone-good-bg)]"
+                                      )}
                                       aria-label={
                                         /^\d+(\+)?$/.test(subBadge)
                                           ? `${subBadge} neu`
@@ -838,7 +858,12 @@ export function PortalShell({
           </aside>
         </div>
 
-        <main className="min-w-0 flex-1">{children}</main>
+        {/* pb adds breathing room below the last row/card on scrollable pages.
+            Because <main> is sized by flex-1 on short pages, the padding only
+            becomes visible once content actually exceeds the viewport — pages
+            with intrinsic whitespace (e.g. Dokumente when sparsely populated)
+            stay unaffected. */}
+        <main className="min-w-0 flex-1 pb-[max(5rem,env(safe-area-inset-bottom))]">{children}</main>
       </div>
 
       {searchLoaded && (

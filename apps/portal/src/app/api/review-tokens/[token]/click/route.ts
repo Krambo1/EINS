@@ -64,8 +64,8 @@ export async function POST(
     );
   }
 
-  const recall = await resolveReviewToken(token);
-  if (!recall) {
+  const reviewRequest = await resolveReviewToken(token);
+  if (!reviewRequest) {
     return NextResponse.json(
       { error: { code: "not_found" } },
       { status: 404 }
@@ -80,10 +80,10 @@ export async function POST(
   }
 
   await writeAudit({
-    clinicId: recall.clinicId,
+    clinicId: reviewRequest.clinicId,
     action: "review_click",
-    entityKind: "request_recall",
-    entityId: recall.recallId,
+    entityKind: "review_request",
+    entityId: reviewRequest.reviewRequestId,
     diff: {
       target: parsed.target,
       rating: parsed.rating ?? null,

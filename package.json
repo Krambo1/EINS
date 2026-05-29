@@ -8,7 +8,7 @@
     "pnpm": ">=9.0.0"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "dev": "node scripts/dev-root.cjs",
     "dev:website": "pnpm --filter website dev",
     "dev:portal": "pnpm --filter portal dev",
     "dev:clinic": "pnpm --filter clinic-landing dev",

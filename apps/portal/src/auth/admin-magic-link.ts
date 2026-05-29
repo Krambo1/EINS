@@ -1,6 +1,6 @@
 import "server-only";
 import Redis from "ioredis";
-import { env } from "@/lib/env";
+import { env, adminOrigin } from "@/lib/env";
 import { generateToken, sha256Hex } from "@/lib/crypto";
 import { sendMagicLinkEmail } from "@/server/email";
 import { MAGIC_LINK_TTL_SECONDS } from "@/lib/constants";
@@ -39,6 +39,7 @@ const KEY_PREFIX = "adm:mlk:";
  * ADMIN_EMAILS so we don't leak the allowlist.
  */
 export async function issueAdminMagicLink(email: string): Promise<void> {
+  const requestedAt = new Date();
   const lower = email.trim().toLowerCase();
   if (!isAdminEmail(lower)) return;
 
@@ -46,8 +47,8 @@ export async function issueAdminMagicLink(email: string): Promise<void> {
   const hash = sha256Hex(token);
   await redis().set(KEY_PREFIX + hash, lower, "EX", MAGIC_LINK_TTL_SECONDS);
 
-  const url = `${env.APP_ORIGIN}/admin/login/callback?token=${token}`;
-  await sendMagicLinkEmail({ to: lower, url, intent: "login" });
+  const url = `${adminOrigin()}/admin/login/callback?token=${token}`;
+  await sendMagicLinkEmail({ to: lower, url, intent: "login", requestedAt });
 }
 
 /**
@@ -66,11 +67,6 @@ export async function consumeAdminMagicLink(token: string): Promise<string | nul
   if (!isAdminEmail(email)) return null;
 
   const { id } = await ensureAdminUser(email);
-  // Always mint the session as mfa-pending. requireAdmin sends the user to
-  // /admin/login/mfa, which doubles as the first-time enrollment screen if
-  // mfaEnrolled is false. Previous behaviour (mfaVerified: !mfaEnrolled)
-  // silently let unenrolled admins bypass MFA entirely — anyone whose email
-  // landed in ADMIN_EMAILS got full admin access without ever setting up TOTP.
-  await createAdminSession(id, { mfaVerified: false });
+  await createAdminSession(id);
   return email;
 }

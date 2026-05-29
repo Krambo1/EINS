@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useState } from "react";
-import { Check, ChevronDown, LifeBuoy, Star } from "lucide-react";
+import { Check, ChevronDown, Star } from "lucide-react";
 import { Reveal } from "@/components/ui/reveal";
 import { ShimmerText } from "@/components/ui/shimmer-text";
 import { AiIcon } from "@/components/ui/lottie-icon";
@@ -170,7 +170,9 @@ function CardVisual({ id }: { id: OfferCard["id"] }) {
             <Star
               key={i}
               className="rep-star h-6 w-6 fill-yellow-400 text-yellow-400 sm:h-7 sm:w-7 md:h-9 md:w-9"
-              strokeWidth={1.5}
+              strokeWidth={2.5}
+              strokeLinejoin="round"
+              strokeLinecap="round"
             />
           ))}
         </div>
@@ -247,7 +249,7 @@ function ExpandableCard({ card, index }: { card: OfferCard; index: number }) {
               aria-expanded={open}
               aria-controls={`card-${card.id}-details`}
               onClick={() => setOpen((v) => !v)}
-              className="mt-4 hidden items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-3 py-1.5 font-mono text-xs font-semibold text-accent transition-colors hover:bg-accent hover:text-bg-primary sm:mt-5 sm:px-4 sm:py-2 sm:text-sm md:inline-flex"
+              className="mt-4 hidden items-center gap-2 rounded-full border border-accent/40 bg-accent/10 px-3 py-1.5 font-mono text-xs font-semibold text-accent transition-colors hover:bg-accent hover:text-bg-primary hover:[text-shadow:none] sm:mt-5 sm:px-4 sm:py-2 sm:text-sm md:inline-flex"
             >
               {open ? "Weniger anzeigen" : "Mehr erfahren"}
               <ChevronDown
@@ -276,7 +278,7 @@ function ExpandableCard({ card, index }: { card: OfferCard; index: number }) {
                 aria-expanded={open}
                 aria-controls={`card-${card.id}-details`}
                 onClick={() => setOpen((v) => !v)}
-                className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-accent/60 bg-accent/15 px-3 py-1.5 font-mono text-xs font-semibold text-accent shadow-[0_0_0_1px_rgb(var(--accent)/0.15)] transition-colors hover:bg-accent hover:text-bg-primary sm:gap-1.5 sm:px-4 sm:py-2 sm:text-sm"
+                className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-accent/60 bg-accent/15 px-3 py-1.5 font-mono text-xs font-semibold text-accent shadow-[0_0_0_1px_rgb(var(--accent)/0.15)] transition-colors hover:bg-accent hover:text-bg-primary hover:[text-shadow:none] sm:gap-1.5 sm:px-4 sm:py-2 sm:text-sm"
               >
                 {open ? "Weniger anzeigen" : "Mehr erfahren"}
                 <ChevronDown

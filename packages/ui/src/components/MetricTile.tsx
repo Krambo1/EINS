@@ -1,5 +1,6 @@
 import * as React from "react";
 import {
+  AlertCircle,
   AlertTriangle,
   ArrowDown,
   ArrowRight,
@@ -74,6 +75,14 @@ export interface MetricTileProps {
    * `TrendChart`). Caller is responsible for sizing.
    */
   chartSlot?: React.ReactNode;
+  /**
+   * Optional content rendered inside the card *below* the chart. Use for a
+   * secondary list / footer block that belongs to the same metric but should
+   * sit under the trend (e.g. the open-leads list under the Offene-Anfragen
+   * trend). Sits outside the link overlay so its own interactive children
+   * (rows linking to a request) stay clickable.
+   */
+  belowChartSlot?: React.ReactNode;
   /** Optional progress-to-goal bar rendered between sublabel and chart. */
   progress?: MetricProgressInput;
   /** Optional small hint shown right under the progress bar ("Ziel 30 · Monat"). */
@@ -146,6 +155,7 @@ export function MetricTile({
   sparkline,
   sparklineTone,
   chartSlot,
+  belowChartSlot,
   progress,
   hint,
   sideSlot,
@@ -158,10 +168,14 @@ export function MetricTile({
   return (
     <div
       className={cn(
-        "card-glow flex h-full flex-col rounded-2xl border border-border bg-bg-secondary/60 backdrop-blur-sm",
+        "flex h-full flex-col rounded-2xl border border-border",
         isLarge ? "p-6 md:p-8" : "p-5 md:p-6",
         className
       )}
+      style={{
+        backgroundColor: "var(--bg-card)",
+        boxShadow: "var(--shadow-card)",
+      }}
     >
       {/* Upper region — label / controls / value / sublabel / progress / hint.
           A wrapper div makes this a single click-zone that linkSlot can
@@ -383,11 +397,14 @@ export function MetricTile({
           </div>
         )
       )}
+      {belowChartSlot && (
+        <div className={cn(isLarge ? "pt-5" : "pt-4")}>{belowChartSlot}</div>
+      )}
     </div>
   );
 }
 
-export type MetricStatus = "gut" | "neutral" | "redebedarf";
+export type MetricStatus = "gut" | "knapp" | "neutral" | "redebedarf";
 
 interface StatusChipDef {
   label: string;
@@ -403,6 +420,12 @@ const statusChip: Record<MetricStatus, StatusChipDef> = {
     tone: "good",
     Icon: TrendingUp,
     swatchVar: "var(--tone-good)",
+  },
+  knapp: {
+    label: "Knapp am Ziel",
+    tone: "warn",
+    Icon: AlertCircle,
+    swatchVar: "var(--tone-warn)",
   },
   neutral: {
     label: "Neutral",
@@ -424,7 +447,8 @@ const statusChip: Record<MetricStatus, StatusChipDef> = {
  */
 export function metricStatusFromTone(tone: MetricTileTone): MetricStatus {
   if (tone === "good") return "gut";
-  if (tone === "warn" || tone === "bad") return "redebedarf";
+  if (tone === "warn") return "knapp";
+  if (tone === "bad") return "redebedarf";
   return "neutral";
 }
 
@@ -453,6 +477,13 @@ export function MetricStatusBadge({
   const { label: defaultLabel, Icon: DefaultIcon, swatchVar } = statusChip[status];
   const Icon = icon ?? DefaultIcon;
   const text = label ?? defaultLabel;
+  // Lucide's AlertTriangle is geometrically centered in its 24x24 viewBox
+  // but its visual mass sits below center (apex y=4, base y=21 -> centroid
+  // y=15.3). Flex-centering the SVG box therefore leaves the triangle
+  // looking low and slightly right inside the red disk. A 1px upward nudge
+  // brings the optical center onto the circle center. Other status icons
+  // (TrendingUp, AlertCircle, Minus) are symmetric and don't need it.
+  const needsOpticalNudge = Icon === AlertTriangle;
   return (
     <span
       role="img"
@@ -464,7 +495,10 @@ export function MetricStatusBadge({
       )}
       style={{ background: swatchVar }}
     >
-      <Icon className="h-4 w-4" strokeWidth={2.5} />
+      <Icon
+        className={cn("h-4 w-4", needsOpticalNudge && "-translate-y-px")}
+        strokeWidth={2.5}
+      />
     </span>
   );
 }

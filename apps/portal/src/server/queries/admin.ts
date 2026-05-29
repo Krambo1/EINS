@@ -126,7 +126,7 @@ export async function platformOverviewMetrics(): Promise<PlatformOverviewMetrics
         date: schema.kpiDaily.date,
         spend: sql<number>`coalesce(sum(${schema.kpiDaily.totalSpendEur}), 0)`,
         revenue: sql<number>`coalesce(sum(${schema.kpiDaily.revenueAttributedEur}), 0)`,
-        leads: sql<number>`coalesce(sum(${schema.kpiDaily.qualifiedLeads}), 0)`,
+        leads: sql<number>`coalesce(sum(${schema.kpiDaily.leads}), 0)`,
       })
       .from(schema.kpiDaily)
       .where(
@@ -181,7 +181,7 @@ async function aggregateKpiRange(from: Date, to: Date) {
     .select({
       spend: sql<number>`coalesce(sum(${schema.kpiDaily.totalSpendEur}), 0)`,
       revenue: sql<number>`coalesce(sum(${schema.kpiDaily.revenueAttributedEur}), 0)`,
-      leads: sql<number>`coalesce(sum(${schema.kpiDaily.qualifiedLeads}), 0)`,
+      leads: sql<number>`coalesce(sum(${schema.kpiDaily.leads}), 0)`,
       cases: sql<number>`coalesce(sum(${schema.kpiDaily.casesWon}), 0)`,
     })
     .from(schema.kpiDaily)
@@ -322,7 +322,7 @@ export async function slaBreachLeaderboard(limit = 5): Promise<SlaBreachRow[]> {
       and(
         isNull(schema.requests.firstContactedAt),
         sql`${schema.requests.slaRespondBy} < now()`,
-        inArray(schema.requests.status, ["neu", "qualifiziert"])
+        eq(schema.requests.status, "neu")
       )
     )
     .groupBy(schema.clinics.id, schema.clinics.displayName)
@@ -533,7 +533,7 @@ export async function clinicLeaderboard(args: {
       SELECT
         coalesce(sum(total_spend_eur), 0)              AS spend,
         coalesce(sum(revenue_attributed_eur), 0)       AS revenue,
-        coalesce(sum(qualified_leads), 0)              AS leads,
+        coalesce(sum(leads), 0)                        AS leads,
         coalesce(sum(cases_won), 0)                    AS cases_won,
         avg(no_show_rate)                              AS no_show_rate
       FROM ${schema.kpiDaily}
@@ -635,7 +635,7 @@ export async function clinicPerformance(
       .select({
         spend: sql<number>`coalesce(sum(${schema.kpiDaily.totalSpendEur}), 0)`,
         revenue: sql<number>`coalesce(sum(${schema.kpiDaily.revenueAttributedEur}), 0)`,
-        leads: sql<number>`coalesce(sum(${schema.kpiDaily.qualifiedLeads}), 0)`,
+        leads: sql<number>`coalesce(sum(${schema.kpiDaily.leads}), 0)`,
         cases: sql<number>`coalesce(sum(${schema.kpiDaily.casesWon}), 0)`,
         noShow: sql<number>`avg(${schema.kpiDaily.noShowRate})`,
       })
@@ -798,8 +798,8 @@ async function goalCurrentValue(
 ): Promise<number> {
   const column = (() => {
     switch (metric) {
-      case "qualified_leads":
-        return schema.kpiDaily.qualifiedLeads;
+      case "leads":
+        return schema.kpiDaily.leads;
       case "cases_won":
         return schema.kpiDaily.casesWon;
       case "appointments":
@@ -862,7 +862,7 @@ export async function globalLeads(
   opts: { limit?: number; offset?: number } = {}
 ): Promise<{ items: AdminLeadRow[]; total: number; aggregates: {
   total: number;
-  qualified: number;
+  inFunnel: number;
   won: number;
   revenueEur: number;
 } }> {
@@ -903,7 +903,7 @@ export async function globalLeads(
     db
       .select({
         total: sql<number>`count(*)::int`,
-        qualified: sql<number>`count(*) filter (where ${schema.requests.status} in ('qualifiziert','termin_vereinbart','beratung_erschienen','gewonnen'))::int`,
+        inFunnel: sql<number>`count(*) filter (where ${schema.requests.status} in ('termin_vereinbart','beratung_erschienen','gewonnen'))::int`,
         won: sql<number>`count(*) filter (where ${schema.requests.status} = 'gewonnen')::int`,
         revenue: sql<number>`coalesce(sum(${schema.requests.convertedRevenueEur}), 0)`,
       })
@@ -922,7 +922,7 @@ export async function globalLeads(
     total: Number(total ?? 0),
     aggregates: {
       total: Number(aggRow?.total ?? 0),
-      qualified: Number(aggRow?.qualified ?? 0),
+      inFunnel: Number(aggRow?.inFunnel ?? 0),
       won: Number(aggRow?.won ?? 0),
       revenueEur: Number(aggRow?.revenue ?? 0),
     },
@@ -983,7 +983,7 @@ function buildLeadWhere(filters: AdminLeadFilters): SQL | undefined {
 // ---------------------------------------------------------------
 
 export interface ClinicActivity {
-  logins: { userId: string; email: string; lastLoginAt: Date | null; mfaEnrolled: boolean }[];
+  logins: { userId: string; email: string; lastLoginAt: Date | null }[];
   audit: {
     id: string;
     createdAt: Date;
@@ -1015,7 +1015,6 @@ export async function clinicActivity(
         userId: schema.clinicUsers.id,
         email: schema.clinicUsers.email,
         lastLoginAt: schema.clinicUsers.lastLoginAt,
-        mfaEnrolled: schema.clinicUsers.mfaEnrolled,
       })
       .from(schema.clinicUsers)
       .where(
@@ -1110,7 +1109,6 @@ export interface PendingOperations {
   animationsRequested: number;
   animationsInProduction: number;
   syncErrors: number;
-  mfaMissing: number;
   stalledRequests: number;
 }
 
@@ -1122,7 +1120,6 @@ export async function pendingOperationCounts(): Promise<PendingOperations> {
     [anReq],
     [anProd],
     [sync],
-    [mfa],
     [stalled],
   ] = await Promise.all([
     db
@@ -1132,7 +1129,7 @@ export async function pendingOperationCounts(): Promise<PendingOperations> {
         and(
           isNull(schema.requests.firstContactedAt),
           sql`${schema.requests.slaRespondBy} < now()`,
-          inArray(schema.requests.status, ["neu", "qualifiziert"])
+          eq(schema.requests.status, "neu")
         )
       ),
     db
@@ -1149,24 +1146,11 @@ export async function pendingOperationCounts(): Promise<PendingOperations> {
       .where(isNotNull(schema.platformCredentials.lastSyncError)),
     db
       .select({ total: count() })
-      .from(schema.clinicUsers)
-      .innerJoin(schema.clinics, eq(schema.clinics.id, schema.clinicUsers.clinicId))
-      .where(
-        and(
-          eq(schema.clinicUsers.mfaEnrolled, false),
-          isNull(schema.clinicUsers.archivedAt),
-          isNull(schema.clinics.archivedAt),
-          isNotNull(schema.clinicUsers.lastLoginAt)
-        )
-      ),
-    db
-      .select({ total: count() })
       .from(schema.requests)
       .where(
         and(
           inArray(schema.requests.status, [
             "neu",
-            "qualifiziert",
             "termin_vereinbart",
             "beratung_erschienen",
           ]),
@@ -1180,7 +1164,6 @@ export async function pendingOperationCounts(): Promise<PendingOperations> {
     animationsRequested: Number(anReq?.total ?? 0),
     animationsInProduction: Number(anProd?.total ?? 0),
     syncErrors: Number(sync?.total ?? 0),
-    mfaMissing: Number(mfa?.total ?? 0),
     stalledRequests: Number(stalled?.total ?? 0),
   };
 }
@@ -1217,7 +1200,7 @@ export async function slaBreachQueue(limit = 30): Promise<SlaQueueRow[]> {
       and(
         isNull(schema.requests.firstContactedAt),
         sql`${schema.requests.slaRespondBy} < now()`,
-        inArray(schema.requests.status, ["neu", "qualifiziert"])
+        eq(schema.requests.status, "neu")
       )
     )
     .orderBy(asc(schema.requests.slaRespondBy))
@@ -1268,42 +1251,6 @@ export async function syncErrorList(): Promise<SyncErrorRow[]> {
   }));
 }
 
-export interface MfaMissingRow {
-  userId: string;
-  email: string;
-  fullName: string | null;
-  clinicId: string;
-  clinicName: string;
-  role: string;
-  lastLoginAt: Date | null;
-}
-
-export async function inactiveTeamMembers(): Promise<MfaMissingRow[]> {
-  const rows = await db
-    .select({
-      userId: schema.clinicUsers.id,
-      email: schema.clinicUsers.email,
-      fullName: schema.clinicUsers.fullName,
-      clinicId: schema.clinicUsers.clinicId,
-      clinicName: schema.clinics.displayName,
-      role: schema.clinicUsers.role,
-      lastLoginAt: schema.clinicUsers.lastLoginAt,
-    })
-    .from(schema.clinicUsers)
-    .innerJoin(schema.clinics, eq(schema.clinics.id, schema.clinicUsers.clinicId))
-    .where(
-      and(
-        eq(schema.clinicUsers.mfaEnrolled, false),
-        isNull(schema.clinicUsers.archivedAt),
-        isNull(schema.clinics.archivedAt),
-        isNotNull(schema.clinicUsers.lastLoginAt)
-      )
-    )
-    .orderBy(desc(schema.clinicUsers.lastLoginAt))
-    .limit(50);
-  return rows;
-}
-
 export interface StalledLeadRow {
   id: string;
   clinicId: string;
@@ -1333,7 +1280,6 @@ export async function stalledLeads(limit = 30): Promise<StalledLeadRow[]> {
       and(
         inArray(schema.requests.status, [
           "neu",
-          "qualifiziert",
           "termin_vereinbart",
           "beratung_erschienen",
         ]),

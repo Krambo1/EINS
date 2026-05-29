@@ -5,7 +5,7 @@ import { db, schema } from "@/db/client";
  * SLA breach scan. Runs every 15 minutes via cron.
  *
  * For every clinic with requests where:
- *   - status in (neu, qualifiziert)
+ *   - status = neu
  *   - first_contacted_at IS NULL
  *   - sla_respond_by < now()
  *   - AND we haven't yet created a notification for this breach
@@ -24,7 +24,7 @@ export interface SlaCheckJob {
 
 export async function processSlaCheck(job: SlaCheckJob = {}): Promise<void> {
   const predicates = [
-    inArray(schema.requests.status, ["neu", "qualifiziert"]),
+    eq(schema.requests.status, "neu"),
     isNull(schema.requests.firstContactedAt),
     sql`${schema.requests.slaRespondBy} < now()`,
   ];

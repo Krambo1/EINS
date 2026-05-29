@@ -1,89 +1,54 @@
 import "server-only";
 import Link from "next/link";
-import { ChevronRight, Minus, Star, TrendingDown, TrendingUp } from "lucide-react";
+import { ArrowDown, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import {
-  Avatar,
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
+  cn,
 } from "@eins/ui";
-import { kpiSummaryWithComparison } from "@/server/queries/kpis";
-import { bySource } from "@/server/queries/attribution";
-import { staffPerformance } from "@/server/queries/lifecycle";
-import { recallsDue } from "@/server/queries/patients";
 import { latestReviews, reviewTrend } from "@/server/queries/reviews";
 import {
   formatEuro,
   formatNumber,
-  formatMinutes,
   formatPercent,
   formatRelative,
-  formatRelativeDay,
 } from "@/lib/formatting";
-import {
-  SOURCE_LABELS,
-  type RequestSource,
-} from "@/lib/constants";
-import { BreakdownStackChart } from "../../auswertung/_components/BreakdownStackChart";
-import type { BreakdownTone } from "../../auswertung/_components/detail-helpers";
 import type { KpiSummary } from "@/server/queries/kpis";
 import { platformLabelNode, type Platform } from "../../bewertungen/_lib/platforms";
 import {
   DASHBOARD_RANGE_KEYS,
-  dashboardRangeWindow,
   type DashboardRange,
 } from "@/lib/dashboard-range";
 import { TimeRangeToggle } from "./TimeRangeToggle";
+import { RatingStars } from "../../_components/RatingStars";
 
 /**
  * Async server component rendered inside a <Suspense>. Fetches the deep-dive
- * detail bundle (7 parallel queries) and renders the cards that show beyond
- * the base shell. The base shell paints immediately while these queries run.
- *
- * The TTFB win: the <h1>, top-metrics skeleton, and traffic-light cards all
- * paint before this bundle's queries finish. On a cold load that previously
- * blocked on max-of-13 queries before any bytes flushed, the shell now
- * blocks on max-of-5.
+ * detail bundle in parallel and renders the cards that show beyond the base
+ * shell. The base shell paints immediately while these queries run.
  */
 export async function DashboardDetailBundle({
   clinicId,
   userId,
   summary,
-  staffRange,
-  sourcesRange,
+  priorSummary,
+  funnelRange,
 }: {
   clinicId: string;
   userId: string;
   summary: KpiSummary;
-  staffRange: DashboardRange;
-  sourcesRange: DashboardRange;
+  priorSummary: KpiSummary;
+  funnelRange: DashboardRange;
 }) {
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  // Staff and Quellen cards have their own range toggles; everything else on
-  // this bundle still uses the current calendar month.
-  const staffWin = dashboardRangeWindow(staffRange);
-  const sourcesWin = dashboardRangeWindow(sourcesRange);
-
-  const [comparison, sourceBreakdown, staff, recalls, reviews, reviewsTrend] =
-    await Promise.all([
-      kpiSummaryWithComparison(clinicId, userId, monthStart, monthEnd),
-      bySource(clinicId, userId, sourcesWin.from, sourcesWin.to),
-      staffPerformance(clinicId, userId, staffWin.from, staffWin.to),
-      // Dashboard card only surfaces what's actually a *manual* to-do:
-      // open leads waiting for a Nachfass. `recall` lives in the Praxis's
-      // PVS; `review_request` is fully automated by the review-request
-      // worker. Putting either on a to-do list is misleading.
-      recallsDue(clinicId, userId, 30, ["followup"]),
-      latestReviews(clinicId, userId),
-      // Previous rating per platform → trend arrow on the Reputation card.
-      // 6-month window is plenty; snapshots are logged irregularly so we just
-      // pick the second-most-recent per platform below.
-      reviewTrend(clinicId, userId, 6),
-    ]);
+  const [reviews, reviewsTrend] = await Promise.all([
+    latestReviews(clinicId, userId),
+    // Previous rating per platform → trend arrow on the Reputation card.
+    // 6-month window is plenty; snapshots are logged irregularly so we just
+    // pick the second-most-recent per platform below.
+    reviewTrend(clinicId, userId, 6),
+  ]);
 
   // Per-platform previous rating: most recent snapshot that isn't the current
   // one. Map keyed by platform so the JSX can look it up without re-scanning.
@@ -104,216 +69,22 @@ export async function DashboardDetailBundle({
     }
   }
 
-  void comparison; // currently consumed only by the top-metrics enhanced tile path
-
-  // Source-matrix totals: same row slice as the chart so the footer sums what
-  // the user actually sees. ROAS is spend-weighted (Σ revenue / Σ spend) — an
-  // arithmetic mean of per-source ROAS over-weights low-spend channels.
-  const sourceRows = sourceBreakdown.slice(0, 6);
-  const sourceTotals = sourceRows.reduce(
-    (acc, r) => {
-      acc.leads += r.leads;
-      if (r.spendEur != null) acc.spend += r.spendEur;
-      acc.revenue += r.revenueEur ?? 0;
-      return acc;
-    },
-    { leads: 0, spend: 0, revenue: 0 },
-  );
-  const sourceTotalRoas =
-    sourceTotals.spend > 0 ? sourceTotals.revenue / sourceTotals.spend : null;
-  // Total-ROAS tone uses the same absolute thresholds as per-source ROAS so
-  // the footer visibly answers "is the channel mix profitable overall?"
-  const sourceTotalRoasTone: BreakdownTone | null = roasToneFor(sourceTotalRoas);
-
-  // Per-cell tones for the leads and budget columns. Absolute thresholds for
-  // either column would be domain-arbitrary (a "good" lead count varies wildly
-  // by practice size), so we rank within the visible row set instead:
-  //   - Anfragen: top tertile = good, bottom tertile = warn (need ≥2 rows).
-  //   - Budget: same idea applied to CPL (spend/leads). Cheapest acquisition
-  //     wins, most expensive flags. Rows without spend OR leads don't qualify.
-  const leadsToneBySource = rankTones(
-    sourceRows.map((r) => ({ key: r.source, value: r.leads })),
-    "asc"
-  );
-  const cplCandidates = sourceRows
-    .filter((r) => r.spendEur != null && r.spendEur > 0 && r.leads > 0)
-    .map((r) => ({ key: r.source, value: r.spendEur! / r.leads }));
-  // For CPL, lower is better — invert the rank direction so the cheapest CPL
-  // gets the "good" tone.
-  const budgetToneBySource = rankTones(cplCandidates, "desc");
-
   return (
     <>
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card className={`print:break-inside-avoid${staff.length === 0 ? " lg:col-span-2" : ""}`}>
-          <CardHeader className="items-start gap-4">
-            <TimeRangeToggle
-              value={sourcesRange}
-              paramKey={DASHBOARD_RANGE_KEYS.sources}
-              ariaLabel="Zeitraum für Quellen-Aufschlüsselung"
-            />
-            <CardTitle>Quellen-Aufschlüsselung</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <BreakdownStackChart
-              centerLabel="Anfragen"
-              emptyText="Keine Quellen-Daten."
-              legendColumns={[
-                { label: "Anfragen" },
-                { label: "Budget" },
-                { label: "ROAS" },
-              ]}
-              totalsRow={{
-                label: "Gesamt",
-                stats: [
-                  formatNumber(sourceTotals.leads),
-                  sourceTotals.spend > 0 ? formatEuro(sourceTotals.spend) : null,
-                  sourceTotalRoas != null
-                    ? `${sourceTotalRoas.toFixed(1).replace(".", ",")}×`
-                    : null,
-                ],
-                statTones: [null, null, sourceTotalRoasTone],
-              }}
-              slices={sourceRows.map((c) => {
-                const labelStr =
-                  SOURCE_LABELS[c.source as RequestSource] ?? c.source;
-                return {
-                  key: c.source,
-                  labelText: labelStr,
-                  value: c.leads,
-                  stats: [
-                    formatNumber(c.leads),
-                    c.spendEur != null ? formatEuro(c.spendEur) : null,
-                    c.roas != null
-                      ? `${c.roas.toFixed(1).replace(".", ",")}×`
-                      : null,
-                  ],
-                  statTones: [
-                    leadsToneBySource.get(c.source) ?? null,
-                    budgetToneBySource.get(c.source) ?? null,
-                    roasToneFor(c.roas),
-                  ],
-                  tone: sourceTone(c.source),
-                };
-              })}
-            />
-          </CardContent>
-        </Card>
+      <FunnelOverviewCard
+        summary={summary}
+        priorSummary={priorSummary}
+        range={funnelRange}
+      />
 
-        {staff.length > 0 && (
-          <Card className="print:break-inside-avoid">
-            <CardHeader className="items-start gap-4">
-              <TimeRangeToggle
-                value={staffRange}
-                paramKey={DASHBOARD_RANGE_KEYS.staff}
-                ariaLabel="Zeitraum für Mitarbeiter-Leistung"
-              />
-              <CardTitle>Mitarbeiter-Leistung</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="mb-2 grid grid-cols-[1fr_repeat(4,minmax(0,5rem))] gap-4 text-[10px] uppercase tracking-wide text-fg-tertiary">
-                <span>&nbsp;</span>
-                <span className="text-right">Zugewiesen</span>
-                <span className="text-right">Gewonnen</span>
-                <span className="text-right">Quote</span>
-                <span className="text-right">Ø Reaktion</span>
-              </div>
-              <ul className="divide-y divide-border border-t border-border">
-                {staff.map((s) => (
-                  <li
-                    key={s.userId}
-                    className="grid grid-cols-[1fr_repeat(4,minmax(0,5rem))] items-center gap-4 py-3 text-sm"
-                  >
-                    <span className="flex items-center gap-3 min-w-0">
-                      <Avatar
-                        src={s.avatarUrl}
-                        name={s.fullName ?? s.email}
-                        size="md"
-                      />
-                      <span className="flex min-w-0 flex-col">
-                        <span className="truncate font-medium text-fg-primary">
-                          {s.fullName ?? s.email}
-                        </span>
-                        <span className="truncate text-xs text-fg-secondary">
-                          {s.role}
-                        </span>
-                      </span>
-                    </span>
-                    <span className="text-right tabular-nums text-fg-secondary">
-                      {formatNumber(s.assignedCount)}
-                    </span>
-                    <span className="text-right tabular-nums text-fg-secondary">
-                      {formatNumber(s.wonCount)}
-                    </span>
-                    <span className={`text-right tabular-nums font-medium ${winRateToneClass(s.winRate)}`}>
-                      {s.winRate != null ? formatPercent(s.winRate) : "–"}
-                    </span>
-                    <span className={`text-right tabular-nums font-medium ${responseToneClass(s.avgResponseMinutes)}`}>
-                      {formatMinutes(s.avgResponseMinutes)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              {(() => {
-                const totals = staff.reduce(
-                  (acc, s) => {
-                    acc.assigned += s.assignedCount;
-                    acc.won += s.wonCount;
-                    if (s.avgResponseMinutes != null) {
-                      acc.responseSum += s.avgResponseMinutes;
-                      acc.responseCount += 1;
-                    }
-                    return acc;
-                  },
-                  { assigned: 0, won: 0, responseSum: 0, responseCount: 0 },
-                );
-                // Team-Quote = Σ gewonnen / Σ zugewiesen — not the mean of
-                // individual rates, which would over-weight low-volume staff.
-                const teamRate =
-                  totals.assigned > 0 ? totals.won / totals.assigned : null;
-                const teamResponse =
-                  totals.responseCount > 0
-                    ? totals.responseSum / totals.responseCount
-                    : null;
-                return (
-                  <div className="grid grid-cols-[1fr_repeat(4,minmax(0,5rem))] items-center gap-4 border-t-2 border-border bg-bg-secondary/40 py-3 text-sm">
-                    <span className="flex items-center gap-3 min-w-0">
-                      {/* Matches Avatar size="md" (h-9 w-9) so the label
-                          aligns with the staff names above. */}
-                      <span aria-hidden className="h-9 w-9 shrink-0" />
-                      <span className="flex min-w-0 flex-col">
-                        <span className="truncate font-semibold text-fg-primary">
-                          Team gesamt
-                        </span>
-                        <span className="truncate text-xs text-fg-secondary">
-                          {staff.length === 1
-                            ? "1 Mitarbeiter:in"
-                            : `${formatNumber(staff.length)} Mitarbeiter:innen`}
-                        </span>
-                      </span>
-                    </span>
-                    <span className="text-right font-semibold tabular-nums text-fg-primary">
-                      {formatNumber(totals.assigned)}
-                    </span>
-                    <span className="text-right font-semibold tabular-nums text-fg-primary">
-                      {formatNumber(totals.won)}
-                    </span>
-                    <span className={`text-right font-semibold tabular-nums ${winRateToneClass(teamRate)}`}>
-                      {teamRate != null ? formatPercent(teamRate) : "–"}
-                    </span>
-                    <span className={`text-right font-semibold tabular-nums ${responseToneClass(teamResponse)}`}>
-                      {formatMinutes(teamResponse)}
-                    </span>
-                  </div>
-                );
-              })()}
-            </CardContent>
-          </Card>
-        )}
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Card className="print:break-inside-avoid">
+      <div className="grid gap-6">
+        <Card
+          className="print:break-inside-avoid"
+          style={{
+            backgroundColor: "var(--bg-card)",
+            boxShadow: "var(--shadow-card)",
+          }}
+        >
           <CardHeader>
             <CardTitle>Reputation</CardTitle>
           </CardHeader>
@@ -356,13 +127,13 @@ export async function DashboardDetailBundle({
                         <span className="text-fg-primary">
                           {platformLabelNode(r.platform as Platform)}
                         </span>
-                        <span className="flex items-center gap-1.5 font-semibold tabular-nums">
+                        <span className="flex items-center gap-2 font-semibold tabular-nums">
                           <RatingDelta
                             current={r.rating}
                             previous={previousRatingByPlatform.get(r.platform) ?? null}
                           />
                           {r.rating.toFixed(1).replace(".", ",")}
-                          <Star className="h-4 w-4 text-tone-warn" />
+                          <RatingStars rating={r.rating} size={14} />
                           <span className="ml-1 text-sm font-normal text-fg-secondary">
                             ({formatNumber(r.totalCount)})
                           </span>
@@ -374,9 +145,9 @@ export async function DashboardDetailBundle({
                         <span className="font-semibold text-fg-primary">
                           Gesamt
                         </span>
-                        <span className="flex items-center gap-1.5 font-semibold tabular-nums">
+                        <span className="flex items-center gap-2 font-semibold tabular-nums">
                           {weightedAvg.toFixed(1).replace(".", ",")}
-                          <Star className="h-4 w-4 text-tone-warn" />
+                          <RatingStars rating={weightedAvg} size={14} />
                           <span className="ml-1 text-sm font-normal text-fg-secondary">
                             ({formatNumber(totalCount)})
                           </span>
@@ -402,217 +173,9 @@ export async function DashboardDetailBundle({
             )}
           </CardContent>
         </Card>
-
-        <Card className="print:break-inside-avoid">
-          <CardHeader className="flex-row items-start justify-between gap-4">
-            <div className="flex flex-col gap-1.5">
-              <CardTitle>Offene Leads</CardTitle>
-              <CardDescription>
-                Anfragen, die in den nächsten 30 Tagen einen Nachfass brauchen
-              </CardDescription>
-            </div>
-            {recalls.length > 0 && (
-              <span className="shrink-0 text-2xl font-semibold tabular-nums text-fg-primary">
-                {recalls.length}
-              </span>
-            )}
-          </CardHeader>
-          <CardContent>
-            {recalls.length === 0 ? (
-              <p className="text-sm text-fg-secondary">
-                Aktuell keine offenen Leads — alles im grünen Bereich.
-              </p>
-            ) : (
-              <div className="space-y-4">
-                <ul className="space-y-1 text-sm">
-                  {recalls.slice(0, 5).map((r) => {
-                    const rel = formatRelativeDay(r.scheduledFor);
-                    const name =
-                      r.patientName ?? r.patientEmail ?? "Unbekannt";
-                    const row = (
-                      <span className="flex items-center justify-between gap-3">
-                        <span className="flex min-w-0 items-baseline gap-2">
-                          <span className="truncate font-medium text-fg-primary">
-                            {name}
-                          </span>
-                          {r.treatmentLabel && (
-                            <span className="truncate text-xs text-fg-secondary">
-                              {r.treatmentLabel}
-                            </span>
-                          )}
-                        </span>
-                        <span className="flex shrink-0 items-center gap-1">
-                          <span
-                            className={`tabular-nums text-xs ${
-                              rel.overdue ? "text-tone-bad" : "text-fg-secondary"
-                            }`}
-                          >
-                            {rel.label}
-                          </span>
-                          {r.requestId && (
-                            <ChevronRight
-                              aria-hidden
-                              className="h-3.5 w-3.5 text-fg-tertiary"
-                            />
-                          )}
-                        </span>
-                      </span>
-                    );
-                    return (
-                      <li key={r.id}>
-                        {r.requestId ? (
-                          <Link
-                            href={`/anfragen/${r.requestId}`}
-                            className="-mx-2 block rounded-md px-2 py-1.5 hover:bg-bg-secondary/60"
-                          >
-                            {row}
-                          </Link>
-                        ) : (
-                          <span className="block px-2 py-1.5">{row}</span>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-                <div className="flex items-center justify-between border-t border-border pt-3 text-xs text-fg-tertiary">
-                  <span>
-                    {recalls.length === 1
-                      ? "1 offener Lead"
-                      : `${recalls.length} offene Leads`}
-                  </span>
-                  <Link
-                    href="/anfragen"
-                    className="text-accent hover:underline"
-                  >
-                    Alle Anfragen →
-                  </Link>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
       </div>
-
-      <Card className="print:break-inside-avoid">
-        <CardHeader>
-          <CardTitle>Trichter-Übersicht</CardTitle>
-        </CardHeader>
-        <CardContent className="grid gap-6 md:grid-cols-4">
-          <DetailBox
-            label="Termine"
-            value={formatNumber(summary.appointments)}
-            hint={
-              summary.qualifiedLeads > 0
-                ? `${formatPercent(summary.appointments / summary.qualifiedLeads)} der Anfragen`
-                : null
-            }
-          />
-          <DetailBox
-            label="Beratungen gehalten"
-            value={formatNumber(summary.consultationsHeld)}
-            hint={
-              summary.appointments > 0
-                ? `${formatPercent(
-                    summary.consultationsHeld / summary.appointments
-                  )} der Termine`
-                : null
-            }
-          />
-          <DetailBox
-            label="Behandlungen gewonnen"
-            value={formatNumber(summary.casesWon)}
-            hint={
-              summary.consultationsHeld > 0
-                ? `${formatPercent(summary.casesWon / summary.consultationsHeld)} der Beratungen`
-                : null
-            }
-          />
-          <DetailBox
-            label="Kosten je qualifizierter Anfrage"
-            value={
-              summary.costPerQualifiedLead !== null
-                ? formatEuro(summary.costPerQualifiedLead)
-                : "–"
-            }
-            hint={null}
-          />
-        </CardContent>
-      </Card>
     </>
   );
-}
-
-// Win-rate semaphore: ≥35 % strong, 20–35 % acceptable, <20 % weak.
-// Null (no leads assigned) stays neutral — we have nothing to judge.
-function winRateToneClass(rate: number | null | undefined): string {
-  if (rate == null) return "text-fg-secondary";
-  if (rate >= 0.35) return "text-tone-good";
-  if (rate >= 0.2) return "text-tone-warn";
-  return "text-tone-bad";
-}
-
-// Response-time semaphore: ≤2 h good, 2–8 h warn (still same business day),
-// >8 h bad. Null means no contacted leads — neutral.
-function responseToneClass(minutes: number | null | undefined): string {
-  if (minutes == null) return "text-fg-secondary";
-  if (minutes <= 120) return "text-tone-good";
-  if (minutes <= 480) return "text-tone-warn";
-  return "text-tone-bad";
-}
-
-// Distinct slice color per source so the donut never repeats hues.
-function sourceTone(source: string): BreakdownTone {
-  switch (source) {
-    case "meta":
-      return "accent";
-    case "google":
-      return "good";
-    case "formular":
-      return "warn";
-    case "whatsapp":
-      return "bad";
-    default:
-      return "neutral";
-  }
-}
-
-/** ROAS → tone, shared between per-row and totals row so a 1,2× cell looks the
- *  same regardless of where it appears. Break-even (1×) is the dividing line:
- *  above 2× is comfortably profitable, 1×–2× is fine but margin-thin, below 1×
- *  means the channel costs more than it returns. */
-function roasToneFor(roas: number | null | undefined): BreakdownTone | null {
-  if (roas == null) return null;
-  if (roas >= 2) return "good";
-  if (roas >= 1) return "neutral";
-  return "warn";
-}
-
-/**
- * Rank an array of {key, value} entries and emit tones — top tertile = "good",
- * bottom tertile = "warn", middle stays null. `direction` controls whether
- * larger values are better (`"asc"` → big = good) or smaller (`"desc"` →
- * small = good, used for CPL). Returns a Map<key, tone> so the caller can
- * look up tones by row key without re-sorting.
- */
-function rankTones(
-  entries: { key: string; value: number }[],
-  direction: "asc" | "desc",
-): Map<string, BreakdownTone> {
-  const out = new Map<string, BreakdownTone>();
-  // Need ≥2 entries to make a meaningful comparison — a single row coloured
-  // as "best" or "worst" against nothing is just noise.
-  if (entries.length < 2) return out;
-  const sorted = [...entries].sort((a, b) =>
-    direction === "asc" ? b.value - a.value : a.value - b.value
-  );
-  const tertile = Math.max(1, Math.floor(sorted.length / 3));
-  sorted.slice(0, tertile).forEach((e) => out.set(e.key, "good"));
-  sorted.slice(sorted.length - tertile).forEach((e) => {
-    // Don't overwrite a "good" key when n=2 (top tertile and bottom tertile
-    // overlap) — better to drop the warn so a 2-row table isn't both flagged.
-    if (!out.has(e.key)) out.set(e.key, "warn");
-  });
-  return out;
 }
 
 /**
@@ -660,24 +223,243 @@ function RatingDelta({
   );
 }
 
-function DetailBox({
-  label,
-  value,
-  hint,
+// ---------- Trichter-Übersicht ----------
+//
+// Vertical funnel: 4 stages (Anfragen → Termine → Beratungen → Behandlungen),
+// each row is a label + count + horizontal bar whose width encodes the share
+// of the top stage (Anfragen). The conversion % shown under each stage label
+// is "of the previous stage" — the focal question at every step is "how many
+// did I lose here?".
+//
+// Footer surfaces Kosten je Anfrage with a delta chip vs the prior window of
+// equal length (rFunnel param drives both windows in page.tsx). Lower CPL is
+// the desired direction, so the up-trend arrow + green tone fires when the
+// current value sits below prior.
+function FunnelOverviewCard({
+  summary,
+  priorSummary,
+  range,
 }: {
-  label: string;
-  value: string;
-  hint: string | null;
+  summary: KpiSummary;
+  priorSummary: KpiSummary;
+  range: DashboardRange;
 }) {
+  const stages: FunnelStageData[] = [
+    { label: "Anfragen", value: summary.leads, prevValue: null },
+    {
+      label: "Termine",
+      value: summary.appointments,
+      prevValue: summary.leads,
+    },
+    {
+      label: "Beratungen gehalten",
+      value: summary.consultationsHeld,
+      prevValue: summary.appointments,
+    },
+    {
+      label: "Behandlungen gewonnen",
+      value: summary.casesWon,
+      prevValue: summary.consultationsHeld,
+    },
+  ];
+  const top = stages[0]!.value;
+  const empty = top === 0;
+
   return (
-    <div>
-      <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
-        {label}
+    <Card
+      className="print:break-inside-avoid"
+      style={{
+        backgroundColor: "var(--bg-card)",
+        boxShadow: "var(--shadow-card)",
+      }}
+    >
+      <CardHeader className="flex-row items-start justify-between gap-4">
+        <div className="flex flex-col gap-2">
+          <CardTitle>Trichter-Übersicht</CardTitle>
+          <span className="inline-flex items-center gap-2 text-sm font-medium text-fg-secondary">
+            <span
+              aria-hidden
+              className="h-1.5 w-1.5 shrink-0 rounded-full bg-accent"
+            />
+            Anfrage zu Behandlung
+          </span>
+        </div>
+        <TimeRangeToggle
+          value={range}
+          paramKey={DASHBOARD_RANGE_KEYS.funnel}
+          ariaLabel="Zeitraum für Trichter-Übersicht"
+        />
+      </CardHeader>
+      <CardContent>
+        {empty ? (
+          <p className="py-6 text-sm text-fg-secondary">
+            Im gewählten Zeitraum sind noch keine Anfragen eingegangen.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-3">
+            {stages.map((s, i) => (
+              <FunnelStageRow
+                key={s.label}
+                stage={s}
+                top={top}
+                stageIndex={i}
+                isLast={i === stages.length - 1}
+              />
+            ))}
+          </ul>
+        )}
+      </CardContent>
+      <div className="mt-4 flex flex-col gap-1.5 border-t border-border px-6 pb-5 pt-6">
+        <span className="text-sm font-medium text-fg-tertiary">
+          Kosten je Anfrage
+        </span>
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <span className="font-display text-3xl font-semibold leading-none tabular-nums text-fg-primary">
+            {summary.costPerLead !== null ? formatEuro(summary.costPerLead) : "–"}
+          </span>
+          <CostPerLeadDelta
+            current={summary.costPerLead}
+            previous={priorSummary.costPerLead}
+          />
+        </div>
       </div>
-      <div className="mt-1 font-display text-2xl font-semibold tabular-nums">
-        {value}
+    </Card>
+  );
+}
+
+interface FunnelStageData {
+  label: string;
+  value: number;
+  /** Previous stage's count for the "X % der vorherigen Stufe" conversion.
+   *  null on the top stage (Anfragen has no upstream). */
+  prevValue: number | null;
+}
+
+function FunnelStageRow({
+  stage,
+  top,
+  stageIndex,
+  isLast,
+}: {
+  stage: FunnelStageData;
+  top: number;
+  stageIndex: number;
+  isLast: boolean;
+}) {
+  const widthPct = top > 0 ? (stage.value / top) * 100 : 0;
+  const stepConv =
+    stage.prevValue != null && stage.prevValue > 0
+      ? stage.value / stage.prevValue
+      : null;
+  // Per-stage mint ramp: each row's gradient darkens slightly so the funnel
+  // reads as deepening intensity from top to bottom. Final stage swaps to a
+  // mint→teal gradient with a soft glow to mark the "won" outcome, and its
+  // count flips to the good tone for at-a-glance celebration.
+  const fillBackground = isLast
+    ? "linear-gradient(90deg, var(--accent), #2f8e88)"
+    : `linear-gradient(90deg, rgba(88,186,181,${0.50 + stageIndex * 0.08}), rgba(88,186,181,${0.68 + stageIndex * 0.06}))`;
+  const fillShadow = isLast ? "0 4px 16px -4px rgba(88,186,181,0.45)" : undefined;
+  // Step-conversion quality tone. Thresholds are intentionally generic across
+  // stages (no domain rule says e.g. Termin→Beratung should be evaluated
+  // differently from Anfrage→Termin yet). >=60 % good, 40–60 % warn, <40 % bad.
+  const convTone: "good" | "warn" | "bad" | null =
+    stepConv == null ? null : stepConv >= 0.6 ? "good" : stepConv >= 0.4 ? "warn" : "bad";
+  const convToneClass =
+    convTone === "good" ? "text-tone-good"
+      : convTone === "warn" ? "text-tone-warn"
+        : convTone === "bad" ? "text-tone-bad"
+          : "text-fg-tertiary";
+  return (
+    <li className="flex flex-col gap-1.5">
+      {stepConv != null && (
+        // Mirrors the bar/count row layout so the chip sits in the same right
+        // column as the count, with both centered → arrow+% reads as a
+        // vertical "drop" from one count to the next. Coloured by quality so
+        // leaks read at a glance: green good, yellow warn, red bad.
+        <div className="-mt-1.5 flex items-center gap-3.5">
+          <div className="flex-1" aria-hidden />
+          <span
+            aria-label={`Konversion von der vorherigen Stufe: ${formatPercent(stepConv)}`}
+            className={cn(
+              "inline-flex w-16 shrink-0 items-center justify-center gap-1.5 text-sm font-semibold tabular-nums",
+              convToneClass,
+            )}
+          >
+            <ArrowDown className="h-4 w-4" aria-hidden />
+            {formatPercent(stepConv).replace(/\s/g, "")}
+          </span>
+        </div>
+      )}
+      <span className="text-sm font-medium text-fg-secondary">{stage.label}</span>
+      <div className="flex items-center gap-3.5">
+        <div className="relative h-9 flex-1 overflow-hidden rounded bg-bg-secondary">
+          <div
+            className="absolute inset-y-0 left-0 rounded transition-[width] duration-500 ease-out"
+            // 2 % floor keeps a non-zero stage visible as a tiny stub instead
+            // of disappearing. A truly-zero stage stays at 0 and reads as
+            // "empty".
+            style={{
+              width: stage.value > 0 ? `${Math.max(2, widthPct)}%` : "0%",
+              background: fillBackground,
+              boxShadow: fillShadow,
+            }}
+          />
+        </div>
+        <span
+          className={cn(
+            "w-16 shrink-0 text-center font-display text-2xl font-semibold leading-none tabular-nums",
+            isLast ? "text-tone-good" : "text-fg-primary",
+          )}
+        >
+          {formatNumber(stage.value)}
+        </span>
       </div>
-      {hint && <div className="mt-1 text-xs text-fg-tertiary">{hint}</div>}
-    </div>
+    </li>
+  );
+}
+
+/**
+ * Delta chip for Kosten je Anfrage. Direction-of-improvement coloring:
+ *   current < prior  → "X € günstiger" + TrendingUp + green
+ *   current > prior  → "X € teurer"    + TrendingDown + red
+ *   |delta| < 0,50 € → flat (no chip, just stays silent)
+ * If either value is null we have nothing to compare and render nothing.
+ */
+function CostPerLeadDelta({
+  current,
+  previous,
+}: {
+  current: number | null;
+  previous: number | null;
+}) {
+  if (current == null || previous == null) return null;
+  const diff = current - previous;
+  const abs = Math.abs(diff);
+  // Half-euro deadband — keeps small daily wobble from constantly toggling
+  // the chip between green/red on a freshly-tracked clinic.
+  if (abs < 0.5) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-sm font-medium text-fg-tertiary">
+        <Minus className="h-4 w-4" aria-hidden />
+        unverändert
+      </span>
+    );
+  }
+  const improved = diff < 0;
+  const Icon = improved ? TrendingUp : TrendingDown;
+  const toneClass = improved ? "text-tone-good" : "text-tone-bad";
+  const formatted = `${formatEuro(abs)} ${improved ? "günstiger" : "teurer"}`;
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1.5 text-sm font-medium tabular-nums",
+        toneClass,
+      )}
+      aria-label={`Kosten je Anfrage ${formatted} vs. Vorperiode`}
+    >
+      <Icon className="h-4 w-4" aria-hidden />
+      {formatted}
+      <span className="font-normal text-fg-tertiary"> vs. Vorperiode</span>
+    </span>
   );
 }

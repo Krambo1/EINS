@@ -20,6 +20,7 @@ import {
   inet,
   check,
   index,
+  boolean,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -95,6 +96,30 @@ export const pvsEventLog = pgTable(
     ingestedAt: timestamp("ingested_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /**
+     * P1-2: immutable snapshot of pvs_link.status at the moment this event
+     * was ingested. Set by applyPvsEvent at insert time. Used by the
+     * replay query to find events that were quarantined under a pending
+     * link and need re-application after the operator confirms.
+     */
+    linkStatusAtIngest: text("link_status_at_ingest").notNull(),
+    /**
+     * P1-2: NULL until applyEventEffects ran successfully (linker + derive).
+     * Replay selects WHERE applied_at IS NULL AND link_status_at_ingest =
+     * 'pending'. Set in the same logical operation that writes the
+     * downstream effects so a partial failure leaves applied_at NULL
+     * and the row gets replayed next confirmation.
+     */
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    /**
+     * P2-1: set by the pvs-reconcile CLI when the operator wants the
+     * derive worker to re-process this row (typical case: a wrong fuzzy
+     * link was undone and downstream effects must be recomputed against
+     * the corrected patient map). The `replay-events` subcommand reads
+     * WHERE needs_rederive = true, re-enqueues derive, and clears the
+     * flag after enqueue succeeds.
+     */
+    needsRederive: boolean("needs_rederive").notNull().default(false),
   },
   (t) => ({
     bridgeSourceCheck: check(
@@ -389,12 +414,101 @@ export const pvsAgentEnrollmentTokens = pgTable(
     consumedAt: timestamp("consumed_at", { withTimezone: true }),
     consumedFingerprint: text("consumed_fingerprint"),
     consumedIp: inet("consumed_ip"),
+    /**
+     * P1-3: explicit operator opt-in to switch the clinic's PVS vendor
+     * during redemption. Default false — a token issued for a fresh
+     * install MUST NOT silently re-point a clinic that was previously
+     * on Tomedo / Pabau / RED to gdt_agent. Operator sets this true
+     * when creating the token only if they're intentionally migrating.
+     */
+    allowVendorSwitch: boolean("allow_vendor_switch")
+      .notNull()
+      .default(false),
   },
   (t) => ({
     clinicIdx: index("pvs_agent_enrollment_tokens_clinic_idx").on(
       t.clinicId,
       t.createdAt.desc()
     ),
+  })
+);
+
+/**
+ * pvs_reconcile_audit — append-only trail of operator CLI actions
+ * (apps/portal/scripts/pvs-reconcile.ts). Every applied subcommand
+ * (unlink, recompute-lifetime, replay-events, manual-repair) writes a
+ * row with before/after snapshots so an operator can review what was
+ * changed and, if needed, recover state. Dry-run invocations are also
+ * recorded so a "I ran dry-run first" trail is visible to the next
+ * operator who looks at the praxis.
+ */
+export const pvsReconcileAudit = pgTable(
+  "pvs_reconcile_audit",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    actor: text("actor"),
+    reason: text("reason"),
+    beforeState: jsonb("before_state")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    afterState: jsonb("after_state")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    dryRun: boolean("dry_run").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    clinicIdx: index("pvs_reconcile_audit_clinic_idx").on(
+      t.clinicId,
+      t.createdAt.desc()
+    ),
+    kindIdx: index("pvs_reconcile_audit_kind_idx").on(t.kind, t.createdAt.desc()),
+  })
+);
+
+/**
+ * pvs_link_audit — append-only history of pvs_link state changes.
+ * Surfaces vendor switches, status transitions, and rotation events for
+ * the admin clinic-detail page and the Phase 2 reconciliation tooling.
+ */
+export const pvsLinkAudit = pgTable(
+  "pvs_link_audit",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /**
+     * One of: 'vendor_switch', 'status_change', 'secret_rotated',
+     * 'enrollment_redeemed', 'manual_override'. Free-text rather than a
+     * CHECK constraint so new event kinds don't need a migration.
+     */
+    kind: text("kind").notNull(),
+    fromValue: text("from_value"),
+    toValue: text("to_value"),
+    context: jsonb("context")
+      .notNull()
+      .default(sql`'{}'::jsonb`),
+    actorUserId: uuid("actor_user_id").references(
+      (): AnyPgColumn => clinicUsers.id,
+      { onDelete: "set null" }
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    clinicIdx: index("pvs_link_audit_clinic_idx").on(
+      t.clinicId,
+      t.createdAt.desc()
+    ),
+    kindIdx: index("pvs_link_audit_kind_idx").on(t.kind, t.createdAt.desc()),
   })
 );
 

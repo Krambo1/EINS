@@ -7,6 +7,11 @@
   --bg-secondary: #f5f5f7;
   --bg-tertiary: #ebebef;
 
+  /* Card surface — softer than --bg-secondary so cards lift via shadow
+     rather than raw color contrast against --bg-primary. Pair with
+     `var(--shadow-card)` to get the standard "elevated card" look. */
+  --bg-card: #fafafa;
+
   /* Foreground — Opa-proof rule: never use --fg-secondary for body copy */
   --fg-primary: #10101a;
   --fg-secondary: #4a4a52;
@@ -79,6 +84,11 @@
   --bg-primary: #0e0f14;
   --bg-secondary: #181922;
   --bg-tertiary: #23242e;
+
+  /* In dark mode the card surface stays at --bg-secondary's value — the
+     dark canvas needs that bit of lift, and the subtle white glow does
+     the rest. */
+  --bg-card: #181922;
 
   --fg-primary: #f4f4f7;
   --fg-secondary: #b4b4bd;

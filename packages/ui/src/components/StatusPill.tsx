@@ -12,6 +12,18 @@ const statusConfig: Record<
     bg: "bg-accent-soft",
     fg: "text-accent",
   },
+  kontaktiert: {
+    label: "Kontaktiert",
+    dot: "bg-accent",
+    bg: "bg-accent-soft",
+    fg: "text-accent",
+  },
+  nicht_erreicht: {
+    label: "Nicht erreicht",
+    dot: "bg-tone-warn",
+    bg: "bg-[var(--tone-warn-bg)]",
+    fg: "text-tone-warn",
+  },
   qualifiziert: {
     label: "Qualifiziert",
     dot: "bg-tone-good",
@@ -26,6 +38,18 @@ const statusConfig: Record<
   },
   beratung_erschienen: {
     label: "Beratung erschienen",
+    dot: "bg-tone-good",
+    bg: "bg-[var(--tone-good-bg)]",
+    fg: "text-tone-good",
+  },
+  no_show: {
+    label: "Nicht erschienen",
+    dot: "bg-tone-bad",
+    bg: "bg-[var(--tone-bad-bg)]",
+    fg: "text-tone-bad",
+  },
+  behandelt: {
+    label: "Behandelt",
     dot: "bg-tone-good",
     bg: "bg-[var(--tone-good-bg)]",
     fg: "text-tone-good",

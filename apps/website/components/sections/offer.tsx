@@ -1,7 +1,6 @@
 import { Lock } from "lucide-react";
 import { Reveal } from "@/components/ui/reveal";
 import { PortalTabShowcase } from "@/components/ui/portal-tab-showcase";
-import { RETAINER } from "@/lib/offer-data";
 
 export function Offer() {
   return (
@@ -58,11 +57,12 @@ export function Offer() {
                     Ihre EINS Praxis-Software
                   </p>
                   <h4 className="mt-2 font-display text-3xl font-semibold tracking-tight md:text-6xl">
-                    Sie sehen alles. <span className="text-accent">In Echtzeit.</span>
+                    Anfragen in Echtzeit. <span className="text-accent">Umsatz täglich.</span>
                   </h4>
                   <p className="mt-5 text-lg leading-relaxed text-fg-primary md:text-xl">
-                    Portal für Ihre Praxis mit Anfragen, Werbebudget, ROI.
-                    Sofortige Klarheit, nicht erst im Monatsreport.
+                    Portal für Ihre Praxis mit Anfragen, Werbebudget und Werbeertrag.
+                    Anfragen kommen sofort an, Umsatzzahlen werden über Nacht aktualisiert.
+                    Klarheit jeden Morgen, nicht erst im Monatsreport.
                   </p>
                 </div>
 

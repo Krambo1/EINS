@@ -10,7 +10,10 @@ import {
   issueAgentEnrollment,
   listOpenEnrollments,
 } from "@/server/pvs-agent-enroll";
-import { mintAndStorePvsSecret } from "@/server/clinic-signature";
+import {
+  invalidateSignatureSecretCache,
+  mintAndStorePvsSecret,
+} from "@/server/clinic-signature";
 import {
   manuallyResolveLinkingFailure,
   ignoreLinkingFailure,
@@ -28,6 +31,13 @@ import { enqueuePvsLinkBackfill } from "@/server/jobs";
 
 export async function issueAgentEnrollmentAction(input: {
   expectedFingerprint?: string;
+  /**
+   * P1-3: operator must explicitly tick this when issuing a token for a
+   * clinic that is already connected to a different PVS adapter. The
+   * redemption path refuses the switch otherwise — see
+   * vendor_switch_requires_confirmation in /api/pvs/agent-enroll.
+   */
+  allowVendorSwitch?: boolean;
 }): Promise<{ ok: true; token: string; expiresAt: string } | { ok: false; error: string }> {
   const session = await requireSession();
   if (session.role !== "inhaber") {
@@ -37,6 +47,7 @@ export async function issueAgentEnrollmentAction(input: {
     clinicId: session.clinicId,
     createdBy: session.userId,
     expectedFingerprint: input.expectedFingerprint,
+    allowVendorSwitch: input.allowVendorSwitch ?? false,
   });
   await writeAudit({
     clinicId: session.clinicId,
@@ -44,6 +55,9 @@ export async function issueAgentEnrollmentAction(input: {
     action: "pvs_agent_enroll_issue",
     entityKind: "pvs_agent_enrollment_tokens",
     entityId: result.enrollmentId,
+    diff: {
+      allowVendorSwitch: input.allowVendorSwitch ?? false,
+    },
   });
   revalidatePath("/einstellungen/integrationen/setup/gdt-agent");
   return {
@@ -75,19 +89,31 @@ export async function rotatePvsSecretAction(): Promise<
   if (session.role !== "inhaber") {
     return { ok: false, error: "forbidden" };
   }
-  const { secretHex } = await mintAndStorePvsSecret(
-    session.clinicId,
-    encryptString
-  );
-  // Ensure the pvs_link points at n8n_custom (if no other adapter is set).
-  await db
-    .insert(schema.pvsLink)
-    .values({
-      clinicId: session.clinicId,
-      pvsVendor: "n8n_custom",
-      status: "connected",
-    })
-    .onConflictDoNothing({ target: schema.pvsLink.clinicId });
+  // Wrap mint + pvs_link upsert in a single transaction so a transient
+  // failure on the upsert can't strand a freshly-minted secret in
+  // platform_credentials while the link row stays unchanged.
+  const { secretHex } = await db.transaction(async (tx) => {
+    const minted = await mintAndStorePvsSecret(
+      session.clinicId,
+      encryptString,
+      tx as unknown as typeof db
+    );
+    // Ensure the pvs_link points at n8n_custom (if no other adapter is set).
+    await tx
+      .insert(schema.pvsLink)
+      .values({
+        clinicId: session.clinicId,
+        pvsVendor: "n8n_custom",
+        status: "connected",
+      })
+      .onConflictDoNothing({ target: schema.pvsLink.clinicId });
+    return minted;
+  });
+
+  // Cache invalidation MUST happen after the tx commits, otherwise a
+  // concurrent verify could repopulate the cache with the pre-commit (old)
+  // secret. See mintAndStorePvsSecret JSDoc for the race description.
+  invalidateSignatureSecretCache(session.clinicId, "pvs");
 
   await writeAudit({
     clinicId: session.clinicId,

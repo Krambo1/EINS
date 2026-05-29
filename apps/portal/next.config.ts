@@ -3,6 +3,10 @@ import withBundleAnalyzer from "@next/bundle-analyzer";
 
 const config: NextConfig = {
   reactStrictMode: true,
+  // Per-instance build dir so parallel `next dev` servers (scripts/dev.js,
+  // one per --port) don't share/clobber a single .next cache. Defaults to
+  // .next for the normal single-instance case.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   // Share the @eins/ui source package across apps without a build step.
   transpilePackages: ["@eins/ui"],
   experimental: {

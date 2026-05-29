@@ -8,7 +8,7 @@ einem laufenden medatixx-Server: ca. 45 Minuten.
 1. medatixx ist installiert (egal welche der drei Varianten); der
    Firebird-Dienst laeuft als Windows-Service (`Firebird Server -
    DefaultInstance`).
-2. AVV (Auftragsverarbeitungsvertrag) zwischen Praxis und EINS Visuals
+2. AVV (Auftragsverarbeitungsvertrag) zwischen Praxis und EINS
    GmbH unterschrieben. Vorlage: `apps/bridge/legal/AVV-template-DE.md`.
 3. Read-only Firebird-Konto bereitgestellt. Praxis-IT legt den Nutzer
    einmalig per `isql -user SYSDBA` an:

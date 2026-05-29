@@ -7,13 +7,12 @@ import { env } from "../lib/env";
  *
  * Used on:
  *   - /login magic-link request         — 5/hour per email, 20/hour per IP
- *   - /login/mfa code verify            — 5/5min per user
  *   - /api/leads/intake                 — 60/min per clinic (per-form endpoint)
  *   - admin magic-link request          — 5/hour per email
  *
  * Failure mode: if Redis is down, we fail OPEN (log + allow). That's acceptable
- * because the secondary layer (magic-link is single-use, TOTP has ±1 window)
- * still makes brute-force impractical.
+ * because the secondary layer (magic-link is single-use) still makes brute-
+ * force impractical.
  */
 
 declare global {

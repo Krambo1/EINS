@@ -19,7 +19,6 @@ import { hasMeta, hasGoogle } from "@/lib/env";
 import {
   inviteTeamMemberAction,
   removeTeamMemberAction,
-  resetMemberMfaAction,
   updateOwnProfileAction,
   updateClinicSettingsAction,
   disconnectIntegrationAction,
@@ -36,7 +35,6 @@ import {
 import { env } from "@/lib/env";
 import {
   UserPlus,
-  ShieldCheck,
   Trash2,
   Link as LinkIcon,
   Unplug,
@@ -121,6 +119,16 @@ export default async function EinstellungenPage() {
         <p className="mt-2 text-base text-fg-primary md:text-lg">
           Ihr Profil, Ihr Team und Ihre Verbindungen zu Meta und Google.
         </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button asChild variant="outline" size="sm">
+            <Link href="/einstellungen/sicherheit">
+              Passwort &amp; Sicherheit
+            </Link>
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/einstellungen/integrationen">Integrationen</Link>
+          </Button>
+        </div>
       </header>
 
       {/* My profile — everyone */}
@@ -177,12 +185,6 @@ export default async function EinstellungenPage() {
             <Badge tone="neutral">
               {ROLE_LABELS[session.role as Role] ?? session.role}
             </Badge>
-            <span className="text-fg-secondary">Zwei-Faktor:</span>
-            {session.mfaVerified ? (
-              <Badge tone="good">Aktiv</Badge>
-            ) : (
-              <Badge tone="warn">Nicht aktiv</Badge>
-            )}
           </div>
         </CardContent>
       </Card>
@@ -617,8 +619,8 @@ export default async function EinstellungenPage() {
                           <Badge tone="neutral">
                             {ROLE_LABELS[m.role as Role] ?? m.role}
                           </Badge>
-                          {m.mfaEnrolled ? (
-                            <Badge tone="good">2FA aktiv</Badge>
+                          {m.lastLoginAt ? (
+                            <Badge tone="good">Aktiv</Badge>
                           ) : (
                             <Badge tone="warn">Einladung offen</Badge>
                           )}
@@ -636,23 +638,6 @@ export default async function EinstellungenPage() {
                     </div>
                     {!isSelf && (
                       <div className="flex gap-2">
-                        {m.mfaEnrolled && (
-                          <form action={resetMemberMfaAction}>
-                            <input
-                              type="hidden"
-                              name="userId"
-                              value={m.id}
-                            />
-                            <Button
-                              type="submit"
-                              variant="outline"
-                              size="sm"
-                            >
-                              <ShieldCheck className="h-4 w-4" />
-                              2FA zurücksetzen
-                            </Button>
-                          </form>
-                        )}
                         <form action={removeTeamMemberAction}>
                           <input type="hidden" name="userId" value={m.id} />
                           <Button
@@ -714,7 +699,7 @@ export default async function EinstellungenPage() {
                 </p>
                 <form
                   action={createTreatmentAction}
-                  className="grid gap-3 rounded-xl border border-border bg-bg-secondary/40 p-4 md:grid-cols-[1fr_1fr_1.5fr_8rem_auto]"
+                  className="grid gap-3 rounded-xl border border-border bg-bg-secondary/40 p-4 md:grid-cols-[1fr_1fr_1.5fr_auto]"
                 >
                   <div>
                     <label className="mb-1 block text-xs font-medium text-fg-secondary">
@@ -740,18 +725,6 @@ export default async function EinstellungenPage() {
                     </label>
                     <Input name="keywords" maxLength={500} placeholder="needling, skinpen" />
                   </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-fg-secondary">
-                      Folgetermin (Monate)
-                    </label>
-                    <Input
-                      name="defaultRecallMonths"
-                      type="number"
-                      min={0}
-                      max={60}
-                      placeholder="6"
-                    />
-                  </div>
                   <div className="flex items-end">
                     <Button type="submit" className="w-full md:w-auto">
                       <Plus className="h-4 w-4" /> Hinzufügen
@@ -767,11 +740,6 @@ export default async function EinstellungenPage() {
                         <span className="ml-2 text-xs text-fg-secondary">
                           {t.slug}
                         </span>
-                        {t.defaultRecallMonths != null && (
-                          <Badge tone="neutral">
-                            Folgetermin: {t.defaultRecallMonths} Mon
-                          </Badge>
-                        )}
                         {t.keywords && (
                           <div className="mt-0.5 text-xs text-fg-tertiary">
                             Stichwörter: {t.keywords}

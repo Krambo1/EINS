@@ -151,7 +151,14 @@ export default async function AdminClinicDetailPage({
   } else if (tab === "stammdaten") {
     renderedTab = <StammdatenTab clinic={clinic} />;
   } else if (tab === "integrationen") {
-    const [creds, syncEvents, outboxRows, outboxCounts] = await Promise.all([
+    const [
+      creds,
+      syncEvents,
+      outboxRows,
+      outboxCounts,
+      agentStatusRow,
+      agentFailurePrunes,
+    ] = await Promise.all([
       db
         .select()
         .from(schema.platformCredentials)
@@ -195,6 +202,28 @@ export default async function AdminClinicDetailPage({
         .from(schema.adsConversionOutbox)
         .where(eq(schema.adsConversionOutbox.clinicId, clinic.id))
         .groupBy(schema.adsConversionOutbox.status),
+      // P2-2: agent heartbeat snapshot. Single-row read; cheap.
+      db
+        .select()
+        .from(schema.pvsAgentStatus)
+        .where(eq(schema.pvsAgentStatus.clinicId, clinic.id))
+        .limit(1),
+      // P2-2: last 5 dead-letter prune roll-ups for the "Prune-Historie"
+      // expander. 5 is enough to spot a pattern; more belongs in a
+      // dedicated drill-down page if we ever need it.
+      db
+        .select({
+          id: schema.pvsAgentFailureSummary.id,
+          prunedCount: schema.pvsAgentFailureSummary.prunedCount,
+          prunedOldestAt: schema.pvsAgentFailureSummary.prunedOldestAt,
+          prunedNewestAt: schema.pvsAgentFailureSummary.prunedNewestAt,
+          reasons: schema.pvsAgentFailureSummary.reasons,
+          reportedAt: schema.pvsAgentFailureSummary.reportedAt,
+        })
+        .from(schema.pvsAgentFailureSummary)
+        .where(eq(schema.pvsAgentFailureSummary.clinicId, clinic.id))
+        .orderBy(desc(schema.pvsAgentFailureSummary.reportedAt))
+        .limit(5),
     ]);
     const adsConversion = {
       pending: outboxCounts.find((r) => r.status === "pending")?.n ?? 0,
@@ -203,11 +232,39 @@ export default async function AdminClinicDetailPage({
       failed: outboxCounts.find((r) => r.status === "failed")?.n ?? 0,
       recent: outboxRows,
     };
+    const agent = agentStatusRow[0]
+      ? {
+          lastHeartbeatAt: agentStatusRow[0].lastHeartbeatAt,
+          agentVersion: agentStatusRow[0].agentVersion,
+          failedEvents: agentStatusRow[0].failedEvents,
+          oldestFailedAt: agentStatusRow[0].oldestFailedAt,
+          lastFailureReason: agentStatusRow[0].lastFailureReason,
+          recentReasons:
+            (agentStatusRow[0].recentReasons as Array<{
+              reason: string;
+              count: number;
+            }> | null) ?? [],
+          recentPruneSummaries: agentFailurePrunes.map((p) => {
+            const reasons =
+              (p.reasons as Array<{ reason: string; count: number }> | null) ??
+              [];
+            return {
+              id: p.id,
+              prunedCount: p.prunedCount,
+              prunedOldestAt: p.prunedOldestAt,
+              prunedNewestAt: p.prunedNewestAt,
+              topReason: reasons[0]?.reason ?? null,
+              reportedAt: p.reportedAt,
+            };
+          }),
+        }
+      : null;
     renderedTab = (
       <IntegrationenTab
         creds={creds}
         syncHistory={syncEvents}
         adsConversion={adsConversion}
+        agentStatus={agent}
       />
     );
   } else if (tab === "verwaltung") {

@@ -36,6 +36,35 @@ export async function POST(request: NextRequest) {
   const raw = await request.text();
   const sig = request.headers.get("x-eins-signature");
 
+  // P1-4: IP rate-limit FIRST, before JSON parse or DB hit. See the
+  // long-form rationale in /api/pvs/events/route.ts. Batch limit is
+  // tighter per-IP because a single batch carries up to 500 events, so
+  // the budget is "30 batches/minute = 15,000 events/minute" — more
+  // than any legitimate adapter needs and well above the per-clinic gate.
+  const ipRaw =
+    request.headers.get("x-forwarded-for") ??
+    request.headers.get("x-real-ip") ??
+    "";
+  const ip = ipRaw.split(",")[0]?.trim() || null;
+  if (ip) {
+    const ipRl = await rateLimit("pvs-events-batch-ip", ip, {
+      limit: 30,
+      windowSeconds: 60,
+    });
+    if (!ipRl.ok) {
+      return NextResponse.json(
+        { error: { code: "rate_limited" } },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(ipRl.resetInSeconds),
+            "X-PVS-RateLimit-Reason": "ip",
+          },
+        }
+      );
+    }
+  }
+
   let parsedJson: unknown;
   try {
     parsedJson = JSON.parse(raw);
@@ -70,9 +99,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Per-clinic rate limit. A typical initial-sync of 12 months × moderate
-  // clinic ≈ 10k events; at BATCH_MAX=500 that's 20 batches, well within
-  // 60/10min.
+  // Per-clinic rate limit (existing). IP-level gate above runs first.
   const rl = await rateLimit("pvs-events-batch", clinicId, {
     limit: 60,
     windowSeconds: 600,
@@ -82,7 +109,10 @@ export async function POST(request: NextRequest) {
       { error: { code: "rate_limited" } },
       {
         status: 429,
-        headers: { "Retry-After": String(rl.resetInSeconds) },
+        headers: {
+          "Retry-After": String(rl.resetInSeconds),
+          "X-PVS-RateLimit-Reason": "clinic",
+        },
       }
     );
   }
@@ -106,6 +136,7 @@ export async function POST(request: NextRequest) {
   // server-side and don't cause errors.
   let ingestedCount = 0;
   let dedupedCount = 0;
+  let quarantinedCount = 0;
   let errorCount = 0;
   const errors: Array<{ idx: number; reason: string }> = [];
 
@@ -126,6 +157,8 @@ export async function POST(request: NextRequest) {
     }
     if (result.status === "deduped") {
       dedupedCount += 1;
+    } else if (result.status === "quarantined") {
+      quarantinedCount += 1;
     } else {
       ingestedCount += 1;
     }
@@ -139,6 +172,7 @@ export async function POST(request: NextRequest) {
       batchSize: events.length,
       ingestedCount,
       dedupedCount,
+      quarantinedCount,
       errorCount,
     },
   });
@@ -148,6 +182,7 @@ export async function POST(request: NextRequest) {
       ok: true,
       ingested: ingestedCount,
       deduped: dedupedCount,
+      quarantined: quarantinedCount,
       errors: errors.slice(0, 50),
     },
     { status: 201 }

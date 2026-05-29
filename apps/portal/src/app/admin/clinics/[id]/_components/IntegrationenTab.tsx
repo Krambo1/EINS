@@ -37,17 +37,47 @@ export interface AdsConversionHealth {
   }>;
 }
 
+/**
+ * P2-2: agent heartbeat surface. Populated from pvs_agent_status; the
+ * "recent reasons" expander reads the JSONB column directly. Null when
+ * the agent has never sent a heartbeat (e.g. clinic without an on-prem
+ * install — cloud adapters don't produce this signal).
+ */
+export interface AgentStatusHealth {
+  lastHeartbeatAt: Date;
+  agentVersion: string | null;
+  failedEvents: number;
+  oldestFailedAt: Date | null;
+  lastFailureReason: string | null;
+  recentReasons: Array<{ reason: string; count: number }>;
+  /** Latest 5 prune roll-ups (most recent first). */
+  recentPruneSummaries: Array<{
+    id: string;
+    prunedCount: number;
+    prunedOldestAt: Date | null;
+    prunedNewestAt: Date | null;
+    topReason: string | null;
+    reportedAt: Date;
+  }>;
+}
+
+const ALERT_FAILED_THRESHOLD = 100;
+
 export function IntegrationenTab({
   creds,
   syncHistory,
   adsConversion,
+  agentStatus,
 }: {
   creds: Cred[];
   syncHistory: SyncEvent[];
   adsConversion: AdsConversionHealth;
+  agentStatus: AgentStatusHealth | null;
 }) {
   return (
     <div className="space-y-5">
+      {agentStatus !== null && <AgentStatusCard status={agentStatus} />}
+
       <Card className={GLOW_CARD}>
         <CardHeader>
           <CardTitle>Werbekonten</CardTitle>
@@ -250,6 +280,125 @@ function outboxTone(status: string): "good" | "neutral" | "warn" | "bad" {
     default:
       return "warn";
   }
+}
+
+function AgentStatusCard({ status }: { status: AgentStatusHealth }) {
+  // OutboxStat tone is good|neutral|bad — no separate "warn" bucket, so
+  // we map "some failures but under the alert threshold" to "neutral"
+  // and reserve "bad" for the alert threshold.
+  const failedTone: "good" | "neutral" | "bad" =
+    status.failedEvents >= ALERT_FAILED_THRESHOLD
+      ? "bad"
+      : status.failedEvents > 0
+        ? "neutral"
+        : "good";
+  // The heartbeat producer cadence is 60s. If the last heartbeat is
+  // older than 5 min, the agent is either offline or its Praxis-network
+  // is down — the operator should be alerted.
+  const heartbeatStale =
+    Date.now() - status.lastHeartbeatAt.getTime() > 5 * 60 * 1000;
+  return (
+    <Card className={GLOW_CARD}>
+      <CardHeader>
+        <CardTitle>GDT-Agent · Status</CardTitle>
+        <CardDescription>
+          Heartbeat alle 60 s vom On-Prem-Agent. Zeigt das Backlog an
+          dauerhaft fehlgeschlagenen Outbox-Zeilen (Dead-Letter) und die
+          häufigsten Fehlergründe. Beim Überschreiten von {ALERT_FAILED_THRESHOLD}{" "}
+          Zeilen wird die Praxis auf dem Admin-Dashboard hervorgehoben.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid grid-cols-3 gap-3 text-xs">
+          <OutboxStat
+            label="Dead-Letter"
+            value={status.failedEvents}
+            tone={failedTone}
+          />
+          <div className="rounded-md border border-border bg-bg-secondary/40 px-2.5 py-2">
+            <div className="text-fg-secondary">Letzter Heartbeat</div>
+            <div className={heartbeatStale ? "text-tone-bad" : "text-fg-primary"}>
+              <span className="text-sm font-semibold">
+                {formatRelative(status.lastHeartbeatAt)}
+              </span>
+              <div className="text-[10px] text-fg-tertiary">
+                v{status.agentVersion ?? "—"}
+              </div>
+            </div>
+          </div>
+          <div className="rounded-md border border-border bg-bg-secondary/40 px-2.5 py-2">
+            <div className="text-fg-secondary">Ältester Fehler</div>
+            <div className="text-fg-primary">
+              <span className="text-sm font-semibold">
+                {status.oldestFailedAt
+                  ? formatRelative(status.oldestFailedAt)
+                  : "—"}
+              </span>
+            </div>
+          </div>
+        </div>
+        {status.lastFailureReason && (
+          <div className="rounded-md border border-border bg-bg-secondary/40 px-3 py-2 text-xs">
+            <div className="text-fg-secondary">Letzter Grund</div>
+            <div className="mt-0.5 truncate font-mono text-fg-primary" title={status.lastFailureReason}>
+              {status.lastFailureReason}
+            </div>
+          </div>
+        )}
+        {status.recentReasons.length > 0 && (
+          <details className="rounded-md border border-border bg-bg-secondary/40 px-3 py-2 text-xs">
+            <summary className="cursor-pointer text-fg-secondary">
+              Letzte {Math.min(10, status.recentReasons.length)} Fehlergründe
+              anzeigen
+            </summary>
+            <ol className="mt-2 space-y-1">
+              {status.recentReasons.slice(0, 10).map((r, i) => (
+                <li key={i} className="flex items-baseline gap-2 border-l-2 border-border pl-3">
+                  <Badge tone="neutral" className="font-mono text-[10px]">
+                    ×{r.count}
+                  </Badge>
+                  <span className="truncate font-mono text-fg-primary" title={r.reason}>
+                    {r.reason}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </details>
+        )}
+        {status.recentPruneSummaries.length > 0 && (
+          <details className="rounded-md border border-border bg-bg-secondary/40 px-3 py-2 text-xs">
+            <summary className="cursor-pointer text-fg-secondary">
+              Dead-Letter-Prune-Historie ({status.recentPruneSummaries.length})
+            </summary>
+            <ol className="mt-2 space-y-1.5">
+              {status.recentPruneSummaries.map((p) => (
+                <li
+                  key={p.id}
+                  className="flex flex-wrap items-baseline gap-2 border-l-2 border-border pl-3"
+                >
+                  <span className="font-mono text-[11px] text-fg-tertiary">
+                    {formatDateTime(p.reportedAt)}
+                  </span>
+                  <Badge tone="warn">{p.prunedCount} gelöscht</Badge>
+                  {p.prunedOldestAt && p.prunedNewestAt && (
+                    <span className="text-fg-secondary">
+                      {formatDateTime(p.prunedOldestAt)} →{" "}
+                      {formatDateTime(p.prunedNewestAt)}
+                    </span>
+                  )}
+                  {p.topReason && (
+                    <span className="truncate font-mono text-fg-secondary" title={p.topReason}>
+                      {p.topReason}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </details>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 function summarizeOutboxBody(body: unknown): string {

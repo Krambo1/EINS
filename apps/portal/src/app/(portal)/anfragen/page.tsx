@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { requireSession } from "@/auth/guards";
-import { listRequests } from "@/server/queries/requests";
+import {
+  aiCategoryCounts,
+  listRequests,
+  nextCallQueueLeads,
+} from "@/server/queries/requests";
+import { dueFollowups } from "@/server/queries/followups";
 import { listTreatments } from "@/server/queries/treatments";
 import {
   Card,
@@ -19,6 +24,7 @@ import { formatDateTime, formatRelative } from "@/lib/formatting";
 import { AlertTriangle, Inbox, Sparkles } from "lucide-react";
 import { SourceLabel } from "@/app/_components/Brand";
 import { AnfragenFilters } from "./_components/AnfragenFilters";
+import { CallQueue } from "./_components/CallQueue";
 
 export const metadata = { title: "Anfragen" };
 
@@ -52,23 +58,48 @@ export default async function AnfragenPage({
   const aiFilter = params.aiCategory?.split(",").filter(Boolean) as AiCategory[] | undefined;
   const treatmentFilter = params.treatment?.split(",").filter(Boolean);
 
-  const [{ items, total }, treatments] = await Promise.all([
-    listRequests(
-      session.clinicId,
-      session.userId,
-      {
-        status: statusFilter,
-        source: sourceFilter,
-        aiCategory: aiFilter,
-        treatmentId: treatmentFilter,
-        search: params.search,
-        slaBreachedOnly: params.slaBreached === "1",
-        staleOnly: params.stale === "1",
-      },
-      { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }
-    ),
-    listTreatments(session.clinicId, session.userId),
-  ]);
+  // Call-queue is only useful when there are no filters applied — once the
+  // MFA filters down to "spam" or one specific treatment, surfacing a hero
+  // "Jetzt anrufen" card from a different priority slice would be misleading.
+  // Also frontdesk-only: Inhaber/Marketing don't make the calls.
+  const showCallQueue =
+    session.role === "frontdesk" &&
+    page === 1 &&
+    !statusFilter?.length &&
+    !sourceFilter?.length &&
+    !aiFilter?.length &&
+    !treatmentFilter?.length &&
+    !params.search &&
+    params.slaBreached !== "1" &&
+    params.stale !== "1";
+
+  const [{ items, total }, treatments, callQueue, aiCounts, dueList] =
+    await Promise.all([
+      listRequests(
+        session.clinicId,
+        session.userId,
+        {
+          status: statusFilter,
+          source: sourceFilter,
+          aiCategory: aiFilter,
+          treatmentId: treatmentFilter,
+          search: params.search,
+          slaBreachedOnly: params.slaBreached === "1",
+          staleOnly: params.stale === "1",
+        },
+        { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }
+      ),
+      listTreatments(session.clinicId, session.userId),
+      showCallQueue
+        ? nextCallQueueLeads(session.clinicId, session.userId, 6)
+        : Promise.resolve([]),
+      aiCategoryCounts(session.clinicId, session.userId),
+      showCallQueue
+        ? dueFollowups(session.clinicId, session.userId)
+        : Promise.resolve([]),
+    ]);
+
+  const isFrontdesk = session.role === "frontdesk";
 
   return (
     <div className="space-y-6">
@@ -76,7 +107,9 @@ export default async function AnfragenPage({
         <div>
           <h1 className="text-3xl font-semibold md:text-4xl">Anfragen.</h1>
           <p className="mt-2 text-base text-fg-primary md:text-lg">
-            Alle Patienten-Anfragen an einem Ort. Schnell reagieren, nichts vergessen.
+            {isFrontdesk
+              ? "Anfragen behandeln, anrufen und closen. Die heißesten zuerst."
+              : "Alle Patienten-Anfragen an einem Ort. Schnell reagieren, nichts vergessen."}
           </p>
         </div>
         <div className="text-sm text-fg-secondary">
@@ -86,8 +119,13 @@ export default async function AnfragenPage({
         </div>
       </header>
 
+      {showCallQueue && callQueue.length > 0 && (
+        <CallQueue leads={callQueue} dueCount={dueList.length} />
+      )}
+
       <AnfragenFilters
         treatments={treatments.map((t) => ({ id: t.id, name: t.name }))}
+        aiCounts={aiCounts}
       />
 
       {items.length === 0 ? (

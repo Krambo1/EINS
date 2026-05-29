@@ -18,26 +18,80 @@ import { parseLeadTokenFromBemerkung } from "@/server/pvs-token";
  *   token at lead-time. Falls to 0% for clinics where Direction A isn't
  *   wired (or the MFA didn't paste the token).
  *
- * Stage 3: Fuzzy
- *   Inline lookup on (clinicId, lower(email)). If email missing/no match,
- *   trigram match on phone + full_name + dob. Returns top-3 candidates
- *   ranked by combined score; only the top is auto-accepted iff score ≥
- *   AUTO_ACCEPT_SCORE. Lower scores produce a linking_failure row with
- *   the candidates for one-click resolution.
+ * Stage 3: Email-exact only auto-accept; fuzzy → review queue
+ *   The linker computes the same scored candidate set as before (email,
+ *   phone-exact / phone-trigram, name-trigram, dob match) so the operator
+ *   has a ranked list to choose from. BUT we no longer silently
+ *   auto-merge fuzzy matches at score ≥ 0.85: that threshold could collide
+ *   two patients named "Maria Müller" born the same year whose phones
+ *   trigram-matched ≥ 0.6, producing a permanent wrong-link that mis-
+ *   attributes revenue and ad-conversion fanout. (P1-1 hardening.)
+ *
+ *   Auto-accept rule (post P1-1):
+ *     • Exactly one candidate exists with email-exact match, AND
+ *     • that candidate's score is 1.0 (i.e. the email matches and no
+ *       other signal is in disagreement).
+ *   Anything else (including multi-email collisions, phone-trigram-only
+ *   matches, name+dob-only matches) creates a NEW patient row + map and
+ *   writes a linking_failure for one-click operator merge.
+ *
+ *   Trade-off: legitimate high-confidence-but-not-email matches that used
+ *   to auto-merge now produce a duplicate patient until the operator
+ *   triages. The plan accepts this: a small amount of operator time is
+ *   strictly cheaper than the failure mode where the wrong patient's
+ *   InvoicePaid stream funnels into someone else's lifetime revenue.
  *
  * All three stages preserve idempotency: re-running the linker for the same
  * (clinicId, pvsPatientId) does not create duplicate map rows (UNIQUE
  * constraint + ON CONFLICT DO UPDATE).
  */
 
-const AUTO_ACCEPT_SCORE = 0.85;
-
 export interface LinkCandidate {
   patientId: string;
   /** 0..1 weighted match score (higher = better match). */
   score: number;
+  /**
+   * Set to `true` when the candidate's email exactly matches the event
+   * email (case-insensitive). The auto-accept gate uses this structurally
+   * — we do NOT pattern-match on the `reason` string for that decision.
+   */
+  isEmailExact: boolean;
   /** Human-readable trace, e.g. "email exact + name 0.92 (trigram)". */
   reason: string;
+}
+
+// ---------------------------------------------------------------
+// chooseAutoAcceptCandidate — pure decision function (P1-1).
+// ---------------------------------------------------------------
+
+/**
+ * Apply the post-P1-1 auto-accept gate to a candidate list.
+ *
+ * Rule, in order:
+ *   1. There must be EXACTLY ONE candidate where `isEmailExact === true`.
+ *      Zero or two-plus email-exact matches return null (the latter is a
+ *      data-quality issue; we never want the linker to silently pick one
+ *      of N colliding emails for the operator).
+ *   2. That candidate's score must be >= 1.0. In the current scoring
+ *      formula, email-exact contributes exactly 1.0 and the raw score is
+ *      capped at 1.0, so any email-exact match satisfies this. The check
+ *      exists as future-proofing — if a future tuning lowers the email
+ *      weight, the auto-accept gate stays conservative without further
+ *      code changes.
+ *
+ * Pure function: no DB, no I/O, no schema dependency. Lives next to the
+ * caller so changing the rule is a one-place edit; exported so the
+ * adversarial fixture suite (pvs-linking.test.ts) can drive it without
+ * spinning up a Postgres.
+ */
+export function chooseAutoAcceptCandidate(
+  candidates: LinkCandidate[]
+): LinkCandidate | null {
+  const emailExact = candidates.filter((c) => c.isEmailExact);
+  if (emailExact.length !== 1) return null;
+  const winner = emailExact[0]!;
+  if (winner.score < 1.0) return null;
+  return winner;
 }
 
 // ---------------------------------------------------------------
@@ -142,18 +196,20 @@ export async function upsertPatientFromPvs(
     }
   }
 
-  // Stage 3: fuzzy candidates (email → phone+name+dob trigram).
+  // Stage 3: collect candidates (same scoring as before, used for the
+  // review-queue UI), then apply the P1-1 tightened auto-accept gate.
   const candidates = await findFuzzyCandidates(event);
-  const top = candidates[0];
-  if (top && top.score >= AUTO_ACCEPT_SCORE) {
+
+  const winner = chooseAutoAcceptCandidate(candidates);
+  if (winner) {
     await db
       .insert(schema.pvsPatientMap)
       .values({
         clinicId: event.clinicId,
         pvsPatientId: event.pvsPatientId,
-        portalPatientId: top.patientId,
-        linkMethod: "fuzzy",
-        confidenceScore: top.score.toFixed(2),
+        portalPatientId: winner.patientId,
+        linkMethod: "email_exact",
+        confidenceScore: "1.0",
       })
       .onConflictDoUpdate({
         target: [
@@ -161,23 +217,26 @@ export async function upsertPatientFromPvs(
           schema.pvsPatientMap.pvsPatientId,
         ],
         set: {
-          portalPatientId: top.patientId,
-          linkMethod: "fuzzy",
-          confidenceScore: top.score.toFixed(2),
+          portalPatientId: winner.patientId,
+          linkMethod: "email_exact",
+          confidenceScore: "1.0",
         },
       });
-    await mergePvsDataIntoPatient(top.patientId, event);
+    await mergePvsDataIntoPatient(winner.patientId, event);
     return {
-      portalPatientId: top.patientId,
-      method: "fuzzy",
-      candidates,
+      portalPatientId: winner.patientId,
+      method: "email_exact",
+      // No candidates returned on auto-accept: the caller uses this to
+      // decide whether to write a linking_failure (i.e. "operator should
+      // review"). For email-exact wins, no review needed.
+      candidates: [],
     };
   }
 
-  // No confident match — but we still want a patient row for this PVS
-  // patient so downstream status-derive works. Create one and link it.
-  // The linking_failures row (recorded by the caller) flags this for the
-  // Praxis to merge later if it turns out to be a duplicate.
+  // No confident match — create a fresh patient + map so events keep
+  // flowing. If we found candidates (incl. multi-email-exact ambiguity,
+  // phone+name+dob fuzzy, etc.) we return them so the caller writes a
+  // linking_failure for one-click operator merge.
   const newPatientId = await createPatientFromPvs(event);
   await db.insert(schema.pvsPatientMap).values({
     clinicId: event.clinicId,
@@ -187,9 +246,6 @@ export async function upsertPatientFromPvs(
     confidenceScore: "1.0",
   });
 
-  // If we DID find low-confidence candidates, record them on the failure
-  // row so the Praxis can choose to merge. If we found nothing, no failure
-  // entry is needed.
   return {
     portalPatientId: newPatientId,
     method: "external_id",
@@ -310,6 +366,7 @@ async function findFuzzyCandidates(
     id: string;
     score: number;
     reason: string;
+    is_email_exact: boolean;
   }>(sql`
     WITH scored AS (
       SELECT
@@ -340,6 +397,10 @@ async function findFuzzyCandidates(
         ) AS raw_score,
         (
           CASE WHEN ${emailLower}::text IS NOT NULL AND lower(p.email::text) = ${emailLower}::text
+               THEN TRUE ELSE FALSE END
+        ) AS is_email_exact,
+        (
+          CASE WHEN ${emailLower}::text IS NOT NULL AND lower(p.email::text) = ${emailLower}::text
                THEN 'email exact' ELSE '' END
         ) AS email_reason
       FROM patients p
@@ -354,16 +415,18 @@ async function findFuzzyCandidates(
     SELECT
       id,
       LEAST(1.0, raw_score) AS score,
-      email_reason AS reason
+      email_reason AS reason,
+      is_email_exact
     FROM scored
     WHERE raw_score > 0
     ORDER BY raw_score DESC
-    LIMIT 3
+    LIMIT 5
   `);
 
   return rows.map((r) => ({
     patientId: r.id,
     score: Number(r.score),
+    isEmailExact: Boolean(r.is_email_exact),
     reason: r.reason || buildReason(event),
   }));
 }

@@ -7,7 +7,7 @@ import { requireSession } from "@/auth/guards";
 import { withClinicContext, db, schema } from "@/db/client";
 import { writeAudit } from "@/server/audit";
 import { can, ForbiddenError } from "@/lib/roles";
-import { getEmailSender } from "@/server/email";
+import { getEmailSender, renderEmailLayout } from "@/server/email";
 
 const Input = z.object({
   libraryId: z.string().uuid(),
@@ -86,20 +86,46 @@ export async function requestAnimationCustomizationAction(formData: FormData) {
       .from(schema.animationLibrary)
       .where(eq(schema.animationLibrary.id, input.libraryId))
       .limit(1);
-    const subject = `Animations-Anpassung angefragt: ${clinic?.displayName ?? session.clinicId}`;
+    const clinicLabel = clinic?.displayName ?? session.clinicId;
+    const animationLabel = library?.title ?? input.libraryId;
+    const subject = `EINS · Animations-Anfrage aus ${clinicLabel}`;
     const text = [
       subject,
       "",
-      `Praxis:     ${clinic?.displayName ?? session.clinicId}`,
+      `Praxis:     ${clinicLabel}`,
       `Nutzer:     ${session.email}`,
-      `Animation:  ${library?.title ?? input.libraryId}`,
+      `Animation:  ${animationLabel}`,
       `Notiz:      ${input.note ?? "(keine)"}`,
     ].join("\n");
+    const escapedNote = input.note
+      ? input.note
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\n/g, "<br>")
+      : null;
+    const noteBlock = escapedNote
+      ? `<blockquote style="margin:0 0 32px 0; padding:18px 20px; background:#f5f5f7; border-left:3px solid #58BAB5; border-radius:0 8px 8px 0; color:#10101a; font-size:15px; line-height:1.55; letter-spacing:0.012em;">${escapedNote}</blockquote>`
+      : `<p style="font-size:14px; line-height:1.55; color:#6a6a74; margin:0 0 32px 0; letter-spacing:0.012em;">Keine Notiz hinterlegt.</p>`;
+    const html = renderEmailLayout({
+      preheader: `${clinicLabel} möchte ${animationLabel} angepasst haben.`,
+      heading: `Animations-Anfrage aus ${clinicLabel}`,
+      introHtml: `<p style="font-size:16px; line-height:1.55; color:#4a4a52; margin:0 0 28px 0; letter-spacing:0.012em;">Neue Anpassungs-Anfrage aus dem Portal.</p>`,
+      customBlockHtml: noteBlock,
+      auditRows: [
+        { label: "Animation", value: animationLabel },
+        { label: "Nutzer", value: session.email },
+      ],
+      footerLines: [
+        "Interne Benachrichtigung · EINS Portal",
+        "Diese E-Mail wurde automatisch versendet. Bitte antworten Sie nicht direkt.",
+      ],
+    });
     await getEmailSender().send({
       to: "team@eins.ag",
       subject,
       text,
-      html: `<pre style="font-family:inherit; white-space:pre-wrap">${text}</pre>`,
+      html,
     });
   } catch {
     // Swallow — the request is persisted.

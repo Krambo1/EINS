@@ -152,8 +152,9 @@ export async function POST(request: NextRequest) {
       writeAudit({
         clinicId: parsed.clinicId,
         action: "patient_event",
-        entityKind: "request_recall",
-        entityId: "recallId" in result ? result.recallId : undefined,
+        entityKind: "review_request",
+        entityId:
+          "reviewRequestId" in result ? result.reviewRequestId : undefined,
         diff: { eventKind: parsed.eventKind, status: result.status },
         requestMeta,
       })

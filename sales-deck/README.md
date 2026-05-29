@@ -1,4 +1,4 @@
-# EINS Visuals — Sales Deck
+# EINS — Sales Deck
 
 `EINS-Strategievorschlag-TEMPLATE.pptx` ist ein 15-Folien-Verkaufsdeck für Strategiegespräche mit Klinik-Inhabern im DACH-Raum. Der Founder geht das Deck live mit dem Interessenten durch.
 
@@ -74,7 +74,7 @@ pip install python-pptx Pillow
 | Onboarding-Timeline | `apps/website/lib/timeline-data.ts` |
 | 72%-Zahl (Folie 6) | rater8 Healthcare Trends 2025 (Notion `Statistiken` #8) |
 | Brand-Tokens (Farben, Schriften) | Notion `Branding` |
-| Positionierung, ICP, Pricing | Notion `EINS VISUALS Grundlagen`, `[Intern] Angebot (Schönheitskliniken)` |
+| Positionierung, ICP, Pricing | Notion `EINS Grundlagen`, `[Intern] Angebot (Schönheitskliniken)` |
 | Voice-Regeln (Sie-Form, keine Em-Dashes, keine „Pilot"-Sprache) | Notion `Branding` + Handoff `2026-04-27-0227` |
 
 ## Animations-Hinweise (in PowerPoint nachjustieren)

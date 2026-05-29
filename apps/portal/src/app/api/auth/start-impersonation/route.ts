@@ -3,6 +3,8 @@ import { eq } from "drizzle-orm";
 import { consumeImpersonationToken } from "@/auth/impersonation";
 import { db, schema } from "@/db/client";
 import { writeAudit } from "@/server/audit";
+import { defaultLandingPath } from "@/lib/roles";
+import type { Role } from "@/lib/constants";
 
 /**
  * Clinic-host landing endpoint for the admin "View as user" flow.
@@ -32,11 +34,22 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   // Look up admin email for the audit row — diff carries the rest.
-  const [admin] = await db
-    .select({ email: schema.adminUsers.email })
-    .from(schema.adminUsers)
-    .where(eq(schema.adminUsers.id, result.adminId))
-    .limit(1);
+  // Same query also fetches the target user's role so the post-audit redirect
+  // honours role-based landing (frontdesk → /anfragen, others → /dashboard).
+  const [admin, target] = await Promise.all([
+    db
+      .select({ email: schema.adminUsers.email })
+      .from(schema.adminUsers)
+      .where(eq(schema.adminUsers.id, result.adminId))
+      .limit(1)
+      .then((rows) => rows[0] ?? null),
+    db
+      .select({ role: schema.clinicUsers.role })
+      .from(schema.clinicUsers)
+      .where(eq(schema.clinicUsers.id, result.targetUserId))
+      .limit(1)
+      .then((rows) => rows[0] ?? null),
+  ]);
 
   await writeAudit({
     clinicId: result.clinicId,
@@ -53,5 +66,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     },
   });
 
-  return NextResponse.redirect(new URL("/dashboard", req.nextUrl.origin));
+  return NextResponse.redirect(
+    new URL(
+      defaultLandingPath(target?.role as Role | null | undefined),
+      req.nextUrl.origin
+    )
+  );
 }

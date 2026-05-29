@@ -16,7 +16,7 @@ ob:
 * der Vendor cloud-only arbeitet (dann nutzen wir den REST-Adapter-
   Pfad statt des On-Prem-Agents).
 
-Karam (EINS Visuals) hat den direkten Vendor-Kanal; Anfrage-Vorlage
+Karam (EINS) hat den direkten Vendor-Kanal; Anfrage-Vorlage
 unter `apps/bridge/docs/onboarding-per-vendor/pixelmedics-vendor-inquiry.md`.
 Erste Antwort genuegt, um die richtige Spur (SQLite vs. anderer Engine
 vs. Cloud-REST) festzulegen.

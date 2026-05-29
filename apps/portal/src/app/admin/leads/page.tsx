@@ -112,9 +112,9 @@ export default async function AdminLeadsPage({ searchParams }: PageProps) {
           sublabel="im aktuellen Filter"
         />
         <MetricTile
-          label="Qualifiziert"
-          value={formatNumber(result.aggregates.qualified)}
-          sublabel="≥ qualifiziert"
+          label="Im Funnel"
+          value={formatNumber(result.aggregates.inFunnel)}
+          sublabel="Termin vereinbart oder weiter"
         />
         <MetricTile
           label="Gewonnen"

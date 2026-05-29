@@ -47,6 +47,35 @@ export async function POST(request: NextRequest) {
   }
   const body = parsed.data;
 
+  const remoteIp =
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    request.headers.get("x-real-ip") ||
+    null;
+
+  // P1-4: per-IP gate BEFORE the per-clinic gate. The clinicId is in the
+  // body of every install command we hand out, so an attacker who reads
+  // (or guesses) one could otherwise burn a clinic's 10/10min budget at
+  // will. Per-IP is the cheap first line of defence — keyed only on the
+  // requester's address, no body read required.
+  if (remoteIp) {
+    const ipRl = await rateLimit("pvs-agent-enroll-ip", remoteIp, {
+      limit: 20,
+      windowSeconds: 600,
+    });
+    if (!ipRl.ok) {
+      return NextResponse.json(
+        { error: { code: "rate_limited" } },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(ipRl.resetInSeconds),
+            "X-PVS-RateLimit-Reason": "ip",
+          },
+        }
+      );
+    }
+  }
+
   const rl = await rateLimit("pvs-agent-enroll", body.clinicId, {
     limit: 10,
     windowSeconds: 600,
@@ -56,15 +85,13 @@ export async function POST(request: NextRequest) {
       { error: { code: "rate_limited" } },
       {
         status: 429,
-        headers: { "Retry-After": String(rl.resetInSeconds) },
+        headers: {
+          "Retry-After": String(rl.resetInSeconds),
+          "X-PVS-RateLimit-Reason": "clinic",
+        },
       }
     );
   }
-
-  const remoteIp =
-    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    request.headers.get("x-real-ip") ||
-    null;
 
   const result = await redeemAgentEnrollment({
     clinicId: body.clinicId,
@@ -83,11 +110,22 @@ export async function POST(request: NextRequest) {
         machineFingerprint: body.machineFingerprint,
       },
     });
-    // Return a generic error to avoid leaking which check failed. The
-    // specific reason is in the audit log above for ops debugging; the
-    // wire-level response stays opaque so token-spray attacks can't
-    // distinguish "wrong token" from "token expired" from "wrong machine
-    // fingerprint" — all of which would help an attacker iterate.
+    // P1-3: vendor_switch_requires_confirmation is a configuration error
+    // the operator needs to see — there's no security benefit to opacity
+    // here because the attacker would have had to present a valid token
+    // for THIS clinic to even reach this check (the token itself is the
+    // secret). Surface 409 with the specific reason so the agent's
+    // installer can render a helpful error.
+    //
+    // Every OTHER failure reason stays behind the opaque 401 because
+    // distinguishing "wrong token" from "expired token" from "wrong
+    // fingerprint" would help a token-spray attacker iterate.
+    if (result.reason === "vendor_switch_requires_confirmation") {
+      return NextResponse.json(
+        { error: { code: "vendor_switch_requires_confirmation" } },
+        { status: 409 }
+      );
+    }
     return NextResponse.json(
       { error: { code: "enrollment_failed" } },
       { status: 401 }

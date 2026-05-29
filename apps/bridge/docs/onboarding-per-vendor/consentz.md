@@ -19,7 +19,7 @@ Credentials werden pro Praxis durch den Consentz-Support ausgestellt.
 
 1. Email an `support@consentz.com` mit folgendem Inhalt:
 
-   > Betreff: API access request: read-only sync to EINS Visuals
+   > Betreff: API access request: read-only sync to EINS
    >
    > Hello Consentz team,
    >

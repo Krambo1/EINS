@@ -477,6 +477,11 @@ export function foldEvents(
     }
   }
 
+  // #10: map each invoice (pvsInvoiceId) to the appointment it landed on, so a
+  // later InvoiceRefunded keyed only by pvsInvoiceId can net the same bucket.
+  // null = the invoice was appt-less (patient-level only).
+  const invoiceApptIndex = new Map<string, string | null>();
+
   const ensure = (id: string): AppointmentBucket => {
     let b = byAppt.get(id);
     if (!b) {
@@ -567,6 +572,25 @@ export function foldEvents(
             paidAt: paid,
           });
         }
+        // #10: record the appointment (or null) this invoice landed on, so a
+        // later InvoiceRefunded carrying only pvsInvoiceId nets the same bucket.
+        invoiceApptIndex.set(payload.pvsInvoiceId, apptId ?? null);
+        break;
+      }
+      case "InvoiceRefunded": {
+        // #10: money out. Subtract from the patient total and, where the
+        // appointment is resolvable (explicit, or via the original invoice's
+        // pvsInvoiceId), from that bucket too, so request-level revenue and the
+        // gewonnen status net down. The ads-platform refund/adjustment is a
+        // follow-up; v1 corrects the dashboard numbers.
+        invoiceTotalsCents -= payload.refundedAmountCents;
+        const refundApptId =
+          payload.pvsAppointmentId ??
+          invoiceApptIndex.get(payload.pvsInvoiceId) ??
+          null;
+        if (refundApptId) {
+          ensure(refundApptId).invoiceCents -= payload.refundedAmountCents;
+        }
         break;
       }
       case "PatientMerged": {
@@ -577,6 +601,14 @@ export function foldEvents(
       default:
         break;
     }
+  }
+
+  // #10: a refund can only drive a total or bucket below zero if we never saw
+  // the original payment (e.g. it was attributed to a different pvs id before a
+  // merge). Clamp so revenue never reads negative.
+  if (invoiceTotalsCents < 0) invoiceTotalsCents = 0;
+  for (const b of byAppt.values()) {
+    if (b.invoiceCents < 0) b.invoiceCents = 0;
   }
 
   return { byAppt, invoiceTotalsCents, minOccurredAt: minAt, maxOccurredAt: maxAt, hadMerge };

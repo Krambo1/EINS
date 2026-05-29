@@ -25,7 +25,6 @@ export function ActivityTab({ data }: { data: ClinicActivity }) {
               <thead className="text-left text-xs text-fg-secondary">
                 <tr>
                   <th className="py-2">E-Mail</th>
-                  <th className="py-2">MFA</th>
                   <th className="py-2 text-right">Letzter Login</th>
                 </tr>
               </thead>
@@ -33,13 +32,6 @@ export function ActivityTab({ data }: { data: ClinicActivity }) {
                 {data.logins.map((u) => (
                   <tr key={u.userId} className="border-t border-border">
                     <td className="py-2 font-mono text-xs">{u.email}</td>
-                    <td className="py-2">
-                      {u.mfaEnrolled ? (
-                        <Badge tone="good">Aktiv</Badge>
-                      ) : (
-                        <Badge tone="warn">Fehlt</Badge>
-                      )}
-                    </td>
                     <td className="py-2 text-right text-xs text-fg-secondary">
                       {u.lastLoginAt ? formatRelative(u.lastLoginAt) : "nie"}
                     </td>

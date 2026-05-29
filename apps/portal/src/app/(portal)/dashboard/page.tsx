@@ -1,16 +1,17 @@
 import { Suspense } from "react";
 import { requireSession } from "@/auth/guards";
 import {
-  currentMonthSummary,
   currentGoals,
   kpiSummary,
+  kpiSummaryUncached,
 } from "@/server/queries/kpis";
 import {
   requestStatusCounts,
   slaBreachedCount,
-  totalRequestsInRangeWithComparison,
-  qualifiedLeadsInRangeWithComparison,
+  leadsInRangeWithComparison,
+  openLeadsForDashboard,
 } from "@/server/queries/requests";
+import { bySource } from "@/server/queries/attribution";
 import { getClinicRelationshipStart } from "@/server/queries/clinic";
 import {
   DASHBOARD_RANGE_KEYS,
@@ -61,9 +62,8 @@ export default async function DashboardPage({
   const leadsRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.leads]);
   const revenueRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.revenue]);
   const openRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.open]);
-  const totalRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.total]);
-  const staffRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.staff]);
   const sourcesRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.sources]);
+  const funnelRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.funnel]);
 
   const now = new Date();
   const greeting = germanGreeting(now);
@@ -101,7 +101,7 @@ export default async function DashboardPage({
           leadsRange={leadsRange}
           revenueRange={revenueRange}
           openRange={openRange}
-          totalRange={totalRange}
+          sourcesRange={sourcesRange}
         />
       </Suspense>
 
@@ -128,8 +128,7 @@ export default async function DashboardPage({
         <DashboardDetailLoader
           clinicId={session.clinicId}
           userId={session.userId}
-          staffRange={staffRange}
-          sourcesRange={sourcesRange}
+          funnelRange={funnelRange}
         />
       </Suspense>
     </div>
@@ -142,31 +141,32 @@ async function DashboardTopMetricsLoader({
   leadsRange,
   revenueRange,
   openRange,
-  totalRange,
+  sourcesRange,
 }: {
   clinicId: string;
   userId: string;
   leadsRange: DashboardRange;
   revenueRange: DashboardRange;
   openRange: DashboardRange;
-  totalRange: DashboardRange;
+  sourcesRange: DashboardRange;
 }) {
   const leadsWindow = dashboardRangeWindow(leadsRange);
   const revenueWindow = dashboardRangeWindow(revenueRange);
   const openWindow = dashboardRangeWindow(openRange);
-  const totalWindow = dashboardRangeWindow(totalRange);
+  const sourcesWindow = dashboardRangeWindow(sourcesRange);
 
   const [
     leadsBreakdown,
     revenueSummary,
     openSummary,
-    totalSummary,
+    sourceBreakdown,
     goals,
     statusCounts,
     slaBreaches,
     relationshipStartedAt,
+    openLeads,
   ] = await Promise.all([
-    qualifiedLeadsInRangeWithComparison(
+    leadsInRangeWithComparison(
       clinicId,
       userId,
       leadsWindow.from,
@@ -177,23 +177,21 @@ async function DashboardTopMetricsLoader({
     // explicit tradeoff for cutting two ~340 ms calls per dashboard render.
     kpiSummary(clinicId, userId, revenueWindow.from, revenueWindow.to),
     kpiSummary(clinicId, userId, openWindow.from, openWindow.to),
-    totalRequestsInRangeWithComparison(
-      clinicId,
-      userId,
-      totalWindow.from,
-      totalWindow.to
-    ),
+    bySource(clinicId, userId, sourcesWindow.from, sourcesWindow.to),
     currentGoals(clinicId, userId),
     requestStatusCounts(clinicId, userId),
     slaBreachedCount(clinicId, userId),
     getClinicRelationshipStart(clinicId),
+    // Top-N open Anfragen for the footer of the Offene-Anfragen tile.
+    // Same source-of-truth as the headline count (status='neu'), sorted by
+    // SLA-überfällig → oldest. Capped at 3; OpenLeadsList renders a "+N
+    // weitere" hint when the headline count exceeds the listed rows.
+    openLeadsForDashboard(clinicId, userId, 3),
   ]);
 
-  const leadsGoal = goals.find((g) => g.metric === "qualified_leads");
+  const leadsGoal = goals.find((g) => g.metric === "leads");
   const revenueGoal = goals.find((g) => g.metric === "revenue");
-  const totalGoal = goals.find((g) => g.metric === "total_requests");
-  const openRequests =
-    (statusCounts.neu ?? 0) + (statusCounts.qualifiziert ?? 0);
+  const openRequests = statusCounts.neu ?? 0;
 
   return (
     <DashboardTopMetricsEnhanced
@@ -202,17 +200,17 @@ async function DashboardTopMetricsLoader({
       leadsBreakdown={leadsBreakdown}
       revenueSummary={revenueSummary}
       openSummary={openSummary}
-      totalSummary={totalSummary}
+      sourceBreakdown={sourceBreakdown}
       slaBreaches={slaBreaches}
       openRequests={openRequests}
       leadsGoal={leadsGoal}
       revenueGoal={revenueGoal}
-      totalGoal={totalGoal}
       leadsRange={leadsRange}
       revenueRange={revenueRange}
       openRange={openRange}
-      totalRange={totalRange}
+      sourcesRange={sourcesRange}
       relationshipStartedAt={relationshipStartedAt}
+      openLeads={openLeads}
     />
   );
 }
@@ -220,22 +218,31 @@ async function DashboardTopMetricsLoader({
 async function DashboardDetailLoader({
   clinicId,
   userId,
-  staffRange,
-  sourcesRange,
+  funnelRange,
 }: {
   clinicId: string;
   userId: string;
-  staffRange: DashboardRange;
-  sourcesRange: DashboardRange;
+  funnelRange: DashboardRange;
 }) {
-  const summary = await currentMonthSummary(clinicId, userId);
+  // Funnel card now owns its own time window via the rFunnel param. The
+  // dashboard's freshness contract is "today's numbers within seconds", so
+  // we go through kpiSummaryUncached for both current and prior — the prior
+  // is needed for the cost-per-lead delta chip on the funnel footer.
+  const win = dashboardRangeWindow(funnelRange);
+  const lengthMs = win.to.getTime() - win.from.getTime();
+  const priorTo = new Date(win.from.getTime() - 1);
+  const priorFrom = new Date(priorTo.getTime() - lengthMs);
+  const [summary, priorSummary] = await Promise.all([
+    kpiSummaryUncached(clinicId, userId, win.from, win.to),
+    kpiSummaryUncached(clinicId, userId, priorFrom, priorTo),
+  ]);
   return (
     <DashboardDetailBundle
       clinicId={clinicId}
       userId={userId}
       summary={summary}
-      staffRange={staffRange}
-      sourcesRange={sourcesRange}
+      priorSummary={priorSummary}
+      funnelRange={funnelRange}
     />
   );
 }
@@ -250,7 +257,11 @@ function TopMetricsSkeleton() {
       {Array.from({ length: 4 }).map((_, i) => (
         <div
           key={i}
-          className="h-44 animate-pulse rounded-2xl border border-border bg-bg-secondary/40"
+          className="h-44 animate-pulse rounded-2xl border border-border"
+          style={{
+            backgroundColor: "var(--bg-card)",
+            boxShadow: "var(--shadow-card)",
+          }}
         />
       ))}
     </section>

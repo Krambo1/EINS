@@ -13,6 +13,14 @@ export const env = createEnv({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     APP_ORIGIN: z.string().url().default("http://localhost:3001"),
     /**
+     * Origin for admin-host URLs (admin magic-links, password reset). The
+     * middleware host-gates `/admin/*` off any non-admin host, so admin
+     * emails MUST be issued against the admin host or they 404 on click.
+     * If unset, we derive it from APP_ORIGIN by prepending `admin.`; see
+     * `adminOrigin()` below.
+     */
+    ADMIN_ORIGIN: z.string().url().optional(),
+    /**
      * Default clinic-landing origin used when a clinic has not set
      * `reviewLandingOrigin`. Patient review-request emails embed rating
      * links of the form `${origin}/r/${token}`.
@@ -34,6 +42,15 @@ export const env = createEnv({
     RESEND_API_KEY: z.string().optional(),
     EMAIL_FROM: z.string().default("EINS <team@eins.ag>"),
     EMAIL_DRIVER: z.enum(["console", "resend", "mailhog"]).default("console"),
+    /**
+     * Public URL for the EINS wordmark PNG referenced in every email layout.
+     * Defaults to `${APP_ORIGIN}/eins-logo.png`, but in dev APP_ORIGIN is
+     * `http://localhost:3001` which Gmail / Apple Mail / Outlook image
+     * proxies cannot reach, so the logo renders as a broken-image
+     * placeholder. Override this in `.env.local` (and prod) with a public
+     * URL like `https://eins.ag/eins-logo.png` so the image actually loads.
+     */
+    EMAIL_LOGO_URL: z.string().url().optional(),
 
     // Storage
     STORAGE_DRIVER: z.enum(["local", "r2"]).default("local"),
@@ -124,6 +141,7 @@ export const env = createEnv({
   runtimeEnv: {
     NODE_ENV: process.env.NODE_ENV,
     APP_ORIGIN: process.env.APP_ORIGIN,
+    ADMIN_ORIGIN: process.env.ADMIN_ORIGIN,
     CLINIC_LANDING_ORIGIN: process.env.CLINIC_LANDING_ORIGIN,
     DATABASE_URL: process.env.DATABASE_URL,
     DATABASE_URL_APP: process.env.DATABASE_URL_APP,
@@ -133,6 +151,7 @@ export const env = createEnv({
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     EMAIL_FROM: process.env.EMAIL_FROM,
     EMAIL_DRIVER: process.env.EMAIL_DRIVER,
+    EMAIL_LOGO_URL: process.env.EMAIL_LOGO_URL,
     STORAGE_DRIVER: process.env.STORAGE_DRIVER,
     R2_ACCESS_KEY_ID: process.env.R2_ACCESS_KEY_ID,
     R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY,
@@ -165,6 +184,44 @@ export const env = createEnv({
   emptyStringAsUndefined: true,
   skipValidation: process.env.SKIP_ENV_VALIDATION === "1",
 });
+
+/**
+ * Origin for admin-host URLs. Prefer `ADMIN_ORIGIN` if set; otherwise derive
+ * by prepending `admin.` to the APP_ORIGIN host (stripping any existing
+ * `admin.` first to avoid stacking). Used by admin magic-link and admin
+ * password-reset email URLs: the middleware host-gates `/admin/*` off the
+ * non-admin host, so issuing those URLs against APP_ORIGIN 404s on click.
+ */
+export function adminOrigin(): string {
+  if (env.ADMIN_ORIGIN) return env.ADMIN_ORIGIN.replace(/\/$/, "");
+  const u = new URL(env.APP_ORIGIN);
+  const bareHost = u.host.replace(/^admin\./i, "");
+  return `${u.protocol}//admin.${bareHost}`;
+}
+
+/**
+ * Public URL for the EINS wordmark used in transactional emails. Falls back
+ * to `${APP_ORIGIN}/eins-logo.png`, but APP_ORIGIN in dev is localhost which
+ * Gmail / Apple Mail image proxies cannot reach. Set EMAIL_LOGO_URL in
+ * `.env.local` (and prod) to a publicly reachable URL.
+ */
+export function emailLogoUrl(): string {
+  if (env.EMAIL_LOGO_URL) return env.EMAIL_LOGO_URL;
+  return `${env.APP_ORIGIN}/eins-logo.png`;
+}
+
+/**
+ * Sibling URL for the rounded rating-star SVG used in the review-request
+ * email. Derives from EMAIL_LOGO_URL when set (same hosting bucket) and
+ * falls back to APP_ORIGIN for local dev. If you point EMAIL_LOGO_URL at a
+ * CDN, make sure star-rating.svg is uploaded alongside eins-logo.png.
+ */
+export function emailStarUrl(): string {
+  if (env.EMAIL_LOGO_URL) {
+    return env.EMAIL_LOGO_URL.replace(/[^/]+$/, "star-rating.svg");
+  }
+  return `${env.APP_ORIGIN}/star-rating.svg`;
+}
 
 export function hasOpenAI(): boolean {
   return Boolean(env.OPENAI_API_KEY);

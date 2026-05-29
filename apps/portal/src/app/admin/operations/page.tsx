@@ -2,7 +2,6 @@ import { desc, eq, ne } from "drizzle-orm";
 import { requireAdmin } from "@/auth/admin-guards";
 import { db, schema } from "@/db/client";
 import {
-  inactiveTeamMembers,
   pendingOperationCounts,
   slaBreachQueue,
   stalledLeads,
@@ -12,7 +11,6 @@ import { AdminPageHeader } from "../_components/AdminPageHeader";
 import { SlaQueue } from "./_components/SlaQueue";
 import { AnimationenQueue } from "./_components/AnimationenQueue";
 import { SyncErrorsQueue } from "./_components/SyncErrorsQueue";
-import { MfaMissingQueue } from "./_components/MfaMissingQueue";
 import { StalledLeadsQueue } from "./_components/StalledLeadsQueue";
 import { SectionRail } from "./_components/SectionRail";
 
@@ -26,7 +24,6 @@ export default async function AdminOperationsPage() {
     sla,
     animations,
     syncs,
-    mfa,
     stalled,
   ] = await Promise.all([
     pendingOperationCounts(),
@@ -61,11 +58,9 @@ export default async function AdminOperationsPage() {
       .where(ne(schema.animationInstances.status, "ready"))
       .orderBy(desc(schema.animationInstances.requestedAt)),
     syncErrorList(),
-    inactiveTeamMembers(),
     stalledLeads(30),
   ]);
 
-  // Filter animations to only "open" states for the queue (not "standard" or "ready").
   const openAnimations = animations.filter(
     (a) => a.status === "requested" || a.status === "in_production"
   );
@@ -78,7 +73,6 @@ export default async function AdminOperationsPage() {
       count: counts.animationsRequested + counts.animationsInProduction,
     },
     { id: "sync-fehler", label: "Sync-Fehler", count: counts.syncErrors },
-    { id: "mfa", label: "MFA fehlt", count: counts.mfaMissing },
     {
       id: "stagnierte",
       label: "Stagnierte Leads",
@@ -99,7 +93,6 @@ export default async function AdminOperationsPage() {
           <SlaQueue rows={sla} />
           <AnimationenQueue rows={openAnimations} />
           <SyncErrorsQueue rows={syncs} />
-          <MfaMissingQueue rows={mfa} />
           <StalledLeadsQueue rows={stalled} />
         </div>
       </div>

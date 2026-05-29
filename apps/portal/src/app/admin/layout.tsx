@@ -7,9 +7,11 @@ import { EinsLogo } from "@/app/_components/EinsLogo";
 import { ThemeToggle } from "@/app/_components/ThemeToggle";
 
 /**
- * Admin shell. Renders navigation only when a session exists; auth is
- * enforced per-page via `requireAdmin()` so unauthenticated visits to
- * /admin/login and /admin/login/callback don't infinite-redirect.
+ * Admin shell. Renders the nav chrome for authenticated app pages. Pre-auth
+ * routes (login, callback, forgot-password, set-password) render bare so the
+ * branded login card sits on a clean background instead of inside the
+ * "you're logged in" frame; auth is enforced per-page via `requireAdmin()`
+ * so unauthenticated visits don't infinite-redirect.
  */
 
 export const metadata = { title: "EINS Admin" };
@@ -23,6 +25,19 @@ const NAV_LINKS = [
   { href: "/admin/audit", label: "Audit" },
 ];
 
+const BARE_PATH_PREFIXES = [
+  "/admin/login",
+  "/admin/forgot-password",
+  "/admin/set-password",
+];
+
+function isBarePath(pathname: string | null): boolean {
+  if (!pathname) return false;
+  return BARE_PATH_PREFIXES.some(
+    (p) => pathname === p || pathname.startsWith(`${p}/`) || pathname.startsWith(`${p}?`)
+  );
+}
+
 export default async function AdminLayout({
   children,
 }: {
@@ -35,9 +50,10 @@ export default async function AdminLayout({
       ?.trim() || null;
   if (!isAllowedAdminIp(ip)) redirect("/");
 
+  const pathname = hdrs.get("x-portal-pathname");
   const session = await getAdminSession();
 
-  if (!session) {
+  if (!session || isBarePath(pathname)) {
     return (
       <div className="relative min-h-dvh bg-bg-primary">
         <div className="p-6 md:p-12">{children}</div>

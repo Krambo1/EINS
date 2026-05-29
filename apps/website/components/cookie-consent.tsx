@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Analytics } from "@vercel/analytics/next";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 const STORAGE_KEY = "eins-consent-v1";
 const OPEN_EVENT = "eins:open-consent";
@@ -72,8 +73,8 @@ export function CookieConsent() {
         >
           <div className="rounded-xl border border-border bg-bg-primary/95 p-3 shadow-[0_12px_40px_-16px_rgba(0,0,0,0.6)] backdrop-blur-md">
             <p className="text-[12px] leading-snug text-fg-primary">
-              Wir laden Vercel Analytics und Calendly nur mit Ihrer
-              Einwilligung.{" "}
+              Wir laden Vercel Analytics, Vercel Speed Insights und Calendly nur mit
+              Ihrer Einwilligung.{" "}
               <Link
                 href="/datenschutz"
                 className="text-fg-secondary underline-offset-4 hover:text-fg-primary hover:underline"
@@ -134,6 +135,7 @@ function ConsentGatedThirdParties() {
   return (
     <>
       <Analytics />
+      <SpeedInsights />
     </>
   );
 }

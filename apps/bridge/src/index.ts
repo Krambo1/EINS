@@ -1,3 +1,4 @@
+import "./load-env.js";
 import { env } from "./config.js";
 import { startInbound } from "./inbound/server.js";
 import { startScheduler } from "./sync/scheduler.js";

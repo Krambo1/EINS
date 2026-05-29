@@ -75,7 +75,7 @@ export default async function AuswertungPage({
     currentGoals(session.clinicId, session.userId),
   ]);
 
-  const leadsGoal = goals.find((g) => g.metric === "qualified_leads");
+  const leadsGoal = goals.find((g) => g.metric === "leads");
   const revenueGoal = goals.find((g) => g.metric === "revenue");
 
   return (
@@ -135,8 +135,8 @@ export default async function AuswertungPage({
         <FunnelStat
           label="Kosten je Anfrage"
           value={
-            summary.costPerQualifiedLead !== null
-              ? formatEuro(summary.costPerQualifiedLead)
+            summary.costPerLead !== null
+              ? formatEuro(summary.costPerLead)
               : "–"
           }
         />

@@ -138,10 +138,10 @@ export const clinicUsers = pgTable(
     /** Bumped on every avatar upload — drives the `?v=` cache-buster. */
     avatarUpdatedAt: timestamp("avatar_updated_at", { withTimezone: true }),
     role: text("role").notNull(),
-    mfaEnrolled: boolean("mfa_enrolled").notNull().default(false),
-    mfaSecretEnc: bytea("mfa_secret_enc"),
-    // Backup codes are stored as argon2-hashed tokens in a jsonb array.
-    mfaBackupCodes: jsonb("mfa_backup_codes").default(sql`'[]'::jsonb`),
+    /** Argon2id password hash. NULL = noch kein Passwort gesetzt
+     *  (Backfill-Pfad: erster Login-Versuch löst Set-Password-Mail aus). */
+    passwordHash: text("password_hash"),
+    passwordSetAt: timestamp("password_set_at", { withTimezone: true }),
     invitedAt: timestamp("invited_at", { withTimezone: true }),
     invitationTokenHash: text("invitation_token_hash"),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
@@ -174,7 +174,6 @@ export const sessions = pgTable(
       .notNull()
       .references(() => clinicUsers.id, { onDelete: "cascade" }),
     tokenHash: text("token_hash").notNull().unique(),
-    mfaVerified: boolean("mfa_verified").notNull().default(false),
     /** Set when an admin "View as user" session opened this row. */
     impersonatedByAdminId: uuid("impersonated_by_admin_id").references(
       (): AnyPgColumn => adminUsers.id,
@@ -273,8 +272,6 @@ export const treatments = pgTable(
     slug: text("slug").notNull(),
     isActive: boolean("is_active").notNull().default(true),
     displayOrder: integer("display_order").notNull().default(0),
-    /** Default recall horizon, e.g. 6 = recall the patient 6 months after wonAt. */
-    defaultRecallMonths: integer("default_recall_months"),
     /** Loose freetext keywords (lowercase, comma-separated) used by the keyword classifier. */
     keywords: text("keywords"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -432,10 +429,16 @@ export const reviews = pgTable(
 );
 
 // ---------------------------------------------------------------
-// REQUEST_RECALLS (recall / followup / review-request scheduling)
+// REVIEW_EMAIL_SCHEDULE — Bewertungsanfrage-Email-Versand-Plan.
+// One row per scheduled review-request email, tracking the per-token
+// lifecycle: scheduled → sent → rating clicked → public CTA → private
+// feedback. The `kind` column survives as a single-value constraint
+// (`'review_request'`) so historical queries still parse; it has no
+// other valid value. Recalls / Wiedervorlage live in the PVS, never
+// here.
 // ---------------------------------------------------------------
-export const requestRecalls = pgTable(
-  "request_recalls",
+export const reviewEmailSchedule = pgTable(
+  "review_email_schedule",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     clinicId: uuid("clinic_id")
@@ -488,27 +491,27 @@ export const requestRecalls = pgTable(
   },
   (t) => ({
     kindCheck: check(
-      "request_recalls_kind_check",
-      sql`${t.kind} IN ('recall','followup','review_request')`
+      "review_email_schedule_kind_check",
+      sql`${t.kind} = 'review_request'`
     ),
     statusCheck: check(
-      "request_recalls_status_check",
+      "review_email_schedule_status_check",
       sql`${t.status} IN ('pending','sent','completed','skipped')`
     ),
     ratingValueCheck: check(
-      "request_recalls_rating_value_check",
+      "review_email_schedule_rating_value_check",
       sql`${t.ratingValue} IS NULL OR (${t.ratingValue} BETWEEN 1 AND 5)`
     ),
     publicPlatformCheck: check(
-      "request_recalls_public_platform_check",
+      "review_email_schedule_public_platform_check",
       sql`${t.publicClickedPlatform} IS NULL OR ${t.publicClickedPlatform} IN ('google','jameda')`
     ),
-    clinicIdx: index("request_recalls_clinic_idx").on(
+    clinicIdx: index("review_email_schedule_clinic_idx").on(
       t.clinicId,
       t.scheduledFor
     ),
     // Drives the cron scanner WHERE kind='review_request' AND status='pending' AND scheduledFor <= today.
-    dueIdx: index("request_recalls_due_idx").on(
+    dueIdx: index("review_email_schedule_due_idx").on(
       t.kind,
       t.status,
       t.scheduledFor
@@ -566,12 +569,22 @@ export const requests = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /**
+     * Timestamp the request first transitioned out of `neu` (= MFA-Kontakt
+     * passierte, weil eine Buchung/Behandlung/no_show das logisch impliziert).
+     * Geschrieben von `pvs-status-derive.applyToRequest` beim ersten
+     * neu → * Move; einmalig gesetzt, danach nie überschrieben. Quelle für
+     * die Reaktionsmedian-KPI in `lifecycle.ts` und den SLA-Off-Switch in
+     * `sla-check.ts`.
+     *
+     * Spalten-Name aus historischen Gründen "first_contacted_at"; semantisch
+     * heute "first_actioned_at" (Option 1b, Mai 2026).
+     */
     firstContactedAt: timestamp("first_contacted_at", { withTimezone: true }),
     /**
      * Timestamp the first time any clinic user opened the request detail
-     * page. Distinct from `firstContactedAt` (SLA timer for outbound) —
-     * this is purely an "unread" tracker that drives the sidebar Anfragen
-     * badge. Set once, never updated.
+     * page. Distinct from `firstContactedAt` — this is purely an "unread"
+     * tracker that drives the sidebar Anfragen badge. Set once, never updated.
      */
     firstViewedAt: timestamp("first_viewed_at", { withTimezone: true }),
     wonAt: timestamp("won_at", { withTimezone: true }),
@@ -645,7 +658,7 @@ export const requests = pgTable(
     ),
     statusCheck: check(
       "requests_status_check",
-      sql`${t.status} IN ('neu','qualifiziert','termin_vereinbart','beratung_erschienen','no_show','behandelt','gewonnen','verloren','spam')`
+      sql`${t.status} IN ('neu','kontaktiert','nicht_erreicht','termin_vereinbart','beratung_erschienen','no_show','behandelt','gewonnen','verloren','spam')`
     ),
     statusSourceCheck: check(
       "requests_status_source_check",
@@ -693,6 +706,50 @@ export const requestActivities = pgTable(
     kindCheck: check(
       "request_activities_kind_check",
       sql`${t.kind} IN ('note','call','email','whatsapp','status_change','ai_rescore','assignment')`
+    ),
+  })
+);
+
+// ---------------------------------------------------------------
+// REQUEST FOLLOWUPS (Wiedervorlage) — portal-native, pre-booking phase only.
+// Multiple scheduled callbacks per lead + history. See migration 0052 and
+// anfragen/[id]/actions.ts for the PVS boundary rationale.
+// ---------------------------------------------------------------
+export const requestFollowups = pgTable(
+  "request_followups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => requests.id, { onDelete: "cascade" }),
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    note: text("note"),
+    status: text("status").notNull().default("pending"),
+    createdBy: uuid("created_by").references((): AnyPgColumn => clinicUsers.id),
+    completedBy: uuid("completed_by").references(
+      (): AnyPgColumn => clinicUsers.id
+    ),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    statusCheck: check(
+      "request_followups_status_check",
+      sql`${t.status} IN ('pending','done','cancelled')`
+    ),
+    dueIdx: index("request_followups_due_idx").on(
+      t.clinicId,
+      t.status,
+      t.dueAt
+    ),
+    requestIdx: index("request_followups_request_idx").on(
+      t.requestId,
+      t.createdAt
     ),
   })
 );
@@ -856,8 +913,8 @@ export const kpiDaily = pgTable(
       .notNull()
       .references(() => clinics.id),
     date: date("date").notNull(),
-    qualifiedLeads: integer("qualified_leads"),
-    costPerQualifiedLead: numeric("cost_per_qualified_lead", {
+    leads: integer("leads"),
+    costPerLead: numeric("cost_per_lead", {
       precision: 10,
       scale: 2,
     }),
@@ -902,7 +959,7 @@ export const goals = pgTable(
   (t) => ({
     metricCheck: check(
       "goals_metric_check",
-      sql`${t.metric} IN ('qualified_leads','revenue','cases_won','appointments','spend','total_requests')`
+      sql`${t.metric} IN ('leads','revenue','cases_won','appointments','spend','total_requests')`
     ),
     clinicIdx: index("goals_clinic_idx").on(t.clinicId, t.periodStart),
   })
@@ -1065,6 +1122,8 @@ export {
   pvsCsvUploads,
   pvsAgentEnrollmentTokens,
   pvsLinkHealth,
+  pvsLinkAudit,
+  pvsReconcileAudit,
   pvsAgentStatus,
   pvsAgentFailureSummary,
 } from "./schema-pvs";
@@ -1280,8 +1339,9 @@ export const adminUsers = pgTable("admin_users", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: citext("email").notNull().unique(),
   fullName: text("full_name"),
-  mfaEnrolled: boolean("mfa_enrolled").notNull().default(false),
-  mfaSecretEnc: bytea("mfa_secret_enc"),
+  /** Argon2id password hash. NULL bis Karam ein Passwort gesetzt hat. */
+  passwordHash: text("password_hash"),
+  passwordSetAt: timestamp("password_set_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -1296,7 +1356,6 @@ export const adminSessions = pgTable(
       .notNull()
       .references(() => adminUsers.id, { onDelete: "cascade" }),
     tokenHash: text("token_hash").notNull().unique(),
-    mfaVerified: boolean("mfa_verified").notNull().default(false),
     ipAddress: inet("ip_address"),
     userAgent: text("user_agent"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1327,8 +1386,8 @@ export const patientFeedback = pgTable(
     patientId: uuid("patient_id").references((): AnyPgColumn => patients.id, {
       onDelete: "set null",
     }),
-    recallId: uuid("recall_id").references(
-      (): AnyPgColumn => requestRecalls.id,
+    reviewRequestId: uuid("review_request_id").references(
+      (): AnyPgColumn => reviewEmailSchedule.id,
       { onDelete: "set null" }
     ),
     /** Patient's rating at submit time (1..5). */

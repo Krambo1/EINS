@@ -26,8 +26,8 @@ export function isValidTokenShape(t: string): boolean {
   return TOKEN_REGEX.test(t);
 }
 
-type RecallWithClinic = {
-  recallId: string;
+type ReviewRequestWithClinic = {
+  reviewRequestId: string;
   clinicId: string;
   clinicName: string;
   googleReviewUrl: string | null;
@@ -47,12 +47,12 @@ type RecallWithClinic = {
 
 export async function resolveReviewToken(
   token: string
-): Promise<RecallWithClinic | null> {
+): Promise<ReviewRequestWithClinic | null> {
   if (!isValidTokenShape(token)) return null;
 
   const [row] = await db
     .select({
-      recallId: schema.requestRecalls.id,
+      reviewRequestId: schema.reviewEmailSchedule.id,
       clinicId: schema.clinics.id,
       clinicName: schema.clinics.displayName,
       googleReviewUrl: schema.clinics.googleReviewUrl,
@@ -61,21 +61,21 @@ export async function resolveReviewToken(
       reviewRequestEnabled: schema.clinics.reviewRequestEnabled,
       reviewInboxEmail: schema.clinics.reviewInboxEmail,
       defaultDoctorEmail: schema.clinics.defaultDoctorEmail,
-      patientId: schema.requestRecalls.patientId,
-      patientName: schema.requestRecalls.reviewPatientName,
-      patientEmail: schema.requestRecalls.reviewEmail,
-      ratingValue: schema.requestRecalls.ratingValue,
-      ratingClickedAt: schema.requestRecalls.ratingClickedAt,
-      publicClickedAt: schema.requestRecalls.publicClickedAt,
-      feedbackAt: schema.requestRecalls.feedbackAt,
-      expiresAt: schema.requestRecalls.reviewTokenExpiresAt,
+      patientId: schema.reviewEmailSchedule.patientId,
+      patientName: schema.reviewEmailSchedule.reviewPatientName,
+      patientEmail: schema.reviewEmailSchedule.reviewEmail,
+      ratingValue: schema.reviewEmailSchedule.ratingValue,
+      ratingClickedAt: schema.reviewEmailSchedule.ratingClickedAt,
+      publicClickedAt: schema.reviewEmailSchedule.publicClickedAt,
+      feedbackAt: schema.reviewEmailSchedule.feedbackAt,
+      expiresAt: schema.reviewEmailSchedule.reviewTokenExpiresAt,
     })
-    .from(schema.requestRecalls)
+    .from(schema.reviewEmailSchedule)
     .innerJoin(
       schema.clinics,
-      eq(schema.requestRecalls.clinicId, schema.clinics.id)
+      eq(schema.reviewEmailSchedule.clinicId, schema.clinics.id)
     )
-    .where(eq(schema.requestRecalls.reviewToken, token))
+    .where(eq(schema.reviewEmailSchedule.reviewToken, token))
     .limit(1);
   if (!row) return null;
   // Hard expiry check. NULL expiresAt means a legacy row that pre-dates
@@ -135,7 +135,7 @@ export async function recordRatingClick(
 
   const { sql } = await import("drizzle-orm");
   await db.execute(sql`
-    UPDATE request_recalls
+    UPDATE review_email_schedule
        SET rating_clicked_at = now(),
            rating_value      = COALESCE(rating_value, ${rating})
      WHERE review_token = ${token}
@@ -146,15 +146,15 @@ export async function recordRatingClick(
 
 /**
  * Record that the patient clicked the public review CTA. Touches the
- * recall but does NOT change status — the patient may still come back
- * and submit private feedback. Status flips to 'completed' only when
- * private feedback is submitted, mirroring the same end-state.
+ * review-request row but does NOT change status — the patient may still
+ * come back and submit private feedback. Status flips to 'completed' only
+ * when private feedback is submitted, mirroring the same end-state.
  *
  * Also persists a `patient_feedback` row with source='public_redirect' so
  * the Praxis sees every rating that engaged with the request in one inbox,
- * not just the private ones. Idempotent per recall: if the patient clicks
- * Google and later comes back and clicks Jameda, the existing row is
- * updated in place (one row per recall, last platform wins). No alert
+ * not just the private ones. Idempotent per review-request: if the patient
+ * clicks Google and later comes back and clicks Jameda, the existing row
+ * is updated in place (one row per request, last platform wins). No alert
  * email is fired — public clicks are positive-leaning signals and the
  * sync workers will pick up the actual Google/Jameda review separately.
  */
@@ -164,44 +164,44 @@ export async function recordPublicClick(
 ): Promise<{ ok: boolean }> {
   if (!isValidTokenShape(token)) return { ok: false };
 
-  const recall = await resolveReviewToken(token);
-  if (!recall) return { ok: false };
+  const reviewRequest = await resolveReviewToken(token);
+  if (!reviewRequest) return { ok: false };
 
   await db
-    .update(schema.requestRecalls)
+    .update(schema.reviewEmailSchedule)
     .set({
       publicClickedAt: new Date(),
       publicClickedPlatform: platform,
     })
-    .where(eq(schema.requestRecalls.id, recall.recallId));
+    .where(eq(schema.reviewEmailSchedule.id, reviewRequest.reviewRequestId));
 
   // Persist the public-redirect feedback row. We need a rating to satisfy
   // patient_feedback.rating NOT NULL — if for some reason the patient hit
   // /go without ever recording a rating, skip the inbox entry rather than
   // invent one.
-  if (recall.ratingValue !== null) {
+  if (reviewRequest.ratingValue !== null) {
     const { sql } = await import("drizzle-orm");
     await db.execute(sql`
       INSERT INTO patient_feedback (
         clinic_id,
         patient_id,
-        recall_id,
+        review_request_id,
         rating,
         contact_email,
         contact_name,
         source,
         public_platform
       ) VALUES (
-        ${recall.clinicId},
-        ${recall.patientId},
-        ${recall.recallId},
-        ${recall.ratingValue},
-        ${recall.patientEmail},
-        ${recall.patientName},
+        ${reviewRequest.clinicId},
+        ${reviewRequest.patientId},
+        ${reviewRequest.reviewRequestId},
+        ${reviewRequest.ratingValue},
+        ${reviewRequest.patientEmail},
+        ${reviewRequest.patientName},
         'public_redirect',
         ${platform}
       )
-      ON CONFLICT (recall_id) WHERE source = 'public_redirect'
+      ON CONFLICT (review_request_id) WHERE source = 'public_redirect'
       DO UPDATE SET
         public_platform = EXCLUDED.public_platform,
         rating          = EXCLUDED.rating
@@ -227,11 +227,11 @@ export type RecordFeedbackResult =
  * Persist a private feedback submission. Returns the new patient_feedback
  * row id (used to deep-link from the alert email).
  *
- * Idempotency: at most one private feedback row per recall. A second POST
- * with a valid token short-circuits to the existing row (replayed=true) and
- * does NOT fire a duplicate alert email. The migration 0032 partial unique
- * index closes the race window where two concurrent POSTs slip past the
- * application-side check.
+ * Idempotency: at most one private feedback row per review-request. A
+ * second POST with a valid token short-circuits to the existing row
+ * (replayed=true) and does NOT fire a duplicate alert email. The migration
+ * 0032 partial unique index closes the race window where two concurrent
+ * POSTs slip past the application-side check.
  *
  * Suppression: a patient who unsubscribed (via /r/unsubscribe or PMS
  * patient_unsubscribed event) cannot submit feedback. We surface this as
@@ -254,21 +254,22 @@ export async function recordFeedback(
     return { ok: false, reason: "invalid" };
   }
 
-  const recall = await resolveReviewToken(token);
-  if (!recall) return { ok: false, reason: "not_found" };
+  const reviewRequest = await resolveReviewToken(token);
+  if (!reviewRequest) return { ok: false, reason: "not_found" };
 
   // Suppression gate: an unsubscribed patient may not submit feedback.
   // We check both per-clinic email_suppression (the canonical store) and
-  // recall.patientEmail because the email lives only on the recall row when
-  // the patient came in via a non-PMS flow.
-  const suppressionEmail = recall.patientEmail?.trim().toLowerCase() ?? null;
+  // reviewRequest.patientEmail because the email lives only on the
+  // review-request row when the patient came in via a non-PMS flow.
+  const suppressionEmail =
+    reviewRequest.patientEmail?.trim().toLowerCase() ?? null;
   if (suppressionEmail) {
     const [suppressed] = await db
       .select({ id: schema.emailSuppression.id })
       .from(schema.emailSuppression)
       .where(
         and(
-          eq(schema.emailSuppression.clinicId, recall.clinicId),
+          eq(schema.emailSuppression.clinicId, reviewRequest.clinicId),
           eq(schema.emailSuppression.email, suppressionEmail)
         )
       )
@@ -278,10 +279,12 @@ export async function recordFeedback(
     }
   }
 
-  // Replay guard: if this recall has already been answered, return the
-  // existing feedback row without inserting a duplicate or re-alerting.
-  if (recall.feedbackAt) {
-    const existing = await findExistingPrivateFeedback(recall.recallId);
+  // Replay guard: if this review-request has already been answered, return
+  // the existing feedback row without inserting a duplicate or re-alerting.
+  if (reviewRequest.feedbackAt) {
+    const existing = await findExistingPrivateFeedback(
+      reviewRequest.reviewRequestId
+    );
     if (existing) {
       return { ok: true, feedbackId: existing, replayed: true };
     }
@@ -295,21 +298,24 @@ export async function recordFeedback(
   const [inserted] = await db
     .insert(schema.patientFeedback)
     .values({
-      clinicId: recall.clinicId,
-      patientId: recall.patientId,
-      recallId: recall.recallId,
+      clinicId: reviewRequest.clinicId,
+      patientId: reviewRequest.patientId,
+      reviewRequestId: reviewRequest.reviewRequestId,
       rating: submission.rating,
       freeText: submission.freeText?.slice(0, 5000) ?? null,
       contactBackOk: submission.contactBackOk,
-      contactEmail: submission.contactEmail ?? recall.patientEmail ?? null,
-      contactName: submission.contactName ?? recall.patientName ?? null,
+      contactEmail:
+        submission.contactEmail ?? reviewRequest.patientEmail ?? null,
+      contactName: submission.contactName ?? reviewRequest.patientName ?? null,
       source: "private",
     })
     .onConflictDoNothing()
     .returning({ id: schema.patientFeedback.id });
 
   if (!inserted) {
-    const existing = await findExistingPrivateFeedback(recall.recallId);
+    const existing = await findExistingPrivateFeedback(
+      reviewRequest.reviewRequestId
+    );
     if (existing) {
       return { ok: true, feedbackId: existing, replayed: true };
     }
@@ -317,31 +323,35 @@ export async function recordFeedback(
     return { ok: false, reason: "not_found" };
   }
 
-  // First successful submission. Update the recall — note: ratingValue uses
-  // COALESCE so the *first* recorded rating wins (matches recordRatingClick
-  // semantics + closes the H-19 "replay overwrites rating" bug even though
-  // the replay path now short-circuits before this point).
+  // First successful submission. Update the review-request row — note:
+  // ratingValue uses COALESCE so the *first* recorded rating wins (matches
+  // recordRatingClick semantics + closes the H-19 "replay overwrites
+  // rating" bug even though the replay path now short-circuits before this
+  // point).
   const { sql } = await import("drizzle-orm");
   await db.execute(sql`
-    UPDATE request_recalls
+    UPDATE review_email_schedule
        SET feedback_at  = now(),
            status       = 'completed',
            rating_value = COALESCE(rating_value, ${submission.rating})
-     WHERE id = ${recall.recallId}
+     WHERE id = ${reviewRequest.reviewRequestId}
   `);
 
   // Alert the Praxis. Best-effort — failure must not break the patient flow.
   try {
-    const inbox = recall.reviewInboxEmail ?? recall.defaultDoctorEmail;
+    const inbox =
+      reviewRequest.reviewInboxEmail ?? reviewRequest.defaultDoctorEmail;
     if (inbox) {
       const rendered = renderFeedbackAlertEmail({
-        clinicName: recall.clinicName,
+        clinicName: reviewRequest.clinicName,
         portalOrigin: env.APP_ORIGIN,
         feedbackId: inserted.id,
         rating: submission.rating,
         freeText: submission.freeText ?? null,
-        patientName: submission.contactName ?? recall.patientName ?? null,
-        patientEmail: submission.contactEmail ?? recall.patientEmail ?? null,
+        patientName:
+          submission.contactName ?? reviewRequest.patientName ?? null,
+        patientEmail:
+          submission.contactEmail ?? reviewRequest.patientEmail ?? null,
         contactBackOk: submission.contactBackOk,
       });
       await enqueueEmail({
@@ -349,12 +359,12 @@ export async function recordFeedback(
         subject: rendered.subject,
         text: rendered.text,
         html: rendered.html,
-        clinicId: recall.clinicId,
+        clinicId: reviewRequest.clinicId,
         klass: "transactional",
       });
     } else {
       console.warn(
-        `[review-tokens] no inbox configured for clinic=${recall.clinicId}, feedback ${inserted.id} not alerted`
+        `[review-tokens] no inbox configured for clinic=${reviewRequest.clinicId}, feedback ${inserted.id} not alerted`
       );
     }
   } catch (err) {
@@ -365,14 +375,14 @@ export async function recordFeedback(
 }
 
 async function findExistingPrivateFeedback(
-  recallId: string
+  reviewRequestId: string
 ): Promise<string | null> {
   const [row] = await db
     .select({ id: schema.patientFeedback.id })
     .from(schema.patientFeedback)
     .where(
       and(
-        eq(schema.patientFeedback.recallId, recallId),
+        eq(schema.patientFeedback.reviewRequestId, reviewRequestId),
         eq(schema.patientFeedback.source, "private")
       )
     )
@@ -382,15 +392,19 @@ async function findExistingPrivateFeedback(
 }
 
 /**
- * Unsubscribe the patient whose recall this token belongs to. Adds an
- * email_suppression row and tombstones the patient.
+ * Unsubscribe the patient whose review-request this token belongs to. Adds
+ * an email_suppression row and tombstones the patient.
  */
 export async function unsubscribeViaToken(
   token: string
 ): Promise<{ ok: boolean; clinicName?: string }> {
   if (!isValidTokenShape(token)) return { ok: false };
-  const recall = await resolveReviewToken(token);
-  if (!recall || !recall.patientEmail) return { ok: false };
-  await unsubscribePatient(recall.clinicId, recall.patientEmail, "unsubscribed");
-  return { ok: true, clinicName: recall.clinicName };
+  const reviewRequest = await resolveReviewToken(token);
+  if (!reviewRequest || !reviewRequest.patientEmail) return { ok: false };
+  await unsubscribePatient(
+    reviewRequest.clinicId,
+    reviewRequest.patientEmail,
+    "unsubscribed"
+  );
+  return { ok: true, clinicName: reviewRequest.clinicName };
 }

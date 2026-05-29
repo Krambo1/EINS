@@ -80,6 +80,21 @@ export function requirePermission(
   }
 }
 
+/**
+ * Default post-auth landing path per role.
+ *
+ * Inhaber and Marketing-Verantwortliche treffen strategische Entscheidungen →
+ * /dashboard. MFA & Sekretariat (`frontdesk`) closen Leads am Telefon → sie
+ * landen direkt in der Anfragen-Inbox mit der Call-Queue oben.
+ *
+ * Single source of truth — alle Redirects (root, login, magic-link-callback,
+ * set-password, impersonation) gehen hier durch, damit Frontdesk-User nicht
+ * versehentlich auf einer halb-gerenderten Dashboard-Seite landen.
+ */
+export function defaultLandingPath(role: Role | undefined | null): string {
+  return role === "frontdesk" ? "/anfragen" : "/dashboard";
+}
+
 /** Documents visible to a role (plan §6 "Verträge & Dokumente"). */
 export function documentVisibleToRole(
   visibleToRoles: string[] | null | undefined,

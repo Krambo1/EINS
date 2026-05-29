@@ -171,6 +171,28 @@ const InvoicePaidSchema = z.object({
 });
 export type InvoicePaidEvent = z.infer<typeof InvoicePaidSchema>;
 
+// 6b) InvoiceRefunded: a refund / storno / credit note against a prior
+// InvoicePaid, keyed by pvsInvoiceId. refundedAmountCents is a POSITIVE
+// magnitude (the amount given back); the derive worker subtracts it from the
+// patient total and the matching appointment bucket. A dedicated kind (rather
+// than a negative InvoicePaid) keeps the amount validators nonnegative and lets
+// the ads-conversion side later send a proper Meta refund / Google adjustment
+// instead of a nonsensical negative Purchase. That ad-platform propagation is a
+// follow-up; v1 nets the dashboard revenue and lets the P2-3 downgrade alarm
+// catch a gewonnen -> lower flip.
+const InvoiceRefundedSchema = z.object({
+  kind: z.literal("InvoiceRefunded"),
+  ...baseFields,
+  pvsPatientId: z.string().min(1).max(200),
+  pvsInvoiceId: z.string().min(1).max(200),
+  pvsAppointmentId: z.string().min(1).max(200).optional(),
+  refundedAmountCents: z.number().int().nonnegative(),
+  currency: z.enum(["EUR", "CHF"]).default("EUR"),
+  refundedAt: isoDatetime,
+  reason: z.string().max(200).optional(),
+});
+export type InvoiceRefundedEvent = z.infer<typeof InvoiceRefundedSchema>;
+
 // 7) RecallScheduled — follow-up booked in the PVS.
 const RecallScheduledSchema = z.object({
   kind: z.literal("RecallScheduled"),
@@ -199,6 +221,7 @@ export const PvsEventSchema = z.discriminatedUnion("kind", [
   AppointmentCancelledSchema,
   EncounterCompletedSchema,
   InvoicePaidSchema,
+  InvoiceRefundedSchema,
   RecallScheduledSchema,
   PatientMergedSchema,
 ]);
@@ -216,6 +239,17 @@ export type PvsEventResult =
       linked: { portalPatientId: string; method: string } | null;
     }
   | { ok: true; status: "deduped" }
+  | {
+      /**
+       * P1-2: link.status was 'pending' at ingest. The event is persisted in
+       * pvs_event_log (applied_at remains NULL) but the linker + derive are
+       * NOT run. confirmPvsLinkActive() will replay the event when the
+       * operator confirms the link.
+       */
+      ok: true;
+      status: "quarantined";
+      eventLogId: string;
+    }
   | {
       ok: false;
       reason:
@@ -275,16 +309,33 @@ export async function applyPvsEvent(
     return { ok: false, reason: "vendor_mismatch" };
   }
 
-  // 2) Insert event_log (idempotent).
+  // 2) Insert event_log (idempotent). The link.status snapshot is
+  //    immutable on the row — captured here at ingest time so the P1-2
+  //    replay query can find quarantined rows without depending on any
+  //    later mutable state.
   let eventLogId: string;
   try {
-    eventLogId = await insertEventLogWithPartitionHeal(input);
+    eventLogId = await insertEventLogWithPartitionHeal(input, link.status);
   } catch (err) {
     if (isDedupeSentinel(err)) {
       return { ok: true, status: "deduped" };
     }
     console.error("[pvs-events] event_log insert failed:", err);
     return { ok: false, reason: "internal_error" };
+  }
+
+  // P1-2 quarantine: a pending link logs events but defers the linker +
+  // derive until the operator confirms via confirmPvsLinkActive(). The
+  // applied_at column stays NULL so the replay query picks the row up.
+  // This prevents events from a misconfigured link (wrong vendor auto-set,
+  // wrong fingerprint, etc.) from silently committing revenue and ads-
+  // conversion effects against unreviewed configuration.
+  if (link.status === "pending") {
+    return {
+      ok: true,
+      status: "quarantined",
+      eventLogId,
+    };
   }
 
   // 3) Branch by kind for linking.
@@ -302,7 +353,29 @@ export async function applyPvsEvent(
           portalPatientId: res.portalPatientId,
           method: res.method,
         };
+        // P1-1: when the linker created a fresh patient (method === "external_id")
+        // but found one or more candidates the operator might want to merge
+        // into instead, write a linking_failure. The event still ingests so
+        // downstream derive runs against the new patient, but the operator
+        // sees a review-queue card with the candidates ranked.
+        //
+        // Auto-accepted (method === "email_exact") or Stage-1/Stage-2 hits
+        // do NOT carry candidates; they skip this branch.
+        if (res.method === "external_id" && res.candidates.length > 0) {
+          await recordLinkingFailure({
+            clinicId: input.clinicId,
+            pvsEventLogId: eventLogId,
+            pvsEventOccurredAt: new Date(input.occurredAt),
+            pvsPatientId: input.pvsPatientId,
+            snapshot: snapshotOf(input),
+            candidates: res.candidates,
+          });
+        }
       } else {
+        // Defensive: today this branch is unreachable since the linker
+        // always creates a patient when no map row exists. Kept so a
+        // future contract change (e.g. "return null instead of orphan-
+        // create") still routes through the failure queue.
         await recordLinkingFailure({
           clinicId: input.clinicId,
           pvsEventLogId: eventLogId,
@@ -326,6 +399,9 @@ export async function applyPvsEvent(
       }
       // Return early — no single linkResult.
       await touchLink(link.id);
+      // Mark applied so confirmPvsLinkActive's replayer doesn't pick this
+      // PatientMerged event up again on a future link confirmation.
+      await markEventApplied(eventLogId);
       return {
         ok: true,
         status: "ingested",
@@ -372,12 +448,32 @@ export async function applyPvsEvent(
   // 5) Update sync metadata.
   await touchLink(link.id);
 
+  // P1-2: mark this event as fully applied so the pending-replay query
+  // skips it. Done LAST: any failure above leaves applied_at NULL and
+  // the row stays eligible for re-application by confirmPvsLinkActive
+  // (or a manual replay). We use a small helper rather than inlining
+  // so the PatientMerged early-return at line ~321 can call the same
+  // markApplied.
+  await markEventApplied(eventLogId);
+
   return {
     ok: true,
     status: "ingested",
     eventLogId,
     linked: linkResult,
   };
+}
+
+/**
+ * P1-2: mark a pvs_event_log row as fully processed. Called after the
+ * linker + derive enqueue + touchLink all succeeded. Idempotent: re-
+ * calling for an already-applied row is a no-op MAX().
+ */
+async function markEventApplied(eventLogId: string): Promise<void> {
+  await db
+    .update(schema.pvsEventLog)
+    .set({ appliedAt: new Date() })
+    .where(eq(schema.pvsEventLog.id, eventLogId));
 }
 
 // ---------------------------------------------------------------
@@ -405,7 +501,8 @@ function isDedupeSentinel(err: unknown): boolean {
  * route to `{status: 'deduped'}` instead of `{reason: 'internal_error'}`.
  */
 async function insertEventLogWithPartitionHeal(
-  input: PvsEvent
+  input: PvsEvent,
+  linkStatusAtIngest: string
 ): Promise<string> {
   const doInsert = async () => {
     const [row] = await db
@@ -417,6 +514,9 @@ async function insertEventLogWithPartitionHeal(
         kind: input.kind,
         occurredAt: new Date(input.occurredAt),
         payload: input as unknown as Record<string, unknown>,
+        // P1-2: persisted snapshot. Replay uses link_status_at_ingest
+        // = 'pending' AND applied_at IS NULL.
+        linkStatusAtIngest,
       })
       .onConflictDoNothing()
       .returning({ id: schema.pvsEventLog.id });

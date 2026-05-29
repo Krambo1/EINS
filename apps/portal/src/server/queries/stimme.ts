@@ -132,8 +132,8 @@ export async function countNewPatientFeedback(
 export interface StimmeDetail extends StimmeListRow {
   internalNote: string | null;
   resolvedBy: string | null;
-  recallTreatmentLabel: string | null;
-  recallScheduledFor: string | null;
+  reviewRequestTreatmentLabel: string | null;
+  reviewRequestScheduledFor: string | null;
 }
 
 export async function getPatientFeedback(
@@ -160,13 +160,17 @@ export async function getPatientFeedback(
           resolvedAt: schema.patientFeedback.resolvedAt,
           internalNote: schema.patientFeedback.internalNote,
           resolvedBy: schema.patientFeedback.resolvedBy,
-          recallTreatmentLabel: schema.requestRecalls.reviewTreatmentLabel,
-          recallScheduledFor: schema.requestRecalls.scheduledFor,
+          reviewRequestTreatmentLabel:
+            schema.reviewEmailSchedule.reviewTreatmentLabel,
+          reviewRequestScheduledFor: schema.reviewEmailSchedule.scheduledFor,
         })
         .from(schema.patientFeedback)
         .leftJoin(
-          schema.requestRecalls,
-          eq(schema.patientFeedback.recallId, schema.requestRecalls.id)
+          schema.reviewEmailSchedule,
+          eq(
+            schema.patientFeedback.reviewRequestId,
+            schema.reviewEmailSchedule.id
+          )
         )
         .where(eq(schema.patientFeedback.id, id))
         .limit(1);
@@ -197,32 +201,32 @@ export async function stimmeDashboardMetrics(
 
   const [sentRow] = await db
     .select({ c: count() })
-    .from(schema.requestRecalls)
+    .from(schema.reviewEmailSchedule)
     .where(
       and(
-        eq(schema.requestRecalls.clinicId, clinicId),
-        eq(schema.requestRecalls.kind, "review_request"),
-        gte(schema.requestRecalls.sentAt, cutoff)
+        eq(schema.reviewEmailSchedule.clinicId, clinicId),
+        eq(schema.reviewEmailSchedule.kind, "review_request"),
+        gte(schema.reviewEmailSchedule.sentAt, cutoff)
       )
     );
   const [ratingRow] = await db
     .select({ c: count() })
-    .from(schema.requestRecalls)
+    .from(schema.reviewEmailSchedule)
     .where(
       and(
-        eq(schema.requestRecalls.clinicId, clinicId),
-        eq(schema.requestRecalls.kind, "review_request"),
-        gte(schema.requestRecalls.ratingClickedAt, cutoff)
+        eq(schema.reviewEmailSchedule.clinicId, clinicId),
+        eq(schema.reviewEmailSchedule.kind, "review_request"),
+        gte(schema.reviewEmailSchedule.ratingClickedAt, cutoff)
       )
     );
   const [publicRow] = await db
     .select({ c: count() })
-    .from(schema.requestRecalls)
+    .from(schema.reviewEmailSchedule)
     .where(
       and(
-        eq(schema.requestRecalls.clinicId, clinicId),
-        eq(schema.requestRecalls.kind, "review_request"),
-        gte(schema.requestRecalls.publicClickedAt, cutoff)
+        eq(schema.reviewEmailSchedule.clinicId, clinicId),
+        eq(schema.reviewEmailSchedule.kind, "review_request"),
+        gte(schema.reviewEmailSchedule.publicClickedAt, cutoff)
       )
     );
   // Open count is for *actionable* items — private feedback awaiting
