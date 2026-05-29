@@ -40,7 +40,7 @@ const TABS: PortalTab[] = [
     label: "Übersicht",
     icon: LayoutDashboard,
     src: "/Übersicht.png",
-    alt: "EINS Portal Übersicht: Live-KPIs zu Anfragen, Umsatz und Tagesverlauf",
+    alt: "EINS Portal Übersicht: KPIs zu Anfragen, Umsatz und Tagesverlauf",
     width: 1528,
     height: 759,
   },

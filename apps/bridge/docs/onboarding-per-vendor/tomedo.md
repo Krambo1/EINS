@@ -6,7 +6,7 @@ einem laufenden Tomedo-Server: ca. 30 Minuten.
 ## Voraussetzungen
 
 1. Tomedo-Server ist installiert und laeuft.
-2. Praxis hat einen AVV (Auftragsverarbeitungsvertrag) mit EINS Visuals
+2. Praxis hat einen AVV (Auftragsverarbeitungsvertrag) mit EINS
    GmbH unterschrieben. Vorlage: `apps/bridge/legal/AVV-template-DE.md`.
 3. Read-only Postgres-Konto bei Zollsoft beantragt. So geht das:
    * Support-Ticket an `support@zollsoft.de` mit Betreff:

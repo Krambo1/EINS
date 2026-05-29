@@ -161,22 +161,40 @@ export async function clinicHasIntakeSecret(clinicId: string): Promise<boolean> 
  *
  * Idempotency: existing 'pvs' rows are replaced — this is intentional, agent
  * re-enrollment rotates the secret and invalidates any previous installer.
+ *
+ * Atomicity contract (P0-1):
+ *   • Accepts an optional `dbHandle` (defaults to the global `db`). Callers
+ *     that need to compose this with other writes pass a Drizzle transaction
+ *     so the mint + downstream writes either all commit or all roll back.
+ *     Without this, a transient failure after the mint but before the
+ *     consume/upsert would silently invalidate the previously-deployed
+ *     secret (denial-of-service against the legitimate agent).
+ *
+ *   • This function NO LONGER invalidates the signature cache itself.
+ *     The caller MUST call `invalidateSignatureSecretCache(clinicId, "pvs")`
+ *     AFTER the surrounding transaction commits. Invalidating inside the tx
+ *     opens a race where a concurrent verify reads the OLD secret from the
+ *     DB (the tx's INSERT is not yet visible) and caches it — stranding the
+ *     new secret for the cache TTL window.
  */
 export interface MintPvsSecretResult {
   secretHex: string;
   rotated: boolean;
 }
 
+export type DbOrTx = typeof db;
+
 export async function mintAndStorePvsSecret(
   clinicId: string,
-  encryptStringFn: (plaintext: string) => Buffer
+  encryptStringFn: (plaintext: string) => Buffer,
+  dbHandle: DbOrTx = db
 ): Promise<MintPvsSecretResult> {
   const { randomBytes } = await import("node:crypto");
   const secret = randomBytes(32).toString("hex");
   const enc = encryptStringFn(secret);
 
   // Upsert via insert + onConflictDoUpdate on (clinic_id, platform).
-  const result = await db
+  const result = await dbHandle
     .insert(schema.platformCredentials)
     .values({
       clinicId,
@@ -193,10 +211,6 @@ export async function mintAndStorePvsSecret(
       },
     })
     .returning({ id: schema.platformCredentials.id });
-
-  // Rotated — flush any cached old secret so the next webhook verifies
-  // against the freshly minted value.
-  invalidateSignatureSecretCache(clinicId, "pvs");
 
   return {
     secretHex: secret,

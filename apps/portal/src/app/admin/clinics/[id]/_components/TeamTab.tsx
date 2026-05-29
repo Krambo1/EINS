@@ -9,23 +9,23 @@ const GLOW_CARD = "!bg-bg-secondary/60";
 type TeamMember = typeof schema.clinicUsers.$inferSelect;
 
 export function TeamTab({ team }: { team: TeamMember[] }) {
-  const mfaCovered = team.filter((u) => u.mfaEnrolled && !u.archivedAt).length;
   const active = team.filter((u) => !u.archivedAt).length;
+  const pending = team.filter(
+    (u) => !u.archivedAt && u.invitedAt && !u.lastLoginAt
+  ).length;
 
   return (
     <div className="space-y-5">
       <div className="grid gap-3 sm:grid-cols-3">
         <Stat label="Mitglieder aktiv" value={active.toString()} />
         <Stat
-          label="MFA-Abdeckung"
-          value={
-            active === 0 ? "–" : `${Math.round((mfaCovered / active) * 100)} %`
-          }
+          label="Einladungen offen"
+          value={pending.toString()}
+          tone={pending > 0 ? "warn" : "neutral"}
         />
         <Stat
-          label="MFA fehlt"
-          value={(active - mfaCovered).toString()}
-          tone={active - mfaCovered > 0 ? "warn" : "good"}
+          label="Archiviert"
+          value={team.filter((u) => u.archivedAt).length.toString()}
         />
       </div>
 
@@ -50,7 +50,6 @@ export function TeamTab({ team }: { team: TeamMember[] }) {
                     <th className="px-4 py-2">E-Mail</th>
                     <th className="px-4 py-2">Name</th>
                     <th className="px-4 py-2">Rolle</th>
-                    <th className="px-4 py-2">MFA</th>
                     <th className="px-4 py-2">Letzter Login</th>
                     <th className="px-4 py-2">Status</th>
                     <th className="px-4 py-2 text-right">Ansicht</th>
@@ -68,13 +67,6 @@ export function TeamTab({ team }: { team: TeamMember[] }) {
                         <Badge tone={u.role === "inhaber" ? "good" : "neutral"}>
                           {ROLE_LABELS[u.role as Role] ?? u.role}
                         </Badge>
-                      </td>
-                      <td className="px-4 py-2">
-                        {u.mfaEnrolled ? (
-                          <Badge tone="good">Aktiv</Badge>
-                        ) : (
-                          <Badge tone="warn">Nicht aktiv</Badge>
-                        )}
                       </td>
                       <td className="px-4 py-2 text-xs text-fg-secondary">
                         {u.lastLoginAt ? formatRelative(u.lastLoginAt) : "nie"}

@@ -30,11 +30,14 @@ import {
 
 interface Props {
   treatments: { id: string; name: string }[];
+  /** Clinic-wide count per KI-Kategorie (hot/warm/cold) for the count pills. */
+  aiCounts: Record<string, number>;
 }
 
 const STATUSES: RequestStatus[] = [
   "neu",
-  "qualifiziert",
+  "kontaktiert",
+  "nicht_erreicht",
   "termin_vereinbart",
   "beratung_erschienen",
   "gewonnen",
@@ -43,7 +46,7 @@ const STATUSES: RequestStatus[] = [
 
 const SEARCH_DEBOUNCE_MS = 200;
 
-export function AnfragenFilters({ treatments }: Props) {
+export function AnfragenFilters({ treatments, aiCounts }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -218,6 +221,12 @@ export function AnfragenFilters({ treatments }: Props) {
               >
                 <Icon className="h-3 w-3" aria-hidden />
                 {AI_CATEGORY_LABELS[c as AiCategory]}
+                <span
+                  className="-mr-1 ml-0.5 rounded-full bg-fg-primary/10 px-1.5 py-px text-[11px] font-semibold leading-none tabular-nums"
+                  aria-label={`${aiCounts[c] ?? 0} Anfragen`}
+                >
+                  {aiCounts[c] ?? 0}
+                </span>
               </Chip>
             );
           })}

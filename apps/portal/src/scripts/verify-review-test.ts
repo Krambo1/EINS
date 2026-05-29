@@ -6,21 +6,21 @@ import { db, schema } from "@/db/client";
 async function main() {
   const rows = await db
     .select({
-      id: schema.requestRecalls.id,
-      kind: schema.requestRecalls.kind,
-      status: schema.requestRecalls.status,
-      scheduledFor: schema.requestRecalls.scheduledFor,
-      reviewEmail: schema.requestRecalls.reviewEmail,
-      reviewPatientName: schema.requestRecalls.reviewPatientName,
-      sentAt: schema.requestRecalls.sentAt,
-      note: schema.requestRecalls.note,
-      createdAt: schema.requestRecalls.createdAt,
+      id: schema.reviewEmailSchedule.id,
+      kind: schema.reviewEmailSchedule.kind,
+      status: schema.reviewEmailSchedule.status,
+      scheduledFor: schema.reviewEmailSchedule.scheduledFor,
+      reviewEmail: schema.reviewEmailSchedule.reviewEmail,
+      reviewPatientName: schema.reviewEmailSchedule.reviewPatientName,
+      sentAt: schema.reviewEmailSchedule.sentAt,
+      note: schema.reviewEmailSchedule.note,
+      createdAt: schema.reviewEmailSchedule.createdAt,
     })
-    .from(schema.requestRecalls)
-    .where(eq(schema.requestRecalls.kind, "review_request"))
-    .orderBy(desc(schema.requestRecalls.createdAt))
+    .from(schema.reviewEmailSchedule)
+    .where(eq(schema.reviewEmailSchedule.kind, "review_request"))
+    .orderBy(desc(schema.reviewEmailSchedule.createdAt))
     .limit(10);
-  console.log("=== last 10 review_request recalls ===");
+  console.log("=== last 10 review-request rows ===");
   for (const r of rows) console.log(r);
   process.exit(0);
 }

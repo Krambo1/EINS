@@ -4,6 +4,7 @@ node_modules
 
 # build artifacts
 .next
+.next-*
 out
 dist
 .turbo
@@ -43,3 +44,12 @@ playwright/.cache/
 
 # pdf generation cache
 .pdf-cache/
+
+# scratch / scrape dumps / preview artifacts (not source)
+.tmp_*
+DesktopEINSWebsite.tmp_*
+landtmp.html
+Landingpage Icon.html
+*.aep
+apps/portal/review-preview*.html
+uploads/pasted-*.png

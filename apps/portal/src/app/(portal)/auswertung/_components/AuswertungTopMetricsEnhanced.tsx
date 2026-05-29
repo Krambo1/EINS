@@ -52,8 +52,8 @@ export async function AuswertungTopMetricsEnhanced({
   return (
     <section aria-label="Kernzahlen" className="grid gap-6 md:grid-cols-3">
       <MetricTile
-        label="Qualifizierte Anfragen"
-        value={formatNumber(summary.qualifiedLeads)}
+        label="Anfragen"
+        value={formatNumber(summary.leads)}
         sublabel={
           leadsGoal && periodKey === "month"
             ? `Monatsziel: ${Number(leadsGoal.targetValue)}`
@@ -61,20 +61,20 @@ export async function AuswertungTopMetricsEnhanced({
         }
         tone={
           leadsGoal && periodKey === "month"
-            ? toneForGoalRatio(summary.qualifiedLeads / Number(leadsGoal.targetValue))
+            ? toneForGoalRatio(summary.leads / Number(leadsGoal.targetValue))
             : "accent"
         }
         delta={
-          comparison.delta.qualifiedLeadsPct != null
+          comparison.delta.leadsPct != null
             ? {
-                value: (comparison.delta.qualifiedLeadsPct ?? 0) * 100,
-                tone: deltaTone(comparison.delta.qualifiedLeadsPct),
+                value: (comparison.delta.leadsPct ?? 0) * 100,
+                tone: deltaTone(comparison.delta.leadsPct),
               }
             : undefined
         }
         chartSlot={
           <TrendChart
-            data={zipSeries(sparklines.dates, sparklines.qualifiedLeads)}
+            data={zipSeries(sparklines.dates, sparklines.leads)}
             tone="accent"
             label="Anfragen"
             valueFormat="number"

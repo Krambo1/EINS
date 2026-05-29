@@ -44,6 +44,39 @@ export async function POST(request: NextRequest) {
     ua: request.headers.get("user-agent") ?? null,
   };
 
+  // P1-4: rate-limit by IP FIRST, before any JSON parse or DB hit.
+  //
+  // The original implementation rate-limited by clinicId after extracting it
+  // from the parsed envelope. That meant an attacker who knew a clinicId
+  // (these aren't secret — they're in every webhook URL) could spray 600
+  // unsigned requests per 10 minutes and starve the legitimate adapter's
+  // bucket. The per-IP gate runs FIRST and is keyed on the source IP, so a
+  // single hostile IP cannot exhaust the per-clinic budget. Anonymous traffic
+  // (no X-Forwarded-For) all collapses into one bucket, which is the safe
+  // failure mode.
+  //
+  // Limits: per-IP 300/min — generous enough that no single legitimate
+  // production deployment will hit it (one GDT-Agent emits at single-digit
+  // events/sec at peak), tight enough that spray traffic is sandboxed.
+  if (requestMeta.ip) {
+    const ipRl = await rateLimit("pvs-events-ip", requestMeta.ip, {
+      limit: 300,
+      windowSeconds: 60,
+    });
+    if (!ipRl.ok) {
+      return NextResponse.json(
+        { error: { code: "rate_limited" } },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(ipRl.resetInSeconds),
+            "X-PVS-RateLimit-Reason": "ip",
+          },
+        }
+      );
+    }
+  }
+
   // Parse JSON before extracting clinicId for rate-limit + signature checks.
   let parsedJson: unknown;
   try {
@@ -116,7 +149,9 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Rate-limit by clinic before signature check.
+  // Per-clinic rate limit (existing). The IP-level gate above is the first
+  // line of defence; this protects against a compromised-but-legitimate
+  // clinicId being used to flood ingest.
   const rl = await rateLimit("pvs-events", event.clinicId, {
     limit: 600,
     windowSeconds: 600,
@@ -126,7 +161,10 @@ export async function POST(request: NextRequest) {
       { error: { code: "rate_limited" } },
       {
         status: 429,
-        headers: { "Retry-After": String(rl.resetInSeconds) },
+        headers: {
+          "Retry-After": String(rl.resetInSeconds),
+          "X-PVS-RateLimit-Reason": "clinic",
+        },
       }
     );
   }
@@ -181,6 +219,38 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { ok: true, status: "deduped" },
         { status: 201 }
+      );
+    }
+
+    if (result.status === "quarantined") {
+      // P1-2: link is in 'pending' state. The event was persisted but
+      // its linker + derive effects are deferred until the operator
+      // confirms the link. We surface a distinct response so producers
+      // (and the operator dashboard) can count quarantined events
+      // separately — they are NOT a failure, just deferred. Audit
+      // captures the quarantine so the trail shows when an event
+      // arrived under pending status.
+      after(() =>
+        writeAudit({
+          clinicId: event.clinicId,
+          action: "pvs_event_quarantined",
+          entityKind: "pvs_event_log",
+          entityId: result.eventLogId,
+          diff: {
+            kind: event.kind,
+            bridgeSource: event.bridgeSource,
+            reason: "link_pending_confirmation",
+          },
+          requestMeta,
+        })
+      );
+      return NextResponse.json(
+        {
+          ok: true,
+          status: "quarantined",
+          eventLogId: result.eventLogId,
+        },
+        { status: 202 }
       );
     }
 

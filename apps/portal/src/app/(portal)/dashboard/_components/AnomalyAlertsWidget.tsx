@@ -1,6 +1,6 @@
 import "server-only";
 import { AlertTriangle, Sparkles, X } from "lucide-react";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@eins/ui";
+import { Card, CardContent, CardHeader, CardTitle, ExplainerPopover } from "@eins/ui";
 import { getActiveAlerts, type AlertSeverity } from "@/server/queries/anomalies";
 import { dismissAlertAction, snoozeAlertAction } from "./anomaly-actions";
 
@@ -32,13 +32,23 @@ export async function AnomalyAlertsWidget({
   const alerts = await getActiveAlerts(clinicId, userId, 5);
 
   return (
-    <Card className="print:break-inside-avoid">
+    <Card
+      className="print:break-inside-avoid"
+      style={{
+        backgroundColor: "var(--bg-card)",
+        boxShadow: "var(--shadow-card)",
+      }}
+    >
       <CardHeader>
-        <CardTitle>Auffälligkeiten</CardTitle>
-        <CardDescription>
-          Was diese Woche von Ihrer Baseline abweicht und Aufmerksamkeit
-          braucht.
-        </CardDescription>
+        <CardTitle className="flex items-center gap-1.5">
+          <span>Auffälligkeiten</span>
+          <ExplainerPopover term="Auffälligkeiten" ariaLabel="Erklärung für Auffälligkeiten">
+            <p>
+              Was diese Woche von Ihrer Baseline abweicht und Aufmerksamkeit
+              braucht.
+            </p>
+          </ExplainerPopover>
+        </CardTitle>
       </CardHeader>
       <CardContent>
         {alerts.length === 0 ? (
@@ -59,7 +69,7 @@ export async function AnomalyAlertsWidget({
 
 function EmptyAlertsState() {
   return (
-    <div className="flex items-start gap-3 rounded-lg bg-bg-secondary/40 px-4 py-3 text-sm">
+    <div className="flex items-start gap-3 rounded-lg bg-bg-tertiary/60 px-4 py-3 text-sm">
       <span
         aria-hidden
         className="mt-1 h-2 w-2 shrink-0 rounded-full bg-tone-good"
@@ -103,13 +113,12 @@ function AlertRow({
                 type="submit"
                 aria-label="Auffälligkeit ausblenden"
                 title="Ausblenden"
-                className="opa-focus-ring -mr-1 -mt-1 rounded-md p-1 text-fg-tertiary hover:bg-bg-secondary hover:text-fg-primary"
+                className="opa-focus-ring -mr-1 -mt-1 rounded-md p-1 text-fg-tertiary hover:bg-bg-tertiary hover:text-fg-primary"
               >
                 <X className="h-4 w-4" />
               </button>
             </form>
           </div>
-          <p className="mt-0.5 text-sm text-fg-secondary">{alert.body}</p>
         </div>
       </div>
 
@@ -149,7 +158,7 @@ function AlertRow({
           <input type="hidden" name="alertId" value={alert.id} />
           <button
             type="submit"
-            className="opa-focus-ring rounded px-1 py-0.5 hover:bg-bg-secondary hover:text-fg-secondary"
+            className="opa-focus-ring rounded px-1 py-0.5 hover:bg-bg-tertiary hover:text-fg-secondary"
           >
             7 Tage später erinnern
           </button>
@@ -179,7 +188,12 @@ function severityTone(severity: AlertSeverity): SeverityTone {
 
 export function AnomalyAlertsSkeleton() {
   return (
-    <Card>
+    <Card
+      style={{
+        backgroundColor: "var(--bg-card)",
+        boxShadow: "var(--shadow-card)",
+      }}
+    >
       <CardHeader>
         <CardTitle>Auffälligkeiten</CardTitle>
       </CardHeader>

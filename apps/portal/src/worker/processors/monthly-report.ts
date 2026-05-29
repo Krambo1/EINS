@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { kpiSummaryAdmin } from "@/server/queries/kpis";
-import { getEmailSender } from "@/server/email";
+import { getEmailSender, renderEmailLayout, escapeHtml } from "@/server/email";
 import { isEmailSuppressed } from "@/server/email-suppression";
 import { env } from "@/lib/env";
 
@@ -112,18 +112,30 @@ export async function processMonthlyReport(job: MonthlyReportJob): Promise<void>
         );
         continue;
       }
+      const subject = `EINS · Monats-Auswertung ${period}`;
+      const greeting = u.fullName ? `Guten Tag ${u.fullName},` : "Guten Tag,";
+      const html = renderEmailLayout({
+        preheader: `Ihre Monats-Auswertung für ${period} liegt im Portal bereit.`,
+        heading: `Ihre Auswertung für ${period} ist bereit`,
+        introHtml:
+          `<p style="font-size:16px; line-height:1.55; color:#4a4a52; margin:0 0 12px 0; letter-spacing:0.012em;">${escapeHtml(greeting)}</p>` +
+          `<p style="font-size:16px; line-height:1.55; color:#4a4a52; margin:0 0 28px 0; letter-spacing:0.012em;">Ihre Monats-Auswertung für <strong style="color:#10101a;">${escapeHtml(period)}</strong> liegt im Portal bereit. Sie finden den Bericht unter Dokumente.</p>`,
+        cta: { label: "Zur Auswertung", url: link },
+        auditRows: [
+          { label: "Zeitraum", value: period },
+          { label: "Format", value: "PDF" },
+        ],
+        fallbackUrl: link,
+      });
       await sender.send({
         to: u.email,
-        subject: `Ihre Monats-Auswertung ${period} ist bereit`,
+        subject,
         text:
-          `Guten Tag${u.fullName ? " " + u.fullName : ""},\n\n` +
+          `${greeting}\n\n` +
           `Ihre Monats-Auswertung für ${period} liegt im Portal bereit.\n\n` +
           `Zur Auswertung: ${link}\n\n` +
           `Herzliche Grüße\nEINS`,
-        html: `<p>Guten Tag${u.fullName ? " " + u.fullName : ""},</p>
-               <p>Ihre Monats-Auswertung für <strong>${period}</strong> liegt im Portal bereit.</p>
-               <p><a href="${link}">Zur Auswertung</a></p>
-               <p>Herzliche Grüße<br>EINS</p>`,
+        html,
       });
     } catch (err) {
       console.error(

@@ -223,7 +223,7 @@ export async function ruleCplSurge(
       kind: "cpl_surge",
       severity,
       title: `CPL ${platformLabel(platform)} ${formatPctChange(pct)} auf ${formatEuro(recentCpl)}`,
-      body: `Vorperiode 30 Tage: ${formatEuro(baseCpl)} pro qualifiziertem Lead.`,
+      body: `Vorperiode 30 Tage: ${formatEuro(baseCpl)} pro Anfrage.`,
       defaultActionSteps:
         severity === "info"
           ? []
@@ -247,7 +247,7 @@ export async function ruleCplSurge(
 // ---------------------------------------------------------------
 
 /**
- * Zero qualified leads in the last 14 days while the 30 days before that
+ * Zero leads (non-spam) in the last 14 days while the 30 days before that
  * had at least 5. Pure silence detector; severity is based on what the
  * praxis was getting before things went quiet:
  *   prior >= 5 → warn
@@ -297,7 +297,7 @@ export async function ruleLeadDrought(
     {
       kind: "lead_drought",
       severity,
-      title: "14 Tage ohne neue qualifizierte Anfrage",
+      title: "14 Tage ohne neue Anfrage",
       body: `In den 30 Tagen davor: ${base} Anfragen. Aktuell: 0.`,
       defaultActionSteps: [
         "Anzeigen-Auslieferung prüfen: läuft Meta + Google aktuell?",
@@ -305,7 +305,7 @@ export async function ruleLeadDrought(
         "Letzte Änderungen rückwärts laufen lassen (Audience, Bid, Creative der letzten 14 Tage)",
       ],
       aiEnrich: severity === "extreme",
-      metric: "qualified_leads_14d",
+      metric: "leads_14d",
       baselineValue: base,
       observedValue: 0,
       dedupeKey: "lead_drought:rolling-14d",
@@ -383,7 +383,7 @@ export async function ruleRevenueDrop(
           : [
               "Pipeline-Vorhersage in /auswertung prüfen: ist die Lücke schon im Forecast?",
               "Top-Behandlungen Vorjahr vs. aktuell: welche fehlt?",
-              "Mitarbeiter-Leistung prüfen: ist eine Person unter Quote?",
+              "Anfragen-Reaktionszeit prüfen: gibt es Verzögerungen, die Abschlüsse kosten?",
             ],
       aiEnrich: severity === "extreme",
       metric: "revenue_7d",

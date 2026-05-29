@@ -44,7 +44,11 @@ interface LinkRow {
   totalEvents: number;
   openFailures: number;
   pendingCsvUploads: number;
+  agentFailedEvents: number;
+  agentLastHeartbeatAt: Date | null;
 }
+
+const AGENT_FAILED_ALERT_THRESHOLD = 100;
 
 export default async function AdminPvsBridgePage() {
   await requireAdmin();
@@ -63,6 +67,8 @@ export default async function AdminPvsBridgePage() {
     total_events_ingested: number;
     open_failures: number;
     pending_csv_uploads: number;
+    agent_failed_events: number | null;
+    agent_last_heartbeat_at: Date | null;
   }>(sql`
     SELECT
       l.id,
@@ -80,9 +86,12 @@ export default async function AdminPvsBridgePage() {
         WHERE f.clinic_id = l.clinic_id AND f.status = 'open') AS open_failures,
       (SELECT COUNT(*) FROM pvs_csv_uploads u
         WHERE u.clinic_id = l.clinic_id
-          AND u.status IN ('pending','processing'))           AS pending_csv_uploads
+          AND u.status IN ('pending','processing'))           AS pending_csv_uploads,
+      a.failed_events                                          AS agent_failed_events,
+      a.last_heartbeat_at                                      AS agent_last_heartbeat_at
     FROM pvs_link l
     LEFT JOIN pvs_sync_status s ON s.pvs_link_id = l.id
+    LEFT JOIN pvs_agent_status a ON a.clinic_id = l.clinic_id
     ORDER BY l.last_event_at DESC NULLS LAST
   `);
 
@@ -100,6 +109,8 @@ export default async function AdminPvsBridgePage() {
     total_events_ingested: number;
     open_failures: number;
     pending_csv_uploads: number;
+    agent_failed_events: number | null;
+    agent_last_heartbeat_at: Date | null;
   }>).map((r) => ({
     id: r.id,
     clinicId: r.clinic_id,
@@ -114,7 +125,13 @@ export default async function AdminPvsBridgePage() {
     totalEvents: Number(r.total_events_ingested) || 0,
     openFailures: Number(r.open_failures) || 0,
     pendingCsvUploads: Number(r.pending_csv_uploads) || 0,
+    agentFailedEvents: Number(r.agent_failed_events) || 0,
+    agentLastHeartbeatAt: r.agent_last_heartbeat_at,
   }));
+
+  const agentAlertCount = linkRows.filter(
+    (r) => r.agentFailedEvents > AGENT_FAILED_ALERT_THRESHOLD
+  ).length;
 
   const totalConnected = linkRows.filter((r) => r.status === "connected").length;
   const totalErrored = linkRows.filter((r) => r.status === "error").length;
@@ -134,13 +151,18 @@ export default async function AdminPvsBridgePage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-5">
         <SummaryStat label="Verbunden" value={totalConnected} tone="good" />
         <SummaryStat label="Fehler" value={totalErrored} tone={totalErrored > 0 ? "bad" : "neutral"} />
         <SummaryStat
           label="Akkreditierung"
           value={totalAkkreditierung}
           tone={totalAkkreditierung > 0 ? "warn" : "neutral"}
+        />
+        <SummaryStat
+          label="Dead-Letter >100"
+          value={agentAlertCount}
+          tone={agentAlertCount > 0 ? "bad" : "neutral"}
         />
         <SummaryStat label="Praxen gesamt" value={linkRows.length} tone="neutral" />
       </div>
@@ -167,11 +189,19 @@ export default async function AdminPvsBridgePage() {
                 <th className="p-2">Letzter Fehler</th>
                 <th className="p-2 text-right">Inbox</th>
                 <th className="p-2 text-right">CSV</th>
+                <th className="p-2 text-right">Agent-DLQ</th>
               </tr>
             </thead>
             <tbody>
               {linkRows.map((r) => (
-                <tr key={r.id} className="border-t">
+                <tr
+                  key={r.id}
+                  className={
+                    r.agentFailedEvents > AGENT_FAILED_ALERT_THRESHOLD
+                      ? "border-t bg-destructive/5"
+                      : "border-t"
+                  }
+                >
                   <td className="p-2">
                     <code>{r.clinicId.slice(0, 8)}</code>
                   </td>
@@ -218,11 +248,26 @@ export default async function AdminPvsBridgePage() {
                       "0"
                     )}
                   </td>
+                  <td className="p-2 text-right">
+                    {r.agentLastHeartbeatAt === null ? (
+                      <span className="text-muted-foreground">—</span>
+                    ) : r.agentFailedEvents > AGENT_FAILED_ALERT_THRESHOLD ? (
+                      <Badge tone="bad" className="text-[10px]">
+                        {r.agentFailedEvents}
+                      </Badge>
+                    ) : r.agentFailedEvents > 0 ? (
+                      <Badge tone="warn" className="text-[10px]">
+                        {r.agentFailedEvents}
+                      </Badge>
+                    ) : (
+                      "0"
+                    )}
+                  </td>
                 </tr>
               ))}
               {linkRows.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="p-4 text-center text-muted-foreground">
+                  <td colSpan={11} className="p-4 text-center text-muted-foreground">
                     Noch keine Praxis hat ein pvs_link eingerichtet.
                   </td>
                 </tr>

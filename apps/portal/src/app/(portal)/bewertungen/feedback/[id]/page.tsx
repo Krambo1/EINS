@@ -116,11 +116,11 @@ export default async function PatientenfeedbackDetailPage({
           </div>
           <p className="mt-2 text-sm text-fg-secondary">
             Eingegangen {formatDateTime(feedback.createdAt)}
-            {feedback.recallScheduledFor && (
-              <> · Anstoß: Termin am {feedback.recallScheduledFor}</>
+            {feedback.reviewRequestScheduledFor && (
+              <> · Anstoß: Termin am {feedback.reviewRequestScheduledFor}</>
             )}
-            {feedback.recallTreatmentLabel && (
-              <> · Anlass: {feedback.recallTreatmentLabel}</>
+            {feedback.reviewRequestTreatmentLabel && (
+              <> · Anlass: {feedback.reviewRequestTreatmentLabel}</>
             )}
           </p>
         </div>

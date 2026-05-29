@@ -1,12 +1,11 @@
 import "server-only";
 import type { ReactNode } from "react";
-import { Star } from "lucide-react";
+import { RatingStars } from "../../_components/RatingStars";
 import {
   Accordion,
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
-  Avatar,
   Card,
   CardContent,
   CardHeader,
@@ -37,7 +36,6 @@ import {
   weekdayHeatmap,
   hourlyHeatmap,
   cohortRetention,
-  staffPerformance,
 } from "@/server/queries/lifecycle";
 import {
   topPatientsByLtv,
@@ -70,7 +68,7 @@ import type { KpiSummary } from "@/server/queries/kpis";
 import { Brand, withBrandLogos } from "@/app/_components/Brand";
 
 /**
- * Heavy detail bundle for /auswertung — 18 parallel queries fetched here so
+ * Heavy detail bundle for /auswertung — 17 parallel queries fetched here so
  * the page header, period nav, and base SimpleMetric grid can paint before
  * any of these resolve. Wrapped in <Suspense> at the page level.
  */
@@ -106,7 +104,6 @@ export async function AuswertungDetailBundle({
     weekday,
     hourly,
     cohorts,
-    staff,
     topPatients,
     ltvByChannelRows,
     reviews,
@@ -126,7 +123,6 @@ export async function AuswertungDetailBundle({
     weekdayHeatmap(clinicId, userId, from, to),
     hourlyHeatmap(clinicId, userId, from, to),
     cohortRetention(clinicId, userId, 8),
-    staffPerformance(clinicId, userId, from, to),
     topPatientsByLtv(clinicId, userId, 10),
     ltvByChannel(clinicId, userId),
     latestReviews(clinicId, userId),
@@ -157,9 +153,9 @@ export async function AuswertungDetailBundle({
             <>
               <div className="grid gap-4 md:grid-cols-3">
                 <DailyMiniChart
-                  label="Qualifizierte Anfragen"
+                  label="Anfragen"
                   dates={sparklines.dates}
-                  values={sparklines.qualifiedLeads}
+                  values={sparklines.leads}
                   tone="accent"
                   valueFormat="number"
                 />
@@ -206,13 +202,13 @@ export async function AuswertungDetailBundle({
       </Card>
 
       {/* Trichter-Quoten with delta */}
-      {summary.qualifiedLeads > 0 && (
+      {summary.leads > 0 && (
         <section className="print:break-inside-avoid">
           <h3 className="opa-h3 mb-4 text-fg-primary">Trichter-Quoten (mit Vergleich)</h3>
           <div className="grid gap-4 md:grid-cols-3">
             <FunnelStat
               label="Anfrage → Termin"
-              value={formatPercent(summary.appointments / summary.qualifiedLeads)}
+              value={formatPercent(summary.appointments / summary.leads)}
               hint={deltaHint(comparison.delta.appointmentsPct)}
             />
             <FunnelStat
@@ -237,7 +233,7 @@ export async function AuswertungDetailBundle({
       )}
 
       {/* Funnel visualization */}
-      {summary.qualifiedLeads > 0 && (
+      {summary.leads > 0 && (
         <Card className="print:break-inside-avoid">
           <CardHeader>
             <CardTitle>Trichter-Visualisierung</CardTitle>
@@ -247,28 +243,28 @@ export async function AuswertungDetailBundle({
               stages={[
                 {
                   label: "Anfragen",
-                  value: summary.qualifiedLeads,
+                  value: summary.leads,
                   hint: formatPercent(1),
                 },
                 {
                   label: "Termine",
                   value: summary.appointments,
                   hint: formatPercent(
-                    summary.appointments / Math.max(1, summary.qualifiedLeads)
+                    summary.appointments / Math.max(1, summary.leads)
                   ),
                 },
                 {
                   label: "Beratungen",
                   value: summary.consultationsHeld,
                   hint: formatPercent(
-                    summary.consultationsHeld / Math.max(1, summary.qualifiedLeads)
+                    summary.consultationsHeld / Math.max(1, summary.leads)
                   ),
                 },
                 {
                   label: "Gewonnen",
                   value: summary.casesWon,
                   hint: formatPercent(
-                    summary.casesWon / Math.max(1, summary.qualifiedLeads)
+                    summary.casesWon / Math.max(1, summary.leads)
                   ),
                 },
               ]}
@@ -315,10 +311,10 @@ export async function AuswertungDetailBundle({
                 render: (r) => (r.spendEur != null ? formatEuro(r.spendEur) : "–"),
               },
               {
-                key: "cpqlEur",
+                key: "cplEur",
                 header: "CPL",
                 align: "right",
-                render: (r) => (r.cpqlEur != null ? formatEuro(r.cpqlEur) : "–"),
+                render: (r) => (r.cplEur != null ? formatEuro(r.cplEur) : "–"),
               },
               {
                 key: "cacEur",
@@ -629,70 +625,6 @@ export async function AuswertungDetailBundle({
         </Card>
       )}
 
-      {/* Staff performance */}
-      <Card className="print:break-inside-avoid">
-        <CardHeader>
-          <CardTitle>Mitarbeiter-Leistung</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <DataTable
-            rows={staff}
-            columns={[
-              {
-                key: "fullName",
-                header: "Mitarbeiter",
-                render: (r) => (
-                  <span className="flex items-center gap-3 min-w-0">
-                    <Avatar
-                      src={r.avatarUrl}
-                      name={r.fullName ?? r.email}
-                      size="md"
-                    />
-                    <span className="min-w-0 truncate">
-                      <span className="font-medium text-fg-primary">
-                        {r.fullName ?? r.email}
-                      </span>
-                      <span className="ml-2 text-xs text-fg-secondary">({r.role})</span>
-                    </span>
-                  </span>
-                ),
-              },
-              {
-                key: "assignedCount",
-                header: "Zugewiesen",
-                align: "right",
-                render: (r) => formatNumber(r.assignedCount),
-              },
-              {
-                key: "wonCount",
-                header: "Gewonnen",
-                align: "right",
-                render: (r) => formatNumber(r.wonCount),
-              },
-              {
-                key: "winRate",
-                header: "Quote",
-                align: "right",
-                render: (r) => (r.winRate != null ? formatPercent(r.winRate) : "–"),
-              },
-              {
-                key: "avgResponseMinutes",
-                header: "Ø Reaktion",
-                align: "right",
-                render: (r) => formatMinutes(r.avgResponseMinutes),
-              },
-              {
-                key: "avgCaseValueEur",
-                header: "Ø Fall",
-                align: "right",
-                render: (r) =>
-                  r.avgCaseValueEur != null ? formatEuro(r.avgCaseValueEur) : "–",
-              },
-            ]}
-          />
-        </CardContent>
-      </Card>
-
       {/* LTV breakdowns */}
       <div className="grid gap-6 lg:grid-cols-2">
         <Card className="print:break-inside-avoid">
@@ -781,9 +713,9 @@ export async function AuswertungDetailBundle({
                   <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
                     {platformLabelNode(r.platform)}
                   </div>
-                  <div className="mt-2 flex items-baseline gap-1.5 font-display text-3xl font-semibold tabular-nums">
+                  <div className="mt-2 flex items-center gap-2 font-display text-3xl font-semibold tabular-nums">
                     {r.rating.toFixed(1).replace(".", ",")}
-                    <Star className="h-5 w-5 text-tone-warn" />
+                    <RatingStars rating={r.rating} size={18} />
                   </div>
                   <div className="mt-1 text-sm text-fg-secondary">
                     {formatNumber(r.totalCount)} Bewertungen
@@ -986,7 +918,7 @@ function SeriesTable({
           {series.map((row) => (
             <tr key={row.date} className="hover:bg-bg-secondary/40">
               <Td>{formatDate(row.date)}</Td>
-              <Td align="right">{formatNumber(row.qualifiedLeads ?? 0)}</Td>
+              <Td align="right">{formatNumber(row.leads ?? 0)}</Td>
               <Td align="right">{formatNumber(row.appointments ?? 0)}</Td>
               <Td align="right">{formatNumber(row.casesWon ?? 0)}</Td>
               <Td align="right">
@@ -1006,7 +938,7 @@ function SeriesTable({
         <tfoot className="bg-bg-secondary/40 font-semibold">
           <tr>
             <Td>Summe</Td>
-            <Td align="right">{formatNumber(summary.qualifiedLeads)}</Td>
+            <Td align="right">{formatNumber(summary.leads)}</Td>
             <Td align="right">{formatNumber(summary.appointments)}</Td>
             <Td align="right">{formatNumber(summary.casesWon)}</Td>
             <Td align="right">{formatEuro(summary.spendEur)}</Td>

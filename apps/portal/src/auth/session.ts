@@ -2,7 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
-import { and, eq, isNull, sql as dsql } from "drizzle-orm";
+import { and, eq, isNull, ne, sql as dsql } from "drizzle-orm";
 import { db, schema } from "../db/client";
 import { env } from "../lib/env";
 import {
@@ -23,10 +23,6 @@ import { avatarUrlForKey } from "../server/avatars";
  *
  * Each sign-in emits a NEW row in `sessions`. Logout marks it revoked.
  * `getSession()` is called by every server component that needs auth.
- *
- * We split "has session" from "has MFA verified" so magic-link step 1
- * creates a session in `mfaVerified=false` state; the TOTP step flips it.
- * Protected routes require `mfaVerified=true` when `user.mfaEnrolled=true`.
  */
 
 const SECRET = new TextEncoder().encode(env.SESSION_SECRET);
@@ -66,25 +62,22 @@ export interface ResolvedSession {
   fullName: string | null;
   avatarUrl: string | null;
   role: Role;
-  mfaEnrolled: boolean;
-  mfaVerified: boolean;
   /** Non-null when an admin opened this session via "View as clinic user". */
   impersonatedByAdminId: string | null;
 }
 
 /**
- * Create a session row + set the encrypted cookie.
- * Called from magic-link consumption AND from MFA verify (to rotate after step-up).
+ * Create a session row + set the encrypted cookie. Called from magic-link
+ * consumption and from password-login.
  *
  * @param userId    clinic_user primary key
- * @param opts.mfaVerified whether this session is already past the MFA step
- * @param opts.impersonatedByAdminId set when an admin "View as user" flow opened
- *                                   this session — disables MFA gates and
- *                                   triggers the in-portal banner.
+ * @param opts.impersonatedByAdminId set when an admin "View as user" flow
+ *                                   opened this session; triggers the
+ *                                   in-portal banner.
  */
 export async function createSession(
   userId: string,
-  opts: { mfaVerified?: boolean; impersonatedByAdminId?: string } = {}
+  opts: { impersonatedByAdminId?: string } = {}
 ): Promise<void> {
   const token = generateToken(32);
   const tokenHash = sha256Hex(token);
@@ -99,7 +92,6 @@ export async function createSession(
     .values({
       userId,
       tokenHash,
-      mfaVerified: opts.mfaVerified ?? false,
       impersonatedByAdminId: opts.impersonatedByAdminId,
       userAgent: ua ?? undefined,
       ipAddress: ip ?? undefined,
@@ -127,14 +119,6 @@ export async function createSession(
   }
 }
 
-/** Flip mfaVerified=true on the current session (after TOTP success). */
-export async function markSessionMfaVerified(sessionId: string): Promise<void> {
-  await db
-    .update(schema.sessions)
-    .set({ mfaVerified: true, lastSeenAt: new Date() })
-    .where(eq(schema.sessions.id, sessionId));
-}
-
 /**
  * Look up the current session and its user. Returns null if unauthenticated.
  *
@@ -158,7 +142,6 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
     .select({
       sessionId: schema.sessions.id,
       userId: schema.sessions.userId,
-      mfaVerifiedSession: schema.sessions.mfaVerified,
       impersonatedByAdminId: schema.sessions.impersonatedByAdminId,
       expiresAt: schema.sessions.expiresAt,
       revokedAt: schema.sessions.revokedAt,
@@ -168,8 +151,6 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
       avatarKey: schema.clinicUsers.avatarKey,
       avatarUpdatedAt: schema.clinicUsers.avatarUpdatedAt,
       role: schema.clinicUsers.role,
-      mfaEnrolled: schema.clinicUsers.mfaEnrolled,
-      mfaSecretEnc: schema.clinicUsers.mfaSecretEnc,
       archivedAt: schema.clinicUsers.archivedAt,
     })
     .from(schema.sessions)
@@ -199,15 +180,6 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
       console.warn("[session] lastSeenAt update failed", err);
     });
 
-  // Defensive: a `mfa_enrolled = true` row with `mfa_secret_enc = null` is
-  // a broken state (seed bug, half-applied migration, manual SQL edit). The
-  // MFA gate would then trap the user — they can't verify (no secret to
-  // verify against) and can't re-enroll (the enrol screen is gated on
-  // `mfa_enrolled = false`). Treat that combo as "not enrolled" so the
-  // enrollment flow is reachable. The next finalize call repopulates both
-  // fields atomically.
-  const enrolledEffective = row.mfaEnrolled && row.mfaSecretEnc !== null;
-
   return {
     sessionId: row.sessionId,
     userId: row.userId,
@@ -216,8 +188,6 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
     fullName: row.fullName,
     avatarUrl: avatarUrlForKey(row.avatarKey, row.avatarUpdatedAt),
     role: row.role as Role,
-    mfaEnrolled: enrolledEffective,
-    mfaVerified: row.mfaVerifiedSession,
     impersonatedByAdminId: row.impersonatedByAdminId,
   };
 }
@@ -241,8 +211,8 @@ export async function destroySession(): Promise<void> {
 }
 
 /**
- * Revoke every non-expired session for a user. Used after password reset,
- * TOTP re-enrollment, or admin "force-logout".
+ * Revoke every non-expired session for a user. Used after password reset
+ * or admin "force-logout".
  */
 export async function revokeAllSessionsForUser(userId: string): Promise<void> {
   await db
@@ -251,6 +221,28 @@ export async function revokeAllSessionsForUser(userId: string): Promise<void> {
     .where(
       and(
         eq(schema.sessions.userId, userId),
+        isNull(schema.sessions.revokedAt),
+        dsql`${schema.sessions.expiresAt} > now()`
+      )
+    );
+}
+
+/**
+ * Revoke every non-expired session for a user EXCEPT the one passed in. Used
+ * by /einstellungen/sicherheit password-change so the user keeps their current
+ * tab logged in while other devices get kicked out.
+ */
+export async function revokeOtherSessionsForUser(
+  userId: string,
+  exceptSessionId: string
+): Promise<void> {
+  await db
+    .update(schema.sessions)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(
+        eq(schema.sessions.userId, userId),
+        ne(schema.sessions.id, exceptSessionId),
         isNull(schema.sessions.revokedAt),
         dsql`${schema.sessions.expiresAt} > now()`
       )

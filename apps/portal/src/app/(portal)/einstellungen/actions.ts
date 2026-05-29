@@ -11,7 +11,6 @@ import { writeAudit } from "@/server/audit";
 import { can, ForbiddenError } from "@/lib/roles";
 import { issueMagicLink } from "@/auth/magic-link";
 import { ROLES } from "@/lib/constants";
-import { resetMfa } from "@/auth/totp";
 import { encryptString } from "@/lib/crypto";
 import { flashSuccess, flashError, flashMessageFromError } from "@/lib/flash";
 import { invalidateSignatureSecretCache } from "@/server/clinic-signature";
@@ -19,8 +18,8 @@ import { invalidateSignatureSecretCache } from "@/server/clinic-signature";
 const EmailSchema = z.string().email().max(200);
 
 /**
- * Invite a new team member. Creates a clinic_users row in pending state
- * (mfaEnrolled=false), then issues an invite magic-link.
+ * Invite a new team member. Creates a clinic_users row in pending state,
+ * then issues an invite magic-link.
  */
 export async function inviteTeamMemberAction(formData: FormData) {
   try {
@@ -142,49 +141,6 @@ export async function removeTeamMemberAction(formData: FormData) {
     await flashSuccess("Teammitglied entfernt");
   } catch (err) {
     await flashError("Entfernen fehlgeschlagen", flashMessageFromError(err));
-  } finally {
-    revalidatePath("/einstellungen");
-  }
-}
-
-/** Reset 2FA for a team member — they'll re-enroll on next login. */
-export async function resetMemberMfaAction(formData: FormData) {
-  try {
-    const session = await requireSession();
-    if (!can(session.role, "settings.team")) {
-      throw new ForbiddenError("settings.team");
-    }
-    const targetId = z.string().uuid().parse(formData.get("userId"));
-
-    // Confirm target is in same clinic.
-    const [member] = await db
-      .select({ id: schema.clinicUsers.id })
-      .from(schema.clinicUsers)
-      .where(
-        and(
-          eq(schema.clinicUsers.id, targetId),
-          eq(schema.clinicUsers.clinicId, session.clinicId),
-          isNull(schema.clinicUsers.archivedAt)
-        )
-      )
-      .limit(1);
-    if (!member) throw new Error("Teammitglied nicht gefunden.");
-
-    await resetMfa(targetId);
-
-    await writeAudit({
-      clinicId: session.clinicId,
-      actorId: session.userId,
-      actorEmail: session.email,
-      action: "reset_mfa",
-      entityKind: "clinic_user",
-      entityId: targetId,
-      diff: {},
-    });
-
-    await flashSuccess("2FA zurückgesetzt", "Beim nächsten Login wird neu eingerichtet.");
-  } catch (err) {
-    await flashError("2FA-Reset fehlgeschlagen", flashMessageFromError(err));
   } finally {
     revalidatePath("/einstellungen");
   }
@@ -343,13 +299,11 @@ export async function createTreatmentAction(formData: FormData) {
         name: z.string().min(1).max(120),
         slug: SlugSchema,
         keywords: z.string().max(500).optional(),
-        defaultRecallMonths: z.coerce.number().int().min(0).max(60).optional(),
       })
       .parse({
         name: formData.get("name"),
         slug: formData.get("slug"),
         keywords: formData.get("keywords") ?? undefined,
-        defaultRecallMonths: formData.get("defaultRecallMonths") ?? undefined,
       });
 
     await withClinicContext(session.clinicId, session.userId, async (tx) => {
@@ -358,7 +312,6 @@ export async function createTreatmentAction(formData: FormData) {
         name: input.name,
         slug: input.slug,
         keywords: input.keywords ?? null,
-        defaultRecallMonths: input.defaultRecallMonths ?? null,
       });
     });
     await writeAudit({

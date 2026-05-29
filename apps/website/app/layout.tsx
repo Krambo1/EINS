@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { CookieConsent } from "@/components/cookie-consent";
 import { CONTACT_EMAIL, CONTACT_PHONE } from "@/lib/constants";
@@ -156,7 +155,6 @@ export default function RootLayout({
         </a>
         <div id="main-content">{children}</div>
         <CookieConsent />
-        <SpeedInsights />
       </body>
     </html>
   );

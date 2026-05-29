@@ -9,9 +9,11 @@ export function Hero() {
       <div className="container">
         <div className="max-w-7xl mx-auto text-center">
           <h1 className="display-xl leading-[1.05] hero-fade-in">
-            <span className="block whitespace-nowrap">Mehr Patienten.</span>
-            <span className="block whitespace-nowrap">Mehr Umsatz.</span>
-            <ShimmerText className="block whitespace-nowrap">Mehr Sicherheit.</ShimmerText>
+            {/* whitespace-nowrap only at sm+: at 320px viewports display-xl text overflows
+                horizontally with nowrap forced. Let it wrap on small phones. */}
+            <span className="block sm:whitespace-nowrap">Mehr Patienten.</span>
+            <span className="block sm:whitespace-nowrap">Mehr Umsatz.</span>
+            <ShimmerText className="block sm:whitespace-nowrap">Mehr Sicherheit.</ShimmerText>
           </h1>
 
           <p

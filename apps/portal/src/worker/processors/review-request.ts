@@ -6,13 +6,13 @@ import { env } from "@/lib/env";
 /**
  * EINS Stimme — review-request scanner.
  *
- * Runs every 15 min (BullMQ repeat). Selects all due review_request recalls
- * that are still pending, looks up the patient + clinic context, and
- * enqueues an emailSend job. The worker uses the existing email-send
- * processor which already routes through the configured driver (console /
- * mailhog / Resend) — no special-casing here.
+ * Runs every 15 min (BullMQ repeat). Selects all due review-request rows
+ * from review_email_schedule that are still pending, looks up the patient +
+ * clinic context, and enqueues an emailSend job. The worker uses the
+ * existing email-send processor which already routes through the configured
+ * driver (console / mailhog / Resend) — no special-casing here.
  *
- * Idempotency: every recall row is flipped from 'pending' → 'sent' inside
+ * Idempotency: every schedule row is flipped from 'pending' → 'sent' inside
  * the SAME tick, BEFORE the email-send job is enqueued. If we enqueue first
  * and the worker crashes between enqueue and update, BullMQ replays the job
  * and the patient gets a duplicate email. Updating first means at-most-once
@@ -20,7 +20,7 @@ import { env } from "@/lib/env";
  * missing a single review email is fine; receiving two looks broken).
  *
  * Suppression check runs in-tick: a clinic admin may add an entry to
- * email_suppression between the recall being scheduled and the send tick.
+ * email_suppression between the row being scheduled and the send tick.
  */
 export type ReviewRequestTickJob = Record<string, never>;
 
@@ -31,7 +31,7 @@ export async function processReviewRequestTick(): Promise<void> {
 
   // Pull due rows with the joins we need to render the mail in one round-trip.
   type DueRow = {
-    recallId: string;
+    reviewRequestId: string;
     reviewToken: string;
     reviewEmail: string;
     reviewPatientName: string | null;
@@ -47,11 +47,11 @@ export async function processReviewRequestTick(): Promise<void> {
 
   const due = (await db
     .select({
-      recallId: schema.requestRecalls.id,
-      reviewToken: schema.requestRecalls.reviewToken,
-      reviewEmail: schema.requestRecalls.reviewEmail,
-      reviewPatientName: schema.requestRecalls.reviewPatientName,
-      reviewTreatmentLabel: schema.requestRecalls.reviewTreatmentLabel,
+      reviewRequestId: schema.reviewEmailSchedule.id,
+      reviewToken: schema.reviewEmailSchedule.reviewToken,
+      reviewEmail: schema.reviewEmailSchedule.reviewEmail,
+      reviewPatientName: schema.reviewEmailSchedule.reviewPatientName,
+      reviewTreatmentLabel: schema.reviewEmailSchedule.reviewTreatmentLabel,
       clinicId: schema.clinics.id,
       clinicDisplayName: schema.clinics.displayName,
       googleReviewUrl: schema.clinics.googleReviewUrl,
@@ -60,18 +60,18 @@ export async function processReviewRequestTick(): Promise<void> {
       reviewEmailFrom: schema.clinics.reviewEmailFrom,
       reviewRequestEnabled: schema.clinics.reviewRequestEnabled,
     })
-    .from(schema.requestRecalls)
+    .from(schema.reviewEmailSchedule)
     .innerJoin(
       schema.clinics,
-      eq(schema.requestRecalls.clinicId, schema.clinics.id)
+      eq(schema.reviewEmailSchedule.clinicId, schema.clinics.id)
     )
     .where(
       and(
-        eq(schema.requestRecalls.kind, "review_request"),
-        eq(schema.requestRecalls.status, "pending"),
-        lte(schema.requestRecalls.scheduledFor, today),
-        isNotNull(schema.requestRecalls.reviewToken),
-        isNotNull(schema.requestRecalls.reviewEmail)
+        eq(schema.reviewEmailSchedule.kind, "review_request"),
+        eq(schema.reviewEmailSchedule.status, "pending"),
+        lte(schema.reviewEmailSchedule.scheduledFor, today),
+        isNotNull(schema.reviewEmailSchedule.reviewToken),
+        isNotNull(schema.reviewEmailSchedule.reviewEmail)
       )
     )
     .limit(BATCH_LIMIT)) as DueRow[];
@@ -88,21 +88,21 @@ export async function processReviewRequestTick(): Promise<void> {
       await sendOne(row);
     } catch (err) {
       console.error(
-        `[review-request] send failed recall=${row.recallId}:`,
+        `[review-request] send failed reviewRequestId=${row.reviewRequestId}:`,
         err
       );
       // Roll back to 'pending' so the next tick retries. Without the rollback
       // the row would stay 'sent' with no email actually delivered.
       await db
-        .update(schema.requestRecalls)
+        .update(schema.reviewEmailSchedule)
         .set({ status: "pending" })
-        .where(eq(schema.requestRecalls.id, row.recallId));
+        .where(eq(schema.reviewEmailSchedule.id, row.reviewRequestId));
     }
   }
 }
 
 async function sendOne(row: {
-  recallId: string;
+  reviewRequestId: string;
   reviewToken: string;
   reviewEmail: string;
   reviewPatientName: string | null;
@@ -118,9 +118,9 @@ async function sendOne(row: {
   // Re-check feature flag — admin may have flipped it off after scheduling.
   if (!row.reviewRequestEnabled) {
     await db
-      .update(schema.requestRecalls)
+      .update(schema.reviewEmailSchedule)
       .set({ status: "skipped", note: "feature_disabled" })
-      .where(eq(schema.requestRecalls.id, row.recallId));
+      .where(eq(schema.reviewEmailSchedule.id, row.reviewRequestId));
     return;
   }
 
@@ -137,9 +137,9 @@ async function sendOne(row: {
     .limit(1);
   if (suppressed) {
     await db
-      .update(schema.requestRecalls)
+      .update(schema.reviewEmailSchedule)
       .set({ status: "skipped", note: "suppressed" })
-      .where(eq(schema.requestRecalls.id, row.recallId));
+      .where(eq(schema.reviewEmailSchedule.id, row.reviewRequestId));
     return;
   }
 
@@ -148,9 +148,9 @@ async function sendOne(row: {
   // than to email a patient and dead-end them.
   if (!row.googleReviewUrl && !row.jamedaReviewUrl) {
     await db
-      .update(schema.requestRecalls)
+      .update(schema.reviewEmailSchedule)
       .set({ status: "skipped", note: "no_review_url" })
-      .where(eq(schema.requestRecalls.id, row.recallId));
+      .where(eq(schema.reviewEmailSchedule.id, row.reviewRequestId));
     return;
   }
 
@@ -158,19 +158,34 @@ async function sendOne(row: {
   // global CLINIC_LANDING_ORIGIN default so dev still works without admin setup.
   const landingOrigin = row.reviewLandingOrigin ?? env.CLINIC_LANDING_ORIGIN;
 
+  // The renderer accepts richer context (appointmentDate, practiceSpecialty,
+  // practiceLocation, practitionerName) than we currently persist on
+  // review_email_schedule. Pass null for those — the template degrades
+  // gracefully (drops the lockup sub-line, drops the visit-card cells,
+  // drops the date in the body intro / footer reminder). Future schema work
+  // would:
+  //   1. add reviewVisitDate to review_email_schedule (persist
+  //      patient_event.appointmentCompletedAt) — easy win
+  //   2. add specialty / locationLabel columns on clinics — config UI
+  //   3. extend the PMS Make webhook to carry practitionerName onto the
+  //      patient_event and onto review_email_schedule
   const rendered = renderReviewRequestEmail({
     clinicName: row.clinicDisplayName,
     patientName: row.reviewPatientName,
     treatmentLabel: row.reviewTreatmentLabel,
+    appointmentDate: null,
+    practiceSpecialty: null,
+    practiceLocation: null,
+    practitionerName: null,
     landingOrigin: landingOrigin.replace(/\/$/, ""),
     token: row.reviewToken,
   });
 
   // Mark sent BEFORE enqueueing — see module header comment for rationale.
   await db
-    .update(schema.requestRecalls)
+    .update(schema.reviewEmailSchedule)
     .set({ status: "sent", sentAt: new Date() })
-    .where(eq(schema.requestRecalls.id, row.recallId));
+    .where(eq(schema.reviewEmailSchedule.id, row.reviewRequestId));
 
   // Enqueue the actual delivery via the existing email-send queue.
   // Marketing-class send: every suppression reason blocks (the worker's
@@ -190,4 +205,3 @@ async function sendOne(row: {
     unsubscribeUrl,
   });
 }
-

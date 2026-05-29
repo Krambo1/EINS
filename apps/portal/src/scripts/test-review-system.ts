@@ -215,7 +215,6 @@ async function cmdWalk(args: Args): Promise<void> {
   if (!req) throw new Error("request not found");
   const path = [
     "neu",
-    "qualifiziert",
     "termin_vereinbart",
     "beratung_erschienen",
     "gewonnen",

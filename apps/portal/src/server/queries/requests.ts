@@ -229,6 +229,192 @@ export async function markRequestViewed(
   }
 }
 
+export interface CallQueueLead {
+  id: string;
+  contactName: string | null;
+  contactPhone: string | null;
+  contactEmail: string | null;
+  treatmentWish: string | null;
+  treatmentName: string | null;
+  source: string;
+  status: RequestStatus;
+  aiScore: number | null;
+  aiCategory: string | null;
+  message: string | null;
+  slaRespondBy: Date | null;
+  firstContactedAt: Date | null;
+  createdAt: Date;
+  /** Earliest still-pending Wiedervorlage for this lead, NULL if none. */
+  nextFollowupAt: Date | null;
+}
+
+/**
+ * Prioritised lead-queue for the "Call Center" view (frontdesk only).
+ *
+ * Surfaces leads still in the manual working phase: status ∈ {neu,
+ * kontaktiert, nicht_erreicht, termin_vereinbart}. `kontaktiert` /
+ * `nicht_erreicht` keep worked-but-unbooked leads visible so they don't
+ * vanish the moment the MFA logs a first call. Sort order is the order the
+ * MFA/Sekretariat should actually pick up the phone in:
+ *   1. Fällige Wiedervorlage (pending, due_at <= now) — der MFA hat hier
+ *      selbst einen Rückruf-Termin gesetzt, der jetzt ansteht
+ *   2. SLA-überfällig & noch nicht kontaktiert (hottest accountability signal)
+ *   3. KI-Kategorie hot → warm → kalt/unbekannt
+ *   4. Neu vor bereits angefasst
+ *   5. Innerhalb der Stufe: älteste zuerst (FIFO, nichts fällt hinten runter)
+ *
+ * The earliest pending Wiedervorlage is pulled per lead via a correlated
+ * subquery so the "fällig zuerst" ordering happens BEFORE the LIMIT — a lead
+ * whose callback just came due rises into the visible queue even if its age
+ * would otherwise bury it.
+ *
+ * Returns the columns the queue cards need INCLUDING `message` so the MFA
+ * sees the patient's own words on the card before clicking — listRequests
+ * skips this on purpose because the inbox row doesn't need it.
+ */
+export async function nextCallQueueLeads(
+  clinicId: string,
+  userId: string,
+  limit = 6
+): Promise<CallQueueLead[]> {
+  return withClinicContext(clinicId, userId, async (tx) => {
+    const nextFollowupAt = sql<Date | null>`(
+      SELECT min(rf.due_at)
+      FROM request_followups rf
+      WHERE rf.request_id = ${schema.requests.id}
+        AND rf.status = 'pending'
+    )`;
+
+    const rows = await tx
+      .select({
+        id: schema.requests.id,
+        contactName: schema.requests.contactName,
+        contactPhone: schema.requests.contactPhone,
+        contactEmail: schema.requests.contactEmail,
+        treatmentWish: schema.requests.treatmentWish,
+        treatmentName: schema.treatments.name,
+        source: schema.requests.source,
+        status: schema.requests.status,
+        aiScore: schema.requests.aiScore,
+        aiCategory: schema.requests.aiCategory,
+        message: schema.requests.message,
+        slaRespondBy: schema.requests.slaRespondBy,
+        firstContactedAt: schema.requests.firstContactedAt,
+        createdAt: schema.requests.createdAt,
+        nextFollowupAt: nextFollowupAt.as("next_followup_at"),
+      })
+      .from(schema.requests)
+      .leftJoin(
+        schema.treatments,
+        eq(schema.requests.treatmentId, schema.treatments.id)
+      )
+      .where(
+        and(
+          eq(schema.requests.clinicId, clinicId),
+          inArray(schema.requests.status, [
+            "neu",
+            "kontaktiert",
+            "nicht_erreicht",
+            "termin_vereinbart",
+          ])
+        )
+      )
+      .orderBy(
+        sql`(${nextFollowupAt} IS NOT NULL AND ${nextFollowupAt} <= now()) DESC`,
+        sql`(${schema.requests.firstContactedAt} IS NULL
+              AND ${schema.requests.slaRespondBy} IS NOT NULL
+              AND ${schema.requests.slaRespondBy} < now()) DESC`,
+        sql`CASE ${schema.requests.aiCategory}
+              WHEN 'hot' THEN 0
+              WHEN 'warm' THEN 1
+              WHEN 'cold' THEN 2
+              ELSE 3
+            END`,
+        sql`CASE ${schema.requests.status}
+              WHEN 'neu' THEN 0
+              ELSE 1
+            END`,
+        schema.requests.createdAt
+      )
+      .limit(limit);
+
+    return rows.map((r) => ({
+      ...r,
+      status: r.status as RequestStatus,
+      nextFollowupAt: r.nextFollowupAt ? new Date(r.nextFollowupAt) : null,
+    }));
+  });
+}
+
+export interface OpenLeadForDashboard {
+  id: string;
+  contactName: string | null;
+  treatmentLabel: string | null;
+  createdAt: Date;
+  slaBreached: boolean;
+}
+
+/**
+ * Top-N open Anfragen for the dashboard's "Offene Anfragen" tile footer.
+ *
+ * Mirrors the headline number on the tile (status='neu' only) and surfaces
+ * the rows the MFA should act on next. Priority:
+ *   1. SLA-überfällig & noch nicht kontaktiert
+ *   2. Oldest first (FIFO — nothing falls off the back)
+ *
+ * Returns just the bits the dashboard footer renders — no message body, no
+ * AI score, no full contact details. Anything richer is one click away on
+ * /anfragen/{id}.
+ */
+export async function openLeadsForDashboard(
+  clinicId: string,
+  userId: string,
+  limit = 5,
+): Promise<OpenLeadForDashboard[]> {
+  return withClinicContext(clinicId, userId, async (tx) => {
+    const rows = await tx
+      .select({
+        id: schema.requests.id,
+        contactName: schema.requests.contactName,
+        treatmentWish: schema.requests.treatmentWish,
+        treatmentName: schema.treatments.name,
+        slaRespondBy: schema.requests.slaRespondBy,
+        firstContactedAt: schema.requests.firstContactedAt,
+        createdAt: schema.requests.createdAt,
+      })
+      .from(schema.requests)
+      .leftJoin(
+        schema.treatments,
+        eq(schema.requests.treatmentId, schema.treatments.id),
+      )
+      .where(
+        and(
+          eq(schema.requests.clinicId, clinicId),
+          eq(schema.requests.status, "neu"),
+        ),
+      )
+      .orderBy(
+        sql`(${schema.requests.firstContactedAt} IS NULL
+              AND ${schema.requests.slaRespondBy} IS NOT NULL
+              AND ${schema.requests.slaRespondBy} < now()) DESC`,
+        schema.requests.createdAt,
+      )
+      .limit(limit);
+
+    const now = Date.now();
+    return rows.map((r) => ({
+      id: r.id,
+      contactName: r.contactName,
+      treatmentLabel: r.treatmentName ?? r.treatmentWish ?? null,
+      createdAt: r.createdAt,
+      slaBreached:
+        r.firstContactedAt == null &&
+        r.slaRespondBy != null &&
+        r.slaRespondBy.getTime() < now,
+    }));
+  });
+}
+
 /** Inbound request count series for the last N days — Detail-mode sparkline. */
 export async function inboundCountSeries(
   clinicId: string,
@@ -352,6 +538,29 @@ export async function requestStatusCounts(clinicId: string, userId: string) {
   });
 }
 
+/**
+ * Count of requests bucketed by KI category (hot/warm/cold) — drives the
+ * count pills on the Anfragen "KI-Bewertung" filter. Clinic-wide totals,
+ * independent of the other active filters, so the number answers "how many
+ * are actually marked Kalt" rather than shifting as you click around.
+ * Rows with no aiCategory yet are dropped (no bucket to land in).
+ */
+export async function aiCategoryCounts(clinicId: string, userId: string) {
+  return withClinicContext(clinicId, userId, async (tx) => {
+    const rows = await tx
+      .select({
+        category: schema.requests.aiCategory,
+        count: sql<number>`count(*)::int`,
+      })
+      .from(schema.requests)
+      .where(eq(schema.requests.clinicId, clinicId))
+      .groupBy(schema.requests.aiCategory);
+    const map: Record<string, number> = {};
+    for (const r of rows) if (r.category) map[r.category] = Number(r.count);
+    return map;
+  });
+}
+
 /** Requests where SLA is breached (not yet responded AND sla_respond_by < now()). */
 export async function slaBreachedCount(clinicId: string, userId: string) {
   return withClinicContext(clinicId, userId, async (tx) => {
@@ -363,7 +572,7 @@ export async function slaBreachedCount(clinicId: string, userId: string) {
           eq(schema.requests.clinicId, clinicId),
           isNull(schema.requests.firstContactedAt),
           sql`${schema.requests.slaRespondBy} < now()`,
-          inArray(schema.requests.status, ["neu", "qualifiziert"])
+          eq(schema.requests.status, "neu")
         )
       );
     return Number(rows[0]?.count ?? 0);
@@ -394,13 +603,13 @@ export async function recentRequestsCount(
 
 /**
  * Total requests in an arbitrary [from, to] window with prior-period
- * comparison, plus the qualified subset for the current window. "Total"
- * means every request that landed in the inbox — regardless of `status`
- * — so it includes spam, duplicates, archived, etc. "Qualified" matches
- * the kpi-rebuild worker's definition (`status <> 'spam'`), so the rate
- * is consistent with the leads-card numbers, but computed in the same
- * query as `total` against the same source table — guaranteeing
- * qualified ≤ total even when the kpi_daily denormalization is stale or
+ * comparison, plus the non-spam (`leads`) subset for the current window.
+ * "Total" means every request that landed in the inbox — regardless of
+ * `status` — so it includes spam, duplicates, archived, etc. "Leads"
+ * matches the kpi-rebuild worker's definition (`status <> 'spam'`), so
+ * the rate is consistent with the leads-card numbers, but computed in the
+ * same query as `total` against the same source table — guaranteeing
+ * leads ≤ total even when the kpi_daily denormalization is stale or
  * shifted by a timezone boundary.
  *
  * Used by the dashboard's "Anfragen gesamt" top-metric card. The prior
@@ -414,7 +623,7 @@ export async function totalRequestsInRangeWithComparison(
   to: Date
 ): Promise<{
   current: number;
-  qualified: number;
+  leads: number;
   prior: number;
   deltaPct: number | null;
 }> {
@@ -425,7 +634,7 @@ export async function totalRequestsInRangeWithComparison(
     const currentRowsP = tx
       .select({
         total: sql<number>`count(*)::int`,
-        qualified: sql<number>`count(*) filter (where ${schema.requests.status} <> 'spam')::int`,
+        leads: sql<number>`count(*) filter (where ${schema.requests.status} <> 'spam')::int`,
       })
       .from(schema.requests)
       .where(
@@ -449,7 +658,7 @@ export async function totalRequestsInRangeWithComparison(
 
     const [currentRows, priorRows] = await Promise.all([currentRowsP, priorRowsP]);
     const current = Number(currentRows[0]?.total ?? 0);
-    const qualified = Number(currentRows[0]?.qualified ?? 0);
+    const leads = Number(currentRows[0]?.leads ?? 0);
     const prior = Number(priorRows[0]?.count ?? 0);
     const deltaPct =
       prior > 0
@@ -457,7 +666,7 @@ export async function totalRequestsInRangeWithComparison(
         : current > 0
         ? null
         : 0;
-    return { current, qualified, prior, deltaPct };
+    return { current, leads, prior, deltaPct };
   });
 }
 
@@ -507,29 +716,28 @@ export async function totalRequestsDailyInRange(
 }
 
 /**
- * Qualified leads (status <> 'spam') and won cases in [from, to], with a
- * prior-period comparison on the qualified count. Computed directly from
- * the `requests` table — distinct from the equivalent fields on
- * `kpiSummaryUncached`, which sums the denormalized `kpi_daily` table and
- * can drift if the rebuild worker hasn't run for those dates. Used by the
- * dashboard's "Qualifizierte Anfragen" top-metric card so that its number
- * stays mathematically consistent with the "Anfragen gesamt" card
- * (qualified ≤ total, both sourced from the same query path).
+ * Leads (status <> 'spam') and won cases in [from, to], with a prior-period
+ * comparison on the lead count. Computed directly from the `requests` table —
+ * distinct from the equivalent fields on `kpiSummaryUncached`, which sums the
+ * denormalized `kpi_daily` table and can drift if the rebuild worker hasn't
+ * run for those dates. Used by the dashboard's "Anfragen" top-metric card so
+ * that its number stays mathematically consistent with the "Anfragen gesamt"
+ * card (leads ≤ total, both sourced from the same query path).
  *
- * "Qualified" matches the kpi-rebuild definition (everything that isn't
- * spam) so the headline number means the same thing it always did — we
- * just compute it live instead of reading the snapshot.
+ * "Leads" matches the kpi-rebuild definition (everything that isn't spam).
+ * Seit Migration 0046 ist jede Anfrage im Portal per Definition qualifiziert
+ * — die alte Qualifizierungs-Stage ist weg.
  */
-export async function qualifiedLeadsInRangeWithComparison(
+export async function leadsInRangeWithComparison(
   clinicId: string,
   userId: string,
   from: Date,
   to: Date
 ): Promise<{
-  qualified: number;
+  leads: number;
   won: number;
-  qualifiedPrior: number;
-  qualifiedDeltaPct: number | null;
+  priorLeads: number;
+  leadsDeltaPct: number | null;
 }> {
   const windowMs = to.getTime() - from.getTime();
   const priorFrom = new Date(from.getTime() - windowMs - 1);
@@ -537,7 +745,7 @@ export async function qualifiedLeadsInRangeWithComparison(
   return withClinicContext(clinicId, userId, async (tx) => {
     const currentRowsP = tx
       .select({
-        qualified: sql<number>`count(*) filter (where ${schema.requests.status} <> 'spam')::int`,
+        leads: sql<number>`count(*) filter (where ${schema.requests.status} <> 'spam')::int`,
         won: sql<number>`count(*) filter (where ${schema.requests.status} = 'gewonnen')::int`,
       })
       .from(schema.requests)
@@ -551,7 +759,7 @@ export async function qualifiedLeadsInRangeWithComparison(
 
     const priorRowsP = tx
       .select({
-        qualified: sql<number>`count(*) filter (where ${schema.requests.status} <> 'spam')::int`,
+        leads: sql<number>`count(*) filter (where ${schema.requests.status} <> 'spam')::int`,
       })
       .from(schema.requests)
       .where(
@@ -563,25 +771,25 @@ export async function qualifiedLeadsInRangeWithComparison(
       );
 
     const [currentRows, priorRows] = await Promise.all([currentRowsP, priorRowsP]);
-    const qualified = Number(currentRows[0]?.qualified ?? 0);
+    const leads = Number(currentRows[0]?.leads ?? 0);
     const won = Number(currentRows[0]?.won ?? 0);
-    const qualifiedPrior = Number(priorRows[0]?.qualified ?? 0);
-    const qualifiedDeltaPct =
-      qualifiedPrior > 0
-        ? Number(((qualified - qualifiedPrior) / qualifiedPrior).toFixed(4))
-        : qualified > 0
+    const priorLeads = Number(priorRows[0]?.leads ?? 0);
+    const leadsDeltaPct =
+      priorLeads > 0
+        ? Number(((leads - priorLeads) / priorLeads).toFixed(4))
+        : leads > 0
         ? null
         : 0;
-    return { qualified, won, qualifiedPrior, qualifiedDeltaPct };
+    return { leads, won, priorLeads, leadsDeltaPct };
   });
 }
 
 /**
- * Daily count of qualified leads (status <> 'spam') across [from, to].
- * Dense series, zero-filled. Live equivalent of the per-day qualifiedLeads
- * column on `kpi_daily` — sparkline-friendly for the leads top-metric card.
+ * Daily count of leads (status <> 'spam') across [from, to]. Dense series,
+ * zero-filled. Live equivalent of the per-day `leads` column on `kpi_daily`
+ * — sparkline-friendly for the leads top-metric card.
  */
-export async function qualifiedLeadsDailyInRange(
+export async function leadsDailyInRange(
   clinicId: string,
   userId: string,
   from: Date,
@@ -626,8 +834,8 @@ export async function qualifiedLeadsDailyInRange(
  * comparing the queue at the end of the window vs. just before the window
  * started ("did the open queue grow or shrink across this period?").
  *
- * "Open" = status IN ('neu','qualifiziert') — matches the dashboard's
- * `openRequests = statusCounts.neu + statusCounts.qualifiziert` headline.
+ * "Open" = status = 'neu' — matches the dashboard's
+ * `openRequests = statusCounts.neu` headline.
  *
  * Historical reconstruction walks *backwards* from each request's current
  * status: status_at(R, T) = (earliest status_change AFTER T).meta.from,
@@ -639,7 +847,7 @@ export async function qualifiedLeadsDailyInRange(
  *
  * Used by the dashboard's "Offene Anfragen" top-metric card to give the
  * range toggle, delta, and sparkline a coherent metric — replaces an
- * earlier wiring where the chart/delta showed *qualified leads* under the
+ * earlier wiring where the chart/delta showed *leads* under the
  * "open queue" headline.
  */
 export async function openQueueDailyInRangeWithComparison(
@@ -681,7 +889,7 @@ export async function openQueueDailyInRangeWithComparison(
                 LIMIT 1
               ),
               r.status
-            ) IN ('neu', 'qualifiziert')
+            ) = 'neu'
         )::int AS open_count
       FROM days d
       CROSS JOIN requests r
@@ -706,7 +914,7 @@ export async function openQueueDailyInRangeWithComparison(
             LIMIT 1
           ),
           r.status
-        ) IN ('neu', 'qualifiziert')
+        ) = 'neu'
     `);
 
     const rows = dailyRows as unknown as Array<{ date: string; open_count: number }>;

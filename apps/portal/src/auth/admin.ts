@@ -2,7 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, ne, sql as dsql } from "drizzle-orm";
 import { db, schema } from "../db/client";
 import { env } from "../lib/env";
 import { generateToken, sha256Hex } from "../lib/crypto";
@@ -13,10 +13,10 @@ import { generateToken, sha256Hex } from "../lib/crypto";
  *
  * Rules:
  *  - email MUST appear in env.ADMIN_EMAILS (lowercased, trimmed).
- *  - optional IP allowlist (env.ADMIN_IP_ALLOWLIST) — if set, any other
+ *  - optional IP allowlist (env.ADMIN_IP_ALLOWLIST): if set, any other
  *    origin IP is rejected.
- *  - MFA is required once enrolled (same TOTP code path as clinic users).
- *  - Magic-link flow reuses the email sender.
+ *  - Password + magic-link login. No TOTP; the admin allowlist + IP gate
+ *    are the second factor.
  *
  * The two cookies (clinic session vs admin session) use DIFFERENT cookie
  * names and DIFFERENT session tables, so the two contexts cannot overlap.
@@ -56,8 +56,6 @@ export interface ResolvedAdmin {
   adminId: string;
   email: string;
   fullName: string | null;
-  mfaEnrolled: boolean;
-  mfaVerified: boolean;
 }
 
 /** Whitelist check: is this email allowed to access /admin? */
@@ -75,12 +73,9 @@ export function isAllowedAdminIp(ip: string | null): boolean {
 
 /**
  * Create an admin session row + cookie. Called from consumeAdminMagicLink()
- * and from the MFA verify action to rotate after step-up.
+ * and from the password-login action after a successful argon2 verify.
  */
-export async function createAdminSession(
-  adminId: string,
-  opts: { mfaVerified?: boolean } = {}
-): Promise<void> {
+export async function createAdminSession(adminId: string): Promise<void> {
   const token = generateToken(32);
   const tokenHash = sha256Hex(token);
   const expiresAt = new Date(Date.now() + ADMIN_SESSION_MAX_AGE_SECONDS * 1000);
@@ -94,7 +89,6 @@ export async function createAdminSession(
     .values({
       adminId,
       tokenHash,
-      mfaVerified: opts.mfaVerified ?? false,
       userAgent: ua ?? undefined,
       ipAddress: ip ?? undefined,
       expiresAt,
@@ -115,13 +109,6 @@ export async function createAdminSession(
     .update(schema.adminUsers)
     .set({ lastLoginAt: new Date() })
     .where(eq(schema.adminUsers.id, adminId));
-}
-
-export async function markAdminSessionMfaVerified(sessionId: string): Promise<void> {
-  await db
-    .update(schema.adminSessions)
-    .set({ mfaVerified: true })
-    .where(eq(schema.adminSessions.id, sessionId));
 }
 
 /**
@@ -148,12 +135,10 @@ async function getAdminSessionImpl(): Promise<ResolvedAdmin | null> {
     .select({
       sessionId: schema.adminSessions.id,
       adminId: schema.adminSessions.adminId,
-      mfaVerifiedSession: schema.adminSessions.mfaVerified,
       expiresAt: schema.adminSessions.expiresAt,
       revokedAt: schema.adminSessions.revokedAt,
       email: schema.adminUsers.email,
       fullName: schema.adminUsers.fullName,
-      mfaEnrolled: schema.adminUsers.mfaEnrolled,
     })
     .from(schema.adminSessions)
     .innerJoin(schema.adminUsers, eq(schema.adminSessions.adminId, schema.adminUsers.id))
@@ -176,8 +161,6 @@ async function getAdminSessionImpl(): Promise<ResolvedAdmin | null> {
     adminId: row.adminId,
     email: row.email,
     fullName: row.fullName,
-    mfaEnrolled: row.mfaEnrolled,
-    mfaVerified: row.mfaVerifiedSession,
   };
 }
 
@@ -198,11 +181,51 @@ export async function destroyAdminSession(): Promise<void> {
   jar.delete(ADMIN_SESSION_COOKIE);
 }
 
+/**
+ * Revoke every non-expired admin session for an admin. Used after a password
+ * reset / admin "force-logout".
+ */
+export async function revokeAllAdminSessionsForAdmin(
+  adminId: string
+): Promise<void> {
+  await db
+    .update(schema.adminSessions)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(
+        eq(schema.adminSessions.adminId, adminId),
+        isNull(schema.adminSessions.revokedAt),
+        dsql`${schema.adminSessions.expiresAt} > now()`
+      )
+    );
+}
+
+/**
+ * Revoke every non-expired admin session EXCEPT the one passed in. Used by
+ * admin settings password-change flow so the current tab survives.
+ */
+export async function revokeOtherAdminSessionsForAdmin(
+  adminId: string,
+  exceptSessionId: string
+): Promise<void> {
+  await db
+    .update(schema.adminSessions)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(
+        eq(schema.adminSessions.adminId, adminId),
+        ne(schema.adminSessions.id, exceptSessionId),
+        isNull(schema.adminSessions.revokedAt),
+        dsql`${schema.adminSessions.expiresAt} > now()`
+      )
+    );
+}
+
 /** Ensure an admin_users row exists for the given email (creates one on first use). */
-export async function ensureAdminUser(email: string): Promise<{ id: string; mfaEnrolled: boolean }> {
+export async function ensureAdminUser(email: string): Promise<{ id: string }> {
   const lower = email.trim().toLowerCase();
   const existing = await db
-    .select({ id: schema.adminUsers.id, mfaEnrolled: schema.adminUsers.mfaEnrolled })
+    .select({ id: schema.adminUsers.id })
     .from(schema.adminUsers)
     .where(eq(schema.adminUsers.email, lower))
     .limit(1);
@@ -210,6 +233,6 @@ export async function ensureAdminUser(email: string): Promise<{ id: string; mfaE
   const [row] = await db
     .insert(schema.adminUsers)
     .values({ email: lower })
-    .returning({ id: schema.adminUsers.id, mfaEnrolled: schema.adminUsers.mfaEnrolled });
+    .returning({ id: schema.adminUsers.id });
   return row;
 }

@@ -15,8 +15,8 @@ export const DASHBOARD_RANGE_KEYS = {
   revenue: "rRevenue",
   open: "rOpen",
   total: "rTotal",
-  staff: "rStaff",
   sources: "rSources",
+  funnel: "rFunnel",
 } as const;
 
 export type DashboardRangeKey =

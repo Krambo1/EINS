@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, gte, inArray, isNotNull, lte, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, ne, sql } from "drizzle-orm";
 import { withClinicContext, schema } from "@/db/client";
 
 /**
@@ -112,90 +112,6 @@ export async function ltvByChannel(
     return Array.from(grouped.values()).sort(
       (a, b) => (b.avgLtvEur ?? 0) - (a.avgLtvEur ?? 0)
     );
-  });
-}
-
-export interface RecallRow {
-  id: string;
-  scheduledFor: string;
-  kind: "recall" | "followup" | "review_request";
-  status: "pending" | "sent" | "completed" | "skipped";
-  note: string | null;
-  patientId: string | null;
-  patientName: string | null;
-  patientEmail: string | null;
-  requestId: string | null;
-  /**
-   * Best-available human label for what the lead asked about. Prefers the
-   * normalized treatment category (`treatments.name`); falls back to the
-   * freeform `requests.treatment_wish` the lead typed in. Null when neither
-   * is set (rare — e.g. a recall manually created without a linked request).
-   */
-  treatmentLabel: string | null;
-}
-
-export async function recallsDue(
-  clinicId: string,
-  userId: string,
-  withinDays = 30,
-  kinds?: ReadonlyArray<RecallRow["kind"]>
-): Promise<RecallRow[]> {
-  return withClinicContext(clinicId, userId, async (tx) => {
-    const upper = new Date();
-    upper.setDate(upper.getDate() + withinDays);
-    const rows = await tx
-      .select({
-        id: schema.requestRecalls.id,
-        scheduledFor: schema.requestRecalls.scheduledFor,
-        kind: schema.requestRecalls.kind,
-        status: schema.requestRecalls.status,
-        note: schema.requestRecalls.note,
-        patientId: schema.requestRecalls.patientId,
-        patientName: schema.patients.fullName,
-        patientEmail: schema.patients.email,
-        requestId: schema.requestRecalls.requestId,
-        // Normalized category label wins over freeform wish text when both
-        // are present — keeps row copy tight and consistent across clinics.
-        treatmentName: schema.treatments.name,
-        treatmentWish: schema.requests.treatmentWish,
-      })
-      .from(schema.requestRecalls)
-      .leftJoin(
-        schema.patients,
-        eq(schema.requestRecalls.patientId, schema.patients.id)
-      )
-      .leftJoin(
-        schema.requests,
-        eq(schema.requestRecalls.requestId, schema.requests.id)
-      )
-      .leftJoin(
-        schema.treatments,
-        eq(schema.requests.treatmentId, schema.treatments.id)
-      )
-      .where(
-        and(
-          eq(schema.requestRecalls.clinicId, clinicId),
-          eq(schema.requestRecalls.status, "pending"),
-          lte(schema.requestRecalls.scheduledFor, upper.toISOString().slice(0, 10)),
-          kinds && kinds.length > 0
-            ? inArray(schema.requestRecalls.kind, kinds as string[])
-            : undefined
-        )
-      )
-      .orderBy(schema.requestRecalls.scheduledFor)
-      .limit(20);
-    return rows.map((r) => ({
-      id: r.id,
-      scheduledFor: r.scheduledFor,
-      kind: r.kind as RecallRow["kind"],
-      status: r.status as RecallRow["status"],
-      note: r.note,
-      patientId: r.patientId,
-      patientName: r.patientName,
-      patientEmail: r.patientEmail,
-      requestId: r.requestId,
-      treatmentLabel: r.treatmentName ?? r.treatmentWish ?? null,
-    }));
   });
 }
 

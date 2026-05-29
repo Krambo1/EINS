@@ -1,7 +1,12 @@
 import "server-only";
 import type { ReactNode } from "react";
 import Link from "next/link";
+import { ChevronRight, MoreHorizontal } from "lucide-react";
 import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
   ExplainerPopover,
   MetricStatusBadge,
   MetricTile,
@@ -10,20 +15,22 @@ import {
   type MetricTileTone,
 } from "@eins/ui";
 import {
-  kpiSummaryWithComparisonUncached,
   kpiDailySeriesWithSparklineUncached,
   currentGoals,
 } from "@/server/queries/kpis";
 import {
-  totalRequestsDailyInRange,
   openQueueDailyInRangeWithComparison,
-  qualifiedLeadsDailyInRange,
+  leadsDailyInRange,
 } from "@/server/queries/requests";
+import type {
+  OpenLeadForDashboard,
+} from "@/server/queries/requests";
+import type { bySource } from "@/server/queries/attribution";
 import {
   formatEuro,
   formatNumber,
+  formatRelative,
   toneForGoalRatio,
-  deltaTone,
 } from "@/lib/formatting";
 import { zipSeries } from "@/lib/chart-data";
 import type { KpiSummary } from "@/server/queries/kpis";
@@ -35,21 +42,18 @@ import {
   type DashboardRange,
 } from "@/lib/dashboard-range";
 import { TimeRangeToggle } from "./TimeRangeToggle";
+import { BreakdownStackChart } from "../../auswertung/_components/BreakdownStackChart";
+import type { BreakdownTone } from "../../auswertung/_components/detail-helpers";
+import { SOURCE_LABELS, type RequestSource } from "@/lib/constants";
 
 type Goal = Awaited<ReturnType<typeof currentGoals>>[number];
-
-export interface TotalRequestsSummary {
-  current: number;
-  qualified: number;
-  prior: number;
-  deltaPct: number | null;
-}
+type SourceBreakdown = Awaited<ReturnType<typeof bySource>>;
 
 export interface LeadsBreakdownSummary {
-  qualified: number;
+  leads: number;
   won: number;
-  qualifiedPrior: number;
-  qualifiedDeltaPct: number | null;
+  priorLeads: number;
+  leadsDeltaPct: number | null;
 }
 
 /**
@@ -65,33 +69,32 @@ export async function DashboardTopMetricsEnhanced({
   leadsBreakdown,
   revenueSummary,
   openSummary,
-  totalSummary,
+  sourceBreakdown,
   slaBreaches,
   openRequests,
   leadsGoal,
   revenueGoal,
-  totalGoal,
   leadsRange,
   revenueRange,
   openRange,
-  totalRange,
+  sourcesRange,
   relationshipStartedAt,
+  openLeads,
 }: {
   clinicId: string;
   userId: string;
   leadsBreakdown: LeadsBreakdownSummary;
   revenueSummary: KpiSummary;
   openSummary: KpiSummary;
-  totalSummary: TotalRequestsSummary;
+  sourceBreakdown: SourceBreakdown;
   slaBreaches: number;
   openRequests: number;
   leadsGoal: Goal | undefined;
   revenueGoal: Goal | undefined;
-  totalGoal: Goal | undefined;
   leadsRange: DashboardRange;
   revenueRange: DashboardRange;
   openRange: DashboardRange;
-  totalRange: DashboardRange;
+  sourcesRange: DashboardRange;
   /**
    * Earliest evidence the Praxis has been working with EINS — used to cap
    * monthly-goal scaling so a clinic that's only been live 3 months on a
@@ -100,11 +103,17 @@ export async function DashboardTopMetricsEnhanced({
    * row) so demo / backfilled data is honoured.
    */
   relationshipStartedAt: Date | null;
+  /**
+   * Top-N open Anfragen (status='neu'), prioritised SLA-überfällig first.
+   * Rendered inside the Offene-Anfragen tile, *below* the trend chart, as
+   * a clickable call-list. Capped at 3; a "+N weitere" hint derived from
+   * the headline `openRequests` signals the rest of the open queue.
+   */
+  openLeads: OpenLeadForDashboard[];
 }) {
   const leadsWin = dashboardRangeWindow(leadsRange);
   const revenueWin = dashboardRangeWindow(revenueRange);
   const openWin = dashboardRangeWindow(openRange);
-  const totalWin = dashboardRangeWindow(totalRange);
 
   // Prior windows — same length, sitting immediately before the current
   // window. Used by each card's grey comparison line ("Vorperiode"). The
@@ -113,7 +122,6 @@ export async function DashboardTopMetricsEnhanced({
   const leadsPriorWin = priorWindow(leadsWin);
   const revenuePriorWin = priorWindow(revenueWin);
   const openPriorWin = priorWindow(openWin);
-  const totalPriorWin = priorWindow(totalWin);
 
   // Uncached path — the dashboard's freshness contract (same reason
   // `currentMonthSummary` is uncached). When the user picks a range, they
@@ -121,35 +129,25 @@ export async function DashboardTopMetricsEnhanced({
   const [
     leadsDaily,
     leadsPriorDaily,
-    revenueComparison,
     openQueue,
     revenueSpark,
-    totalSpark,
     revenuePriorSpark,
     openPriorQueue,
-    totalPriorSpark,
   ] = await Promise.all([
     // Leads card's headline counts come from `leadsBreakdown` (passed in from
-    // page.tsx, computed against the live `requests` table — same source as
-    // `totalSummary` so qualified ≤ total is mathematically guaranteed).
+    // page.tsx, computed against the live `requests` table).
     // Here we only fetch the daily series for the sparkline + comparison line.
-    qualifiedLeadsDailyInRange(
+    leadsDailyInRange(
       clinicId,
       userId,
       leadsWin.from,
       leadsWin.to
     ),
-    qualifiedLeadsDailyInRange(
+    leadsDailyInRange(
       clinicId,
       userId,
       leadsPriorWin.from,
       leadsPriorWin.to
-    ),
-    kpiSummaryWithComparisonUncached(
-      clinicId,
-      userId,
-      revenueWin.from,
-      revenueWin.to
     ),
     openQueueDailyInRangeWithComparison(
       clinicId,
@@ -163,12 +161,6 @@ export async function DashboardTopMetricsEnhanced({
       revenueWin.from,
       revenueWin.to
     ),
-    totalRequestsDailyInRange(
-      clinicId,
-      userId,
-      totalWin.from,
-      totalWin.to
-    ),
     kpiDailySeriesWithSparklineUncached(
       clinicId,
       userId,
@@ -181,13 +173,8 @@ export async function DashboardTopMetricsEnhanced({
       openPriorWin.from,
       openPriorWin.to
     ),
-    totalRequestsDailyInRange(
-      clinicId,
-      userId,
-      totalPriorWin.from,
-      totalPriorWin.to
-    ),
   ]);
+
 
   // Goals are stored monthly. Scale them linearly to whatever window the
   // user picked: 30 leads/month → 7 leads/week, 90 leads/quarter, etc.
@@ -197,15 +184,11 @@ export async function DashboardTopMetricsEnhanced({
   // is unfairly flagged "Redebedarf".
   const leadsScaling = effectiveScalingDays(leadsWin, relationshipStartedAt);
   const revenueScaling = effectiveScalingDays(revenueWin, relationshipStartedAt);
-  const totalScaling = effectiveScalingDays(totalWin, relationshipStartedAt);
   const leadsScaledTarget = leadsGoal
     ? (Number(leadsGoal.targetValue) * leadsScaling.days) / 30
     : null;
   const revenueScaledTarget = revenueGoal
     ? (Number(revenueGoal.targetValue) * revenueScaling.days) / 30
-    : null;
-  const totalScaledTarget = totalGoal
-    ? (Number(totalGoal.targetValue) * totalScaling.days) / 30
     : null;
   const leadsCappedLabel = leadsScaling.capped
     ? formatRelationshipDurationDe(leadsScaling.days)
@@ -213,30 +196,44 @@ export async function DashboardTopMetricsEnhanced({
   const revenueCappedLabel = revenueScaling.capped
     ? formatRelationshipDurationDe(revenueScaling.days)
     : null;
-  const totalCappedLabel = totalScaling.capped
-    ? formatRelationshipDurationDe(totalScaling.days)
-    : null;
   const leadsTone: MetricTileTone =
     leadsScaledTarget != null && leadsScaledTarget > 0
-      ? toneForGoalRatio(leadsBreakdown.qualified / leadsScaledTarget)
+      ? toneForGoalRatio(leadsBreakdown.leads / leadsScaledTarget)
       : "accent";
   const revenueTone: MetricTileTone =
     revenueScaledTarget != null && revenueScaledTarget > 0
       ? toneForGoalRatio(revenueSummary.revenueEur / revenueScaledTarget)
       : "accent";
 
-  // "Anfragen gesamt" prefers the goal-ratio tone (matches the leads/revenue
-  // cards) when an active total_requests target exists; otherwise falls back
-  // to the period-over-period delta.
-  const totalTone: MetricTileTone =
-    totalScaledTarget != null && totalScaledTarget > 0
-      ? toneForGoalRatio(totalSummary.current / totalScaledTarget)
-      : deltaTone(totalSummary.deltaPct);
-
   // "Offene Anfragen" status mirrors the headline tone: any SLA breach is bad,
   // any open queue is a soft warn, otherwise the queue is clean.
   const openTone: MetricTileTone =
     slaBreaches > 0 ? "bad" : openRequests > 0 ? "warn" : "good";
+
+  // Source-matrix totals: same row slice as the chart so the footer sums what
+  // the user actually sees. ROAS is spend-weighted (Σ revenue / Σ spend) — an
+  // arithmetic mean of per-source ROAS over-weights low-spend channels.
+  const sourceRows = sourceBreakdown.slice(0, 6);
+  const sourceTotals = sourceRows.reduce(
+    (acc, r) => {
+      acc.leads += r.leads;
+      if (r.spendEur != null) acc.spend += r.spendEur;
+      acc.revenue += r.revenueEur ?? 0;
+      return acc;
+    },
+    { leads: 0, spend: 0, revenue: 0 },
+  );
+  const sourceTotalRoas =
+    sourceTotals.spend > 0 ? sourceTotals.revenue / sourceTotals.spend : null;
+  const sourceTotalRoasTone: BreakdownTone | null = roasToneFor(sourceTotalRoas);
+  const leadsToneBySource = rankTones(
+    sourceRows.map((r) => ({ key: r.source, value: r.leads })),
+    "asc"
+  );
+  const cplCandidates = sourceRows
+    .filter((r) => r.spendEur != null && r.spendEur > 0 && r.leads > 0)
+    .map((r) => ({ key: r.source, value: r.spendEur! / r.leads }));
+  const budgetToneBySource = rankTones(cplCandidates, "desc");
 
   return (
     <section
@@ -245,21 +242,31 @@ export async function DashboardTopMetricsEnhanced({
     >
       <MetricTile
         size="large"
-        label="Qualifizierte Anfragen"
+        label="Anfragen"
         labelExtra={
-          <ExplainerPopover term="Qualifizierte Anfragen">
-            <p>
-              Anfragen, die zu deinem Wunschpatienten passen — Budget,
-              Behandlung und Standort stimmen.
-            </p>
-            <p className="mt-2">
-              Das Monatsziel pflegst du in den Einstellungen — der
-              Fortschrittsbalken skaliert automatisch auf den gewählten
-              Zeitraum.
-            </p>
-          </ExplainerPopover>
+          <>
+            <ExplainerPopover term="Anfragen">
+              <p>
+                Alle ernsthaften Anfragen im gewählten Zeitraum — also alles,
+                was nicht als Spam markiert wurde. Was im Portal landet, ist
+                durch das Landingpage-Formular bereits vorqualifiziert.
+              </p>
+              <p className="mt-2">
+                Das Monatsziel pflegst du in den Einstellungen — der
+                Fortschrittsbalken skaliert automatisch auf den gewählten
+                Zeitraum.
+              </p>
+            </ExplainerPopover>
+            <div className="ml-auto">
+              <TimeRangeToggle
+                value={leadsRange}
+                paramKey={DASHBOARD_RANGE_KEYS.leads}
+                ariaLabel="Zeitraum für Anfragen"
+              />
+            </div>
+          </>
         }
-        value={formatNumber(leadsBreakdown.qualified)}
+        value={formatNumber(leadsBreakdown.leads)}
         statusBadge={
           <MetricStatusBadge status={metricStatusFromTone(leadsTone)} />
         }
@@ -267,7 +274,7 @@ export async function DashboardTopMetricsEnhanced({
         progress={
           leadsScaledTarget != null && leadsScaledTarget > 0
             ? {
-                current: leadsBreakdown.qualified,
+                current: leadsBreakdown.leads,
                 target: leadsScaledTarget,
               }
             : undefined
@@ -278,13 +285,6 @@ export async function DashboardTopMetricsEnhanced({
               Ziel auf Laufzeit der Praxis angepasst ({leadsCappedLabel})
             </span>
           ) : undefined
-        }
-        controls={
-          <TimeRangeToggle
-            value={leadsRange}
-            paramKey={DASHBOARD_RANGE_KEYS.leads}
-            ariaLabel="Zeitraum für Qualifizierte Anfragen"
-          />
         }
         chartSlot={
           <TrendChart
@@ -307,20 +307,29 @@ export async function DashboardTopMetricsEnhanced({
         size="large"
         label="Umsatz"
         labelExtra={
-          <ExplainerPopover term="Umsatz">
-            <p>
-              Bestätigter Umsatz aus gewonnenen Anfragen im gewählten Zeitraum.
-            </p>
-            <p className="mt-2">
-              <strong>ROAS</strong> (Return on Ad Spend) sagt: für jeden 1 €
-              Werbeausgabe kommen X € Umsatz zurück.
-            </p>
-            <p className="mt-2">
-              Das Monatsziel pflegst du in den Einstellungen — der
-              Fortschrittsbalken skaliert automatisch auf den gewählten
-              Zeitraum.
-            </p>
-          </ExplainerPopover>
+          <>
+            <ExplainerPopover term="Umsatz">
+              <p>
+                Bestätigter Umsatz aus gewonnenen Anfragen im gewählten Zeitraum, der konkret über EINS generiert wurde.
+              </p>
+              <p className="mt-2">
+                <strong>ROAS</strong> (Return on Ad Spend) sagt: für jeden 1 €
+                Werbeausgabe kommen X € Umsatz zurück.
+              </p>
+              <p className="mt-2">
+                Das Monatsziel pflegst du in den Einstellungen — der
+                Fortschrittsbalken skaliert automatisch auf den gewählten
+                Zeitraum.
+              </p>
+            </ExplainerPopover>
+            <div className="ml-auto">
+              <TimeRangeToggle
+                value={revenueRange}
+                paramKey={DASHBOARD_RANGE_KEYS.revenue}
+                ariaLabel="Zeitraum für Umsatz"
+              />
+            </div>
+          </>
         }
         value={formatEuro(revenueSummary.revenueEur)}
         statusBadge={
@@ -342,13 +351,6 @@ export async function DashboardTopMetricsEnhanced({
               Ziel auf Laufzeit der Praxis angepasst ({revenueCappedLabel})
             </span>
           ) : undefined
-        }
-        controls={
-          <TimeRangeToggle
-            value={revenueRange}
-            paramKey={DASHBOARD_RANGE_KEYS.revenue}
-            ariaLabel="Zeitraum für Umsatz"
-          />
         }
         chartSlot={
           <TrendChart
@@ -372,35 +374,36 @@ export async function DashboardTopMetricsEnhanced({
         size="large"
         label="Offene Anfragen"
         labelExtra={
-          <ExplainerPopover term="Offene Anfragen">
-            <p>
-              Anfragen mit Status <strong>Neu</strong> oder{" "}
-              <strong>Qualifiziert</strong> — also alles, was noch nicht zu
-              Termin, Gewonnen oder Verloren weitergezogen ist.
-            </p>
-            <p className="mt-2">
-              <strong>Überfällig</strong> heißt: noch kein erster Kontakt
-              versucht, obwohl die Anfrage älter als 3 Stunden ist.
-            </p>
-            <p className="mt-2">
-              Zum Abarbeiten: Anfrage öffnen → Anruf protokollieren → Status auf{" "}
-              <em>Termin vereinbart</em>, <em>Verloren</em> oder <em>Spam</em>{" "}
-              ändern.
-            </p>
-          </ExplainerPopover>
+          <>
+            <ExplainerPopover term="Offene Anfragen">
+              <p>
+                Anfragen mit Status <strong>Neu</strong> — also alles, was noch
+                nicht zu Termin, Gewonnen oder Verloren weitergezogen ist.
+              </p>
+              <p className="mt-2">
+                <strong>Überfällig</strong> heißt: noch kein erster Kontakt
+                versucht, obwohl die Anfrage älter als 3 Stunden ist.
+              </p>
+              <p className="mt-2">
+                Zum Abarbeiten: Anfrage öffnen → Anruf protokollieren → Status auf{" "}
+                <em>Termin vereinbart</em>, <em>Verloren</em> oder <em>Spam</em>{" "}
+                ändern.
+              </p>
+            </ExplainerPopover>
+            <div className="ml-auto">
+              <TimeRangeToggle
+                value={openRange}
+                paramKey={DASHBOARD_RANGE_KEYS.open}
+                ariaLabel="Zeitraum für Offene Anfragen"
+              />
+            </div>
+          </>
         }
         value={formatNumber(openRequests)}
         statusBadge={
           <MetricStatusBadge status={metricStatusFromTone(openTone)} />
         }
         tone={openTone}
-        controls={
-          <TimeRangeToggle
-            value={openRange}
-            paramKey={DASHBOARD_RANGE_KEYS.open}
-            ariaLabel="Zeitraum für Offene Anfragen"
-          />
-        }
         chartSlot={
           <TrendChart
             data={zipSeries(openQueue.dates, openQueue.counts)}
@@ -414,78 +417,128 @@ export async function DashboardTopMetricsEnhanced({
             showGrid
           />
         }
+        belowChartSlot={
+          <OpenLeadsList leads={openLeads} totalOpen={openRequests} />
+        }
         linkSlot={
           <TileLink
-            href="/anfragen?status=neu,qualifiziert"
+            href="/anfragen?status=neu"
             ariaLabel="Zu offenen Anfragen"
           />
         }
       />
-      <MetricTile
-        size="large"
-        label="Anfragen gesamt"
-        labelExtra={
-          <ExplainerPopover term="Anfragen gesamt">
-            <p>
-              Alle Anfragen, die im gewählten Zeitraum reingekommen sind —
-              egal ob Spam, Termin oder verloren.
-            </p>
-            <p className="mt-2">
-              <strong>Qualifizierungsquote</strong> = qualifizierte Anfragen ÷
-              alle Anfragen. Zeigt, wie sauber dein Funnel filtert.
-            </p>
-            <p className="mt-2">
-              Niedrige Quote? → Targeting prüfen oder
-              Vorqualifizierungsfragen nachschärfen.
-            </p>
-          </ExplainerPopover>
-        }
-        value={formatNumber(totalSummary.current)}
-        statusBadge={
-          <MetricStatusBadge status={metricStatusFromTone(totalTone)} />
-        }
-        tone={totalScaledTarget != null && totalScaledTarget > 0 ? totalTone : "neutral"}
-        progress={
-          totalScaledTarget != null && totalScaledTarget > 0
-            ? {
-                current: totalSummary.current,
-                target: totalScaledTarget,
-              }
-            : undefined
-        }
-        hint={
-          totalCappedLabel ? (
-            <span className="text-fg-tertiary">
-              Ziel auf Laufzeit der Praxis angepasst ({totalCappedLabel})
-            </span>
-          ) : undefined
-        }
-        controls={
+      <Card
+        className="print:break-inside-avoid"
+        style={{
+          backgroundColor: "var(--bg-card)",
+          boxShadow: "var(--shadow-card)",
+        }}
+      >
+        <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
+          <CardTitle>Quellen-Aufschlüsselung</CardTitle>
           <TimeRangeToggle
-            value={totalRange}
-            paramKey={DASHBOARD_RANGE_KEYS.total}
-            ariaLabel="Zeitraum für Anfragen gesamt"
+            value={sourcesRange}
+            paramKey={DASHBOARD_RANGE_KEYS.sources}
+            ariaLabel="Zeitraum für Quellen-Aufschlüsselung"
           />
-        }
-        chartSlot={
-          <TrendChart
-            data={zipSeries(totalSpark.dates, totalSpark.counts)}
-            comparisonData={zipSeries(totalPriorSpark.dates, totalPriorSpark.counts)}
-            tone="accent"
-            label="Anfragen"
-            valueFormat="number"
-            height={120}
-            showAxes
-            showYAxis={false}
-            showGrid
+        </CardHeader>
+        <CardContent>
+          <BreakdownStackChart
+            centerLabel="Anfragen"
+            emptyText="Keine Quellen-Daten."
+            legendColumns={[
+              { label: "Anfragen" },
+              { label: "Budget" },
+              { label: "ROAS" },
+            ]}
+            totalsRow={{
+              label: "Gesamt",
+              stats: [
+                formatNumber(sourceTotals.leads),
+                sourceTotals.spend > 0 ? formatEuro(sourceTotals.spend) : null,
+                sourceTotalRoas != null
+                  ? `${sourceTotalRoas.toFixed(1).replace(".", ",")}×`
+                  : null,
+              ],
+              statTones: [null, null, sourceTotalRoasTone],
+            }}
+            slices={sourceRows.map((c) => {
+              const labelStr =
+                SOURCE_LABELS[c.source as RequestSource] ?? c.source;
+              return {
+                key: c.source,
+                labelText: labelStr,
+                value: c.leads,
+                stats: [
+                  formatNumber(c.leads),
+                  c.spendEur != null ? formatEuro(c.spendEur) : null,
+                  c.roas != null
+                    ? `${c.roas.toFixed(1).replace(".", ",")}×`
+                    : null,
+                ],
+                statTones: [
+                  leadsToneBySource.get(c.source) ?? null,
+                  budgetToneBySource.get(c.source) ?? null,
+                  roasToneFor(c.roas),
+                ],
+                tone: sourceTone(c.source),
+              };
+            })}
           />
-        }
-        linkSlot={
-          <TileLink href="/anfragen" ariaLabel="Zu allen Anfragen" />
-        }
-      />
+        </CardContent>
+      </Card>
     </section>
   );
+}
+
+// Distinct slice color per source so the donut never repeats hues.
+function sourceTone(source: string): BreakdownTone {
+  switch (source) {
+    case "meta":
+      return "accent";
+    case "google":
+      return "good";
+    case "formular":
+      return "warn";
+    case "whatsapp":
+      return "bad";
+    default:
+      return "neutral";
+  }
+}
+
+/** ROAS → tone, shared between per-row and totals row so a 1,2× cell looks the
+ *  same regardless of where it appears. Break-even (1×) is the dividing line:
+ *  above 2× is comfortably profitable, 1×–2× is fine but margin-thin, below 1×
+ *  means the channel costs more than it returns. */
+function roasToneFor(roas: number | null | undefined): BreakdownTone | null {
+  if (roas == null) return null;
+  if (roas >= 2) return "good";
+  if (roas >= 1) return "neutral";
+  return "warn";
+}
+
+/**
+ * Rank an array of {key, value} entries and emit tones — top tertile = "good",
+ * bottom tertile = "warn", middle stays null. `direction` controls whether
+ * larger values are better (`"asc"` → big = good) or smaller (`"desc"` →
+ * small = good, used for CPL).
+ */
+function rankTones(
+  entries: { key: string; value: number }[],
+  direction: "asc" | "desc",
+): Map<string, BreakdownTone> {
+  const out = new Map<string, BreakdownTone>();
+  if (entries.length < 2) return out;
+  const sorted = [...entries].sort((a, b) =>
+    direction === "asc" ? b.value - a.value : a.value - b.value
+  );
+  const tertile = Math.max(1, Math.floor(sorted.length / 3));
+  sorted.slice(0, tertile).forEach((e) => out.set(e.key, "good"));
+  sorted.slice(sorted.length - tertile).forEach((e) => {
+    if (!out.has(e.key)) out.set(e.key, "warn");
+  });
+  return out;
 }
 
 /**
@@ -502,6 +555,85 @@ function priorWindow(win: { from: Date; to: Date; days: number }): {
   const priorTo = new Date(win.from.getTime() - 1);
   const priorFrom = new Date(priorTo.getTime() - lengthMs);
   return { from: priorFrom, to: priorTo, days: win.days };
+}
+
+/**
+ * Open-Anfragen list rendered inside the Offene-Anfragen tile, below the
+ * trend chart. Same source-of-truth as the headline number (status='neu')
+ * sorted überfällig first then oldest, so the row order matches the
+ * action priority the MFA should follow.
+ *
+ * `leads` is already capped at 3; `totalOpen` is the headline count and
+ * drives the "+N weitere" hint when more open Anfragen exist than are
+ * listed. Empty state returns null so the slot collapses cleanly.
+ */
+function OpenLeadsList({
+  leads,
+  totalOpen,
+}: {
+  leads: OpenLeadForDashboard[];
+  totalOpen: number;
+}) {
+  if (leads.length === 0) return null;
+  return (
+    <div className="space-y-4 border-t border-border pt-4">
+      <ul className="space-y-1 text-sm">
+        {leads.map((r) => {
+          const name = r.contactName ?? "Unbekannt";
+          const rightChip = r.slaBreached ? (
+            <span className="text-xs font-medium text-tone-bad">
+              Seit 3h+ überfällig
+            </span>
+          ) : (
+            <span className="tabular-nums text-xs text-fg-secondary">
+              {formatRelative(r.createdAt)}
+            </span>
+          );
+          return (
+            <li key={r.id}>
+              <Link
+                href={`/anfragen/${r.id}`}
+                className="-mx-2 block rounded-md px-2 py-1.5 hover:bg-bg-tertiary"
+              >
+                <span className="flex items-center justify-between gap-3">
+                  <span className="flex min-w-0 items-baseline gap-2">
+                    <span className="truncate font-medium text-fg-primary">
+                      {name}
+                    </span>
+                    {r.treatmentLabel && (
+                      <span className="truncate text-xs text-fg-secondary">
+                        {r.treatmentLabel}
+                      </span>
+                    )}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-1">
+                    {rightChip}
+                    <ChevronRight
+                      aria-hidden
+                      className="h-3.5 w-3.5 text-fg-tertiary"
+                    />
+                  </span>
+                </span>
+              </Link>
+            </li>
+          );
+        })}
+        {totalOpen > leads.length && (
+          <li>
+            <Link
+              href="/anfragen?status=neu"
+              className="-mx-2 flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs text-fg-tertiary transition-colors hover:bg-bg-tertiary hover:text-fg-secondary"
+            >
+              <span>
+                +{formatNumber(totalOpen - leads.length)} weitere offen
+              </span>
+              <MoreHorizontal aria-hidden className="h-3.5 w-3.5 shrink-0" />
+            </Link>
+          </li>
+        )}
+      </ul>
+    </div>
+  );
 }
 
 /**
@@ -524,4 +656,3 @@ function TileLink({
     />
   );
 }
-

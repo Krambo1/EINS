@@ -10,7 +10,7 @@ ca. 30 Minuten.
    oder neuer; vor 2022 lief ALBIS auf einem anderen Store, der
    inzwischen EOL ist). Im ALBIS-Hauptmenue Hilfe, Info: die
    Datenbank-Version sollte `PostgreSQL` zeigen.
-2. AVV (Auftragsverarbeitungsvertrag) zwischen Praxis und EINS Visuals
+2. AVV (Auftragsverarbeitungsvertrag) zwischen Praxis und EINS
    GmbH unterschrieben. Vorlage: `apps/bridge/legal/AVV-template-DE.md`.
 3. Read-only Postgres-Konto. Praxis-IT (oder CGM-Support) legt das
    einmalig an:

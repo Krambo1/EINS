@@ -9,7 +9,6 @@ import { FunnelBar } from "../_charts/FunnelBar";
 
 const STATUS_TONE: Record<string, "neutral" | "good" | "warn" | "bad" | "accent"> = {
   neu: "neutral",
-  qualifiziert: "accent",
   termin_vereinbart: "accent",
   beratung_erschienen: "warn",
   gewonnen: "good",

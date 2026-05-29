@@ -86,6 +86,7 @@ export function ExplainerPopover({
         onMouseEnter={cancelClose}
         onMouseLeave={scheduleClose}
         onOpenAutoFocus={(event) => event.preventDefault()}
+        onCloseAutoFocus={(event) => event.preventDefault()}
       >
         {term && (
           <p className="mb-1 text-sm font-semibold uppercase tracking-wide text-accent">

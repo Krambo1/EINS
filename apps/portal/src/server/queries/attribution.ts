@@ -22,7 +22,7 @@ export interface SourceBreakdownRow {
   casesWon: number;
   revenueEur: number;
   spendEur: number | null;
-  cpqlEur: number | null;
+  cplEur: number | null;
   cacEur: number | null;
   roas: number | null;
 }
@@ -43,7 +43,7 @@ function rollupRows(
     return {
       ...r,
       spendEur: spend,
-      cpqlEur: spend != null && r.leads > 0 ? Number((spend / r.leads).toFixed(2)) : null,
+      cplEur: spend != null && r.leads > 0 ? Number((spend / r.leads).toFixed(2)) : null,
       cacEur:
         spend != null && r.casesWon > 0 ? Number((spend / r.casesWon).toFixed(2)) : null,
       roas:
@@ -173,7 +173,7 @@ async function byChannelUncached(
   // Recompute ratios after rollup.
   return Array.from(grouped.values()).map((row) => ({
     ...row,
-    cpqlEur:
+    cplEur:
       row.spendEur != null && row.leads > 0
         ? Number((row.spendEur / row.leads).toFixed(2))
         : null,

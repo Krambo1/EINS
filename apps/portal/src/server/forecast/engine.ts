@@ -41,7 +41,6 @@ const DEFAULT_RESAMPLES = 500;
 // only used at cold start.
 const STAGE_REMAINING_MULTIPLIER: Record<ForecastStage, number> = {
   neu: 1.0,
-  qualifiziert: 0.8,
   termin_vereinbart: 0.5,
   beratung_erschienen: 0.25,
   behandelt: 0.05,

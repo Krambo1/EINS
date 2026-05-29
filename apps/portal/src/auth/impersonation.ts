@@ -123,10 +123,7 @@ export async function consumeImpersonationToken(token: string): Promise<ConsumeR
 
   if (!outcome.ok) return outcome;
 
-  // Mint a session with MFA pre-cleared (admin already authenticated upstream)
-  // and the impersonation marker set so banner + audit + guards can react.
   await createSession(outcome.targetUserId, {
-    mfaVerified: true,
     impersonatedByAdminId: outcome.adminId,
   });
 

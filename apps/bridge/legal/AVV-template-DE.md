@@ -12,8 +12,8 @@ nachstehend "Auftraggeber" oder "Praxis" genannt,
 
 **und**
 
-EINS Visuals GmbH
-[Anschrift EINS Visuals GmbH]
+EINS
+[Anschrift EINS]
 [PLZ Ort]
 HRB [Nummer], Amtsgericht [Ort]
 
@@ -253,7 +253,7 @@ Sollten einzelne Bestimmungen dieses AVV ganz oder teilweise unwirksam sein oder
 
 ### 12.3 Anwendbares Recht und Gerichtsstand
 
-Es gilt deutsches Recht. Gerichtsstand ist [Sitz EINS Visuals GmbH].
+Es gilt deutsches Recht. Gerichtsstand ist [Sitz EINS].
 
 ### 12.4 Vorrangregelung
 

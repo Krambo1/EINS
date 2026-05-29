@@ -62,8 +62,8 @@ export default async function ClinicDsgvoPage({ params }: PageProps) {
           <CardTitle>Datenauskunft herunterladen</CardTitle>
           <CardDescription>
             JSON-Datei mit allen praxisbezogenen Datensätzen.
-            Cryptographische Geheimnisse (MFA-Secrets, OAuth-Tokens) werden
-            herausgefiltert.
+            Cryptographische Geheimnisse (OAuth-Tokens, Passwort-Hashes)
+            werden herausgefiltert.
           </CardDescription>
         </CardHeader>
         <CardContent>

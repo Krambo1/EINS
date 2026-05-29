@@ -8,7 +8,7 @@ aesthetic-medicine clinics in the DACH region.
 
 ## Why this exists
 
-EINS Visuals runs paid-ad campaigns for clinics. Those campaigns need landing
+EINS runs paid-ad campaigns for clinics. Those campaigns need landing
 pages that:
 
 - convert paid traffic at 5–10% click-to-lead,

@@ -74,7 +74,7 @@ export async function renderMonthlyReportPdf(
         </Text>
 
         <Text style={styles.h2}>Leistung</Text>
-        <Row label="Qualifizierte Anfragen" value={formatNumber(summary.qualifiedLeads)} />
+        <Row label="Anfragen" value={formatNumber(summary.leads)} />
         <Row label="Termine vereinbart" value={formatNumber(summary.appointments)} />
         <Row label="Beratungen stattgefunden" value={formatNumber(summary.consultationsHeld)} />
         <Row label="Behandlungen gewonnen" value={formatNumber(summary.casesWon)} />
@@ -87,10 +87,10 @@ export async function renderMonthlyReportPdf(
           value={summary.roas !== null ? `${summary.roas.toFixed(2)} ×` : "—"}
         />
         <Row
-          label="Kosten pro qualifizierte Anfrage"
+          label="Kosten pro Anfrage"
           value={
-            summary.costPerQualifiedLead !== null
-              ? formatEuro(summary.costPerQualifiedLead)
+            summary.costPerLead !== null
+              ? formatEuro(summary.costPerLead)
               : "—"
           }
         />

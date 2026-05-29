@@ -65,9 +65,9 @@ export function MetricStrip({ data }: { data: PlatformOverviewMetrics }) {
           className={TILE_INNER_CLASS}
         />
       </Link>
-      <Link href="/admin/leads" className={TILE_LINK_CLASS} aria-label="Qualifizierte Leads ansehen">
+      <Link href="/admin/leads" className={TILE_LINK_CLASS} aria-label="Anfragen ansehen">
         <MetricTile
-          label="Qualifizierte Leads"
+          label="Anfragen"
           value={formatNumber(data.monthLeads)}
           delta={data.deltas.leads}
           chartSlot={

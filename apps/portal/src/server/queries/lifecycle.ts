@@ -2,12 +2,11 @@ import "server-only";
 import { and, eq, gte, lte, sql, isNotNull } from "drizzle-orm";
 import { withClinicContext, schema } from "@/db/client";
 import { cacheClinicQuery } from "./_cache";
-import { avatarUrlForKey } from "@/server/avatars";
 
 /**
  * Lifecycle helpers: response time, AI score distribution, weekday/hour
- * heatmaps, cohort retention, and per-staff performance. Used by Detail-mode
- * panels on the Auswertung and Dashboard pages.
+ * heatmaps, and cohort retention. Used by Detail-mode panels on the
+ * Auswertung and Dashboard pages.
  */
 
 export interface ResponseTimeStats {
@@ -306,88 +305,3 @@ export const cohortRetention = cacheClinicQuery(
   cohortRetentionUncached
 );
 
-export interface StaffPerformanceRow {
-  userId: string;
-  fullName: string | null;
-  email: string;
-  avatarUrl: string | null;
-  role: string;
-  assignedCount: number;
-  wonCount: number;
-  winRate: number | null;
-  avgResponseMinutes: number | null;
-  avgCaseValueEur: number | null;
-}
-
-async function staffPerformanceUncached(
-  clinicId: string,
-  userId: string,
-  from: Date,
-  to: Date
-): Promise<StaffPerformanceRow[]> {
-  return withClinicContext(clinicId, userId, async (tx) => {
-    const rows = await tx
-      .select({
-        userId: schema.clinicUsers.id,
-        fullName: schema.clinicUsers.fullName,
-        email: schema.clinicUsers.email,
-        avatarKey: schema.clinicUsers.avatarKey,
-        avatarUpdatedAt: schema.clinicUsers.avatarUpdatedAt,
-        role: schema.clinicUsers.role,
-        assignedCount: sql<number>`count(${schema.requests.id})::int`,
-        wonCount: sql<number>`count(${schema.requests.id}) FILTER (WHERE ${schema.requests.status} = 'gewonnen')::int`,
-        avgResponseMinutes: sql<number | null>`avg(extract(epoch from (${schema.requests.firstContactedAt} - ${schema.requests.createdAt})) / 60.0) FILTER (WHERE ${schema.requests.firstContactedAt} IS NOT NULL)`,
-        revenueEur: sql<number>`coalesce(sum(${schema.requests.convertedRevenueEur}) FILTER (WHERE ${schema.requests.status} = 'gewonnen'), 0)`,
-      })
-      .from(schema.clinicUsers)
-      .leftJoin(
-        schema.requests,
-        and(
-          eq(schema.requests.assignedTo, schema.clinicUsers.id),
-          gte(schema.requests.createdAt, from),
-          lte(schema.requests.createdAt, to)
-        )
-      )
-      .where(eq(schema.clinicUsers.clinicId, clinicId))
-      .groupBy(
-        schema.clinicUsers.id,
-        schema.clinicUsers.fullName,
-        schema.clinicUsers.email,
-        schema.clinicUsers.avatarKey,
-        schema.clinicUsers.avatarUpdatedAt,
-        schema.clinicUsers.role
-      )
-      .orderBy(sql`count(${schema.requests.id}) desc`);
-
-    return rows.map((r) => {
-      const assigned = Number(r.assignedCount);
-      const won = Number(r.wonCount);
-      const revenue = Number(r.revenueEur);
-      return {
-        userId: r.userId,
-        fullName: r.fullName,
-        email: r.email,
-        avatarUrl: avatarUrlForKey(r.avatarKey, r.avatarUpdatedAt),
-        role: r.role,
-        assignedCount: assigned,
-        wonCount: won,
-        winRate: assigned > 0 ? won / assigned : null,
-        avgResponseMinutes:
-          r.avgResponseMinutes != null ? Number(r.avgResponseMinutes) : null,
-        avgCaseValueEur: won > 0 ? Number((revenue / won).toFixed(2)) : null,
-      };
-    });
-  });
-}
-
-/**
- * Cached wrapper — observed outlier of ~1090 ms on cold dashboard renders
- * (5-way leftJoin + filter aggregates over requests). The dashboard / staff
- * panel happily tolerates the same worker-bounded freshness as bySource and
- * the rest of the KPI bundle.
- */
-export const staffPerformance = cacheClinicQuery(
-  "staffPerformance",
-  staffPerformanceUncached,
-  { dateArgs: [0, 1] }
-);

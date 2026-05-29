@@ -17,7 +17,7 @@ import { writeAudit, type AuditInput } from "./audit";
  *   - guarantees dbApp queries inside run with app.current_clinic_id set
  *
  * We use 401 only when there is NO session at all; 403 when the session
- * exists but the permission fails or MFA isn't verified.
+ * exists but the permission fails.
  */
 
 export class ApiError extends Error {
@@ -40,8 +40,6 @@ export interface ApiOptions {
   permission?: Permission;
   /** Emit an audit log row on successful completion. */
   audit?: Omit<AuditInput, "clinicId" | "actorId" | "actorEmail">;
-  /** Skip MFA check — used only by the MFA step-up endpoint itself. */
-  allowMfaPending?: boolean;
   /**
    * Optional Cache-Control header to set on a successful response. Use only
    * for endpoints that return per-user-safe payloads — the helper enforces
@@ -62,15 +60,6 @@ export function withApi<T>(options: ApiOptions, handler: Handler<T>) {
       const session = await getSession();
       if (!session) {
         return jsonError(401, "unauthorized", "Nicht angemeldet.");
-      }
-      // Page-side guards (auth/guards.ts:requireSession) redirect unenrolled
-      // users to /login/enroll-mfa. API callers don't follow redirects, so we
-      // also need to block them here — otherwise a user with a valid session
-      // cookie but no TOTP enrolled can hit /api/* directly between magic-link
-      // consumption and enrollment completion. Match the same 403 contract
-      // used for the enrolled-but-unverified step-up case.
-      if (!options.allowMfaPending && (!session.mfaEnrolled || !session.mfaVerified)) {
-        return jsonError(403, "mfa_required", "Zwei-Faktor-Authentifizierung erforderlich.");
       }
       if (options.permission && !can(session.role, options.permission)) {
         return jsonError(403, "forbidden", "Zugriff verweigert.");
@@ -116,10 +105,6 @@ export function withApiTx<T>(
       const session = await getSession();
       if (!session) {
         return jsonError(401, "unauthorized", "Nicht angemeldet.");
-      }
-      // See withApi above — block both not-enrolled and not-verified here.
-      if (!options.allowMfaPending && (!session.mfaEnrolled || !session.mfaVerified)) {
-        return jsonError(403, "mfa_required", "Zwei-Faktor-Authentifizierung erforderlich.");
       }
       if (options.permission && !can(session.role, options.permission)) {
         return jsonError(403, "forbidden", "Zugriff verweigert.");

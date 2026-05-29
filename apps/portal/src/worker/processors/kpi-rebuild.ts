@@ -6,7 +6,10 @@ import { invalidateClinicKpiCache } from "@/server/queries/_cache";
  * Rebuild kpi_daily rows for a clinic over [from, to].
  *
  * Logic: for each day in the range, aggregate from campaign_snapshots (spend)
- * and requests (qualified leads, appointments, etc.), then upsert.
+ * and requests (leads, appointments, etc.), then upsert.
+ *
+ * "Leads" = alle requests außer 'spam'. Es gibt seit Migration 0046 keine
+ * eigene Qualifizierungs-Stage mehr; jede ernstgemeinte Anfrage zählt.
  *
  * Called by:
  *  - cron (nightly full rebuild of yesterday)
@@ -40,7 +43,7 @@ export async function processKpiRebuild(job: KpiRebuildJob): Promise<void> {
   const reqRows = await db
     .select({
       date: sql<string>`to_char(${schema.requests.createdAt}::date, 'YYYY-MM-DD')`,
-      qualifiedLeads: sql<number>`count(*) filter (where ${schema.requests.status} <> 'spam')::int`,
+      leads: sql<number>`count(*) filter (where ${schema.requests.status} <> 'spam')::int`,
       appointments: sql<number>`count(*) filter (where ${schema.requests.status} in ('termin_vereinbart','beratung_erschienen','gewonnen'))::int`,
       consultationsHeld: sql<number>`count(*) filter (where ${schema.requests.status} in ('beratung_erschienen','gewonnen'))::int`,
       casesWon: sql<number>`count(*) filter (where ${schema.requests.status} = 'gewonnen')::int`,
@@ -61,7 +64,7 @@ export async function processKpiRebuild(job: KpiRebuildJob): Promise<void> {
     string,
     {
       totalSpendEur: number;
-      qualifiedLeads: number;
+      leads: number;
       appointments: number;
       consultationsHeld: number;
       casesWon: number;
@@ -76,7 +79,7 @@ export async function processKpiRebuild(job: KpiRebuildJob): Promise<void> {
   }
   for (const r of reqRows) {
     const ex = byDate.get(r.date) ?? emptyDay();
-    ex.qualifiedLeads = Number(r.qualifiedLeads);
+    ex.leads = Number(r.leads);
     ex.appointments = Number(r.appointments);
     ex.consultationsHeld = Number(r.consultationsHeld);
     ex.casesWon = Number(r.casesWon);
@@ -89,7 +92,7 @@ export async function processKpiRebuild(job: KpiRebuildJob): Promise<void> {
 
   // Upsert each day.
   for (const [date, m] of byDate) {
-    const cpql = m.qualifiedLeads > 0 ? (m.totalSpendEur / m.qualifiedLeads).toFixed(2) : null;
+    const cpl = m.leads > 0 ? (m.totalSpendEur / m.leads).toFixed(2) : null;
     const roas =
       m.totalSpendEur > 0 ? (m.revenueAttributedEur / m.totalSpendEur).toFixed(2) : null;
     await db
@@ -97,25 +100,25 @@ export async function processKpiRebuild(job: KpiRebuildJob): Promise<void> {
       .values({
         clinicId,
         date,
-        qualifiedLeads: m.qualifiedLeads,
+        leads: m.leads,
         appointments: m.appointments,
         consultationsHeld: m.consultationsHeld,
         casesWon: m.casesWon,
         totalSpendEur: m.totalSpendEur.toFixed(2),
         revenueAttributedEur: m.revenueAttributedEur.toFixed(2),
-        costPerQualifiedLead: cpql,
+        costPerLead: cpl,
         roas,
       })
       .onConflictDoUpdate({
         target: [schema.kpiDaily.clinicId, schema.kpiDaily.date],
         set: {
-          qualifiedLeads: m.qualifiedLeads,
+          leads: m.leads,
           appointments: m.appointments,
           consultationsHeld: m.consultationsHeld,
           casesWon: m.casesWon,
           totalSpendEur: m.totalSpendEur.toFixed(2),
           revenueAttributedEur: m.revenueAttributedEur.toFixed(2),
-          costPerQualifiedLead: cpql,
+          costPerLead: cpl,
           roas,
           updatedAt: new Date(),
         },
@@ -134,7 +137,7 @@ export async function processKpiRebuild(job: KpiRebuildJob): Promise<void> {
 function emptyDay() {
   return {
     totalSpendEur: 0,
-    qualifiedLeads: 0,
+    leads: 0,
     appointments: 0,
     consultationsHeld: 0,
     casesWon: 0,

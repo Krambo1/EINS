@@ -1,27 +1,75 @@
 "use client";
 
-import { useActionState } from "react";
+import Link from "next/link";
+import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { Button, Input, Label } from "@eins/ui";
-import { requestMagicLinkAction, type LoginActionState } from "./actions";
+import {
+  passwordLoginAction,
+  requestMagicLinkAction,
+  type LoginActionState,
+} from "./actions";
 
-function SubmitButton() {
+function SubmitButton({ label, pendingLabel }: { label: string; pendingLabel: string }) {
   const { pending } = useFormStatus();
   return (
     <Button type="submit" disabled={pending} className="w-full">
-      {pending ? "Wird gesendet…" : "Anmelde-Link senden"}
+      {pending ? pendingLabel : label}
     </Button>
   );
 }
 
-export function LoginForm() {
-  const [state, action] = useActionState<LoginActionState, FormData>(
+export function LoginForm({ initialError }: { initialError?: string }) {
+  const [mode, setMode] = useState<"password" | "magic">("password");
+  const [pwState, pwAction] = useActionState<LoginActionState, FormData>(
+    passwordLoginAction,
+    initialError ? { ok: false, error: initialError } : undefined
+  );
+  const [mlkState, mlkAction] = useActionState<LoginActionState, FormData>(
     requestMagicLinkAction,
     undefined
   );
 
+  if (mode === "magic") {
+    return (
+      <form action={mlkAction} className="space-y-5">
+        <div className="space-y-2">
+          <Label htmlFor="email-magic">E-Mail-Adresse</Label>
+          <Input
+            id="email-magic"
+            name="email"
+            type="email"
+            autoComplete="email"
+            required
+            placeholder="ihre.adresse@praxis.de"
+            className="h-12 text-base"
+          />
+        </div>
+        {mlkState && !mlkState.ok && (
+          <div
+            role="alert"
+            className="rounded-xl border border-tone-bad/40 bg-tone-bad/10 p-3 text-sm text-fg-primary"
+          >
+            {mlkState.error}
+          </div>
+        )}
+        <SubmitButton label="Anmelde-Link senden" pendingLabel="Wird gesendet…" />
+        <p className="text-sm text-fg-secondary">
+          Wir schicken einen einmaligen Link in Ihre Inbox. Kein Passwort nötig.
+        </p>
+        <button
+          type="button"
+          onClick={() => setMode("password")}
+          className="text-sm text-fg-secondary underline-offset-2 hover:underline"
+        >
+          ← Lieber doch mit Passwort anmelden
+        </button>
+      </form>
+    );
+  }
+
   return (
-    <form action={action} className="space-y-5">
+    <form action={pwAction} className="space-y-5">
       <div className="space-y-2">
         <Label htmlFor="email">E-Mail-Adresse</Label>
         <Input
@@ -34,18 +82,57 @@ export function LoginForm() {
           className="h-12 text-base"
         />
       </div>
-      {state && !state.ok && (
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <Label htmlFor="password">Passwort</Label>
+          <Link
+            href="/forgot-password"
+            className="text-sm text-fg-secondary underline-offset-2 hover:underline"
+          >
+            Passwort vergessen?
+          </Link>
+        </div>
+        <Input
+          id="password"
+          name="password"
+          type="password"
+          autoComplete="current-password"
+          required
+          minLength={1}
+          className="h-12 text-base"
+        />
+      </div>
+      {pwState && !pwState.ok && (
         <div
           role="alert"
           className="rounded-xl border border-tone-bad/40 bg-tone-bad/10 p-3 text-sm text-fg-primary"
         >
-          {state.error}
+          {pwState.error}
         </div>
       )}
-      <SubmitButton />
-      <p className="text-sm text-fg-secondary">
-        Sie erhalten einen einmaligen Link per E-Mail. Kein Passwort nötig.
+      <SubmitButton label="Anmelden" pendingLabel="Wird geprüft…" />
+      <p className="text-xs text-fg-secondary">
+        Noch kein Passwort gesetzt?{" "}
+        <Link
+          href="/forgot-password"
+          className="underline-offset-2 hover:underline"
+        >
+          Über &bdquo;Passwort vergessen&ldquo; einrichten
+        </Link>
+        .
       </p>
+      <div className="flex items-center gap-3 text-sm text-fg-secondary">
+        <span className="h-px flex-1 bg-border" />
+        <span>oder</span>
+        <span className="h-px flex-1 bg-border" />
+      </div>
+      <button
+        type="button"
+        onClick={() => setMode("magic")}
+        className="w-full rounded-xl border border-border bg-bg-secondary/40 px-4 py-3 text-sm text-fg-primary transition hover:bg-bg-secondary"
+      >
+        Lieber per E-Mail-Link anmelden
+      </button>
     </form>
   );
 }

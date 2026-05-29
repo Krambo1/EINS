@@ -12,7 +12,6 @@ const ITEMS: {
   { href: "/admin/operations#sla", label: "SLA-Verstöße", key: "slaBreaches", tone: "bad" },
   { href: "/admin/operations#animationen", label: "Animationen offen", key: "animationsRequested", tone: "warn" },
   { href: "/admin/operations#sync-fehler", label: "Sync-Fehler", key: "syncErrors", tone: "bad" },
-  { href: "/admin/operations#mfa", label: "MFA fehlt", key: "mfaMissing", tone: "warn" },
   { href: "/admin/operations#stagnierte", label: "Stagnierte Leads", key: "stalledRequests", tone: "warn" },
 ];
 

@@ -23,7 +23,7 @@ und in `docs/section-11-verification.md` von "unconfirmed" auf
 ## Betreff
 
 ```
-EINS Visuals: Integrations-Architektur Pixelmedics (Engine + Datenzugriff)
+EINS: Integrations-Architektur Pixelmedics (Engine + Datenzugriff)
 ```
 
 ## Body (Deutsch)
@@ -31,7 +31,7 @@ EINS Visuals: Integrations-Architektur Pixelmedics (Engine + Datenzugriff)
 ```
 Sehr geehrte Damen und Herren,
 
-ich melde mich im Namen der EINS Visuals GmbH (Aesthetik-Marketing-Agentur,
+ich melde mich im Namen der EINS (Aesthetik-Marketing-Agentur,
 Anfragen-/Conversions-Reporting fuer Praxen in DACH). Wir bauen einen
 sogenannten EINS PVS Bridge, der den Status von Patienten-Anfragen
 ("Anfrage -> Termin -> Behandlung -> Rechnung") aus dem jeweils
@@ -74,7 +74,7 @@ Wir freuen uns auf eine kurze Rueckmeldung. Bei Bedarf gerne ein
 
 Mit freundlichen Gruessen,
 Karam Issa
-Geschaeftsfuehrer EINS Visuals GmbH
+Geschaeftsfuehrer EINS
 karam@einsvisuals.de
 ```
 

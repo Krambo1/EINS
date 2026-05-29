@@ -12,7 +12,7 @@ import { eraseClinicData } from "@/server/dsgvo";
  * Hard-delete all data for a clinic per Art. 17 DSGVO.
  *
  * Guardrails:
- *  - Admin auth + MFA (requireAdmin default enforces both).
+ *  - Admin auth (requireAdmin enforces session + allowlist).
  *  - Confirmation must echo the clinic slug — prevents muscle-memory mis-clicks.
  *  - Writes the audit row BEFORE erasure so the paper trail isn't deleted
  *    along with the clinic.

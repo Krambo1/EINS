@@ -14,25 +14,25 @@ import { cacheClinicQuery } from "./_cache";
  */
 
 export interface KpiSummary {
-  qualifiedLeads: number;
+  leads: number;
   appointments: number;
   consultationsHeld: number;
   casesWon: number;
   spendEur: number;
   revenueEur: number;
   roas: number | null;
-  costPerQualifiedLead: number | null;
+  costPerLead: number | null;
 }
 
 const emptySummary = (): KpiSummary => ({
-  qualifiedLeads: 0,
+  leads: 0,
   appointments: 0,
   consultationsHeld: 0,
   casesWon: 0,
   spendEur: 0,
   revenueEur: 0,
   roas: null,
-  costPerQualifiedLead: null,
+  costPerLead: null,
 });
 
 /**
@@ -50,7 +50,7 @@ export async function kpiSummaryUncached(
   return withClinicContext(clinicId, userId, async (tx) => {
     const rows = await tx
       .select({
-        qualifiedLeads: sql<number>`coalesce(sum(${schema.kpiDaily.qualifiedLeads}), 0)`,
+        leads: sql<number>`coalesce(sum(${schema.kpiDaily.leads}), 0)`,
         appointments: sql<number>`coalesce(sum(${schema.kpiDaily.appointments}), 0)`,
         consultationsHeld: sql<number>`coalesce(sum(${schema.kpiDaily.consultationsHeld}), 0)`,
         casesWon: sql<number>`coalesce(sum(${schema.kpiDaily.casesWon}), 0)`,
@@ -69,16 +69,16 @@ export async function kpiSummaryUncached(
     if (!r) return emptySummary();
     const spend = Number(r.spendEur);
     const revenue = Number(r.revenueEur);
-    const ql = Number(r.qualifiedLeads);
+    const leads = Number(r.leads);
     return {
-      qualifiedLeads: ql,
+      leads,
       appointments: Number(r.appointments),
       consultationsHeld: Number(r.consultationsHeld),
       casesWon: Number(r.casesWon),
       spendEur: spend,
       revenueEur: revenue,
       roas: spend > 0 ? Number((revenue / spend).toFixed(2)) : null,
-      costPerQualifiedLead: ql > 0 ? Number((spend / ql).toFixed(2)) : null,
+      costPerLead: leads > 0 ? Number((spend / leads).toFixed(2)) : null,
     };
   });
 }
@@ -232,7 +232,7 @@ export async function lastNDaysSummary(
 
 export interface KpiDelta {
   /** Percent change vs prior period (e.g. +0.12 = +12%). null if prior == 0. */
-  qualifiedLeadsPct: number | null;
+  leadsPct: number | null;
   appointmentsPct: number | null;
   casesWonPct: number | null;
   spendPct: number | null;
@@ -253,7 +253,7 @@ function pctChange(current: number, prior: number): number | null {
 
 function buildDelta(cur: KpiSummary, prior: KpiSummary): KpiDelta {
   return {
-    qualifiedLeadsPct: pctChange(cur.qualifiedLeads, prior.qualifiedLeads),
+    leadsPct: pctChange(cur.leads, prior.leads),
     appointmentsPct: pctChange(cur.appointments, prior.appointments),
     casesWonPct: pctChange(cur.casesWon, prior.casesWon),
     spendPct: pctChange(cur.spendEur, prior.spendEur),
@@ -294,7 +294,7 @@ export const kpiSummaryWithComparison = cacheClinicQuery(
 );
 
 export interface KpiSparklines {
-  qualifiedLeads: number[];
+  leads: number[];
   casesWon: number[];
   spendEur: number[];
   revenueEur: number[];
@@ -323,7 +323,7 @@ export async function kpiDailySeriesWithSparklineUncached(
   const byDate = new Map(rows.map((r) => [r.date, r]));
 
   const sparklines: KpiSparklines = {
-    qualifiedLeads: [],
+    leads: [],
     casesWon: [],
     spendEur: [],
     revenueEur: [],
@@ -337,7 +337,7 @@ export async function kpiDailySeriesWithSparklineUncached(
     const key = cursor.toISOString().slice(0, 10);
     const r = byDate.get(key);
     sparklines.dates.push(key);
-    sparklines.qualifiedLeads.push(Number(r?.qualifiedLeads ?? 0));
+    sparklines.leads.push(Number(r?.leads ?? 0));
     sparklines.casesWon.push(Number(r?.casesWon ?? 0));
     sparklines.spendEur.push(Number(r?.totalSpendEur ?? 0));
     sparklines.revenueEur.push(Number(r?.revenueAttributedEur ?? 0));
@@ -395,7 +395,7 @@ export async function kpiSummaryAdmin(
 ): Promise<KpiSummary> {
   const rows = await db
     .select({
-      qualifiedLeads: sql<number>`coalesce(sum(${schema.kpiDaily.qualifiedLeads}), 0)`,
+      leads: sql<number>`coalesce(sum(${schema.kpiDaily.leads}), 0)`,
       appointments: sql<number>`coalesce(sum(${schema.kpiDaily.appointments}), 0)`,
       consultationsHeld: sql<number>`coalesce(sum(${schema.kpiDaily.consultationsHeld}), 0)`,
       casesWon: sql<number>`coalesce(sum(${schema.kpiDaily.casesWon}), 0)`,
@@ -414,15 +414,15 @@ export async function kpiSummaryAdmin(
   if (!r) return emptySummary();
   const spend = Number(r.spendEur);
   const revenue = Number(r.revenueEur);
-  const ql = Number(r.qualifiedLeads);
+  const leads = Number(r.leads);
   return {
-    qualifiedLeads: ql,
+    leads,
     appointments: Number(r.appointments),
     consultationsHeld: Number(r.consultationsHeld),
     casesWon: Number(r.casesWon),
     spendEur: spend,
     revenueEur: revenue,
     roas: spend > 0 ? Number((revenue / spend).toFixed(2)) : null,
-    costPerQualifiedLead: ql > 0 ? Number((spend / ql).toFixed(2)) : null,
+    costPerLead: leads > 0 ? Number((spend / leads).toFixed(2)) : null,
   };
 }

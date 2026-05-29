@@ -8,9 +8,8 @@ import { can, type Permission, ForbiddenError } from "../lib/roles";
  * behaviour for server components AND API route handlers.
  *
  * Naming:
- *  - requireSession()      → redirect to /login if unauthenticated
- *  - requireMfa()          → also require mfaVerified when mfaEnrolled
- *  - requirePermissionOr403() → throws ForbiddenError (caller maps to 403 response)
+ *  - requireSession()        → redirect to /login if unauthenticated
+ *  - requirePermissionOr403  → throws ForbiddenError (caller maps to 403 response)
  *
  * Server components use the redirect variants; JSON APIs use the throwing variants.
  */
@@ -19,23 +18,10 @@ import { can, type Permission, ForbiddenError } from "../lib/roles";
 export async function requireSession(opts?: {
   /** Redirect target if not logged in. */
   to?: string;
-  /** Skip the MFA gate — e.g. the /login/mfa page itself. */
-  skipMfa?: boolean;
 }): Promise<ResolvedSession> {
   const session = await getSession();
   if (!session) {
     redirect(opts?.to ?? "/login");
-  }
-  // Impersonation sessions are admin-minted with mfaVerified=true; the admin's
-  // own MFA already gated token issuance, so we don't run the user's MFA flow.
-  const enforceMfa = !opts?.skipMfa && session.impersonatedByAdminId === null;
-  if (enforceMfa && session.mfaEnrolled && !session.mfaVerified) {
-    redirect("/login/mfa");
-  }
-  // If the user has never enrolled MFA they're force-routed through enrollment
-  // before anything else. Exception: the enrollment page itself sets skipMfa=true.
-  if (enforceMfa && !session.mfaEnrolled) {
-    redirect("/login/enroll-mfa");
   }
   return session;
 }
@@ -62,12 +48,6 @@ export async function requirePermissionOr403(
 ): Promise<ResolvedSession> {
   const session = await getSession();
   if (!session) {
-    throw new ForbiddenError(permission);
-  }
-  // Mirror withApi: block both not-enrolled and not-verified. The page-side
-  // requireSession() redirects to /login/enroll-mfa; API callers don't
-  // follow redirects, so we have to gate here too.
-  if (!session.mfaEnrolled || !session.mfaVerified) {
     throw new ForbiddenError(permission);
   }
   if (!can(session.role, permission)) {

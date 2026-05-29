@@ -1,15 +1,9 @@
 import { EmptyState } from "@eins/ui";
-import {
-  Activity,
-  CalendarClock,
-  CheckCircle2,
-  Clock,
-  History,
-  Milestone,
-} from "lucide-react";
+import { Activity, Clock, History, Milestone } from "lucide-react";
 import { formatDate } from "@/lib/formatting";
 import { TIMELINE_STATUS_LABELS } from "@/lib/constants";
 import type { TimelineEntry } from "@/server/queries/timeline";
+import type { TimelineStatus } from "@/lib/constants";
 
 const MONTH_FORMATTER = new Intl.DateTimeFormat("de-DE", {
   month: "long",
@@ -42,6 +36,15 @@ function upcomingDistanceLabel(date: Date, now: Date): string {
   return `In ${Math.round(d / 30)} Monaten`;
 }
 
+function completedAgoLabel(date: Date, now: Date): string {
+  const d = daysBetween(now, date);
+  if (d <= 0) return "Heute erledigt";
+  if (d === 1) return "Gestern erledigt";
+  if (d < 14) return `Vor ${d} Tagen`;
+  if (d < 60) return `Vor ${Math.round(d / 7)} Wochen`;
+  return `Vor ${Math.round(d / 30)} Monaten`;
+}
+
 function groupByMonth(entries: TimelineEntry[]) {
   const groups = new Map<string, { label: string; entries: TimelineEntry[] }>();
   for (const e of entries) {
@@ -71,82 +74,91 @@ function MetaDot() {
   );
 }
 
-function ActiveCard({ entry, now }: { entry: TimelineEntry; now: Date }) {
+type StatusVisual = {
+  label: string;
+  textClass: string;
+  dotClass: string;
+  pulse: boolean;
+};
+
+const STATUS_VISUALS: Record<TimelineStatus, StatusVisual> = {
+  laeuft: {
+    label: TIMELINE_STATUS_LABELS.laeuft,
+    textClass: "text-accent",
+    dotClass: "bg-accent",
+    pulse: true,
+  },
+  geplant: {
+    label: TIMELINE_STATUS_LABELS.geplant,
+    textClass: "text-tone-warn",
+    dotClass: "bg-tone-warn",
+    pulse: false,
+  },
+  abgeschlossen: {
+    label: TIMELINE_STATUS_LABELS.abgeschlossen,
+    textClass: "text-tone-good",
+    dotClass: "bg-tone-good",
+    pulse: false,
+  },
+};
+
+function relativeLabelFor(
+  status: TimelineStatus,
+  date: Date,
+  now: Date,
+): string {
+  if (status === "laeuft") return activeDurationLabel(date, now);
+  if (status === "geplant") return upcomingDistanceLabel(date, now);
+  return completedAgoLabel(date, now);
+}
+
+function TimelineCard({
+  entry,
+  now,
+}: {
+  entry: TimelineEntry;
+  now: Date;
+}) {
+  // entry.status is a DB-inferred string; narrow it to the known TimelineStatus
+  // set so the visuals lookup and the relative-label switch are type-safe. An
+  // unexpected value falls back to "geplant" rather than throwing.
+  const status: TimelineStatus =
+    entry.status === "laeuft" || entry.status === "abgeschlossen"
+      ? entry.status
+      : "geplant";
+  const visual = STATUS_VISUALS[status];
   return (
-    <li className="relative overflow-hidden rounded-xl border border-border bg-bg-primary p-5 before:absolute before:inset-y-3 before:left-0 before:w-[3px] before:rounded-r-full before:bg-accent">
+    <li className="rounded-xl border border-border bg-bg-primary p-6 transition-colors hover:border-border-hover md:p-7">
       <MetaRow>
-        <span className="inline-flex items-center gap-1.5 font-medium text-accent">
-          <span className="inline-flex h-1.5 w-1.5 rounded-full bg-accent" />
-          {TIMELINE_STATUS_LABELS.laeuft}
+        <span
+          className={`inline-flex items-center gap-1.5 font-medium ${visual.textClass}`}
+        >
+          <span className="relative inline-flex h-1.5 w-1.5">
+            {visual.pulse && (
+              <span
+                aria-hidden
+                className={`absolute inset-0 inline-flex h-full w-full animate-ping rounded-full opacity-60 ${visual.dotClass}`}
+              />
+            )}
+            <span
+              className={`relative inline-flex h-1.5 w-1.5 rounded-full ${visual.dotClass}`}
+            />
+          </span>
+          {visual.label}
         </span>
         <MetaDot />
-        <span>{activeDurationLabel(entry.eventDate, now)}</span>
+        <span>{relativeLabelFor(status, entry.eventDate, now)}</span>
         <MetaDot />
         <span className="tabular-nums">{formatDate(entry.eventDate)}</span>
       </MetaRow>
-      <p className="mt-2 text-base font-semibold leading-snug text-fg-primary">
+      <p className="mt-3 text-lg font-semibold leading-snug text-fg-primary md:text-xl">
         {entry.title}
       </p>
       {entry.description && (
-        <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-fg-secondary">
+        <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-fg-secondary md:text-base">
           {entry.description}
         </p>
       )}
-    </li>
-  );
-}
-
-function UpcomingCard({ entry, now }: { entry: TimelineEntry; now: Date }) {
-  return (
-    <li className="rounded-xl border border-border bg-bg-primary p-5 transition-colors hover:border-border-hover">
-      <div className="flex items-start gap-4">
-        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-bg-secondary/60 text-fg-secondary">
-          <CalendarClock className="h-4 w-4" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <MetaRow>
-            <span className="font-medium text-fg-primary">
-              {upcomingDistanceLabel(entry.eventDate, now)}
-            </span>
-            <MetaDot />
-            <span className="tabular-nums">{formatDate(entry.eventDate)}</span>
-          </MetaRow>
-          <p className="mt-2 text-base font-semibold leading-snug text-fg-primary">
-            {entry.title}
-          </p>
-          {entry.description && (
-            <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-fg-secondary">
-              {entry.description}
-            </p>
-          )}
-        </div>
-      </div>
-    </li>
-  );
-}
-
-function CompletedItem({ entry }: { entry: TimelineEntry }) {
-  return (
-    <li className="relative pl-10">
-      <span
-        aria-hidden
-        className="absolute left-0 top-3 flex h-7 w-7 items-center justify-center rounded-full border border-border bg-bg-primary ring-4 ring-bg-secondary"
-      >
-        <CheckCircle2 className="h-3.5 w-3.5 text-tone-good" />
-      </span>
-      <div className="rounded-xl border border-border bg-bg-primary p-4">
-        <div className="text-sm text-fg-secondary tabular-nums">
-          {formatDate(entry.eventDate)}
-        </div>
-        <p className="mt-1 text-base font-semibold leading-snug text-fg-primary">
-          {entry.title}
-        </p>
-        {entry.description && (
-          <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-fg-secondary">
-            {entry.description}
-          </p>
-        )}
-      </div>
     </li>
   );
 }
@@ -227,7 +239,7 @@ export function TimelineList({ entries }: { entries: TimelineEntry[] }) {
           />
           <ul className="space-y-3">
             {active.map((e) => (
-              <ActiveCard key={e.id} entry={e} now={now} />
+              <TimelineCard key={e.id} entry={e} now={now} />
             ))}
           </ul>
         </section>
@@ -245,7 +257,7 @@ export function TimelineList({ entries }: { entries: TimelineEntry[] }) {
           />
           <ul className="space-y-3">
             {upcoming.map((e) => (
-              <UpcomingCard key={e.id} entry={e} now={now} />
+              <TimelineCard key={e.id} entry={e} now={now} />
             ))}
           </ul>
         </section>
@@ -261,36 +273,22 @@ export function TimelineList({ entries }: { entries: TimelineEntry[] }) {
             icon={<History className="h-4 w-4" strokeWidth={2.5} />}
             iconBgVar="var(--tone-good)"
           />
-
-          {/* One continuous timeline line for the whole "completed" column.
-              `top-3` / `bottom-3` align it to the centers of the first and
-              last check-circles (each circle sits at top-3 with h-7 → center
-              at y=12+14=26, line at x=13 runs through the center). The line
-              passes BEHIND every circle and every month divider — circles
-              have an opaque bg-bg-primary fill that masks it locally, so it
-              reads as one thread the check-marks are pinned onto. */}
-          <div className="relative">
-            <span
-              aria-hidden
-              className="pointer-events-none absolute bottom-3 left-[13px] top-3 w-px bg-border-hover"
-            />
-            <div className="space-y-6">
-              {groupByMonth(completed).map((g) => (
-                <div key={g.label}>
-                  <div className="mb-3 flex items-center gap-3 pl-10">
-                    <h3 className="text-sm font-medium text-fg-secondary">
-                      {g.label}
-                    </h3>
-                    <div className="h-px flex-1 bg-border" />
-                  </div>
-                  <ol className="space-y-3">
-                    {g.entries.map((e) => (
-                      <CompletedItem key={e.id} entry={e} />
-                    ))}
-                  </ol>
+          <div className="space-y-6">
+            {groupByMonth(completed).map((g) => (
+              <div key={g.label}>
+                <div className="mb-3 flex items-center gap-3">
+                  <h3 className="text-sm font-medium text-fg-secondary">
+                    {g.label}
+                  </h3>
+                  <div className="h-px flex-1 bg-border" />
                 </div>
-              ))}
-            </div>
+                <ul className="space-y-3">
+                  {g.entries.map((e) => (
+                    <TimelineCard key={e.id} entry={e} now={now} />
+                  ))}
+                </ul>
+              </div>
+            ))}
           </div>
         </section>
       )}

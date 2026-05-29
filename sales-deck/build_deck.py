@@ -1,5 +1,5 @@
 """
-EINS Visuals — Sales Deck Builder
+EINS — Sales Deck Builder
 
 Generates EINS-Strategievorschlag-TEMPLATE.pptx, a 15-slide on-brand sales
 deck for clinic strategy calls. Re-runs are deterministic.
@@ -10,7 +10,7 @@ Source of truth for copy and numbers:
   - apps/website/lib/offer-data.ts (slides 9, 10, 12)
   - apps/website/lib/objections-data.ts (slide 14)
   - apps/website/lib/timeline-data.ts (slide 13)
-  - Notion: EINS VISUALS Grundlagen, Branding, Statistiken
+  - Notion: EINS Grundlagen, Branding, Statistiken
 
 Run:
   pip install python-pptx Pillow
@@ -142,7 +142,7 @@ TOC = [
     ("02", "Über Ihre Klinik"),
     ("03", "Ihre Ziele"),
     ("04", "Was aktuell fehlt"),
-    ("05", "Über EINS Visuals"),
+    ("05", "Über EINS"),
     ("06", "Fallstudie / Referenzen"),
     ("07", "Vorgeschlagene Leistungen"),
     ("08", "Wert für Sie"),
@@ -298,7 +298,7 @@ def add_logo_top_left(slide, prs):
 def add_footer(slide, prs, slide_n: int, total: int = 13):
     """Number footer — 'Strategievorschlag · 03/13' style, mono."""
     add_text(slide, Inches(0.5), Inches(7.1), Inches(6), Inches(0.3),
-             f"EINS Visuals · Strategievorschlag", font=FONT_MONO, size=10,
+             f"EINS · Strategievorschlag", font=FONT_MONO, size=10,
              color=FG_TERTIARY)
     add_text(slide, Inches(7.0), Inches(7.1), Inches(6.0), Inches(0.3),
              f"//{slide_n:02d}", font=FONT_MONO, size=10,
@@ -411,7 +411,7 @@ def slide_1_cover(prs):
              "Strategiegespräch · [DATUM] · Köln", font=FONT_MONO, size=11,
              color=FG_SECONDARY)
     add_text(s, Inches(7), Inches(6.85), Inches(5.8), Inches(0.4),
-             "Karam Issa · Gründer EINS Visuals", font=FONT_MONO, size=11,
+             "Karam Issa · Gründer EINS", font=FONT_MONO, size=11,
              color=FG_SECONDARY, align=PP_ALIGN.RIGHT)
 
     set_speaker_notes(s,
@@ -478,7 +478,7 @@ def slide_3_hook(prs):
 
     # Mono attribution
     add_text(s, Inches(1.0), Inches(5.95), Inches(11.3), Inches(0.4),
-             "EINS Visuals · Akquise-System für Ästhetikkliniken im DACH-Raum",
+             "EINS · Akquise-System für Ästhetikkliniken im DACH-Raum",
              font=FONT_MONO, size=12, color=FG_SECONDARY,
              align=PP_ALIGN.CENTER)
 
@@ -620,7 +620,7 @@ def slide_7_about_eins(prs):
     background_white(s, prs)
     add_logo_top_left(s, prs)
 
-    add_eyebrow(s, Inches(0.5), Inches(1.5), Inches(8), "Über EINS Visuals")
+    add_eyebrow(s, Inches(0.5), Inches(1.5), Inches(8), "Über EINS")
     add_text(s, Inches(0.5), Inches(1.95), Inches(12), Inches(1.4),
              "Wir sind Spezialisten, keine Allround-Agentur.",
              font=FONT_DISPLAY, size=42, bold=True, color=FG_PRIMARY,
@@ -628,7 +628,7 @@ def slide_7_about_eins(prs):
 
     # Left paragraph
     add_text(s, Inches(0.5), Inches(3.55), Inches(8.0), Inches(2.6),
-             "EINS Visuals ist ein Akquise-System für Ästhetik- und "
+             "EINS ist ein Akquise-System für Ästhetik- und "
              "Schönheitskliniken im DACH-Raum. Wir kombinieren medizinisch "
              "seriöse Videoproduktion, bezahlte Anzeigen und ein durch "
              "Künstliche Intelligenz gestütztes System zu einem vollständigen "
@@ -679,7 +679,7 @@ def slide_7_about_eins(prs):
         "Erst hier — Folie 7 — reden wir über uns. Zwei Sätze, dann zurück "
         "zur Klinik. 'Was Sie merken werden: wir sind keine Allround-Agentur. "
         "Wir bauen ein System.'\n\n"
-        "Quelle: Notion `EINS VISUALS Grundlagen` + `Branding`.")
+        "Quelle: Notion `EINS Grundlagen` + `Branding`.")
     set_slide_transition_fade(s)
     return s
 
@@ -918,7 +918,7 @@ def slide_11_guarantee(prs):
              "Karam Issa", font=FONT_DISPLAY, size=11, bold=True,
              color=FG_PRIMARY, align=PP_ALIGN.CENTER)
     add_text(s, Inches(10.6), Inches(5.18), Inches(2.3), Inches(0.3),
-             "Gründer, EINS Visuals", font=FONT_MONO, size=9,
+             "Gründer, EINS", font=FONT_MONO, size=9,
              color=FG_SECONDARY, align=PP_ALIGN.CENTER)
 
     # 6 guarantees in 2 cols x 3 rows (excluding headshot column on right)

@@ -161,3 +161,45 @@ describe("foldEvents · #9 appt-less invoice attribution (play it safe)", () => 
     expect(b.byAppt.size).toBe(0);
   });
 });
+
+describe("foldEvents · #10 refund / storno netting", () => {
+  it("nets the patient total and the bucket on a partial refund (stays gewonnen)", () => {
+    const events = [
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 50000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e1"),
+      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "I1", refundedAmountCents: 20000, refundedAt: "2026-05-25T10:00:00.000Z" }, "2026-05-25T10:00:00.000Z", "e2"),
+    ];
+    const b = foldEvents(events);
+    expect(b.invoiceTotalsCents).toBe(30000);
+    expect(b.byAppt.get("A1")?.invoiceCents).toBe(30000);
+    expect(deriveStatusForBucket(b.byAppt.get("A1")!)).toBe("gewonnen");
+  });
+
+  it("a full refund drops the bucket below 'gewonnen'", () => {
+    const events = [
+      ev({ kind: "AppointmentCreated", pvsAppointmentId: "A1", scheduledAt: "2026-05-20T09:00:00.000Z" }, "2026-05-19T09:00:00.000Z", "e0"),
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 50000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e1"),
+      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "I1", pvsAppointmentId: "A1", refundedAmountCents: 50000, refundedAt: "2026-05-25T10:00:00.000Z" }, "2026-05-25T10:00:00.000Z", "e2"),
+    ];
+    const b = foldEvents(events);
+    expect(b.invoiceTotalsCents).toBe(0);
+    expect(b.byAppt.get("A1")?.invoiceCents).toBe(0);
+    expect(deriveStatusForBucket(b.byAppt.get("A1")!)).not.toBe("gewonnen");
+  });
+
+  it("matches a refund to its appointment via pvsInvoiceId when the refund omits the appointment", () => {
+    const events = [
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I9", pvsAppointmentId: "A9", amountCents: 12000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e1"),
+      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "I9", refundedAmountCents: 12000, refundedAt: "2026-05-26T10:00:00.000Z" }, "2026-05-26T10:00:00.000Z", "e2"),
+    ];
+    const b = foldEvents(events);
+    expect(b.byAppt.get("A9")?.invoiceCents).toBe(0);
+  });
+
+  it("clamps to zero for a refund whose original invoice we never saw", () => {
+    const events = [
+      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "GHOST", refundedAmountCents: 30000, refundedAt: "2026-05-26T10:00:00.000Z" }, "2026-05-26T10:00:00.000Z", "e1"),
+    ];
+    const b = foldEvents(events);
+    expect(b.invoiceTotalsCents).toBe(0);
+  });
+});

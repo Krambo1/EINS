@@ -15,7 +15,7 @@ import {
  * Mirrors `listRequests` and respects RLS.
  *
  * Query params (all optional):
- *   status=neu,qualifiziert
+ *   status=neu,termin_vereinbart
  *   source=meta,google
  *   aiCategory=hot,warm
  *   search=jens

@@ -18,8 +18,8 @@ import { env } from "./env";
  *  - Platform credentials (Meta / Google refresh tokens) are stored with
  *    AES-256-GCM under ENCRYPTION_KEY, with a random 12-byte IV per value.
  *    Layout: [iv(12) | authTag(16) | ciphertext].
- *  - Backup codes are not hashed with SHA-256 (they're low-entropy) — the
- *    caller should use argon2id via `@node-rs/argon2`. See auth/totp.ts.
+ *  - For passwords use argon2id via `@node-rs/argon2` (see auth/password.ts),
+ *    not SHA-256.
  */
 
 /** Generate a URL-safe random token of ~43 chars (32 bytes base64url). */

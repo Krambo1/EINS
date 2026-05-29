@@ -13,7 +13,6 @@ export interface TreatmentRow {
   slug: string;
   isActive: boolean;
   displayOrder: number;
-  defaultRecallMonths: number | null;
   keywords: string | null;
 }
 
@@ -30,7 +29,6 @@ export async function listTreatments(
         slug: schema.treatments.slug,
         isActive: schema.treatments.isActive,
         displayOrder: schema.treatments.displayOrder,
-        defaultRecallMonths: schema.treatments.defaultRecallMonths,
         keywords: schema.treatments.keywords,
       })
       .from(schema.treatments)

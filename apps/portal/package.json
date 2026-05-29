@@ -22,7 +22,9 @@
     "worker": "tsx src/worker/index.ts",
     "cron": "tsx src/worker/cron.ts",
     "admin:create": "tsx src/scripts/create-admin.ts",
-    "setup:intake": "tsx src/scripts/setup-intake.ts"
+    "setup:intake": "tsx src/scripts/setup-intake.ts",
+    "pvs:reconcile": "tsx scripts/pvs-reconcile.ts",
+    "pvs:seed-staging": "tsx scripts/pvs-seed-staging.ts"
   },
   "dependencies": {
     "@eins/ui": "workspace:*",

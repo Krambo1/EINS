@@ -215,9 +215,9 @@ export const STATIC_INDEX: SearchEntry[] = [
     kind: "setting",
     id: "setting-behandlungen",
     title: "Behandlungs-Kategorien",
-    subtitle: "Einstellungen · Treatments & Folgetermine",
+    subtitle: "Einstellungen · Treatments",
     href: "/einstellungen#behandlungen",
-    keywords: ["behandlung", "treatment", "kategorie", "stichwort", "keyword", "folgetermin", "recall"],
+    keywords: ["behandlung", "treatment", "kategorie", "stichwort", "keyword"],
     permission: "settings.team",
   },
   {
@@ -361,11 +361,11 @@ export const STATIC_INDEX: SearchEntry[] = [
   // ─── Dashboard KPIs ────────────────────────────────────────────────────
   {
     kind: "kpi",
-    id: "kpi-qualifizierte-anfragen",
-    title: "Qualifizierte Anfragen",
+    id: "kpi-anfragen",
+    title: "Anfragen",
     subtitle: "Dashboard · Monatszahl",
     href: "/dashboard",
-    keywords: ["qualifizierte", "anfragen", "leads", "qualified", "monat", "month"],
+    keywords: ["anfragen", "leads", "qualifizierte", "qualified", "monat", "month"],
     permission: "dashboard.view",
   },
   {
@@ -476,15 +476,6 @@ export const STATIC_INDEX: SearchEntry[] = [
     subtitle: "Auswertung · Median / P95 / P99",
     href: "/auswertung",
     keywords: ["antwortzeit", "response time", "median", "p95", "p99", "sla"],
-    permission: "reports.view",
-  },
-  {
-    kind: "auswertung",
-    id: "auswertung-staff",
-    title: "Mitarbeiter-Leistung",
-    subtitle: "Auswertung · Performance pro Person",
-    href: "/auswertung",
-    keywords: ["mitarbeiter", "staff", "team", "leistung", "performance", "person"],
     permission: "reports.view",
   },
   {

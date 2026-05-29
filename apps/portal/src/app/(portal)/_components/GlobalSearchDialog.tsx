@@ -257,7 +257,7 @@ export function GlobalSearchDialog({ open, onOpenChange, userRole }: DialogProps
   // Leads come from a server-side search that has already proven the term
   // matches the lead's name/email/phone/treatment — pin them just below an
   // exact static match (1.0) so they outrank token-prefix matches (0.9) like
-  // "Mitarbeiter-Leistung", but still defer to an exact nav-entry hit.
+  // "Patientenfeedback", but still defer to an exact nav-entry hit.
   const filter = (value: string, search: string, keywords?: string[]) => {
     const haystack = [value, ...(keywords ?? [])].join(" ");
     const score = scoreMatch(haystack, search);

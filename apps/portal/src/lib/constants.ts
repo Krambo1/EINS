@@ -5,7 +5,8 @@
 
 export const REQUEST_STATUSES = [
   "neu",
-  "qualifiziert",
+  "kontaktiert",
+  "nicht_erreicht",
   "termin_vereinbart",
   "beratung_erschienen",
   "gewonnen",
@@ -16,7 +17,8 @@ export type RequestStatus = (typeof REQUEST_STATUSES)[number];
 
 export const REQUEST_STATUS_LABELS: Record<RequestStatus, string> = {
   neu: "Neu",
-  qualifiziert: "Qualifiziert",
+  kontaktiert: "Kontaktiert",
+  nicht_erreicht: "Nicht erreicht",
   termin_vereinbart: "Termin vereinbart",
   beratung_erschienen: "Beratung erschienen",
   gewonnen: "Gewonnen",
@@ -25,18 +27,51 @@ export const REQUEST_STATUS_LABELS: Record<RequestStatus, string> = {
 };
 
 /**
- * Allowed forward/backward status transitions.
- * Backwards only "termin_vereinbart → qualifiziert" etc. for data correction.
+ * Allowed forward/backward status transitions in the pre-booking working
+ * phase (Portal-native). `kontaktiert` (erreicht, dran) und `nicht_erreicht`
+ * (versucht, niemand erreicht) sitzen zwischen `neu` und `termin_vereinbart`,
+ * damit das Frontdesk den Telefonstand abbilden kann.
+ *
+ * Backwards entries (z. B. `termin_vereinbart → kontaktiert`, `verloren → neu`)
+ * sind für Daten-Korrekturen gedacht — das Standardflow ist vorwärts. `no_show`
+ * und `behandelt` sind reine PVS-derived Status: sie kommen aus der Bridge und
+ * tauchen hier bewusst nicht als manuell wählbare Ziele auf.
  */
 export const STATUS_TRANSITIONS: Record<RequestStatus, readonly RequestStatus[]> = {
-  neu: ["qualifiziert", "spam", "verloren"],
-  qualifiziert: ["termin_vereinbart", "verloren", "spam"],
-  termin_vereinbart: ["beratung_erschienen", "verloren", "qualifiziert"],
+  neu: ["kontaktiert", "nicht_erreicht", "termin_vereinbart", "spam", "verloren"],
+  kontaktiert: ["termin_vereinbart", "nicht_erreicht", "verloren", "neu"],
+  nicht_erreicht: ["kontaktiert", "termin_vereinbart", "verloren", "neu"],
+  termin_vereinbart: ["beratung_erschienen", "verloren", "kontaktiert"],
   beratung_erschienen: ["gewonnen", "verloren", "termin_vereinbart"],
   gewonnen: ["verloren"],
-  verloren: ["qualifiziert"],
+  verloren: ["neu"],
   spam: ["neu"],
 };
+
+/**
+ * Per-call outcome captured on the call-log activity. Distinct from the
+ * lead's overall status: a single "nicht erreicht" call attempt can flip the
+ * lead status to `nicht_erreicht`, but the outcome lives on the activity so
+ * the Verlauf shows what actually happened on each call.
+ */
+export const CALL_OUTCOMES = [
+  "erreicht",
+  "nicht_erreicht",
+  "mailbox",
+  "falsche_nummer",
+] as const;
+export type CallOutcome = (typeof CALL_OUTCOMES)[number];
+
+export const CALL_OUTCOME_LABELS: Record<CallOutcome, string> = {
+  erreicht: "Erreicht",
+  nicht_erreicht: "Nicht erreicht",
+  mailbox: "Mailbox",
+  falsche_nummer: "Falsche Nummer",
+};
+
+/** Wiedervorlage lifecycle (request_followups.status). */
+export const FOLLOWUP_STATUSES = ["pending", "done", "cancelled"] as const;
+export type FollowupStatus = (typeof FOLLOWUP_STATUSES)[number];
 
 export const ROLES = ["inhaber", "marketing", "frontdesk"] as const;
 export type Role = (typeof ROLES)[number];

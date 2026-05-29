@@ -87,8 +87,9 @@ export function formatRelative(value: Date | string | null | undefined): string 
 
 /**
  * Day-granularity relative label, anchored on local midnight. Used for
- * forward-looking action lists (touchpoints, recalls) where "Heute" / "Morgen"
- * / "in 4 Tagen" reads faster than an absolute `22.5.2026`. Past dates collapse
+ * forward-looking action lists (touchpoints, review-request schedule) where
+ * "Heute" / "Morgen" / "in 4 Tagen" reads faster than an absolute
+ * `22.5.2026`. Past dates collapse
  * to "Überfällig" with the day count surfaced via `overdueDays` so callers can
  * decide whether to show "vor 3 Tagen" or just paint the row red.
  *
@@ -138,9 +139,9 @@ export function toneForGoalRatio(
   ratio: number
 ): "good" | "warn" | "bad" | "neutral" {
   if (!Number.isFinite(ratio)) return "neutral";
-  if (ratio >= 1) return "good";
-  if (ratio >= 0.7) return "warn";
-  if (ratio >= 0.4) return "neutral";
+  if (ratio >= 0.9) return "good";
+  if (ratio >= 0.6) return "warn";
+  if (ratio >= 0.3) return "neutral";
   return "bad";
 }
 

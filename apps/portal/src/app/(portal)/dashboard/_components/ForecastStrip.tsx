@@ -40,7 +40,11 @@ export async function ForecastStrip({
   return (
     <Link
       href="/auswertung/forecast"
-      className="group block rounded-2xl border border-border bg-bg-secondary/30 p-5 transition hover:border-accent hover:bg-bg-secondary/60"
+      className="group block rounded-2xl border border-border p-5 transition hover:border-accent"
+      style={{
+        backgroundColor: "var(--bg-card)",
+        boxShadow: "var(--shadow-card)",
+      }}
       aria-label="Zum Cashflow-Forecast"
     >
       <div className="flex items-center justify-between gap-4">

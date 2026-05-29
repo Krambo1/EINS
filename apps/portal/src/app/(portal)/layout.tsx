@@ -75,9 +75,15 @@ export default async function PortalLayout({ children }: { children: ReactNode }
           "/anfragen": newRequests,
           "/bewertungen": newFeedback,
           "/bewertungen/feedback": newFeedback,
-          "/fortschritt": timelineHasUpdate ? "Neu" : 0,
-          "/medien": medienHasUpdate ? "Neu" : 0,
-          "/dokumente": dokumenteHasUpdate ? "Neu" : 0,
+          // `markSectionSeen` above calls `revalidateTag`, but Next.js only
+          // applies tag invalidations to *subsequent* requests — the
+          // `getNavBadges` call in this same render still returns the
+          // pre-mark cached bundle. So if we just marked a section seen,
+          // override its pill to 0 regardless of what the bundle reports.
+          // Without this, the pill only disappears on the next navigation.
+          "/fortschritt": section !== "fortschritt" && timelineHasUpdate ? "Neu" : 0,
+          "/medien": section !== "medien" && medienHasUpdate ? "Neu" : 0,
+          "/dokumente": section !== "dokumente" && dokumenteHasUpdate ? "Neu" : 0,
         }}
       >
         {children}
