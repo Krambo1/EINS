@@ -4,6 +4,7 @@ import {
   loadConfig,
   loadCsvMappingFile,
   saveConfig,
+  type AgentConfig,
   type DbAdapterEnrollment,
 } from "./config.js";
 import { enroll } from "./enrollment.js";
@@ -27,7 +28,10 @@ import {
 } from "./portal-client.js";
 import { storeDbCredential } from "./secure-store.js";
 import { startRunner, type RunnerHandle } from "./db-adapters/runner.js";
-import { publishPendingDrift } from "./db-adapters/drift-publisher.js";
+import {
+  publishPendingDrift,
+  bridgeSourceForVendor,
+} from "./db-adapters/drift-publisher.js";
 import { validatePortalUrl } from "./portal-url.js";
 
 /**
@@ -85,7 +89,7 @@ async function main(): Promise<void> {
     const token = arg(args, "--enroll");
     const clinicId = arg(args, "--clinic");
     const portalBaseUrl =
-      arg(args, "--portal") ?? "https://portal.einsvisuals.de";
+      arg(args, "--portal") ?? "https://portal.eins.ag";
     const allowInsecureDev = args.includes("--allow-insecure-dev");
     const watchPath = arg(args, "--folder") ?? defaultWatchPath();
     const honorarFolder = arg(args, "--honorar-folder");
@@ -186,7 +190,7 @@ async function main(): Promise<void> {
   // hand-edit of config.json (or a malicious downgrade by malware with
   // user-level write access) cannot silently switch the agent to a
   // cleartext endpoint. `--allow-insecure-dev` must be passed explicitly
-  // each boot — there is no persistent dev-mode flag.
+  // each boot; there is no persistent dev-mode flag.
   const startupAllowInsecure = args.includes("--allow-insecure-dev");
   const startupPortalCheck = validatePortalUrl(
     cfg.portalBaseUrl,
@@ -296,9 +300,9 @@ async function main(): Promise<void> {
   }, FLUSH_INTERVAL_MS);
   const vacuumTimer = setInterval(() => {
     vacuumOld();
-    // P2-2: dead-letter prune. We POST the roll-up BEFORE deleting so a
-    // network failure leaves the rows in place for the next tick — we
-    // never lose visibility into what was lost.
+    // P2-2: dead-letter prune. pruneAndReportFailed deletes the aged failed
+    // rows, then POSTs the roll-up that the delete returns; see its body for
+    // the delete-before-POST trade-off.
     void pruneAndReportFailed(cfg.clinicId);
   }, VACUUM_INTERVAL_MS);
   // Drift telemetry rides a slower cadence than the event flush because
@@ -310,17 +314,17 @@ async function main(): Promise<void> {
   );
   // P2-2: per-minute heartbeat that surfaces outbox failure metrics on
   // the admin clinic detail page. Cheap (three SQLite count/min queries
-  // + one signed POST). Failure to deliver is silent — the next tick
+  // + one signed POST). Failure to deliver is silent; the next tick
   // retries. We do NOT use the outbox for the heartbeat itself because
   // the heartbeat IS the signal "the outbox is broken"; routing it
   // through the same plumbing would mask the failure we're trying to
   // surface.
   const heartbeatTimer = setInterval(() => {
-    void emitHeartbeat(cfg.clinicId);
+    void emitHeartbeat(cfg);
   }, HEARTBEAT_INTERVAL_MS);
   // Fire one heartbeat at startup so a fresh agent immediately surfaces
   // its state without a 60s delay.
-  void emitHeartbeat(cfg.clinicId);
+  void emitHeartbeat(cfg);
 
   const shutdown = (signal: string) => {
     console.log(`[agent] received ${signal}, shutting down…`);
@@ -351,16 +355,36 @@ async function flush(): Promise<void> {
   }
 }
 
-async function emitHeartbeat(clinicId: string): Promise<void> {
+/**
+ * Phase 8: the distinct bridge_sources this agent emits, for the heartbeat's
+ * pvs_link_source seeding. Each enabled DB-adapter maps to its per-vendor
+ * source via bridgeSourceForVendor; the GDT file-watcher (always running when
+ * a watchFolder is set, which enrollment guarantees) adds "gdt_agent". Deduped
+ * via a Set because both CGM-M1 variants collapse to cgm_m1pro and several
+ * adapters can coexist with the one file-watcher source.
+ */
+function enrolledBridgeSources(cfg: AgentConfig): string[] {
+  const sources = new Set<string>();
+  for (const adapter of cfg.dbAdapters ?? []) {
+    sources.add(bridgeSourceForVendor(adapter.vendor));
+  }
+  if (cfg.watchFolder) {
+    sources.add("gdt_agent");
+  }
+  return Array.from(sources);
+}
+
+async function emitHeartbeat(cfg: AgentConfig): Promise<void> {
   try {
     const snap = getFailureSummary();
     const res = await postHeartbeat({
-      clinicId,
+      clinicId: cfg.clinicId,
       agentVersion: AGENT_VERSION,
       failedCount: snap.failedCount,
       oldestFailedAt: snap.oldestFailedAt,
       lastFailureReason: snap.lastFailureReason,
       recentReasons: snap.recentReasons,
+      enrolledVendors: enrolledBridgeSources(cfg),
       sentAt: Date.now(),
     });
     if (!res.ok) {
@@ -382,20 +406,20 @@ async function pruneAndReportFailed(clinicId: string): Promise<void> {
     // nothing's failed-aged, skip the network round-trip entirely.
     const snap = getFailureSummary();
     if (snap.failedCount === 0) return;
-    // Run the prune ONLY if the portal accepted the summary. Order
-    // matters: we must not drop the rows before the portal has the
-    // record. If the POST fails, we leave the rows for the next tick
-    // and try again. Trade-off: the outbox can stay slightly larger
-    // than 30 days during portal outages — acceptable; the alternative
-    // is permanent silent data loss.
+    // We prune FIRST, then POST the roll-up the prune returns.
+    // pruneFailedOlderThan deletes the aged failed rows and hands back their
+    // count, age span, and grouped reasons in one call, so there is no
+    // read-only summary to POST ahead of the delete.
     //
-    // We DON'T run the prune query first to capture the summary in-tx
-    // because pruneFailedOlderThan does both. So: precompute the prune
-    // summary via a dry-run by passing days=Infinity? No — simpler: do
-    // the prune in a try, but capture the summary that prune returns
-    // and POST it. If POST fails, the rows are already gone; we accept
-    // that risk because the alternative (locking + 2-phase commit
-    // across SQLite + HTTP) is gnarly for marginal value.
+    // Trade-off of delete-before-POST: if the POST fails (or the process dies)
+    // after the rows are gone, the portal never receives this roll-up. We
+    // accept that because the rows are dead-letter (already permanently
+    // 'failed' and already surfaced live via the heartbeat's failedCount), so
+    // the roll-up is a forensic nicety, not the system of record; on POST
+    // failure we still write it to the agent log below. The alternative
+    // (summarize read-only, POST, then delete only on success) just swaps this
+    // for a double-report on a crash between POST and delete, plus a 2-phase
+    // dance across SQLite + HTTP that is not worth it for a dead-letter roll-up.
     const summary = pruneFailedOlderThan(FAILED_PRUNE_AGE_DAYS);
     if (summary.prunedCount === 0) return;
     const res = await postFailureSummary({
@@ -411,7 +435,7 @@ async function pruneAndReportFailed(clinicId: string): Promise<void> {
       // agent log can still see what was pruned even if the portal
       // never received the summary. Bounded length to avoid noise.
       console.error(
-        `[agent] failure-summary POST failed: ${res.reason}; pruned ${summary.prunedCount} rows (oldest=${summary.prunedOldestAt}, newest=${summary.prunedNewestAt}, top-reason=${summary.reasons[0]?.reason ?? "—"})`
+        `[agent] failure-summary POST failed: ${res.reason}; pruned ${summary.prunedCount} rows (oldest=${summary.prunedOldestAt}, newest=${summary.prunedNewestAt}, top-reason=${summary.reasons[0]?.reason ?? "none"})`
       );
     } else {
       console.log(

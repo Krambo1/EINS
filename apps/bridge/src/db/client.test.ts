@@ -92,4 +92,32 @@ describe("loadDueLinks SQL contract", () => {
   it("still gates on status='connected'", () => {
     expect(CLIENT_SOURCE).toMatch(/l\.status\s*=\s*'connected'/);
   });
+
+  it("never cloud-polls the on-prem / DB-read vendors (Phase 7 regression)", () => {
+    // medatixx, cgm_*, indamed, quincy, pixelmedics are read by the on-prem
+    // SQL-introspection agent; gdt_agent is the file-watcher path. None have a
+    // cloud REST endpoint, so the cloud scheduler must NEVER select them. The
+    // Phase 7 enum widening makes them valid pvs_vendor / bridge_source values,
+    // which is exactly when an accidental whitelist add becomes possible. Pin
+    // the loadDueLinks body so that can't happen silently.
+    const start = CLIENT_SOURCE.indexOf("export async function loadDueLinks");
+    const next = CLIENT_SOURCE.indexOf("export async function", start + 1);
+    const loadDueBody = CLIENT_SOURCE.slice(
+      start,
+      next === -1 ? undefined : next
+    );
+    const onPremVendors = [
+      "gdt_agent",
+      "medatixx",
+      "cgm_albis",
+      "cgm_turbomed",
+      "cgm_m1pro",
+      "indamed",
+      "quincy",
+      "pixelmedics",
+    ];
+    for (const v of onPremVendors) {
+      expect(loadDueBody).not.toContain(`'${v}'`);
+    }
+  });
 });

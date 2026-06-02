@@ -15,7 +15,7 @@ const schema = z.object({
   BRIDGE_DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().default("redis://localhost:6379"),
   PORTAL_BASE_URL: z.string().url().default("http://localhost:3001"),
-  BRIDGE_PUBLIC_URL: z.string().url().default("https://bridge.einsvisuals.de"),
+  BRIDGE_PUBLIC_URL: z.string().url().default("https://bridge.eins.ag"),
   APP_KEY: z
     .string()
     .min(64, "APP_KEY must be 32 bytes hex (= 64 hex chars)")

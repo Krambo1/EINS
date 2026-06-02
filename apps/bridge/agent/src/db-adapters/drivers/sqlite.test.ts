@@ -62,6 +62,36 @@ describe("sqlite driver: end-to-end against a real on-disk db", () => {
     await driver.close();
   });
 
+  it("binds a Date cursor by converting it to ISO text (Phase 3)", async () => {
+    // The framework binds a timestamp cursor as a native Date so the server
+    // engines coerce it. better-sqlite3 cannot bind a Date directly (it throws
+    // "SQLite3 can only bind ..."), so the driver converts it to ISO-8601 text
+    // first. This proves the conversion happens and compares correctly against
+    // the ISO-8601 text the seed stores.
+    const driver = new SqliteDriver();
+    await driver.connect({
+      host: "",
+      port: 0,
+      database: dbPath,
+      username: "",
+      password: "",
+    });
+    const result = await driver.query(
+      `SELECT id, full_name, modified_at
+       FROM patients
+       WHERE modified_at > :cursor
+       ORDER BY modified_at ASC
+       LIMIT :limit`,
+      { cursor: new Date("2026-05-19T18:00:00.000Z"), limit: 100 }
+    );
+    // Only Bernd (2026-05-20T08:00:00Z) is strictly after the Date cursor;
+    // Anna (2026-05-19T12:00:00Z) precedes it.
+    expect(result.rows).toEqual([
+      { id: 2, full_name: "Bernd Test", modified_at: "2026-05-20T08:00:00.000Z" },
+    ]);
+    await driver.close();
+  });
+
   it("refuses to open a non-existent file rather than silently creating one", async () => {
     const driver = new SqliteDriver();
     await expect(

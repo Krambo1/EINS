@@ -1,0 +1,7 @@
+# The canonical schema source, its generator, and the generated agent mirror
+# are produced and byte-compared as LF by gen-canonical.mjs. Pin LF here so a
+# repo-level core.autocrlf=true cannot inject CRLF into the working tree, which
+# would make the prebuild regeneration churn and the staleness test fail.
+src/canonical/schema-source.ts text eol=lf
+scripts/gen-canonical.mjs text eol=lf
+agent/src/db-adapters/generated-canonical.ts text eol=lf

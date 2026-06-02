@@ -207,7 +207,7 @@ Add to `framework.ts`:
 
 ### 5.5 Defense-in-depth for Tomedo: Lua script plugin variant
 
-Tomedo supports Lua scripting inside the client that fires on workflow events (appointment status change, invoice booking, encounter completed). Build a `.lua` script set that POSTs canonical events directly to `bridge.einsvisuals.de` with HMAC-SHA256 signing.
+Tomedo supports Lua scripting inside the client that fires on workflow events (appointment status change, invoice booking, encounter completed). Build a `.lua` script set that POSTs canonical events directly to `bridge.eins.ag` with HMAC-SHA256 signing.
 
 Ship as a downloadable bundle at `apps/portal/public/pvs-bridge/tomedo-lua/` alongside the existing `n8n-templates/`. Praxis IT drops the scripts in the Tomedo `Lua/` folder during enrollment.
 

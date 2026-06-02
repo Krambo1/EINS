@@ -13,18 +13,18 @@ import { validatePortalUrl } from "./portal-url";
 
 describe("validatePortalUrl", () => {
   it("accepts a vanilla https URL", () => {
-    const r = validatePortalUrl("https://portal.einsvisuals.de", false);
+    const r = validatePortalUrl("https://portal.eins.ag", false);
     expect(r.ok).toBe(true);
   });
 
   it("accepts https URLs with paths, ports, and trailing slashes", () => {
-    expect(validatePortalUrl("https://portal.einsvisuals.de/", false).ok).toBe(true);
-    expect(validatePortalUrl("https://staging.einsvisuals.de:8443/api", false).ok).toBe(true);
+    expect(validatePortalUrl("https://portal.eins.ag/", false).ok).toBe(true);
+    expect(validatePortalUrl("https://staging.eins.ag:8443/api", false).ok).toBe(true);
   });
 
   it("rejects http:// for an internet host even when --allow-insecure-dev is set", () => {
     const r = validatePortalUrl(
-      "http://portal.einsvisuals.de",
+      "http://portal.eins.ag",
       /* allowInsecureDev */ true
     );
     expect(r.ok).toBe(false);
@@ -49,19 +49,19 @@ describe("validatePortalUrl", () => {
   it("rejects schemes other than http/https (file://, javascript:, data:, etc.)", () => {
     expect(validatePortalUrl("file:///etc/passwd", true).ok).toBe(false);
     expect(validatePortalUrl("javascript:alert(1)", true).ok).toBe(false);
-    expect(validatePortalUrl("ftp://ftp.einsvisuals.de", true).ok).toBe(false);
+    expect(validatePortalUrl("ftp://ftp.eins.ag", true).ok).toBe(false);
     expect(validatePortalUrl("data:text/plain;base64,SGVsbG8=", true).ok).toBe(false);
   });
 
   it("rejects unparseable URLs", () => {
-    expect(validatePortalUrl("portal.einsvisuals.de", false).ok).toBe(false);
+    expect(validatePortalUrl("portal.eins.ag", false).ok).toBe(false);
     expect(validatePortalUrl("", false).ok).toBe(false);
     expect(validatePortalUrl("not even a url", false).ok).toBe(false);
   });
 
   it("attack surface: an http URL whose path contains 'localhost' is rejected (not whitelisted)", () => {
     const r = validatePortalUrl(
-      "http://evil.example/localhost?redirect=portal.einsvisuals.de",
+      "http://evil.example/localhost?redirect=portal.eins.ag",
       true
     );
     expect(r.ok).toBe(false);

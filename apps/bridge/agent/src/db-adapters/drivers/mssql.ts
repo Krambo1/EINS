@@ -126,11 +126,14 @@ export class MssqlDriver implements DbDriver {
 
   async query(
     sql: string,
-    params: Record<string, string | number>
+    params: Record<string, string | number | Date>
   ): Promise<QueryResult> {
     if (!this.pool || !this.healthy) {
       await this.connect(this.params!);
     }
+    // mssql/tedious infers a JS Date as datetime and binds it natively, so a
+    // timestamp cursor (framework Phase 3) reaches the column as a Date;
+    // strings and numbers keep their default inference.
     const { translated, bindings } = translateNamedToAt(sql, params);
     const req = this.pool!.request();
     for (const [name, value] of bindings) {
@@ -174,7 +177,7 @@ export class MssqlDriver implements DbDriver {
  */
 export function translateNamedToAt(
   sql: string,
-  params: Record<string, string | number>
+  params: Record<string, string | number | Date>
 ): { translated: string; bindings: Array<[string, unknown]> } {
   const seen = new Set<string>();
   const bindings: Array<[string, unknown]> = [];

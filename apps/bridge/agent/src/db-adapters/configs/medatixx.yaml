@@ -14,6 +14,16 @@
 # halts any stream whose first poll returns a different column list
 # than this file declares; that catches a wrong guess at the first run.
 #
+# Keyset pagination (review finding 6): every stream pages by
+# (DAT_MOD, primary key) so a cluster of rows sharing one DAT_MOD can
+# never be split across a batch boundary. Firebird pages via
+# SELECT FIRST (:limit) (the placeholder is parenthesised so the parser
+# accepts the bind) plus the keyset ORDER BY. The tiebreak uses the RAW
+# numeric PK column (PAT_ID, TER_ID, ...) in the predicate and ORDER BY;
+# the same column is CAST AS id so the framework reads it back per row.
+# Assumes the *_ID columns are numeric and monotonic; Phase 6's
+# real-engine harness confirms that per install.
+#
 # Read-only safety: the AVV (apps/bridge/legal/AVV-template-DE.md)
 # requires the IT contact to provision a dedicated read-only Firebird
 # user. SYSDBA is never used. Grants per table referenced below.
@@ -27,7 +37,7 @@
 
 vendor: medatixx-db
 driver: firebird
-bridgeSource: gdt_agent
+bridgeSource: medatixx
 defaultIntervalSeconds: 90
 batchSize: 500
 
@@ -54,8 +64,9 @@ streams:
   - kind: PatientUpserted
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
-      SELECT FIRST :limit
+      SELECT FIRST (:limit)
         CAST(PAT_ID AS VARCHAR(40))    AS id,
         VORNAME                        AS vorname,
         NACHNAME                       AS nachname,
@@ -67,8 +78,8 @@ streams:
         BEMERKUNG                      AS bemerkung,
         DAT_MOD                        AS modified_at
       FROM PAT
-      WHERE DAT_MOD > :cursor
-      ORDER BY DAT_MOD ASC
+      WHERE (DAT_MOD > :cursor OR (DAT_MOD = :cursor AND PAT_ID > :cursorTiebreak))
+      ORDER BY DAT_MOD ASC, PAT_ID ASC
     map:
       pvsExternalEventId: { template: "medatixx:patient:{id}:{modified_at}" }
       occurredAt: { from: modified_at, transform: isoDateTime }
@@ -86,8 +97,9 @@ streams:
   - kind: AppointmentCreated
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
-      SELECT FIRST :limit
+      SELECT FIRST (:limit)
         CAST(TER_ID AS VARCHAR(40))    AS id,
         CAST(PAT_ID AS VARCHAR(40))    AS patient_id,
         TERMIN_BEGINN                  AS termin_beginn,
@@ -98,8 +110,8 @@ streams:
         KOMMENTAR                      AS kommentar,
         DAT_MOD                        AS modified_at
       FROM TER
-      WHERE DAT_MOD > :cursor
-      ORDER BY DAT_MOD ASC
+      WHERE (DAT_MOD > :cursor OR (DAT_MOD = :cursor AND TER_ID > :cursorTiebreak))
+      ORDER BY DAT_MOD ASC, TER_ID ASC
     map:
       pvsExternalEventId: { template: "medatixx:appointment:{id}" }
       occurredAt: { from: termin_beginn, transform: isoDateTime }
@@ -118,16 +130,17 @@ streams:
   - kind: AppointmentStatusChanged
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
-      SELECT FIRST :limit
+      SELECT FIRST (:limit)
         CAST(TER_ID AS VARCHAR(40))    AS id,
         CAST(PAT_ID AS VARCHAR(40))    AS patient_id,
         STATUS                         AS status,
         DAT_MOD                        AS modified_at
       FROM TER
-      WHERE DAT_MOD > :cursor
+      WHERE (DAT_MOD > :cursor OR (DAT_MOD = :cursor AND TER_ID > :cursorTiebreak))
         AND STATUS IS NOT NULL
-      ORDER BY DAT_MOD ASC
+      ORDER BY DAT_MOD ASC, TER_ID ASC
     map:
       pvsExternalEventId: { template: "medatixx:appointment-status:{id}:{status}:{modified_at}" }
       occurredAt: { from: modified_at, transform: isoDateTime }
@@ -142,8 +155,9 @@ streams:
   - kind: EncounterCompleted
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
-      SELECT FIRST :limit
+      SELECT FIRST (:limit)
         CAST(BEH_ID AS VARCHAR(40))    AS id,
         CAST(PAT_ID AS VARCHAR(40))    AS patient_id,
         CAST(TER_ID AS VARCHAR(40))    AS termin_id,
@@ -153,9 +167,9 @@ streams:
         BEHANDLER_NAME                 AS behandler_name,
         DAT_MOD                        AS modified_at
       FROM BEH
-      WHERE DAT_MOD > :cursor
+      WHERE (DAT_MOD > :cursor OR (DAT_MOD = :cursor AND BEH_ID > :cursorTiebreak))
         AND TER_ID IS NOT NULL
-      ORDER BY DAT_MOD ASC
+      ORDER BY DAT_MOD ASC, BEH_ID ASC
     map:
       pvsExternalEventId: { template: "medatixx:encounter:{id}" }
       occurredAt: { from: behandlung_datum, transform: isoDateTime }
@@ -176,8 +190,9 @@ streams:
   - kind: InvoicePaid
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
-      SELECT FIRST :limit
+      SELECT FIRST (:limit)
         CAST(RECH_ID AS VARCHAR(40))   AS id,
         CAST(PAT_ID AS VARCHAR(40))    AS patient_id,
         CAST(TER_ID AS VARCHAR(40))    AS termin_id,
@@ -187,10 +202,10 @@ streams:
         STATUS                         AS status,
         DAT_MOD                        AS modified_at
       FROM RECH
-      WHERE DAT_MOD > :cursor
+      WHERE (DAT_MOD > :cursor OR (DAT_MOD = :cursor AND RECH_ID > :cursorTiebreak))
         AND STATUS = 'B'
         AND TER_ID IS NOT NULL
-      ORDER BY DAT_MOD ASC
+      ORDER BY DAT_MOD ASC, RECH_ID ASC
     map:
       pvsExternalEventId: { template: "medatixx:invoice:{id}" }
       occurredAt: { from: bezahlt_am, transform: isoDateTime }
@@ -206,8 +221,9 @@ streams:
   - kind: RecallScheduled
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
-      SELECT FIRST :limit
+      SELECT FIRST (:limit)
         CAST(WV_ID AS VARCHAR(40))     AS id,
         CAST(PAT_ID AS VARCHAR(40))    AS patient_id,
         WV_DATUM                       AS recall_datum,
@@ -215,8 +231,8 @@ streams:
         BEZEICHNUNG                    AS bezeichnung,
         DAT_MOD                        AS modified_at
       FROM WV
-      WHERE DAT_MOD > :cursor
-      ORDER BY DAT_MOD ASC
+      WHERE (DAT_MOD > :cursor OR (DAT_MOD = :cursor AND WV_ID > :cursorTiebreak))
+      ORDER BY DAT_MOD ASC, WV_ID ASC
     map:
       pvsExternalEventId: { template: "medatixx:recall:{id}" }
       occurredAt: { from: recall_datum, transform: isoDateTime }
@@ -225,3 +241,44 @@ streams:
       recallAt: { from: recall_datum, transform: isoDateTime }
       treatmentCode: leistung_code
       treatmentLabel: bezeichnung
+
+  # ----- 7. Invoice refunds / storno / Gutschrift (Phase 9) --------------
+  # InvoiceRefunded: money OUT, one event per Storno / Gutschrift row, so the
+  # derive worker nets the patient total + appointment bucket back down and the
+  # P2-3 downgrade alarm catches a gewonnen -> lower flip. refundedAmountCents
+  # must be a POSITIVE magnitude (the portal Zod rejects negatives), so it maps
+  # through the absAmountToCents transform: the amount may arrive as a negative
+  # betrag (a credit) or a positive amount on a storno-status row, and either
+  # way the magnitude is taken. Inherits Phase 3 (Date bind) +
+  # Phase 4 (keyset). No TER_ID-NOT-NULL filter: an appt-less refund still
+  # nets the patient total (derive bridges via the original invoice id).
+  # SCHEMA-DISCOVERY DRAFT: storno predicate (BETRAG_GESAMT < 0 OR single-letter
+  # STATUS in 'S'/'G', mirroring the 'B'=bezahlt code) + refundedAt source
+  # (DAT_MOD) are guesses; disjoint from InvoicePaid (STATUS = 'B').
+  # Cancellations stay on stream 3 (AppointmentStatusChanged -> cancelled); no
+  # AppointmentCancelled stream until a real schema separates patient- vs
+  # Praxis-side cancel.
+  - kind: InvoiceRefunded
+    cursorColumn: modified_at
+    cursorType: timestamp
+    tiebreakColumn: id
+    query: |
+      SELECT FIRST (:limit)
+        CAST(RECH_ID AS VARCHAR(40))   AS id,
+        CAST(PAT_ID AS VARCHAR(40))    AS patient_id,
+        CAST(TER_ID AS VARCHAR(40))    AS termin_id,
+        BETRAG_GESAMT                  AS betrag,
+        STATUS                         AS status,
+        DAT_MOD                        AS modified_at
+      FROM RECH
+      WHERE (DAT_MOD > :cursor OR (DAT_MOD = :cursor AND RECH_ID > :cursorTiebreak))
+        AND (BETRAG_GESAMT < 0 OR STATUS IN ('S', 'G'))
+      ORDER BY DAT_MOD ASC, RECH_ID ASC
+    map:
+      pvsExternalEventId: { template: "medatixx:refund:{id}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsInvoiceId: id
+      pvsAppointmentId: termin_id
+      refundedAmountCents: { from: betrag, transform: absAmountToCents }
+      refundedAt: { from: modified_at, transform: isoDateTime }

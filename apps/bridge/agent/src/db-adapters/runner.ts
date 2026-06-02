@@ -146,7 +146,12 @@ export async function startRunner(opts: RunnerOptions): Promise<RunnerHandle> {
       if (!ready) continue;
       for (const stream of rt.config.streams) {
         const state = loadState(rt.config.vendor, stream.kind);
-        if (state.status === "schema_drift" || state.status === "disabled") continue;
+        if (
+          state.status === "schema_drift" ||
+          state.status === "config_invalid" ||
+          state.status === "disabled"
+        )
+          continue;
         if (state.nextRunAt > Date.now()) continue;
         try {
           const outcome = await pollOnce({

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import Database from "better-sqlite3";
 import {
   _setStateDbForTesting,
+  recordConfigInvalid,
   recordDrift,
   pendingDriftReports,
 } from "./framework.js";
@@ -37,7 +38,9 @@ beforeEach(() => {
       missing TEXT NOT NULL,
       added TEXT NOT NULL,
       detected_at INTEGER NOT NULL,
-      reported_to_portal INTEGER NOT NULL DEFAULT 0
+      reported_to_portal INTEGER NOT NULL DEFAULT 0,
+      report_kind TEXT NOT NULL DEFAULT 'schema_drift',
+      detail TEXT
     );
   `);
   _setStateDbForTesting(handle);
@@ -66,16 +69,21 @@ describe("drift-publisher: vendor → bridge_source mapping", () => {
   it("maps tomedo-db to the tomedo bridge_source", () => {
     expect(bridgeSourceForVendor("tomedo-db")).toBe("tomedo");
   });
-  it("maps the GDT-flavored db adapters to gdt_agent", () => {
-    expect(bridgeSourceForVendor("medatixx")).toBe("gdt_agent");
-    expect(bridgeSourceForVendor("cgm-albis")).toBe("gdt_agent");
-    expect(bridgeSourceForVendor("indamed")).toBe("gdt_agent");
+  it("maps each on-prem db adapter to its own per-vendor bridge_source", () => {
+    // Phase 8: the callers pass the FULL vendor id (the YAML `vendor:` field),
+    // i.e. report.vendorId / DbAdapterEnrollment.vendor, never a bare short id.
+    expect(bridgeSourceForVendor("medatixx-db")).toBe("medatixx");
+    expect(bridgeSourceForVendor("cgm-albis-db")).toBe("cgm_albis");
+    expect(bridgeSourceForVendor("cgm-turbomed-db")).toBe("cgm_turbomed");
+    expect(bridgeSourceForVendor("indamed-db")).toBe("indamed");
+    expect(bridgeSourceForVendor("quincy-db")).toBe("quincy");
+    expect(bridgeSourceForVendor("pixelmedics-db")).toBe("pixelmedics");
   });
-  it("maps both cgm-m1pro engine variants to gdt_agent (mssql + oracle)", () => {
-    expect(bridgeSourceForVendor("cgm-m1pro")).toBe("gdt_agent");
-    expect(bridgeSourceForVendor("cgm-m1pro-oracle-db")).toBe("gdt_agent");
+  it("maps both cgm-m1pro engine variants to cgm_m1pro (mssql + oracle)", () => {
+    expect(bridgeSourceForVendor("cgm-m1pro-db")).toBe("cgm_m1pro");
+    expect(bridgeSourceForVendor("cgm-m1pro-oracle-db")).toBe("cgm_m1pro");
   });
-  it("falls back to gdt_agent for unknown vendors", () => {
+  it("falls back to gdt_agent for an unknown vendor id", () => {
     expect(bridgeSourceForVendor("future-vendor")).toBe("gdt_agent");
   });
 });
@@ -144,7 +152,7 @@ describe("drift-publisher: publish loop", () => {
   });
 
   it("defers on 429 / 5xx; the row stays in the queue", async () => {
-    seedDrift("medatixx", "PatientUpserted");
+    seedDrift("medatixx-db", "PatientUpserted");
     let call = 0;
     const fakeFetch = (async () => {
       call++;
@@ -172,7 +180,7 @@ describe("drift-publisher: publish loop", () => {
   });
 
   it("marks reported on non-retryable 4xx so it does not loop forever", async () => {
-    seedDrift("medatixx", "AppointmentCreated");
+    seedDrift("medatixx-db", "AppointmentCreated");
     const fakeFetch = (async () =>
       new Response(JSON.stringify({ error: { code: "vendor_mismatch" } }), {
         status: 409,
@@ -188,8 +196,54 @@ describe("drift-publisher: publish loop", () => {
     expect(pendingDriftReports()).toHaveLength(0);
   });
 
+  it("POSTs a config_invalid report as eventKind config_invalid with its detail", async () => {
+    recordConfigInvalid({
+      vendorId: "medatixx-db",
+      streamKind: "AppointmentStatusChanged",
+      sampleSize: 5,
+      passingRows: 0,
+      threshold: 0.8,
+      issues: [
+        {
+          field: "newStatus",
+          reason:
+            "Transformation 'appointmentStatus' ergab in 5/5 Stichproben-Zeilen keinen gültigen Wert",
+          sampleRawValues: ["FANTASIE", "Z99"],
+        },
+      ],
+      detectedAt: "2026-05-21T10:00:00.000Z",
+    });
+
+    const seen: Array<{ url: string; init: RequestInit }> = [];
+    const fakeFetch = (async (url: string, init: RequestInit) => {
+      seen.push({ url, init });
+      return new Response(JSON.stringify({ ok: true, status: "inserted", id: "y" }), {
+        status: 201,
+      });
+    }) as unknown as typeof fetch;
+
+    const outcome = await publishPendingDrift({
+      configLoader: mockConfig(),
+      secretLoader: mockSecret(),
+      fetchImpl: fakeFetch,
+    });
+
+    expect(outcome.delivered).toBe(1);
+    const body = JSON.parse(seen[0].init.body as string);
+    expect(body.eventKind).toBe("config_invalid");
+    expect(body.severity).toBe("error");
+    expect(body.pvsVendor).toBe("medatixx-db");
+    expect(body.bridgeSource).toBe("medatixx");
+    expect(body.streamKind).toBe("AppointmentStatusChanged");
+    expect(body.message).toContain("Konfiguration prüfen");
+    expect(body.message).toContain("newStatus");
+    expect(body.detail.passingRows).toBe(0);
+    expect(body.detail.issues[0].sampleRawValues).toContain("FANTASIE");
+    expect(pendingDriftReports()).toHaveLength(0);
+  });
+
   it("treats network errors as deferred (retried next tick)", async () => {
-    seedDrift("cgm-albis", "InvoicePaid");
+    seedDrift("cgm-albis-db", "InvoicePaid");
     const fakeFetch = (async () => {
       throw new Error("ECONNREFUSED");
     }) as unknown as typeof fetch;

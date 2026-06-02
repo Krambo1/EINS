@@ -24,7 +24,7 @@ einem laufenden TURBOMED-Server: ca. 40 Minuten.
 ## Installation
 
 1. EINS-Agent herunterladen (Windows-Binary):
-   `https://portal.einsvisuals.de/pvs-bridge/agent/eins-agent-win.exe`
+   `https://portal.eins.ag/pvs-bridge/agent/eins-agent-win.exe`
 
 2. EINS-Portal, Token holen.
 

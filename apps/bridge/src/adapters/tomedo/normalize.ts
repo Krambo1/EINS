@@ -6,6 +6,7 @@ import type {
   InvoicePaidEvent,
   RecallScheduledEvent,
 } from "../../canonical/types.js";
+import { isoUtc, tomedoEventId } from "./event-identity.js";
 
 /**
  * Tomedo → canonical event translators.
@@ -14,6 +15,12 @@ import type {
  * with vendor-specific field names) and emits one canonical event. Field
  * shapes mirror Zollsoft's documented API; verify against sandbox before
  * production-cutover.
+ *
+ * Cross-path dedup (Phase 11): every id and timestamp routes through
+ * event-identity.ts so this REST path and the DB-read YAML path produce
+ * byte-identical (pvsExternalEventId, occurredAt) for the same Tomedo row, and
+ * the portal's unique index collapses them. Do not inline an id template or a
+ * raw timestamp here; that would silently re-open the cross-path gap.
  */
 
 interface TomedoBase {
@@ -37,12 +44,13 @@ export function normalizePatient(
 ): PatientUpsertedEvent {
   const t = p as TomedoPatient;
   const fullName = [t.firstName, t.lastName].filter(Boolean).join(" ") || undefined;
+  const modifiedAt = isoUtc(t.modifiedAt);
   return {
     kind: "PatientUpserted",
     clinicId,
     bridgeSource: "tomedo",
-    pvsExternalEventId: `tomedo:patient:${t.id}:${t.modifiedAt}`,
-    occurredAt: t.modifiedAt,
+    pvsExternalEventId: tomedoEventId.patient(t.id, modifiedAt),
+    occurredAt: modifiedAt,
     pvsPatientId: t.id,
     email: t.email,
     phone: t.phone,
@@ -77,15 +85,16 @@ export function normalizeAppointment(
   // sync, also emit a StatusChanged — but tomedo doesn't expose a separate
   // "status changed at" timestamp, so we cheat by setting the event's
   // occurredAt to modifiedAt.
+  const scheduledAt = isoUtc(t.scheduledAt);
   const created: AppointmentCreatedEvent = {
     kind: "AppointmentCreated",
     clinicId,
     bridgeSource: "tomedo",
-    pvsExternalEventId: `tomedo:appointment:${t.id}`,
-    occurredAt: t.scheduledAt,
+    pvsExternalEventId: tomedoEventId.appointment(t.id),
+    occurredAt: scheduledAt,
     pvsPatientId: t.patientId,
     pvsAppointmentId: t.id,
-    scheduledAt: t.scheduledAt,
+    scheduledAt,
     treatmentCode: t.treatmentCode,
     treatmentLabel: t.treatmentName,
     locationCode: t.locationId,
@@ -110,18 +119,19 @@ export function normalizeEncounter(
   e: unknown
 ): EncounterCompletedEvent {
   const t = e as TomedoEncounter;
+  const completedAt = isoUtc(t.completedAt);
   return {
     kind: "EncounterCompleted",
     clinicId,
     bridgeSource: "tomedo",
-    pvsExternalEventId: `tomedo:encounter:${t.id}`,
-    occurredAt: t.completedAt,
+    pvsExternalEventId: tomedoEventId.encounter(t.id),
+    occurredAt: completedAt,
     pvsPatientId: t.patientId,
     pvsEncounterId: t.id,
     pvsAppointmentId: t.appointmentId,
     treatmentCode: t.treatmentCode,
     treatmentLabel: t.treatmentName,
-    completedAt: t.completedAt,
+    completedAt,
     practitionerLabel: t.practitionerName,
   };
 }
@@ -140,19 +150,20 @@ export function normalizeInvoice(
   i: unknown
 ): InvoicePaidEvent {
   const t = i as TomedoInvoice;
+  const paidAt = isoUtc(t.paidAt);
   return {
     kind: "InvoicePaid",
     clinicId,
     bridgeSource: "tomedo",
-    pvsExternalEventId: `tomedo:invoice:${t.id}`,
-    occurredAt: t.paidAt,
+    pvsExternalEventId: tomedoEventId.invoice(t.id),
+    occurredAt: paidAt,
     pvsPatientId: t.patientId,
     pvsInvoiceId: t.id,
     pvsAppointmentId: t.appointmentId,
     pvsEncounterId: t.encounterId,
     amountCents: t.amountCents,
     currency: "EUR",
-    paidAt: t.paidAt,
+    paidAt,
   };
 }
 
@@ -169,15 +180,18 @@ export function normalizeRecall(
   r: unknown
 ): RecallScheduledEvent {
   const t = r as TomedoRecall;
+  // occurredAt is the scheduling moment (modifiedAt), NOT the future recall
+  // target (recallAt). The DB-read YAML maps occurredAt from modified_at too
+  // (Phase 11), so the two paths dedup; recallAt stays the target time.
   return {
     kind: "RecallScheduled",
     clinicId,
     bridgeSource: "tomedo",
-    pvsExternalEventId: `tomedo:recall:${t.id}`,
-    occurredAt: t.modifiedAt,
+    pvsExternalEventId: tomedoEventId.recall(t.id),
+    occurredAt: isoUtc(t.modifiedAt),
     pvsPatientId: t.patientId,
     pvsRecallId: t.id,
-    recallAt: t.recallAt,
+    recallAt: isoUtc(t.recallAt),
     treatmentCode: t.treatmentCode,
     treatmentLabel: t.treatmentName,
   };

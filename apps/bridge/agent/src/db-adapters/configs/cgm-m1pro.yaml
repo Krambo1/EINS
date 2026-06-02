@@ -14,11 +14,20 @@
 # naming. Schema-drift detector halts streams whose first poll returns
 # different columns; wrong guess fails loudly.
 #
+# Keyset pagination (review finding 6): every stream pages by
+# (ModifiedAt, primary key) so a cluster of rows sharing one ModifiedAt
+# can never be split across a batch boundary. MSSQL pages via
+# SELECT TOP (:limit) plus the keyset ORDER BY. The tiebreak uses the
+# RAW numeric PK column (PatientId, TerminId, ...) in the predicate and
+# ORDER BY; the same column is CAST AS id so the framework reads it back
+# per row. Assumes the *Id columns are numeric and monotonic; Phase 6's
+# real-engine harness confirms that per install.
+#
 # Worker contract reminder applies.
 
 vendor: cgm-m1pro-db
 driver: mssql
-bridgeSource: gdt_agent
+bridgeSource: cgm_m1pro
 defaultIntervalSeconds: 60
 batchSize: 500
 
@@ -38,6 +47,7 @@ streams:
   - kind: PatientUpserted
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT TOP (:limit)
         CAST(PatientId AS varchar(40))   AS id,
@@ -51,8 +61,8 @@ streams:
         Bemerkung                        AS bemerkung,
         ModifiedAt                       AS modified_at
       FROM Patient
-      WHERE ModifiedAt > :cursor
-      ORDER BY ModifiedAt ASC
+      WHERE (ModifiedAt > :cursor OR (ModifiedAt = :cursor AND PatientId > :cursorTiebreak))
+      ORDER BY ModifiedAt ASC, PatientId ASC
     map:
       pvsExternalEventId: { template: "cgm-m1pro:patient:{id}:{modified_at}" }
       occurredAt: { from: modified_at, transform: isoDateTime }
@@ -68,6 +78,7 @@ streams:
   - kind: AppointmentCreated
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT TOP (:limit)
         CAST(TerminId AS varchar(40))    AS id,
@@ -80,8 +91,8 @@ streams:
         Kommentar                        AS kommentar,
         ModifiedAt                       AS modified_at
       FROM Termin
-      WHERE ModifiedAt > :cursor
-      ORDER BY ModifiedAt ASC
+      WHERE (ModifiedAt > :cursor OR (ModifiedAt = :cursor AND TerminId > :cursorTiebreak))
+      ORDER BY ModifiedAt ASC, TerminId ASC
     map:
       pvsExternalEventId: { template: "cgm-m1pro:appointment:{id}" }
       occurredAt: { from: termin_beginn, transform: isoDateTime }
@@ -98,6 +109,7 @@ streams:
   - kind: AppointmentStatusChanged
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT TOP (:limit)
         CAST(TerminId AS varchar(40))    AS id,
@@ -105,9 +117,9 @@ streams:
         Status                           AS status,
         ModifiedAt                       AS modified_at
       FROM Termin
-      WHERE ModifiedAt > :cursor
+      WHERE (ModifiedAt > :cursor OR (ModifiedAt = :cursor AND TerminId > :cursorTiebreak))
         AND Status IS NOT NULL
-      ORDER BY ModifiedAt ASC
+      ORDER BY ModifiedAt ASC, TerminId ASC
     map:
       pvsExternalEventId: { template: "cgm-m1pro:appointment-status:{id}:{status}:{modified_at}" }
       occurredAt: { from: modified_at, transform: isoDateTime }
@@ -120,6 +132,7 @@ streams:
   - kind: EncounterCompleted
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT TOP (:limit)
         CAST(BehandlungId AS varchar(40))  AS id,
@@ -131,9 +144,9 @@ streams:
         BehandlerKuerzel                   AS behandler_kuerzel,
         ModifiedAt                         AS modified_at
       FROM Behandlung
-      WHERE ModifiedAt > :cursor
+      WHERE (ModifiedAt > :cursor OR (ModifiedAt = :cursor AND BehandlungId > :cursorTiebreak))
         AND TerminId IS NOT NULL
-      ORDER BY ModifiedAt ASC
+      ORDER BY ModifiedAt ASC, BehandlungId ASC
     map:
       pvsExternalEventId: { template: "cgm-m1pro:encounter:{id}" }
       occurredAt: { from: behandlung_datum, transform: isoDateTime }
@@ -149,6 +162,7 @@ streams:
   - kind: InvoicePaid
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT TOP (:limit)
         CAST(RechnungId AS varchar(40))    AS id,
@@ -160,10 +174,10 @@ streams:
         Status                             AS status,
         ModifiedAt                         AS modified_at
       FROM Rechnung
-      WHERE ModifiedAt > :cursor
+      WHERE (ModifiedAt > :cursor OR (ModifiedAt = :cursor AND RechnungId > :cursorTiebreak))
         AND Status = 'bezahlt'
         AND TerminId IS NOT NULL
-      ORDER BY ModifiedAt ASC
+      ORDER BY ModifiedAt ASC, RechnungId ASC
     map:
       pvsExternalEventId: { template: "cgm-m1pro:invoice:{id}" }
       occurredAt: { from: bezahlt_am, transform: isoDateTime }
@@ -179,6 +193,7 @@ streams:
   - kind: RecallScheduled
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT TOP (:limit)
         CAST(WiedervorlageId AS varchar(40))  AS id,
@@ -188,8 +203,8 @@ streams:
         LeistungBezeichnung                   AS leistung_bezeichnung,
         ModifiedAt                            AS modified_at
       FROM Wiedervorlage
-      WHERE ModifiedAt > :cursor
-      ORDER BY ModifiedAt ASC
+      WHERE (ModifiedAt > :cursor OR (ModifiedAt = :cursor AND WiedervorlageId > :cursorTiebreak))
+      ORDER BY ModifiedAt ASC, WiedervorlageId ASC
     map:
       pvsExternalEventId: { template: "cgm-m1pro:recall:{id}" }
       occurredAt: { from: recall_zeit, transform: isoDateTime }
@@ -198,3 +213,44 @@ streams:
       recallAt: { from: recall_zeit, transform: isoDateTime }
       treatmentCode: leistung_code
       treatmentLabel: leistung_bezeichnung
+
+  # ----- 7. Invoice refunds / storno / Gutschrift (Phase 9) --------------
+  # InvoiceRefunded: money OUT, one event per Storno / Gutschrift row, so the
+  # derive worker nets the patient total + appointment bucket back down and the
+  # P2-3 downgrade alarm catches a gewonnen -> lower flip. refundedAmountCents
+  # must be a POSITIVE magnitude (the portal Zod rejects negatives), so it maps
+  # through the absAmountToCents transform: the amount may arrive as a negative
+  # betrag (a credit) or a positive amount on a storno-status row, and either
+  # way the magnitude is taken. Inherits Phase 3 (Date bind) +
+  # Phase 4 (keyset). No TerminId-NOT-NULL filter: an appt-less refund still
+  # nets the patient total (derive bridges via the original invoice id).
+  # SCHEMA-DISCOVERY DRAFT: storno predicate (BetragGesamt < 0 OR Status in
+  # storniert/gutschrift) + refundedAt source (ModifiedAt) are guesses;
+  # disjoint from InvoicePaid (Status = 'bezahlt') by construction.
+  # Cancellations stay on stream 3 (AppointmentStatusChanged -> cancelled); no
+  # AppointmentCancelled stream until a real schema separates patient- vs
+  # Praxis-side cancel.
+  - kind: InvoiceRefunded
+    cursorColumn: modified_at
+    cursorType: timestamp
+    tiebreakColumn: id
+    query: |
+      SELECT TOP (:limit)
+        CAST(RechnungId AS varchar(40))    AS id,
+        CAST(PatientId AS varchar(40))     AS patient_id,
+        CAST(TerminId AS varchar(40))      AS termin_id,
+        BetragGesamt                       AS betrag,
+        Status                             AS status,
+        ModifiedAt                         AS modified_at
+      FROM Rechnung
+      WHERE (ModifiedAt > :cursor OR (ModifiedAt = :cursor AND RechnungId > :cursorTiebreak))
+        AND (BetragGesamt < 0 OR Status IN ('storniert', 'gutschrift'))
+      ORDER BY ModifiedAt ASC, RechnungId ASC
+    map:
+      pvsExternalEventId: { template: "cgm-m1pro:refund:{id}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsInvoiceId: id
+      pvsAppointmentId: termin_id
+      refundedAmountCents: { from: betrag, transform: absAmountToCents }
+      refundedAt: { from: modified_at, transform: isoDateTime }

@@ -24,14 +24,22 @@ import type {
  * consistent.)
  */
 
-type FbField = { alias: string; name: string };
-type FbResultMeta = { fields: FbField[] };
+// node-firebird passes result-set metadata as the callback's 3rd argument, but
+// as a flat ARRAY of field descriptors, NOT a `{ fields: [...] }` object, and
+// each descriptor names the column in `field` / `alias` (not `name`). The array
+// is present for empty AND non-empty result sets, so reading it is what lets a
+// zero-row poll still report its real columns. The previous `meta.fields` /
+// `f.name` access never matched this shape, so the driver always fell back to
+// inferring columns from row[0] and reported [] for an empty poll, which the
+// framework then misread as "every column vanished" -> false schema drift on
+// the (very common) no-new-rows poll. Surfaced by Phase 6's firebird.it harness.
+type FbField = { alias?: string; field?: string };
 
 type FbConnection = {
   query(
     sql: string,
     params: unknown[],
-    cb: (err: Error | null, rows: Array<Record<string, unknown>>, meta?: FbResultMeta) => void
+    cb: (err: Error | null, rows: Array<Record<string, unknown>>, meta?: FbField[]) => void
   ): void;
   detach(cb?: (err: Error | null) => void): void;
   on(event: "error" | "end", listener: (...args: unknown[]) => void): void;
@@ -137,18 +145,25 @@ export class FirebirdDriver implements DbDriver {
 
   async query(
     sql: string,
-    params: Record<string, string | number>
+    params: Record<string, string | number | Date>
   ): Promise<QueryResult> {
     if (!this.conn || !this.healthy) {
       await this.connect(this.params!);
     }
+    // node-firebird binds a JS Date to a TIMESTAMP parameter natively, so a
+    // timestamp cursor (framework Phase 3) flows through as a Date; strings
+    // and numbers pass through unchanged.
     const { translated, values } = translateNamedToPositional(sql, params);
     return new Promise<QueryResult>((resolve, reject) => {
       this.conn!.query(translated, values, (err, rows, meta) => {
         if (err) return reject(err);
+        // Prefer the statement metadata (stable across empty/non-empty results);
+        // lower-case to match the lowercase_keys row shape and the YAML map keys.
+        // Fall back to row[0] keys only when no metadata came back at all.
         const columns =
-          meta?.fields?.map((f) => (f.alias ?? f.name).toLowerCase()) ??
-          inferColumnsFromRow(rows);
+          Array.isArray(meta) && meta.length > 0
+            ? meta.map((f) => (f.alias ?? f.field ?? "").toLowerCase())
+            : inferColumnsFromRow(rows);
         resolve({ columns, rows: rows ?? [] });
       });
     });
@@ -201,7 +216,7 @@ export class FirebirdDriver implements DbDriver {
  */
 export function translateNamedToPositional(
   sql: string,
-  params: Record<string, string | number>
+  params: Record<string, string | number | Date>
 ): { translated: string; values: unknown[] } {
   const values: unknown[] = [];
   const translated = sql.replace(/:([a-zA-Z_][a-zA-Z0-9_]*)/g, (_match, name) => {

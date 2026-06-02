@@ -20,11 +20,22 @@
 # based on common aesthetic-PVS naming. Confirmed schema lands at
 # first-customer onboarding.
 #
+# Keyset pagination (review finding 6): every stream pages by
+# (modified_at, primary key) so a cluster of rows sharing one
+# modified_at can never be split across a batch boundary. NOTE: this
+# vendor's PK column is itself named `id`, and we CAST(id AS TEXT) AS id
+# for the canonical event. A bare `id` in ORDER BY would bind to that
+# TEXT output alias and sort lexically ("10" < "9"), which would skip
+# rows because the framework advances the tiebreak numerically. We
+# therefore qualify the tiebreak as `<table>.id` so the predicate and
+# ORDER BY both compare the raw INTEGER column. Assumes `id` is numeric
+# and monotonic; Phase 6's real-engine harness confirms that per install.
+#
 # Worker contract reminder applies.
 
 vendor: pixelmedics-db
 driver: sqlite
-bridgeSource: gdt_agent
+bridgeSource: pixelmedics
 defaultIntervalSeconds: 90
 batchSize: 500
 
@@ -40,6 +51,7 @@ streams:
   - kind: PatientUpserted
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         CAST(id AS TEXT)    AS id,
@@ -53,8 +65,8 @@ streams:
         notes               AS bemerkung,
         modified_at         AS modified_at
       FROM patients
-      WHERE modified_at > :cursor
-      ORDER BY modified_at ASC
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND patients.id > :cursorTiebreak))
+      ORDER BY modified_at ASC, patients.id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "pixelmedics:patient:{id}:{modified_at}" }
@@ -71,6 +83,7 @@ streams:
   - kind: AppointmentCreated
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         CAST(id AS TEXT)         AS id,
@@ -83,8 +96,8 @@ streams:
         notes                    AS notiz,
         modified_at              AS modified_at
       FROM appointments
-      WHERE modified_at > :cursor
-      ORDER BY modified_at ASC
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND appointments.id > :cursorTiebreak))
+      ORDER BY modified_at ASC, appointments.id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "pixelmedics:appointment:{id}" }
@@ -102,6 +115,7 @@ streams:
   - kind: AppointmentStatusChanged
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         CAST(id AS TEXT)         AS id,
@@ -109,9 +123,9 @@ streams:
         status                   AS status,
         modified_at              AS modified_at
       FROM appointments
-      WHERE modified_at > :cursor
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND appointments.id > :cursorTiebreak))
         AND status IS NOT NULL
-      ORDER BY modified_at ASC
+      ORDER BY modified_at ASC, appointments.id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "pixelmedics:appointment-status:{id}:{status}:{modified_at}" }
@@ -125,6 +139,7 @@ streams:
   - kind: EncounterCompleted
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         CAST(id AS TEXT)             AS id,
@@ -136,9 +151,9 @@ streams:
         practitioner_name            AS behandler_name,
         modified_at                  AS modified_at
       FROM encounters
-      WHERE modified_at > :cursor
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND encounters.id > :cursorTiebreak))
         AND appointment_id IS NOT NULL
-      ORDER BY modified_at ASC
+      ORDER BY modified_at ASC, encounters.id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "pixelmedics:encounter:{id}" }
@@ -158,6 +173,7 @@ streams:
   - kind: InvoicePaid
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         CAST(id AS TEXT)             AS id,
@@ -169,10 +185,10 @@ streams:
         status                       AS status,
         modified_at                  AS modified_at
       FROM invoices
-      WHERE modified_at > :cursor
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND invoices.id > :cursorTiebreak))
         AND status = 'paid'
         AND appointment_id IS NOT NULL
-      ORDER BY modified_at ASC
+      ORDER BY modified_at ASC, invoices.id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "pixelmedics:invoice:{id}" }
@@ -189,6 +205,7 @@ streams:
   - kind: RecallScheduled
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         CAST(id AS TEXT)         AS id,
@@ -198,8 +215,8 @@ streams:
         treatment_name           AS leistung_name,
         modified_at              AS modified_at
       FROM recalls
-      WHERE modified_at > :cursor
-      ORDER BY modified_at ASC
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND recalls.id > :cursorTiebreak))
+      ORDER BY modified_at ASC, recalls.id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "pixelmedics:recall:{id}" }
@@ -209,3 +226,46 @@ streams:
       recallAt: { from: recall_zeit, transform: isoDateTime }
       treatmentCode: leistung_code
       treatmentLabel: leistung_name
+
+  # ----- 7. Invoice refunds / storno / Gutschrift (Phase 9) --------------
+  # InvoiceRefunded: money OUT, one event per refund / credit row, so the
+  # derive worker nets the patient total + appointment bucket back down and the
+  # P2-3 downgrade alarm catches a gewonnen -> lower flip. refundedAmountCents
+  # must be a POSITIVE magnitude (the portal Zod rejects negatives), so it maps
+  # through the absAmountToCents transform: the amount may arrive as a negative
+  # amount (a credit) or a positive amount on a refunded-status row, and either
+  # way the magnitude is taken. Inherits Phase 3 (Date bind, SQLite
+  # special-case) + Phase 4 (keyset). No appointment-NOT-NULL filter: an
+  # appt-less refund still nets the patient total (derive bridges via the
+  # original invoice id).
+  # SCHEMA-DISCOVERY DRAFT: storno predicate (amount_total < 0 OR status in
+  # refunded/credited) + refundedAt source (modified_at) are guesses; disjoint
+  # from InvoicePaid (status = 'paid') by construction.
+  # Cancellations stay on stream 3 (AppointmentStatusChanged -> cancelled); no
+  # AppointmentCancelled stream until a real schema separates patient- vs
+  # Praxis-side cancel.
+  - kind: InvoiceRefunded
+    cursorColumn: modified_at
+    cursorType: timestamp
+    tiebreakColumn: id
+    query: |
+      SELECT
+        CAST(id AS TEXT)             AS id,
+        CAST(patient_id AS TEXT)     AS patient_id,
+        CAST(appointment_id AS TEXT) AS termin_id,
+        amount_total                 AS betrag,
+        status                       AS status,
+        modified_at                  AS modified_at
+      FROM invoices
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND invoices.id > :cursorTiebreak))
+        AND (amount_total < 0 OR status IN ('refunded', 'credited'))
+      ORDER BY modified_at ASC, invoices.id ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "pixelmedics:refund:{id}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsInvoiceId: id
+      pvsAppointmentId: termin_id
+      refundedAmountCents: { from: betrag, transform: absAmountToCents }
+      refundedAt: { from: modified_at, transform: isoDateTime }

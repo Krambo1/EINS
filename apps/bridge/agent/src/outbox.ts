@@ -1,5 +1,13 @@
 import Database from "better-sqlite3-multiple-ciphers";
-import { existsSync, renameSync } from "node:fs";
+import {
+  closeSync,
+  copyFileSync,
+  existsSync,
+  fsyncSync,
+  openSync,
+  renameSync,
+  unlinkSync,
+} from "node:fs";
 import { outboxPath } from "./config.js";
 
 /**
@@ -28,10 +36,13 @@ import { outboxPath } from "./config.js";
  *   • Migration: an agent upgraded from pre-P3-4 has a plaintext
  *     `outbox.sqlite` on disk. The first encrypted open detects this
  *     (the cipher pragma fails to unlock what was never encrypted),
- *     copies every row into a fresh encrypted file, and renames the
- *     legacy file to `outbox.sqlite.legacy-<ts>` for forensic recovery.
- *     The migration runs once per workstation and is idempotent: the
- *     legacy file is only touched if the encrypted open failed.
+ *     builds a complete encrypted copy at a temp path, copies the legacy
+ *     file to `outbox.sqlite.legacy-<ts>` for forensic recovery, then
+ *     atomically renames the temp file over the original. The migration
+ *     runs once per workstation and is idempotent: until that final
+ *     rename `path` still holds the untouched legacy file, so a crash
+ *     mid-migration just retries on the next boot (see
+ *     `migrateLegacyToEncrypted`).
  */
 
 let dbCached: Database.Database | null = null;
@@ -98,7 +109,7 @@ function db(): Database.Database {
  *   1. A plaintext open RACES the encrypted open for the same path. On a
  *      fresh install the plaintext side wins, creating an unencrypted file
  *      the cipher side then mis-detects as a "legacy plaintext outbox" and
- *      fails to migrate (no `outbox` table) — the agent bricks at first
+ *      fails to migrate (no `outbox` table); the agent bricks at first
  *      boot.
  *   2. If the encrypted side wins, the plaintext open sees ciphertext and
  *      throws "file is not a database".
@@ -217,23 +228,30 @@ function looksLikeLegacyPlaintext(path: string): boolean {
 }
 
 /**
- * One-shot migration from plaintext to encrypted. We read every row out
- * of the legacy file, rename the legacy file to a timestamped backup
- * (so the operator can verify integrity post-migration), then create
- * the encrypted file at the original path and bulk-insert the rows.
+ * One-shot, crash-safe migration from a plaintext legacy outbox to an
+ * encrypted one.
  *
- * Atomicity: the rename of legacy → backup happens BEFORE the encrypted
- * open. If a crash interrupts mid-migration the operator sees both files
- * on disk: the legacy backup with their data and a (possibly partial)
- * encrypted file. The agent's startup will retry the migration on next
- * boot because the encrypted file's row count will not match the legacy
- * row count (we leave a small marker; in practice the operator notices
- * the failed boot and contacts support before any retry).
+ * We read every row out of the legacy file, build a COMPLETE encrypted copy at
+ * a temp path (`<path>.migrating`), fsync it, copy the legacy file to a
+ * timestamped forensic backup, and only THEN atomically rename the temp file
+ * over the original. The rename is the single commit point: `path` is, at every
+ * instant, either the original legacy file or the complete encrypted file,
+ * never a half-written one.
  *
- * In normal operation the legacy backup is kept indefinitely; disk is
- * cheap and the data is the only on-host record of pre-P3-4 ingest. An
- * operator who wants to reclaim space can `rm outbox.sqlite.legacy-*`
- * after verifying the encrypted file replays cleanly.
+ * Crash safety: if the process dies before the final rename, `path` still holds
+ * the untouched legacy plaintext, so the next boot re-detects it (the encrypted
+ * open fails the same way) and retries the whole migration from scratch. Any
+ * leftover `<path>.migrating` from the crashed attempt is removed before the
+ * retry rebuilds it, so a partial temp can never be appended to (re-inserting
+ * the explicit row ids into a partial leftover would throw a PK collision).
+ * This replaces the non-existent "row-count marker" recovery the old comment
+ * claimed: there was no marker and no retry; a crash after the legacy rename
+ * silently promoted a partial encrypted file.
+ *
+ * The `.legacy-<ts>` backup is a COPY (not a rename) so the atomic swap can
+ * target the original path. It is kept indefinitely; disk is cheap and it is
+ * the only on-host record of pre-P3-4 ingest. An operator reclaiming space can
+ * `rm outbox.sqlite.legacy-*` after verifying the encrypted file replays.
  */
 function migrateLegacyToEncrypted(
   path: string,
@@ -257,10 +275,13 @@ function migrateLegacyToEncrypted(
   }>;
   legacy.close();
 
-  const backupPath = `${path}.legacy-${Date.now()}`;
-  renameSync(path, backupPath);
+  // Build the encrypted file at a temp path, never at `path`. A crash anywhere
+  // before the final rename leaves the legacy file in place for a clean retry.
+  // Clear any leftover temp from a previously-crashed attempt first.
+  const tmpPath = `${path}.migrating`;
+  removeDbFileQuietly(tmpPath);
 
-  const enc = new Database(path);
+  const enc = new Database(tmpPath);
   applyKey(enc, keyHex);
   enc.exec(SCHEMA_DDL);
 
@@ -285,12 +306,57 @@ function migrateLegacyToEncrypted(
     });
     tx(rows);
   }
+  // Release the handle (Windows refuses to rename an open file) and force the
+  // bytes to disk before the rename becomes visible.
+  enc.close();
+  fsyncFile(tmpPath);
+
+  // Preserve the legacy plaintext as a forensic copy, then atomically swap the
+  // complete encrypted file over the original path.
+  const backupPath = `${path}.legacy-${Date.now()}`;
+  copyFileSync(path, backupPath);
+  renameSync(tmpPath, path);
 
   console.warn(
     `[outbox] migration done: ${rows.length} rows copied; legacy file preserved at ${backupPath}. ` +
       `Verify replay then 'rm <legacy-file>' to reclaim space.`
   );
-  return enc;
+
+  // Re-open the now-canonical encrypted file; the temp connection is closed.
+  const conn = new Database(path);
+  applyKey(conn, keyHex);
+  return conn;
+}
+
+/**
+ * Force a file's bytes to durable storage. The SQLite commit already fsyncs the
+ * DB pages (synchronous=FULL by default), but the temp file was just closed; we
+ * flush the handle once more so a power loss right after the atomic rename
+ * cannot surface a renamed-but-empty file.
+ */
+function fsyncFile(p: string): void {
+  const fd = openSync(p, "r+");
+  try {
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * Remove a SQLite file plus any rollback-journal / WAL siblings, ignoring a
+ * missing file. Used to clear a stale `<path>.migrating` left by a crashed
+ * migration before rebuilding it.
+ */
+function removeDbFileQuietly(p: string): void {
+  for (const f of [p, `${p}-journal`, `${p}-wal`, `${p}-shm`]) {
+    try {
+      unlinkSync(f);
+    } catch {
+      // ENOENT (or any unlink failure) is non-fatal; the rebuild overwrites or
+      // fails loudly on its own.
+    }
+  }
 }
 
 export interface OutboxRow {

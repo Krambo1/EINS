@@ -59,17 +59,26 @@ export class SqliteDriver implements DbDriver {
 
   async query(
     sql: string,
-    params: Record<string, string | number>
+    params: Record<string, string | number | Date>
   ): Promise<QueryResult> {
     if (!this.db || !this.healthy) {
       await this.connect(this.params!);
     }
     const stmt = this.db!.prepare(sql);
-    // better-sqlite3 expects either positional or a named-object;
-    // pass the bag straight through since our YAML configs use `:name`.
-    const rows = stmt.all(params as unknown as Record<string, unknown>) as Array<
-      Record<string, unknown>
-    >;
+    // better-sqlite3 can only bind numbers, strings, bigints, buffers, and
+    // null; a Date throws "TypeError: SQLite3 can only bind ...". The framework
+    // binds a timestamp cursor as a Date (Phase 3) so the SERVER engines coerce
+    // it natively; here we convert it back to ISO-8601 text before binding.
+    //
+    // CAVEAT: the exact on-disk timestamp format Pixelmedics uses is
+    // UNCONFIRMED (the one engine that still needs the real DB to finalise; see
+    // Phase 6). This emits ISO-8601 'Z' with milliseconds, which sorts and
+    // compares correctly only if the stored column is the same lexical format.
+    // If the real file stores e.g. 'YYYY-MM-DD HH:MM:SS' local text, this
+    // conversion must be changed to match, or `modified_at > :cursor` will not
+    // compare correctly. Revisit against the real Pixelmedics file.
+    const bound = toBindableParams(params);
+    const rows = stmt.all(bound) as Array<Record<string, unknown>>;
     const columns = inferColumnsFromStatement(stmt, rows);
     return { columns, rows };
   }
@@ -98,6 +107,22 @@ export class SqliteDriver implements DbDriver {
       return { ok: false, reason: (err as Error).message };
     }
   }
+}
+
+/**
+ * Convert the framework's bind bag into types better-sqlite3 can bind. The
+ * only non-bindable type the framework emits is Date (a timestamp cursor,
+ * Phase 3), which we render as ISO-8601 text. Everything else passes through.
+ */
+function toBindableParams(
+  params: Record<string, string | number | Date>
+): Record<string, string | number> {
+  const out: Record<string, string | number> = {};
+  for (const key of Object.keys(params)) {
+    const value = params[key];
+    out[key] = value instanceof Date ? value.toISOString() : value;
+  }
+  return out;
 }
 
 /**

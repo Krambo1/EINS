@@ -206,7 +206,7 @@ Häufige Ursachen:
 - Praxis-PC oder Agent-Dienst ist gestoppt. Dienste-Manager prüfen
   (Windows: `services.msc`, Dienst-Name `EINS-Agent`)
 - Internet-Zugriff vom Praxis-PC zum Portal blockiert. Firewall-Regel
-  setzen: ausgehend HTTPS auf `*.einsvisuals.de`
+  setzen: ausgehend HTTPS auf `*.eins.ag`
 
 ### Lead-Token wird nicht erkannt
 

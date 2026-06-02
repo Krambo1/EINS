@@ -127,21 +127,36 @@ export class OracleDriver implements DbDriver {
 
   async query(
     sql: string,
-    params: Record<string, string | number>
+    params: Record<string, string | number | Date>
   ): Promise<QueryResult> {
     if (!this.conn || !this.healthy) {
       await this.connect(this.params!);
     }
+    // oracledb (Thin) binds a JS Date to a DATE / TIMESTAMP column via
+    // OCIDateTime, ignoring NLS session formats. That is precisely why a
+    // timestamp cursor is bound as a Date (framework Phase 3) rather than as
+    // an ISO string, which Thin would reject against a native temporal column.
     const mod = await getModule();
     const result = await this.conn!.execute<Record<string, unknown>>(
       sql,
       params,
       { outFormat: mod.OUT_FORMAT_OBJECT, autoCommit: false }
     );
-    const columns = (result.metaData ?? []).map((m) => m.name);
+    // Oracle uppercases unquoted identifiers, so `... AS id` returns as `ID`
+    // in both metaData and (under OUT_FORMAT_OBJECT) the row keys. Every vendor
+    // YAML map: block addresses columns in lower case, the convention pg /
+    // mysql / mssql preserve as-written and the Firebird driver already
+    // normalises to via lowercase_keys. Without lower-casing here the
+    // normaliser would look up `row["id"]` against a key spelled `"ID"`,
+    // resolve nothing, drop every field, and the stream would emit zero events
+    // and never advance its cursor. This bug is invisible to pg-mem and
+    // SQLite (which keep the lower-case aliases as written); Phase 6's
+    // real-engine harness (oracle.it.test.ts) is what surfaced it.
+    const columns = (result.metaData ?? []).map((m) => m.name.toLowerCase());
+    const rows = (result.rows ?? []).map(lowerCaseKeys);
     return {
-      columns: columns.length > 0 ? columns : inferColumnsFromRow(result.rows),
-      rows: result.rows ?? [],
+      columns: columns.length > 0 ? columns : inferColumnsFromRow(rows),
+      rows,
     };
   }
 
@@ -176,4 +191,15 @@ function inferColumnsFromRow(
 ): string[] {
   if (!rows || rows.length === 0) return [];
   return Object.keys(rows[0]);
+}
+
+/** Return a shallow copy of the row with every key lower-cased. See the
+ *  rationale in OracleDriver.query(): Oracle reports unquoted aliases in
+ *  upper case and the YAML map: blocks use lower case. */
+function lowerCaseKeys(
+  row: Record<string, unknown>
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(row)) out[key.toLowerCase()] = row[key];
+  return out;
 }

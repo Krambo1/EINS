@@ -11,23 +11,17 @@
 
 // ---------- canonical events (mirror of apps/bridge/src/canonical/types) --
 
-export type CanonicalEventKind =
-  | "PatientUpserted"
-  | "AppointmentCreated"
-  | "AppointmentStatusChanged"
-  | "AppointmentCancelled"
-  | "EncounterCompleted"
-  | "InvoicePaid"
-  | "RecallScheduled"
-  | "PatientMerged";
-
-export type BridgeSource =
-  | "tomedo"
-  | "healthhub"
-  | "red"
-  | "gdt_agent"
-  | "csv_upload"
-  | "n8n_custom";
+// BridgeSource / CanonicalEventKind / Currency are GENERATED from the single
+// source of truth (apps/bridge/src/canonical/schema-source.ts) into
+// ./generated-canonical.ts and re-exported here so every existing
+// `import ... from "./types.js"` keeps working. Do not re-declare them inline:
+// that is exactly the drift this codegen exists to prevent.
+export type {
+  BridgeSource,
+  CanonicalEventKind,
+  Currency,
+} from "./generated-canonical.js";
+import type { BridgeSource, CanonicalEventKind } from "./generated-canonical.js";
 
 export interface CanonicalEventBase {
   kind: CanonicalEventKind;
@@ -95,9 +89,19 @@ export interface DbDriver {
 
   /** Run a parametrised SQL statement. Parameters are bound by name
    *  (`:cursor`, `:limit`, ...); the driver translates to its native bind
-   *  syntax. Strings, numbers, and ISO date strings are the only supported
-   *  param types in Phase 1. */
-  query(sql: string, params: Record<string, string | number>): Promise<QueryResult>;
+   *  syntax. Supported bind types: string, number, and Date.
+   *
+   *  A timestamp cursor is bound as a native `Date` (Phase 3) so each engine
+   *  coerces it to the column's temporal type. Binding an ISO-8601 'Z' string
+   *  only ever worked on Postgres; Firebird, Oracle, MSSQL and MySQL throw or
+   *  match nothing against a native TIMESTAMP on the first poll. The server
+   *  drivers (pg, node-firebird, oracledb Thin, mssql/tedious, mysql2) accept
+   *  a Date directly; the SQLite driver converts it back to ISO text because
+   *  better-sqlite3 cannot bind a Date. */
+  query(
+    sql: string,
+    params: Record<string, string | number | Date>
+  ): Promise<QueryResult>;
 
   /** Close the underlying connection / pool. Called on agent shutdown and
    *  on schema-drift halt for the entire vendor. */
@@ -117,6 +121,10 @@ export type TransformName =
   | "appointmentStatus"
   /** parseAmountToCents-style: "12,50 EUR" → 1250 */
   | "amountToCents"
+  /** like amountToCents but the absolute value, for refund / Storno rows whose
+   *  amount may be stored negative; refundedAmountCents must be a positive
+   *  magnitude (the portal Zod rejects negatives) */
+  | "absAmountToCents"
   /** value already in integer cents: pass through as Number */
   | "integerCents"
   /** ISO 8601 datetime: coerce JS Date or string to ISO string */
@@ -217,6 +225,11 @@ export type StreamStatus =
   | "running"
   | "error"
   | "schema_drift"
+  // First-poll value validation (Phase 5) found the returned data does not
+  // match the YAML map (wrong status codes, mostly-null required column, a
+  // failing transform). Halts the stream exactly like schema_drift: a terminal
+  // state cleared only by an operator config fix, never a silent retry.
+  | "config_invalid"
   | "disabled";
 
 export interface StreamState {
@@ -245,4 +258,61 @@ export interface DriftReport {
   missing: string[];
   added: string[];
   detectedAt: string;
+}
+
+// ---------- first-poll value validation (Phase 5) ------------------------
+
+/**
+ * One canonical event field that failed first-poll value validation. The
+ * schema-drift detector only catches a column that disappears or is renamed
+ * (the SELECT throws); it cannot catch a column that still exists but holds
+ * the WRONG data (a paid-status code the map doesn't recognise, a mostly-NULL
+ * appointment-id column, a gross amount where the map expects net). This is
+ * how that silent corruption is named back to the Praxis.
+ */
+export interface ConfigInvalidFieldIssue {
+  /** Canonical event field that failed (e.g. "newStatus", "amountCents"). */
+  field: string;
+  /** Human-readable cause: a required value missing, or a transform that
+   *  yielded undefined for the sampled rows. German, Sie-form. */
+  reason: string;
+  /** A few raw source-column values from the sample, for diagnosis. Truncated
+   *  and de-duplicated; never the full row. */
+  sampleRawValues: string[];
+}
+
+/**
+ * Verdict of the first-poll value validator. Persisted to db_adapter_drift
+ * (report_kind='config_invalid') and posted to /api/pvs/health as a
+ * `config_invalid` event when `ok` is false.
+ */
+export interface ConfigInvalidReport {
+  vendorId: string;
+  streamKind: CanonicalEventKind;
+  /** Rows sampled on the first poll (capped at the sample size). */
+  sampleSize: number;
+  /** Rows for which every required field AND key transform resolved. */
+  passingRows: number;
+  /** Minimum pass fraction required to baseline the config (0..1). */
+  threshold: number;
+  issues: ConfigInvalidFieldIssue[];
+  detectedAt: string;
+}
+
+/**
+ * A pending health report drained by drift-publisher.ts: either a column
+ * schema-drift report (the original) or a first-poll config-invalid report
+ * (Phase 5). Both ride the same db_adapter_drift queue, HMAC posting, dedup
+ * and retry machinery; only the posted `eventKind` and `detail` differ.
+ */
+export interface PendingHealthReport extends DriftReport {
+  id: number;
+  reportKind: "schema_drift" | "config_invalid";
+  /** Present only when reportKind === 'config_invalid'. */
+  configInvalidDetail: {
+    sampleSize: number;
+    passingRows: number;
+    threshold: number;
+    issues: ConfigInvalidFieldIssue[];
+  } | null;
 }

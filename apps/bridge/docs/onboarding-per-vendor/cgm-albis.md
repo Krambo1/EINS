@@ -30,7 +30,7 @@ ca. 30 Minuten.
 ## Installation
 
 1. EINS-Agent herunterladen (Windows-Binary, ca. 14 MB):
-   `https://portal.einsvisuals.de/pvs-bridge/agent/eins-agent-win.exe`
+   `https://portal.eins.ag/pvs-bridge/agent/eins-agent-win.exe`
 
 2. Im EINS-Portal: Einstellungen, Integrationen, PVS, "Neuen Agent
    verbinden". Token notieren; 24 h gueltig.

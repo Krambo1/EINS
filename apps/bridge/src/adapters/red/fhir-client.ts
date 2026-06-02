@@ -87,7 +87,7 @@ export class RedFhirClient {
       const body = {
         resourceType: "Subscription",
         status: "requested",
-        reason: "EINS Visuals — ROAS sync",
+        reason: "EINS: ROAS sync",
         criteria: `${resType}?_lastUpdated=gt${new Date(0).toISOString()}`,
         channel: {
           type: "rest-hook",

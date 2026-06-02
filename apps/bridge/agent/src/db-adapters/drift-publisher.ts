@@ -5,7 +5,7 @@ import {
   markDriftReported,
   pendingDriftReports,
 } from "./framework.js";
-import type { DriftReport } from "./types.js";
+import type { PendingHealthReport } from "./types.js";
 
 /**
  * Drift-publisher.
@@ -32,24 +32,34 @@ const HEALTH_PATH = "/api/pvs/health";
 
 const VENDOR_TO_BRIDGE_SOURCE: Record<string, string> = {
   "tomedo-db": "tomedo",
-  medatixx: "gdt_agent",
-  "cgm-albis": "gdt_agent",
-  "cgm-turbomed": "gdt_agent",
-  "cgm-m1pro": "gdt_agent",
-  "cgm-m1pro-oracle-db": "gdt_agent",
-  indamed: "gdt_agent",
-  quincy: "gdt_agent",
-  pixelmedics: "gdt_agent",
+  "medatixx-db": "medatixx",
+  "cgm-albis-db": "cgm_albis",
+  "cgm-turbomed-db": "cgm_turbomed",
+  "cgm-m1pro-db": "cgm_m1pro",
+  "cgm-m1pro-oracle-db": "cgm_m1pro",
+  "indamed-db": "indamed",
+  "quincy-db": "quincy",
+  "pixelmedics-db": "pixelmedics",
 };
 
-/** Map an agent-side YAML vendor id to the portal's pvs_event_log
- *  bridge_source enum. Tomedo's db-adapter shares the "tomedo" bridge
- *  source with its REST adapter (so the portal's vendor-mismatch guard
- *  passes on a pvs_link.vendor='tomedo' row); the other db-adapters share
- *  the "gdt_agent" bridge source (same agent binary, different ingest
- *  path). The exact mapping table is the single source of truth: if a
- *  new vendor lands without a row here we fall back to "gdt_agent" rather
- *  than crashing. */
+/** Map an agent-side YAML vendor id (the config's `vendor:` field, e.g.
+ *  "medatixx-db") to the canonical bridge_source the portal ingests.
+ *
+ *  Phase 8 per-vendor identity: each on-prem DB-read engine is now its own
+ *  first-class provenance. tomedo-db keeps "tomedo" (its REST sibling owns
+ *  that source and the pvs_link.pvs_vendor='tomedo' fast path matches);
+ *  every other engine maps to its own value (medatixx, cgm_albis, ...),
+ *  with both CGM-M1 variants (MSSQL + Oracle) collapsing to cgm_m1pro.
+ *
+ *  Keys are the FULL vendor ids because that is exactly what the two callers
+ *  pass: the drift publisher passes report.vendorId (= VendorConfig.vendor)
+ *  and the heartbeat passes DbAdapterEnrollment.vendor. This table MUST stay
+ *  in lock-step with each YAML's `bridgeSource:` field (canonical events
+ *  stamp that field directly via the normalizer, so a divergence here would
+ *  label health reports with a different source than the events they describe
+ *  and break pvs_link_source heartbeat-seeding); configs.test.ts pins the two
+ *  together. A vendor with no row here falls back to "gdt_agent" rather than
+ *  crashing. */
 export function bridgeSourceForVendor(vendorId: string): string {
   return VENDOR_TO_BRIDGE_SOURCE[vendorId] ?? "gdt_agent";
 }
@@ -160,25 +170,43 @@ export async function publishPendingDrift(
 }
 
 function normalizeReport(
-  report: DriftReport & { id: number },
+  report: PendingHealthReport,
   clinicId: string
 ): NormalizedReport {
-  const payload = {
-    clinicId,
-    pvsVendor: report.vendorId,
-    bridgeSource: bridgeSourceForVendor(report.vendorId),
-    streamKind: report.streamKind,
-    eventKind: "schema_drift" as const,
-    severity: "warn" as const,
-    message: buildMessage(report),
-    detail: {
-      expected: report.expectedColumns,
-      observed: report.observedColumns,
-      missing: report.missing,
-      added: report.added,
-    },
-    detectedAt: report.detectedAt,
-  };
+  // Both report kinds share the envelope + transport; only the eventKind,
+  // severity, message and detail shape differ. The portal's pvs_link_health
+  // schema accepts both event_kind values (migration 0054).
+  const payload =
+    report.reportKind === "config_invalid"
+      ? {
+          clinicId,
+          pvsVendor: report.vendorId,
+          bridgeSource: bridgeSourceForVendor(report.vendorId),
+          streamKind: report.streamKind,
+          eventKind: "config_invalid" as const,
+          // Ingesting corrupt revenue is worse than a quiet stream, so a
+          // config-invalid halt is an error, not a warning.
+          severity: "error" as const,
+          message: buildConfigInvalidMessage(report),
+          detail: report.configInvalidDetail ?? {},
+          detectedAt: report.detectedAt,
+        }
+      : {
+          clinicId,
+          pvsVendor: report.vendorId,
+          bridgeSource: bridgeSourceForVendor(report.vendorId),
+          streamKind: report.streamKind,
+          eventKind: "schema_drift" as const,
+          severity: "warn" as const,
+          message: buildDriftMessage(report),
+          detail: {
+            expected: report.expectedColumns,
+            observed: report.observedColumns,
+            missing: report.missing,
+            added: report.added,
+          },
+          detectedAt: report.detectedAt,
+        };
   return {
     id: report.id,
     payload,
@@ -186,7 +214,7 @@ function normalizeReport(
   };
 }
 
-function buildMessage(report: DriftReport): string {
+function buildDriftMessage(report: PendingHealthReport): string {
   const parts: string[] = [];
   if (report.missing.length > 0) {
     parts.push(`fehlende Spalten: ${report.missing.join(", ")}`);
@@ -198,4 +226,23 @@ function buildMessage(report: DriftReport): string {
     parts.push("Spalten-Reihenfolge weicht ab");
   }
   return `Schema-Drift in ${report.vendorId}/${report.streamKind}: ${parts.join("; ")}`;
+}
+
+/**
+ * Config-invalid message, kept under the portal's 500-char cap: lead with the
+ * failing fields and the pass count. German, Sie-form, no em-dashes.
+ */
+function buildConfigInvalidMessage(report: PendingHealthReport): string {
+  const detail = report.configInvalidDetail;
+  const fields = (detail?.issues ?? []).map((i) => i.field);
+  const shown = fields.slice(0, 5).join(", ");
+  const more = fields.length > 5 ? `, +${fields.length - 5} weitere` : "";
+  const fieldPart = shown
+    ? `Felder ${shown}${more} lieferten unerwartete Werte`
+    : "die Daten entsprechen nicht der Konfiguration";
+  const counts = detail
+    ? ` (Stichprobe: ${detail.passingRows}/${detail.sampleSize} Zeilen gültig)`
+    : "";
+  const msg = `Konfiguration prüfen in ${report.vendorId}/${report.streamKind}: ${fieldPart}${counts}.`;
+  return msg.length > 500 ? `${msg.slice(0, 497)}...` : msg;
 }

@@ -19,13 +19,23 @@
 # fail loudly. First-Praxis onboarding pins the real names via the
 # discovery probe in apps/bridge/docs/onboarding-per-vendor/cgm-m1pro.md.
 #
+# Keyset pagination (review finding 6): every stream pages by
+# (modified_at, primary key) so a cluster of rows sharing one modified_at
+# can never be split across a batch boundary. We page with the ANSI
+# FETCH FIRST :limit ROWS ONLY (Oracle 12c+, which Thin already requires;
+# cleaner than the old ROWNUM-subquery wrapper) plus the keyset ORDER BY.
+# The tiebreak uses the RAW numeric PK column (patient_id, termin_id, ...)
+# in the predicate and ORDER BY; the same column is TO_CHAR'd AS id so the
+# framework reads it back per row. Assumes the *_id columns are numeric
+# and monotonic; Phase 6's real-engine harness confirms that per install.
+#
 # Worker contract reminder applies (EncounterCompleted and InvoicePaid
 # MUST emit pvsAppointmentId; without it pvs-status-derive drops the
 # event).
 
 vendor: cgm-m1pro-oracle-db
 driver: oracle
-bridgeSource: gdt_agent
+bridgeSource: cgm_m1pro
 defaultIntervalSeconds: 60
 batchSize: 500
 
@@ -53,24 +63,23 @@ streams:
   - kind: PatientUpserted
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
-      SELECT * FROM (
-        SELECT
-          TO_CHAR(patient_id)   AS id,
-          vorname               AS vorname,
-          nachname              AS nachname,
-          email                 AS email,
-          telefon_mobil         AS telefon_mobil,
-          telefon_privat        AS telefon_privat,
-          geburtsdatum          AS geburtsdatum,
-          geschlecht            AS geschlecht,
-          bemerkung             AS bemerkung,
-          modified_at           AS modified_at
-        FROM patient
-        WHERE modified_at > :cursor
-        ORDER BY modified_at ASC
-      )
-      WHERE ROWNUM <= :limit
+      SELECT
+        TO_CHAR(patient_id)   AS id,
+        vorname               AS vorname,
+        nachname              AS nachname,
+        email                 AS email,
+        telefon_mobil         AS telefon_mobil,
+        telefon_privat        AS telefon_privat,
+        geburtsdatum          AS geburtsdatum,
+        geschlecht            AS geschlecht,
+        bemerkung             AS bemerkung,
+        modified_at           AS modified_at
+      FROM patient
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND patient_id > :cursorTiebreak))
+      ORDER BY modified_at ASC, patient_id ASC
+      FETCH FIRST :limit ROWS ONLY
     map:
       pvsExternalEventId: { template: "cgm-m1pro:patient:{id}:{modified_at}" }
       occurredAt: { from: modified_at, transform: isoDateTime }
@@ -86,23 +95,22 @@ streams:
   - kind: AppointmentCreated
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
-      SELECT * FROM (
-        SELECT
-          TO_CHAR(termin_id)    AS id,
-          TO_CHAR(patient_id)   AS patient_id,
-          termin_beginn         AS termin_beginn,
-          leistung_code         AS leistung_code,
-          leistung_bezeichnung  AS leistung_bezeichnung,
-          raum_id               AS raum_id,
-          raum_name             AS raum_name,
-          kommentar             AS kommentar,
-          modified_at           AS modified_at
-        FROM termin
-        WHERE modified_at > :cursor
-        ORDER BY modified_at ASC
-      )
-      WHERE ROWNUM <= :limit
+      SELECT
+        TO_CHAR(termin_id)    AS id,
+        TO_CHAR(patient_id)   AS patient_id,
+        termin_beginn         AS termin_beginn,
+        leistung_code         AS leistung_code,
+        leistung_bezeichnung  AS leistung_bezeichnung,
+        raum_id               AS raum_id,
+        raum_name             AS raum_name,
+        kommentar             AS kommentar,
+        modified_at           AS modified_at
+      FROM termin
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND termin_id > :cursorTiebreak))
+      ORDER BY modified_at ASC, termin_id ASC
+      FETCH FIRST :limit ROWS ONLY
     map:
       pvsExternalEventId: { template: "cgm-m1pro:appointment:{id}" }
       occurredAt: { from: termin_beginn, transform: isoDateTime }
@@ -119,19 +127,18 @@ streams:
   - kind: AppointmentStatusChanged
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
-      SELECT * FROM (
-        SELECT
-          TO_CHAR(termin_id)    AS id,
-          TO_CHAR(patient_id)   AS patient_id,
-          status                AS status,
-          modified_at           AS modified_at
-        FROM termin
-        WHERE modified_at > :cursor
-          AND status IS NOT NULL
-        ORDER BY modified_at ASC
-      )
-      WHERE ROWNUM <= :limit
+      SELECT
+        TO_CHAR(termin_id)    AS id,
+        TO_CHAR(patient_id)   AS patient_id,
+        status                AS status,
+        modified_at           AS modified_at
+      FROM termin
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND termin_id > :cursorTiebreak))
+        AND status IS NOT NULL
+      ORDER BY modified_at ASC, termin_id ASC
+      FETCH FIRST :limit ROWS ONLY
     map:
       pvsExternalEventId: { template: "cgm-m1pro:appointment-status:{id}:{status}:{modified_at}" }
       occurredAt: { from: modified_at, transform: isoDateTime }
@@ -144,23 +151,22 @@ streams:
   - kind: EncounterCompleted
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
-      SELECT * FROM (
-        SELECT
-          TO_CHAR(behandlung_id) AS id,
-          TO_CHAR(patient_id)    AS patient_id,
-          TO_CHAR(termin_id)     AS termin_id,
-          behandlung_datum       AS behandlung_datum,
-          leistung_code          AS leistung_code,
-          leistung_bezeichnung   AS leistung_bezeichnung,
-          behandler_kuerzel      AS behandler_kuerzel,
-          modified_at            AS modified_at
-        FROM behandlung
-        WHERE modified_at > :cursor
-          AND termin_id IS NOT NULL
-        ORDER BY modified_at ASC
-      )
-      WHERE ROWNUM <= :limit
+      SELECT
+        TO_CHAR(behandlung_id) AS id,
+        TO_CHAR(patient_id)    AS patient_id,
+        TO_CHAR(termin_id)     AS termin_id,
+        behandlung_datum       AS behandlung_datum,
+        leistung_code          AS leistung_code,
+        leistung_bezeichnung   AS leistung_bezeichnung,
+        behandler_kuerzel      AS behandler_kuerzel,
+        modified_at            AS modified_at
+      FROM behandlung
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND behandlung_id > :cursorTiebreak))
+        AND termin_id IS NOT NULL
+      ORDER BY modified_at ASC, behandlung_id ASC
+      FETCH FIRST :limit ROWS ONLY
     map:
       pvsExternalEventId: { template: "cgm-m1pro:encounter:{id}" }
       occurredAt: { from: behandlung_datum, transform: isoDateTime }
@@ -178,24 +184,23 @@ streams:
   - kind: InvoicePaid
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
-      SELECT * FROM (
-        SELECT
-          TO_CHAR(rechnung_id)   AS id,
-          TO_CHAR(patient_id)    AS patient_id,
-          TO_CHAR(termin_id)     AS termin_id,
-          TO_CHAR(behandlung_id) AS behandlung_id,
-          betrag_gesamt          AS betrag,
-          bezahlt_am             AS bezahlt_am,
-          status                 AS status,
-          modified_at            AS modified_at
-        FROM rechnung
-        WHERE modified_at > :cursor
-          AND status = 'bezahlt'
-          AND termin_id IS NOT NULL
-        ORDER BY modified_at ASC
-      )
-      WHERE ROWNUM <= :limit
+      SELECT
+        TO_CHAR(rechnung_id)   AS id,
+        TO_CHAR(patient_id)    AS patient_id,
+        TO_CHAR(termin_id)     AS termin_id,
+        TO_CHAR(behandlung_id) AS behandlung_id,
+        betrag_gesamt          AS betrag,
+        bezahlt_am             AS bezahlt_am,
+        status                 AS status,
+        modified_at            AS modified_at
+      FROM rechnung
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND rechnung_id > :cursorTiebreak))
+        AND status = 'bezahlt'
+        AND termin_id IS NOT NULL
+      ORDER BY modified_at ASC, rechnung_id ASC
+      FETCH FIRST :limit ROWS ONLY
     map:
       pvsExternalEventId: { template: "cgm-m1pro:invoice:{id}" }
       occurredAt: { from: bezahlt_am, transform: isoDateTime }
@@ -211,20 +216,19 @@ streams:
   - kind: RecallScheduled
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
-      SELECT * FROM (
-        SELECT
-          TO_CHAR(wiedervorlage_id) AS id,
-          TO_CHAR(patient_id)       AS patient_id,
-          wiedervorlage_am          AS recall_zeit,
-          leistung_code             AS leistung_code,
-          leistung_bezeichnung      AS leistung_bezeichnung,
-          modified_at               AS modified_at
-        FROM wiedervorlage
-        WHERE modified_at > :cursor
-        ORDER BY modified_at ASC
-      )
-      WHERE ROWNUM <= :limit
+      SELECT
+        TO_CHAR(wiedervorlage_id) AS id,
+        TO_CHAR(patient_id)       AS patient_id,
+        wiedervorlage_am          AS recall_zeit,
+        leistung_code             AS leistung_code,
+        leistung_bezeichnung      AS leistung_bezeichnung,
+        modified_at               AS modified_at
+      FROM wiedervorlage
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND wiedervorlage_id > :cursorTiebreak))
+      ORDER BY modified_at ASC, wiedervorlage_id ASC
+      FETCH FIRST :limit ROWS ONLY
     map:
       pvsExternalEventId: { template: "cgm-m1pro:recall:{id}" }
       occurredAt: { from: recall_zeit, transform: isoDateTime }
@@ -233,3 +237,46 @@ streams:
       recallAt: { from: recall_zeit, transform: isoDateTime }
       treatmentCode: leistung_code
       treatmentLabel: leistung_bezeichnung
+
+  # ----- 7. Invoice refunds / storno / Gutschrift (Phase 9) --------------
+  # InvoiceRefunded: money OUT, one event per Storno / Gutschrift row, so the
+  # derive worker nets the patient total + appointment bucket back down and the
+  # P2-3 downgrade alarm catches a gewonnen -> lower flip. refundedAmountCents
+  # must be a POSITIVE magnitude (the portal Zod rejects negatives), so it maps
+  # through the absAmountToCents transform: the amount may arrive as a negative
+  # betrag (a credit) or a positive amount on a storno-status row, and either
+  # way the magnitude is taken. Inherits Phase 3 (Date bind via
+  # OCIDateTime) + Phase 4 (keyset). No termin_id-NOT-NULL filter: an appt-less
+  # refund still nets the patient total (derive bridges via the original
+  # invoice id).
+  # SCHEMA-DISCOVERY DRAFT: storno predicate (betrag_gesamt < 0 OR status in
+  # storniert/gutschrift) + refundedAt source (modified_at) are guesses;
+  # disjoint from InvoicePaid (status = 'bezahlt') by construction.
+  # Cancellations stay on stream 3 (AppointmentStatusChanged -> cancelled); no
+  # AppointmentCancelled stream until a real schema separates patient- vs
+  # Praxis-side cancel.
+  - kind: InvoiceRefunded
+    cursorColumn: modified_at
+    cursorType: timestamp
+    tiebreakColumn: id
+    query: |
+      SELECT
+        TO_CHAR(rechnung_id)   AS id,
+        TO_CHAR(patient_id)    AS patient_id,
+        TO_CHAR(termin_id)     AS termin_id,
+        betrag_gesamt          AS betrag,
+        status                 AS status,
+        modified_at            AS modified_at
+      FROM rechnung
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND rechnung_id > :cursorTiebreak))
+        AND (betrag_gesamt < 0 OR status IN ('storniert', 'gutschrift'))
+      ORDER BY modified_at ASC, rechnung_id ASC
+      FETCH FIRST :limit ROWS ONLY
+    map:
+      pvsExternalEventId: { template: "cgm-m1pro:refund:{id}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsInvoiceId: id
+      pvsAppointmentId: termin_id
+      refundedAmountCents: { from: betrag, transform: absAmountToCents }
+      refundedAt: { from: modified_at, transform: isoDateTime }

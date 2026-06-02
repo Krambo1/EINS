@@ -16,7 +16,17 @@ export type BridgeSource =
   | "consentz"
   | "gdt_agent"
   | "csv_upload"
-  | "n8n_custom";
+  | "n8n_custom"
+  // Phase 7 per-vendor identity: the on-prem DB-read engines (underscores;
+  // CGM-M1 Postgres + Oracle both collapse to cgm_m1pro). Mirror of the
+  // canonical BRIDGE_SOURCES; conformance-pinned by types.conformance.test.ts.
+  | "medatixx"
+  | "cgm_albis"
+  | "cgm_turbomed"
+  | "cgm_m1pro"
+  | "indamed"
+  | "quincy"
+  | "pixelmedics";
 
 export interface BaseEvent {
   clinicId: string;
@@ -88,8 +98,23 @@ export interface InvoicePaidEvent extends BaseEvent {
   pvsAppointmentId?: string;
   pvsEncounterId?: string;
   amountCents: number;
-  currency?: "EUR";
+  currency?: "EUR" | "CHF";
   paidAt: string;
+}
+
+export interface InvoiceRefundedEvent extends BaseEvent {
+  kind: "InvoiceRefunded";
+  pvsPatientId: string;
+  pvsInvoiceId: string;
+  pvsAppointmentId?: string;
+  /** POSITIVE magnitude of the amount given back (integer cents). The derive
+   *  worker subtracts it from the patient total and the matching appointment
+   *  bucket. A dedicated kind (not a negative InvoicePaid) keeps amounts
+   *  nonnegative. Mirrors the portal Zod InvoiceRefundedSchema. */
+  refundedAmountCents: number;
+  currency?: "EUR" | "CHF";
+  refundedAt: string;
+  reason?: string;
 }
 
 export interface RecallScheduledEvent extends BaseEvent {
@@ -114,5 +139,6 @@ export type CanonicalEvent =
   | AppointmentCancelledEvent
   | EncounterCompletedEvent
   | InvoicePaidEvent
+  | InvoiceRefundedEvent
   | RecallScheduledEvent
   | PatientMergedEvent;

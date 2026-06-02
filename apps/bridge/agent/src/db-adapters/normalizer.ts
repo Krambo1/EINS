@@ -80,6 +80,19 @@ export function normalizeRow(
   return out as CanonicalEventBase;
 }
 
+/**
+ * Resolve a single field mapping against a row, discarding warnings. Used by
+ * the framework's first-poll value validator (Phase 5) to attribute a
+ * per-field miss precisely without re-implementing the resolution rules, and
+ * to surface the raw source value behind a failing transform.
+ */
+export function resolveField(
+  mapping: FieldMapping,
+  row: Record<string, unknown>
+): unknown {
+  return resolveFieldValue(mapping, row, []);
+}
+
 function resolveFieldValue(
   mapping: FieldMapping,
   row: Record<string, unknown>,
@@ -162,6 +175,8 @@ export function applyTransform(name: TransformName, raw: unknown): unknown {
       return mapAppointmentStatus(raw);
     case "amountToCents":
       return amountToCents(raw);
+    case "absAmountToCents":
+      return absAmountToCents(raw);
     case "integerCents":
       return integerCents(raw);
     case "isoDateTime":
@@ -248,6 +263,25 @@ function amountToCents(v: unknown): number | undefined {
   const num = Number(normalised);
   if (!Number.isFinite(num) || num < 0) return undefined;
   return Math.round(num * 100);
+}
+
+/**
+ * Like amountToCents, but returns the POSITIVE magnitude. Refund / Storno /
+ * Gutschrift rows store the amount either as a negative number (a credit note)
+ * or as a positive number on a storno-status row; refundedAmountCents must be a
+ * nonnegative magnitude (the portal Zod rejects negatives). Doing the abs here
+ * rather than as a SQL ABS() keeps the vendor SQL minimal and engine-agnostic
+ * (no reliance on each engine's ABS(), which pg-mem also does not implement).
+ */
+function absAmountToCents(v: unknown): number | undefined {
+  if (v === null || v === undefined || v === "") return undefined;
+  if (typeof v === "number") {
+    if (!Number.isFinite(v)) return undefined;
+    return Math.round(Math.abs(v) * 100);
+  }
+  // Strip a leading sign so the magnitude survives amountToCents' own
+  // negative-rejection, then reuse its localized-decimal parsing.
+  return amountToCents(String(v).trim().replace(/^[-+]/, ""));
 }
 
 /**
@@ -356,6 +390,7 @@ export const _internal = {
   mapGender,
   mapAppointmentStatus,
   amountToCents,
+  absAmountToCents,
   integerCents,
   isoDateTime,
   isoDate,

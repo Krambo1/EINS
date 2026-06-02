@@ -13,6 +13,15 @@
 # columns that don't match this declaration; a wrong guess fails loudly
 # at first run, not silently with empty events.
 #
+# Keyset pagination (review finding 6): every stream pages by
+# (cursorColumn, primary key) so a cluster of rows sharing one
+# geaendert_am can never be split across a batch boundary (the silent
+# single-column skip). The tiebreak uses the RAW numeric PK column
+# (patient_id, termin_id, ...) in the predicate and ORDER BY; the same
+# column is aliased AS id so the framework reads it back per row. This
+# assumes the *_ID columns are numeric and monotonic; Phase 6's
+# real-engine harness confirms that per install.
+#
 # Worker contract reminder (do NOT relax):
 #   - AppointmentCreated needs: pvsPatientId, pvsAppointmentId, scheduledAt
 #   - AppointmentStatusChanged needs: pvsAppointmentId, newStatus
@@ -21,7 +30,7 @@
 
 vendor: cgm-albis-db
 driver: postgres
-bridgeSource: gdt_agent
+bridgeSource: cgm_albis
 defaultIntervalSeconds: 60
 batchSize: 500
 
@@ -40,6 +49,7 @@ streams:
   - kind: PatientUpserted
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         patient_id::text  AS id,
@@ -53,8 +63,8 @@ streams:
         notiz             AS bemerkung,
         geaendert_am      AS modified_at
       FROM patient
-      WHERE geaendert_am > :cursor
-      ORDER BY geaendert_am ASC
+      WHERE (geaendert_am > :cursor OR (geaendert_am = :cursor AND patient_id > :cursorTiebreak))
+      ORDER BY geaendert_am ASC, patient_id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "cgm-albis:patient:{id}:{modified_at}" }
@@ -73,6 +83,7 @@ streams:
   - kind: AppointmentCreated
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         termin_id::text   AS id,
@@ -85,8 +96,8 @@ streams:
         notiz             AS notiz,
         geaendert_am      AS modified_at
       FROM termin_praxistimer
-      WHERE geaendert_am > :cursor
-      ORDER BY geaendert_am ASC
+      WHERE (geaendert_am > :cursor OR (geaendert_am = :cursor AND termin_id > :cursorTiebreak))
+      ORDER BY geaendert_am ASC, termin_id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "cgm-albis:appointment:{id}" }
@@ -104,6 +115,7 @@ streams:
   - kind: AppointmentStatusChanged
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         termin_id::text   AS id,
@@ -111,9 +123,9 @@ streams:
         status            AS status,
         geaendert_am      AS modified_at
       FROM termin_praxistimer
-      WHERE geaendert_am > :cursor
+      WHERE (geaendert_am > :cursor OR (geaendert_am = :cursor AND termin_id > :cursorTiebreak))
         AND status IS NOT NULL
-      ORDER BY geaendert_am ASC
+      ORDER BY geaendert_am ASC, termin_id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "cgm-albis:appointment-status:{id}:{status}:{modified_at}" }
@@ -129,6 +141,7 @@ streams:
   - kind: EncounterCompleted
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         karteieintrag_id::text  AS id,
@@ -140,9 +153,9 @@ streams:
         behandler_kuerzel       AS behandler_kuerzel,
         geaendert_am            AS modified_at
       FROM karteieintrag
-      WHERE geaendert_am > :cursor
+      WHERE (geaendert_am > :cursor OR (geaendert_am = :cursor AND karteieintrag_id > :cursorTiebreak))
         AND termin_id IS NOT NULL
-      ORDER BY geaendert_am ASC
+      ORDER BY geaendert_am ASC, karteieintrag_id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "cgm-albis:encounter:{id}" }
@@ -159,6 +172,7 @@ streams:
   - kind: InvoicePaid
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         rechnung_id::text       AS id,
@@ -170,10 +184,10 @@ streams:
         status                  AS status,
         geaendert_am            AS modified_at
       FROM rechnung
-      WHERE geaendert_am > :cursor
+      WHERE (geaendert_am > :cursor OR (geaendert_am = :cursor AND rechnung_id > :cursorTiebreak))
         AND status = 'bezahlt'
         AND termin_id IS NOT NULL
-      ORDER BY geaendert_am ASC
+      ORDER BY geaendert_am ASC, rechnung_id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "cgm-albis:invoice:{id}" }
@@ -190,6 +204,7 @@ streams:
   - kind: RecallScheduled
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         wiedervorlage_id::text  AS id,
@@ -199,8 +214,8 @@ streams:
         leistungs_text          AS leistungs_text,
         geaendert_am            AS modified_at
       FROM wiedervorlage
-      WHERE geaendert_am > :cursor
-      ORDER BY geaendert_am ASC
+      WHERE (geaendert_am > :cursor OR (geaendert_am = :cursor AND wiedervorlage_id > :cursorTiebreak))
+      ORDER BY geaendert_am ASC, wiedervorlage_id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "cgm-albis:recall:{id}" }
@@ -210,3 +225,45 @@ streams:
       recallAt: { from: recall_zeit, transform: isoDateTime }
       treatmentCode: leistungs_code
       treatmentLabel: leistungs_text
+
+  # ----- 7. Invoice refunds / storno / Gutschrift (Phase 9) --------------
+  # InvoiceRefunded: money OUT, one event per Storno / Gutschrift row, so the
+  # derive worker nets the patient total + appointment bucket back down and the
+  # P2-3 downgrade alarm catches a gewonnen -> lower flip. refundedAmountCents
+  # must be a POSITIVE magnitude (the portal Zod rejects negatives), so it maps
+  # through the absAmountToCents transform: the amount may arrive as a negative
+  # betrag (a credit) or a positive amount on a storno-status row, and either
+  # way the magnitude is taken. Inherits Phase 3 (Date bind) +
+  # Phase 4 (keyset). No termin_id-NOT-NULL filter: an appt-less refund still
+  # nets the patient total (derive bridges via the original invoice id).
+  # SCHEMA-DISCOVERY DRAFT: storno predicate (betrag_gesamt < 0 OR status in
+  # storniert/gutschrift) + refundedAt source (modified_at) are guesses;
+  # disjoint from InvoicePaid (status = 'bezahlt') by construction.
+  # Cancellations stay on stream 3 (AppointmentStatusChanged -> cancelled); no
+  # AppointmentCancelled stream until a real schema separates patient- vs
+  # Praxis-side cancel.
+  - kind: InvoiceRefunded
+    cursorColumn: modified_at
+    cursorType: timestamp
+    tiebreakColumn: id
+    query: |
+      SELECT
+        rechnung_id::text       AS id,
+        patient_id::text        AS patient_id,
+        termin_id::text         AS termin_id,
+        betrag_gesamt           AS betrag,
+        status                  AS status,
+        geaendert_am            AS modified_at
+      FROM rechnung
+      WHERE (geaendert_am > :cursor OR (geaendert_am = :cursor AND rechnung_id > :cursorTiebreak))
+        AND (betrag_gesamt < 0 OR status IN ('storniert', 'gutschrift'))
+      ORDER BY geaendert_am ASC, rechnung_id ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "cgm-albis:refund:{id}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsInvoiceId: id
+      pvsAppointmentId: termin_id
+      refundedAmountCents: { from: betrag, transform: absAmountToCents }
+      refundedAt: { from: modified_at, transform: isoDateTime }

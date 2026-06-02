@@ -28,9 +28,9 @@ The five paths in production (May 2026):
    `docs/section-11-verification.md`.
 5. **Tomedo Lua hooks** (`apps/portal/public/pvs-bridge/tomedo-lua/`).
    Defense-in-depth POSTer that runs inside Tomedo's Skript-Engine and
-   covers the same event types as path 4. Idempotent against path 4 via
-   the portal's (clinicId, bridgeSource, pvsExternalEventId, occurredAt)
-   UNIQUE dedup.
+   covers the same event types as path 4. NOT idempotent against path 4:
+   Lua emits a distinct `tomedo-lua:` id prefix on purpose (see the dedup
+   note below), so run exactly one of {Lua, DB-read} per Praxis.
 
 ## Architecture
 
@@ -88,7 +88,7 @@ The five paths in production (May 2026):
 ## Production deployment
 
 A single Node container next to the portal (Fly.io / Hetzner). Public URL
-`https://bridge.einsvisuals.de` for HealthHub + RED webhooks.
+`https://bridge.eins.ag` for HealthHub + RED webhooks.
 
 ## Acceptance status
 
@@ -126,14 +126,18 @@ All paths produce canonical events from `src/canonical/types.ts`. The portal
 dedups REPLAYS **within a single path** via the
 `(clinicId, bridge_source, pvs_external_event_id, occurred_at)` UNIQUE index.
 
-It does **not** dedup **across** the DB-read and Lua paths. The Lua hooks emit
-a `tomedo-lua:` `pvs_external_event_id` prefix while DB-read emits `tomedo:`,
-so the same payment yields two distinct keys and is counted **twice** (double
-revenue, double ad-conversion). Run exactly **one** path per Tomedo Praxis:
-DB-read is the source of truth; the Lua bundle is the fallback for sites
-without DB access, or the path you switch to if a Tomedo update breaks the
-Postgres schema. Do not run both at once. Enabling true simultaneous
-redundancy would first require aligning the two prefixes (and `occurred_at`);
-the cross-path contract test in `apps/bridge/agent/src/db-adapters/
-cross-path-dedup.test.ts` guards that boundary so the change can't be made by
-accident.
+The Tomedo **REST** (path 1) and **DB-read** (path 4) paths ALSO dedup against
+each other (Phase 11): both derive the id and `occurred_at` from the single
+identity contract in `src/adapters/tomedo/event-identity.ts`, so the same Tomedo
+row yields one byte-identical key on either path. `normalize.test.ts` (REST) and
+`agent/src/db-adapters/cross-path-dedup.test.ts` (DB-read) pin both sides to the
+same fixture, so the convergence can't drift unnoticed.
+
+The **Lua** path stays a separate provenance: it emits a `tomedo-lua:`
+`pvs_external_event_id` prefix, because a Lua hook only knows the hook-fire time
+(not the row's `modified_at`) for a status change and so cannot reproduce
+`occurred_at` for every kind. Aligning only the prefix would dedup invoices but
+double-count status changes. So do **not** co-run Lua with DB-read: Lua is the
+fallback for sites without DB access, or the path you switch to if a Tomedo
+update breaks the Postgres schema. `cross-path-dedup.test.ts` locks that
+divergence so it can't be erased by accident.

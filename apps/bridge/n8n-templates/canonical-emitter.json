@@ -67,7 +67,7 @@
     },
     {
       "parameters": {
-        "url": "={{ $vars.EINS_PORTAL_URL ?? 'https://portal.einsvisuals.de' }}/api/pvs/events",
+        "url": "={{ $vars.EINS_PORTAL_URL ?? 'https://portal.eins.ag' }}/api/pvs/events",
         "options": {},
         "sendBody": true,
         "specifyBody": "raw",

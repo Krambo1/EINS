@@ -75,7 +75,7 @@ Wir freuen uns auf eine kurze Rueckmeldung. Bei Bedarf gerne ein
 Mit freundlichen Gruessen,
 Karam Issa
 Geschaeftsfuehrer EINS
-karam@einsvisuals.de
+karam@eins.ag
 ```
 
 ## Antwort-Mapping

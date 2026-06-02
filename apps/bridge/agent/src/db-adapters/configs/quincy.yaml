@@ -12,11 +12,21 @@
 # different columns; a wrong guess fails loudly at first run, not
 # silently with empty events.
 #
+# Keyset pagination (review finding 6): every stream pages by
+# (AENDERUNGSZEIT, primary key) so a cluster of rows sharing one
+# AENDERUNGSZEIT can never be split across a batch boundary. Firebird
+# pages via SELECT FIRST (:limit) (the placeholder is parenthesised so
+# the parser accepts the bind) plus the keyset ORDER BY. The tiebreak
+# uses the RAW numeric PK column (PATIENT_ID, TERMIN_ID, ...) in the
+# predicate and ORDER BY; the same column is CAST AS id so the framework
+# reads it back per row. Assumes the *_ID columns are numeric and
+# monotonic; Phase 6's real-engine harness confirms that per install.
+#
 # Worker contract reminder applies.
 
 vendor: quincy-db
 driver: firebird
-bridgeSource: gdt_agent
+bridgeSource: quincy
 defaultIntervalSeconds: 90
 batchSize: 500
 
@@ -35,8 +45,9 @@ streams:
   - kind: PatientUpserted
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
-      SELECT FIRST :limit
+      SELECT FIRST (:limit)
         CAST(PATIENT_ID AS VARCHAR(40))   AS id,
         VORNAME                           AS vorname,
         NACHNAME                          AS nachname,
@@ -48,8 +59,8 @@ streams:
         BEMERKUNG                         AS bemerkung,
         AENDERUNGSZEIT                    AS modified_at
       FROM PATIENT
-      WHERE AENDERUNGSZEIT > :cursor
-      ORDER BY AENDERUNGSZEIT ASC
+      WHERE (AENDERUNGSZEIT > :cursor OR (AENDERUNGSZEIT = :cursor AND PATIENT_ID > :cursorTiebreak))
+      ORDER BY AENDERUNGSZEIT ASC, PATIENT_ID ASC
     map:
       pvsExternalEventId: { template: "quincy:patient:{id}:{modified_at}" }
       occurredAt: { from: modified_at, transform: isoDateTime }
@@ -65,8 +76,9 @@ streams:
   - kind: AppointmentCreated
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
-      SELECT FIRST :limit
+      SELECT FIRST (:limit)
         CAST(TERMIN_ID AS VARCHAR(40))    AS id,
         CAST(PATIENT_ID AS VARCHAR(40))   AS patient_id,
         TERMIN_BEGINN                     AS termin_beginn,
@@ -77,8 +89,8 @@ streams:
         BEMERKUNG                         AS bemerkung,
         AENDERUNGSZEIT                    AS modified_at
       FROM TERMIN
-      WHERE AENDERUNGSZEIT > :cursor
-      ORDER BY AENDERUNGSZEIT ASC
+      WHERE (AENDERUNGSZEIT > :cursor OR (AENDERUNGSZEIT = :cursor AND TERMIN_ID > :cursorTiebreak))
+      ORDER BY AENDERUNGSZEIT ASC, TERMIN_ID ASC
     map:
       pvsExternalEventId: { template: "quincy:appointment:{id}" }
       occurredAt: { from: termin_beginn, transform: isoDateTime }
@@ -95,16 +107,17 @@ streams:
   - kind: AppointmentStatusChanged
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
-      SELECT FIRST :limit
+      SELECT FIRST (:limit)
         CAST(TERMIN_ID AS VARCHAR(40))    AS id,
         CAST(PATIENT_ID AS VARCHAR(40))   AS patient_id,
         STATUS                            AS status,
         AENDERUNGSZEIT                    AS modified_at
       FROM TERMIN
-      WHERE AENDERUNGSZEIT > :cursor
+      WHERE (AENDERUNGSZEIT > :cursor OR (AENDERUNGSZEIT = :cursor AND TERMIN_ID > :cursorTiebreak))
         AND STATUS IS NOT NULL
-      ORDER BY AENDERUNGSZEIT ASC
+      ORDER BY AENDERUNGSZEIT ASC, TERMIN_ID ASC
     map:
       pvsExternalEventId: { template: "quincy:appointment-status:{id}:{status}:{modified_at}" }
       occurredAt: { from: modified_at, transform: isoDateTime }
@@ -117,8 +130,9 @@ streams:
   - kind: EncounterCompleted
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
-      SELECT FIRST :limit
+      SELECT FIRST (:limit)
         CAST(BEHANDLUNG_ID AS VARCHAR(40))  AS id,
         CAST(PATIENT_ID AS VARCHAR(40))     AS patient_id,
         CAST(TERMIN_ID AS VARCHAR(40))      AS termin_id,
@@ -128,9 +142,9 @@ streams:
         BEHANDLER_KUERZEL                   AS behandler_kuerzel,
         AENDERUNGSZEIT                      AS modified_at
       FROM BEHANDLUNG
-      WHERE AENDERUNGSZEIT > :cursor
+      WHERE (AENDERUNGSZEIT > :cursor OR (AENDERUNGSZEIT = :cursor AND BEHANDLUNG_ID > :cursorTiebreak))
         AND TERMIN_ID IS NOT NULL
-      ORDER BY AENDERUNGSZEIT ASC
+      ORDER BY AENDERUNGSZEIT ASC, BEHANDLUNG_ID ASC
     map:
       pvsExternalEventId: { template: "quincy:encounter:{id}" }
       occurredAt: { from: behandlung_datum, transform: isoDateTime }
@@ -146,8 +160,9 @@ streams:
   - kind: InvoicePaid
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
-      SELECT FIRST :limit
+      SELECT FIRST (:limit)
         CAST(RECHNUNG_ID AS VARCHAR(40))    AS id,
         CAST(PATIENT_ID AS VARCHAR(40))     AS patient_id,
         CAST(TERMIN_ID AS VARCHAR(40))      AS termin_id,
@@ -157,10 +172,10 @@ streams:
         STATUS                              AS status,
         AENDERUNGSZEIT                      AS modified_at
       FROM RECHNUNG
-      WHERE AENDERUNGSZEIT > :cursor
+      WHERE (AENDERUNGSZEIT > :cursor OR (AENDERUNGSZEIT = :cursor AND RECHNUNG_ID > :cursorTiebreak))
         AND STATUS = 'bezahlt'
         AND TERMIN_ID IS NOT NULL
-      ORDER BY AENDERUNGSZEIT ASC
+      ORDER BY AENDERUNGSZEIT ASC, RECHNUNG_ID ASC
     map:
       pvsExternalEventId: { template: "quincy:invoice:{id}" }
       occurredAt: { from: bezahlt_am, transform: isoDateTime }
@@ -176,8 +191,9 @@ streams:
   - kind: RecallScheduled
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
-      SELECT FIRST :limit
+      SELECT FIRST (:limit)
         CAST(WIEDERVORLAGE_ID AS VARCHAR(40))  AS id,
         CAST(PATIENT_ID AS VARCHAR(40))        AS patient_id,
         WIEDERVORLAGE_AM                       AS recall_zeit,
@@ -185,8 +201,8 @@ streams:
         LEISTUNG_BEZEICHNUNG                   AS leistung_bezeichnung,
         AENDERUNGSZEIT                         AS modified_at
       FROM WIEDERVORLAGE
-      WHERE AENDERUNGSZEIT > :cursor
-      ORDER BY AENDERUNGSZEIT ASC
+      WHERE (AENDERUNGSZEIT > :cursor OR (AENDERUNGSZEIT = :cursor AND WIEDERVORLAGE_ID > :cursorTiebreak))
+      ORDER BY AENDERUNGSZEIT ASC, WIEDERVORLAGE_ID ASC
     map:
       pvsExternalEventId: { template: "quincy:recall:{id}" }
       occurredAt: { from: recall_zeit, transform: isoDateTime }
@@ -195,3 +211,44 @@ streams:
       recallAt: { from: recall_zeit, transform: isoDateTime }
       treatmentCode: leistung_kuerzel
       treatmentLabel: leistung_bezeichnung
+
+  # ----- 7. Invoice refunds / storno / Gutschrift (Phase 9) --------------
+  # InvoiceRefunded: money OUT, one event per Storno / Gutschrift row, so the
+  # derive worker nets the patient total + appointment bucket back down and the
+  # P2-3 downgrade alarm catches a gewonnen -> lower flip. refundedAmountCents
+  # must be a POSITIVE magnitude (the portal Zod rejects negatives), so it maps
+  # through the absAmountToCents transform: the amount may arrive as a negative
+  # betrag (a credit) or a positive amount on a storno-status row, and either
+  # way the magnitude is taken. Inherits Phase 3 (Date bind) +
+  # Phase 4 (keyset). No TERMIN_ID-NOT-NULL filter: an appt-less refund still
+  # nets the patient total (derive bridges via the original invoice id).
+  # SCHEMA-DISCOVERY DRAFT: storno predicate (BETRAG_GESAMT < 0 OR STATUS in
+  # storniert/gutschrift) + refundedAt source (AENDERUNGSZEIT) are guesses;
+  # disjoint from InvoicePaid (STATUS = 'bezahlt') by construction.
+  # Cancellations stay on stream 3 (AppointmentStatusChanged -> cancelled); no
+  # AppointmentCancelled stream until a real schema separates patient- vs
+  # Praxis-side cancel.
+  - kind: InvoiceRefunded
+    cursorColumn: modified_at
+    cursorType: timestamp
+    tiebreakColumn: id
+    query: |
+      SELECT FIRST (:limit)
+        CAST(RECHNUNG_ID AS VARCHAR(40))    AS id,
+        CAST(PATIENT_ID AS VARCHAR(40))     AS patient_id,
+        CAST(TERMIN_ID AS VARCHAR(40))      AS termin_id,
+        BETRAG_GESAMT                       AS betrag,
+        STATUS                              AS status,
+        AENDERUNGSZEIT                      AS modified_at
+      FROM RECHNUNG
+      WHERE (AENDERUNGSZEIT > :cursor OR (AENDERUNGSZEIT = :cursor AND RECHNUNG_ID > :cursorTiebreak))
+        AND (BETRAG_GESAMT < 0 OR STATUS IN ('storniert', 'gutschrift'))
+      ORDER BY AENDERUNGSZEIT ASC, RECHNUNG_ID ASC
+    map:
+      pvsExternalEventId: { template: "quincy:refund:{id}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsInvoiceId: id
+      pvsAppointmentId: termin_id
+      refundedAmountCents: { from: betrag, transform: absAmountToCents }
+      refundedAt: { from: modified_at, transform: isoDateTime }

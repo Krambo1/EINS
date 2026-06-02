@@ -14,11 +14,19 @@
 # The schema-drift detector halts streams whose first poll returns
 # different columns than declared here.
 #
+# Keyset pagination (review finding 6): every stream pages by
+# (cursorColumn, primary key) so a cluster of rows sharing one
+# geaendert_am can never be split across a batch boundary. The tiebreak
+# uses the RAW numeric PK column (pat_id, termin_id, ...) in the
+# predicate and ORDER BY; the same column is CAST AS id so the framework
+# reads it back per row. Assumes the *_id columns are numeric and
+# monotonic; Phase 6's real-engine harness confirms that per install.
+#
 # Worker contract reminder applies.
 
 vendor: indamed-db
 driver: mysql
-bridgeSource: gdt_agent
+bridgeSource: indamed
 defaultIntervalSeconds: 60
 batchSize: 500
 
@@ -34,6 +42,7 @@ streams:
   - kind: PatientUpserted
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         CAST(pat_id AS CHAR(40))    AS id,
@@ -47,8 +56,8 @@ streams:
         anmerkung                   AS bemerkung,
         geaendert_am                AS modified_at
       FROM patient
-      WHERE geaendert_am > :cursor
-      ORDER BY geaendert_am ASC
+      WHERE (geaendert_am > :cursor OR (geaendert_am = :cursor AND pat_id > :cursorTiebreak))
+      ORDER BY geaendert_am ASC, pat_id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "indamed:patient:{id}:{modified_at}" }
@@ -65,6 +74,7 @@ streams:
   - kind: AppointmentCreated
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         CAST(termin_id AS CHAR(40)) AS id,
@@ -77,8 +87,8 @@ streams:
         notiz                       AS notiz,
         geaendert_am                AS modified_at
       FROM termin
-      WHERE geaendert_am > :cursor
-      ORDER BY geaendert_am ASC
+      WHERE (geaendert_am > :cursor OR (geaendert_am = :cursor AND termin_id > :cursorTiebreak))
+      ORDER BY geaendert_am ASC, termin_id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "indamed:appointment:{id}" }
@@ -96,6 +106,7 @@ streams:
   - kind: AppointmentStatusChanged
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         CAST(termin_id AS CHAR(40)) AS id,
@@ -103,9 +114,9 @@ streams:
         status                      AS status,
         geaendert_am                AS modified_at
       FROM termin
-      WHERE geaendert_am > :cursor
+      WHERE (geaendert_am > :cursor OR (geaendert_am = :cursor AND termin_id > :cursorTiebreak))
         AND status IS NOT NULL
-      ORDER BY geaendert_am ASC
+      ORDER BY geaendert_am ASC, termin_id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "indamed:appointment-status:{id}:{status}:{modified_at}" }
@@ -119,6 +130,7 @@ streams:
   - kind: EncounterCompleted
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         CAST(beh_id AS CHAR(40))    AS id,
@@ -130,9 +142,9 @@ streams:
         behandler_kuerzel           AS behandler_kuerzel,
         geaendert_am                AS modified_at
       FROM behandlung
-      WHERE geaendert_am > :cursor
+      WHERE (geaendert_am > :cursor OR (geaendert_am = :cursor AND beh_id > :cursorTiebreak))
         AND termin_id IS NOT NULL
-      ORDER BY geaendert_am ASC
+      ORDER BY geaendert_am ASC, beh_id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "indamed:encounter:{id}" }
@@ -149,6 +161,7 @@ streams:
   - kind: InvoicePaid
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         CAST(rech_id AS CHAR(40))   AS id,
@@ -160,10 +173,10 @@ streams:
         status                      AS status,
         geaendert_am                AS modified_at
       FROM rechnung
-      WHERE geaendert_am > :cursor
+      WHERE (geaendert_am > :cursor OR (geaendert_am = :cursor AND rech_id > :cursorTiebreak))
         AND status = 'bezahlt'
         AND termin_id IS NOT NULL
-      ORDER BY geaendert_am ASC
+      ORDER BY geaendert_am ASC, rech_id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "indamed:invoice:{id}" }
@@ -180,6 +193,7 @@ streams:
   - kind: RecallScheduled
     cursorColumn: modified_at
     cursorType: timestamp
+    tiebreakColumn: id
     query: |
       SELECT
         CAST(wv_id AS CHAR(40))     AS id,
@@ -189,8 +203,8 @@ streams:
         leistung_text               AS leistung_text,
         geaendert_am                AS modified_at
       FROM wiedervorlage
-      WHERE geaendert_am > :cursor
-      ORDER BY geaendert_am ASC
+      WHERE (geaendert_am > :cursor OR (geaendert_am = :cursor AND wv_id > :cursorTiebreak))
+      ORDER BY geaendert_am ASC, wv_id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "indamed:recall:{id}" }
@@ -200,3 +214,45 @@ streams:
       recallAt: { from: recall_zeit, transform: isoDateTime }
       treatmentCode: leistung_kuerzel
       treatmentLabel: leistung_text
+
+  # ----- 7. Invoice refunds / storno / Gutschrift (Phase 9) --------------
+  # InvoiceRefunded: money OUT, one event per Storno / Gutschrift row, so the
+  # derive worker nets the patient total + appointment bucket back down and the
+  # P2-3 downgrade alarm catches a gewonnen -> lower flip. refundedAmountCents
+  # must be a POSITIVE magnitude (the portal Zod rejects negatives), so it maps
+  # through the absAmountToCents transform: the amount may arrive as a negative
+  # betrag (a credit) or a positive amount on a storno-status row, and either
+  # way the magnitude is taken. Inherits Phase 3 (Date bind) +
+  # Phase 4 (keyset). No termin_id-NOT-NULL filter: an appt-less refund still
+  # nets the patient total (derive bridges via the original invoice id).
+  # SCHEMA-DISCOVERY DRAFT: storno predicate (betrag_gesamt < 0 OR status in
+  # storniert/gutschrift) + refundedAt source (modified_at) are guesses;
+  # disjoint from InvoicePaid (status = 'bezahlt') by construction.
+  # Cancellations stay on stream 3 (AppointmentStatusChanged -> cancelled); no
+  # AppointmentCancelled stream until a real schema separates patient- vs
+  # Praxis-side cancel.
+  - kind: InvoiceRefunded
+    cursorColumn: modified_at
+    cursorType: timestamp
+    tiebreakColumn: id
+    query: |
+      SELECT
+        CAST(rech_id AS CHAR(40))   AS id,
+        CAST(pat_id AS CHAR(40))    AS patient_id,
+        CAST(termin_id AS CHAR(40)) AS termin_id,
+        betrag_gesamt               AS betrag,
+        status                      AS status,
+        geaendert_am                AS modified_at
+      FROM rechnung
+      WHERE (geaendert_am > :cursor OR (geaendert_am = :cursor AND rech_id > :cursorTiebreak))
+        AND (betrag_gesamt < 0 OR status IN ('storniert', 'gutschrift'))
+      ORDER BY geaendert_am ASC, rech_id ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "indamed:refund:{id}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsInvoiceId: id
+      pvsAppointmentId: termin_id
+      refundedAmountCents: { from: betrag, transform: absAmountToCents }
+      refundedAt: { from: modified_at, transform: isoDateTime }

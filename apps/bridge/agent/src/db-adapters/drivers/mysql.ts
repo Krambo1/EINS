@@ -109,11 +109,15 @@ export class MysqlDriver implements DbDriver {
 
   async query(
     sql: string,
-    params: Record<string, string | number>
+    params: Record<string, string | number | Date>
   ): Promise<QueryResult> {
     if (!this.conn || !this.healthy) {
       await this.connect(this.params!);
     }
+    // mysql2 serialises a JS Date to a DATETIME literal in the connection's
+    // timezone, which is pinned to "Z" (UTC) in doConnect(); a timestamp
+    // cursor (framework Phase 3) is therefore bound as a Date and compared in
+    // UTC. Strings and numbers pass through unchanged.
     const [rows, fields] = await this.conn!.execute<Array<Record<string, unknown>>>({
       sql,
       values: params,

@@ -55,4 +55,4 @@ Wer Statistikdaten (z. B. Quartalsstatistiken) auch ins EINS-Portal
 einspeisen moechte, kann zusaetzlich eine zweite Vendor-Konfiguration
 fuer die Firebird-Seite betreiben (separater `vendor:` Eintrag).
 Aktuell nicht im Standard-Setup enthalten; bei Bedarf bei
-support@einsvisuals.de melden.
+support@eins.ag melden.

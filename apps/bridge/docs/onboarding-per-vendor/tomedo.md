@@ -21,7 +21,7 @@ einem laufenden Tomedo-Server: ca. 30 Minuten.
 ## Installation
 
 1. EINS-Agent herunterladen (macOS-Binary, ca. 12 MB):
-   `https://portal.einsvisuals.de/pvs-bridge/agent/eins-agent-macos`
+   `https://portal.eins.ag/pvs-bridge/agent/eins-agent-macos`
 
 2. Im EINS-Portal: Einstellungen → Integrationen → PVS → "Neuen Agent
    verbinden". Token notieren; ist 24 h gueltig.
@@ -48,10 +48,10 @@ einem laufenden Tomedo-Server: ca. 30 Minuten.
 
 5. Den Agent als macOS LaunchDaemon einrichten (laufender Hintergrund-
    prozess, startet beim System-Boot). Vorlage liegt unter
-   `/usr/local/etc/eins-agent/com.einsvisuals.agent.plist`. Aktivierung:
+   `/usr/local/etc/eins-agent/com.eins.agent.plist`. Aktivierung:
 
    ```bash
-   sudo launchctl load -w /Library/LaunchDaemons/com.einsvisuals.agent.plist
+   sudo launchctl load -w /Library/LaunchDaemons/com.eins.agent.plist
    ```
 
 ## Sanity-Check

@@ -1,14 +1,23 @@
 import type Database from "better-sqlite3";
 import { enqueue, outboxConnection } from "../outbox.js";
-import { normalizeRow } from "./normalizer.js";
+import { normalizeRow, resolveField } from "./normalizer.js";
+import {
+  ALWAYS_REQUIRED,
+  REQUIRED_FIELDS_BY_KIND,
+} from "./vendor-config.js";
 import type {
   CanonicalEventBase,
   CanonicalEventKind,
+  ConfigInvalidFieldIssue,
+  ConfigInvalidReport,
   DbDriver,
   DriftReport,
+  FieldMapping,
+  PendingHealthReport,
   StreamConfig,
   StreamState,
   StreamStatus,
+  TransformName,
   VendorConfig,
 } from "./types.js";
 
@@ -72,20 +81,40 @@ function db(): Database.Database {
         missing TEXT NOT NULL,
         added TEXT NOT NULL,
         detected_at INTEGER NOT NULL,
-        reported_to_portal INTEGER NOT NULL DEFAULT 0
+        reported_to_portal INTEGER NOT NULL DEFAULT 0,
+        -- Phase 5: the same queue carries first-poll config-invalid reports.
+        -- 'schema_drift' (default) keeps existing rows + recordDrift inserts
+        -- unchanged; 'config_invalid' rows carry their specifics in detail.
+        report_kind TEXT NOT NULL DEFAULT 'schema_drift',
+        detail TEXT
       );
     `);
     // Migrate agents whose db_adapter_state predates the keyset cursor (review
     // finding 6). The CREATE above already has the column on fresh installs;
     // this ALTER adds it to an existing table. It throws "duplicate column" on
-    // every boot after the first, which we swallow — there is no IF NOT EXISTS
+    // every boot after the first, which we swallow; there is no IF NOT EXISTS
     // for ADD COLUMN in SQLite.
     try {
       dbCached.exec(
         `ALTER TABLE db_adapter_state ADD COLUMN cursor_tiebreak TEXT NOT NULL DEFAULT ''`
       );
     } catch {
-      // column already present — nothing to do.
+      // column already present; nothing to do.
+    }
+    // Phase 5: widen db_adapter_drift on agents that predate config_invalid
+    // reports. Same "ALTER throws duplicate-column after the first boot, which
+    // we swallow" pattern as cursor_tiebreak above.
+    try {
+      dbCached.exec(
+        `ALTER TABLE db_adapter_drift ADD COLUMN report_kind TEXT NOT NULL DEFAULT 'schema_drift'`
+      );
+    } catch {
+      // column already present; nothing to do.
+    }
+    try {
+      dbCached.exec(`ALTER TABLE db_adapter_drift ADD COLUMN detail TEXT`);
+    } catch {
+      // column already present; nothing to do.
     }
   }
   return dbCached;
@@ -198,10 +227,43 @@ export function recordDrift(report: DriftReport): void {
     );
 }
 
-export function pendingDriftReports(): Array<DriftReport & { id: number }> {
+/**
+ * Persist a first-poll config-invalid report (Phase 5) onto the same queue
+ * drift-publisher.ts drains. The legacy columns are kept populated so a reader
+ * that only knows the original shape still gets the failing field names in
+ * `missing`; the full specifics (sample values, per-field reason, pass count)
+ * live in the JSON `detail` column.
+ */
+export function recordConfigInvalid(report: ConfigInvalidReport): void {
+  db()
+    .prepare(
+      `INSERT INTO db_adapter_drift
+        (vendor_id, stream_kind, expected, observed, missing, added,
+         detected_at, report_kind, detail)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'config_invalid', ?)`
+    )
+    .run(
+      report.vendorId,
+      report.streamKind,
+      JSON.stringify([]),
+      JSON.stringify([]),
+      JSON.stringify(report.issues.map((i) => i.field)),
+      JSON.stringify([]),
+      new Date(report.detectedAt).getTime(),
+      JSON.stringify({
+        sampleSize: report.sampleSize,
+        passingRows: report.passingRows,
+        threshold: report.threshold,
+        issues: report.issues,
+      })
+    );
+}
+
+export function pendingDriftReports(): PendingHealthReport[] {
   const rows = db()
     .prepare(
-      `SELECT id, vendor_id, stream_kind, expected, observed, missing, added, detected_at
+      `SELECT id, vendor_id, stream_kind, expected, observed, missing, added,
+              detected_at, report_kind, detail
        FROM db_adapter_drift
        WHERE reported_to_portal = 0
        ORDER BY detected_at ASC`
@@ -215,6 +277,8 @@ export function pendingDriftReports(): Array<DriftReport & { id: number }> {
     missing: string;
     added: string;
     detected_at: number;
+    report_kind: string | null;
+    detail: string | null;
   }>;
   return rows.map((r) => ({
     id: r.id,
@@ -225,6 +289,14 @@ export function pendingDriftReports(): Array<DriftReport & { id: number }> {
     missing: JSON.parse(r.missing) as string[],
     added: JSON.parse(r.added) as string[],
     detectedAt: new Date(r.detected_at).toISOString(),
+    // Null report_kind only happens on rows written before the column existed;
+    // those are always schema drift.
+    reportKind:
+      r.report_kind === "config_invalid" ? "config_invalid" : "schema_drift",
+    configInvalidDetail:
+      r.report_kind === "config_invalid" && r.detail
+        ? (JSON.parse(r.detail) as PendingHealthReport["configInvalidDetail"])
+        : null,
   }));
 }
 
@@ -258,7 +330,15 @@ export async function pollOnce(opts: PollOptions): Promise<PollOutcome> {
   const now = opts.now ?? Date.now;
   const state = loadState(opts.vendor.vendor, opts.stream.kind);
 
-  if (state.status === "schema_drift" || state.status === "disabled") {
+  if (
+    state.status === "schema_drift" ||
+    state.status === "config_invalid" ||
+    state.status === "disabled"
+  ) {
+    // All three are terminal halts requiring operator action (a config fix for
+    // drift/config_invalid; a re-enable for disabled), cleared by resetting the
+    // persisted db_adapter_state. Never re-poll: that is the silent retry loop
+    // this stream-halt design avoids.
     return {
       emitted: 0,
       newCursor: state.cursor,
@@ -268,7 +348,7 @@ export async function pollOnce(opts: PollOptions): Promise<PollOutcome> {
   }
 
   const cursorBind = initialCursorValue(state.cursor, opts.stream);
-  const queryParams: Record<string, string | number> = {
+  const queryParams: Record<string, string | number | Date> = {
     cursor: cursorBind,
     limit: opts.vendor.batchSize,
   };
@@ -296,8 +376,64 @@ export async function pollOnce(opts: PollOptions): Promise<PollOutcome> {
   }
 
   // ---- schema drift detection ------------------------------------------
+  // A successful SELECT always projects at least one column, so an empty
+  // result.columns means the driver returned no field metadata for THIS poll,
+  // not that the table lost every column. Some drivers omit metadata on a
+  // zero-row result, and a poll returning no new rows is the common steady
+  // state. Treating that as "every column vanished" would raise false drift and
+  // permanently halt a healthy revenue stream. So an empty column list carries
+  // no drift signal: never baseline it, never compare against it. A genuine
+  // rename still surfaces as a thrown undefined-column error (isSchemaError,
+  // above), which is the real drift path for explicit-column SELECTs. Fall
+  // through to row processing (a no-op for an empty result).
   let drift: DriftReport | null = null;
-  if (state.columnSnapshot === null) {
+  if (result.columns.length === 0) {
+    // No column information this poll; leave the snapshot untouched.
+  } else if (state.columnSnapshot === null) {
+    // First poll. Before baselining the column shape, validate the actual ROW
+    // DATA against the YAML map (Phase 5). The column-snapshot detector only
+    // catches a column that vanishes or is renamed; it cannot catch a column
+    // that exists but holds the wrong data (a paid-status code the map doesn't
+    // recognise, a mostly-NULL appointment id, a failing amount transform).
+    // Baselining a config whose data does not normalise would silently ingest
+    // corrupt revenue, so we refuse to baseline and halt the stream instead.
+    const validation = validateFirstPoll(result.rows, {
+      clinicId: opts.clinicId,
+      vendor: opts.vendor,
+      stream: opts.stream,
+    });
+    if (!validation.ok) {
+      recordConfigInvalid({
+        vendorId: opts.vendor.vendor,
+        streamKind: opts.stream.kind,
+        sampleSize: validation.sampleSize,
+        passingRows: validation.passingRows,
+        threshold: validation.threshold,
+        issues: validation.issues,
+        detectedAt: new Date().toISOString(),
+      });
+      state.status = "config_invalid";
+      state.lastError = `config invalid: ${validation.passingRows}/${
+        validation.sampleSize
+      } sampled rows valid; fields=${validation.issues
+        .map((i) => i.field)
+        .join(",")}`;
+      state.lastRunAt = now();
+      // Leave columnSnapshot null on purpose: the config was never confirmed,
+      // so when the stream is next run (after the operator fixes the config and
+      // clears the halt) the first poll re-validates instead of treating
+      // un-validated data as the trusted baseline.
+      saveState(state);
+      console.warn(
+        `[db-framework] ${opts.vendor.vendor}/${opts.stream.kind}: first-poll config validation failed (${validation.passingRows}/${validation.sampleSize} sampled rows valid); stream halted as config_invalid.`
+      );
+      return {
+        emitted: 0,
+        newCursor: state.cursor,
+        driftDetected: false,
+        driftReport: null,
+      };
+    }
     state.columnSnapshot = result.columns;
   } else if (!columnsMatch(state.columnSnapshot, result.columns)) {
     drift = buildDriftReport(opts.vendor.vendor, opts.stream.kind, state.columnSnapshot, result.columns);
@@ -345,11 +481,22 @@ export async function pollOnce(opts: PollOptions): Promise<PollOutcome> {
       if (tiebreakColumn) {
         const rowTiebreak =
           row[tiebreakColumn] == null ? "" : String(row[tiebreakColumn]);
-        if (cursorAdvances(rowCursor, rowTiebreak, maxCursor, maxTiebreak)) {
+        if (
+          cursorAdvances(
+            rowCursor,
+            rowTiebreak,
+            maxCursor,
+            maxTiebreak,
+            opts.stream.cursorType
+          )
+        ) {
           maxCursor = rowCursor;
           maxTiebreak = rowTiebreak;
         }
-      } else if (maxCursor === "" || rowCursor > maxCursor) {
+      } else if (
+        maxCursor === "" ||
+        compareCursor(rowCursor, maxCursor, opts.stream.cursorType) > 0
+      ) {
         maxCursor = rowCursor;
       }
     }
@@ -506,19 +653,32 @@ function intervalMs(vendor: VendorConfig, stream: StreamConfig): number {
 function initialCursorValue(
   cursor: string,
   stream: StreamConfig
-): string | number {
-  if (cursor === "") {
-    switch (stream.cursorType) {
-      case "timestamp":
-        return "1970-01-01T00:00:00.000Z";
-      case "integer":
-        return 0;
-      case "string":
-        return "";
-    }
+): string | number | Date {
+  switch (stream.cursorType) {
+    case "timestamp":
+      // Bind a timestamp cursor as a native Date so each driver coerces it to
+      // the column's native temporal type. An ISO-8601 'Z' STRING only works
+      // against Postgres; Firebird, Oracle, MSSQL and MySQL throw or match
+      // nothing against a native TIMESTAMP on poll #1 (the bug Phase 3 fixes).
+      // The stored cursor stays an ISO string (stringifyCursor), so the
+      // round-trip is store-as-ISO / bind-as-Date. Both `:cursor` occurrences
+      // in a keyset query (`cur > :cursor` and `cur = :cursor`) share this one
+      // bind, so they get the same Date automatically.
+      return cursor === ""
+        ? new Date("1970-01-01T00:00:00.000Z")
+        : new Date(cursor);
+    case "integer":
+      // First-poll sentinel is 0; stored cursors parse back as Number. The
+      // advance compare is numeric for integer cursors (compareCursor), so a
+      // stream whose cursor crosses a power-of-ten boundary still progresses; no
+      // config uses cursorType: integer today, but the path is now correct for
+      // the first one that does.
+      return cursor === "" ? 0 : Number(cursor);
+    case "string":
+      // First poll: "" already matches the sentinel; thereafter the stored
+      // value is bound verbatim.
+      return cursor;
   }
-  if (stream.cursorType === "integer") return Number(cursor);
-  return cursor;
 }
 
 function stringifyCursor(value: unknown, stream: StreamConfig): string {
@@ -542,21 +702,219 @@ function columnsMatch(expected: string[], observed: string[]): boolean {
 /**
  * Composite-cursor comparison for keyset pagination (review finding 6).
  * Returns true when (rowCursor, rowTiebreak) sorts strictly AFTER the current
- * max. The cursor compares lexically — ISO-8601 timestamps and stringified
- * integers both sort correctly that way — and on a tie the tiebreak compares
- * NUMERICALLY, matching the query's `ORDER BY cursorColumn ASC, id ASC` and
- * the integer `id > :cursorTiebreak` predicate (so id 10 sorts after id 9, not
- * before it as a lexical compare would have it).
+ * max. The cursor compares via `compareCursor` (NUMERICALLY for integer
+ * cursors, lexically for ISO-8601 timestamp and string cursors); on a tie the
+ * tiebreak compares NUMERICALLY, matching the query's
+ * `ORDER BY cursorColumn ASC, id ASC` and the integer `id > :cursorTiebreak`
+ * predicate (so id 10 sorts after id 9, not before it as a lexical compare
+ * would have it).
  */
 function cursorAdvances(
   rowCursor: string,
   rowTiebreak: string,
   maxCursor: string,
-  maxTiebreak: string
+  maxTiebreak: string,
+  cursorType: StreamConfig["cursorType"]
 ): boolean {
-  if (maxCursor === "" || rowCursor > maxCursor) return true;
-  if (rowCursor < maxCursor) return false;
+  if (maxCursor === "") return true;
+  const cmp = compareCursor(rowCursor, maxCursor, cursorType);
+  if (cmp > 0) return true;
+  if (cmp < 0) return false;
   return Number(rowTiebreak) > Number(maxTiebreak);
+}
+
+/**
+ * Order two stringified cursor values for the same stream. Integer cursors MUST
+ * compare numerically: stringified integers do NOT sort lexically ("10" < "9"),
+ * so a lexical compare would stall an integer stream the moment its cursor
+ * crossed a power-of-ten boundary (the latent bug Phase 10 fixes; no config
+ * uses `cursorType: integer` today). Timestamp (ISO-8601) and string cursors
+ * are already lexically ordered, so they compare as plain strings. Returns a
+ * negative, zero, or positive number like the standard comparator contract.
+ */
+function compareCursor(
+  a: string,
+  b: string,
+  cursorType: StreamConfig["cursorType"]
+): number {
+  if (cursorType === "integer") {
+    const na = Number(a);
+    const nb = Number(b);
+    if (na < nb) return -1;
+    if (na > nb) return 1;
+    return 0;
+  }
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+// ---------- first-poll value validation (Phase 5) ------------------------
+
+/** Rows sampled from the first poll for value validation. */
+const FIRST_POLL_SAMPLE_SIZE = 25;
+/**
+ * Minimum fraction of sampled rows that must fully normalise for the config to
+ * be accepted. A healthy config normalises ~all rows; a systematic config
+ * error (wrong status codes, mostly-NULL required column) fails ~all of them,
+ * so the gap is wide. The 20% slack tolerates the occasional genuinely-partial
+ * historical row without halting a healthy stream.
+ */
+const MIN_PASS_FRACTION = 0.8;
+/**
+ * Transforms whose silent failure is the corruption this validator exists to
+ * catch: a status code that maps to nothing, a non-numeric / mis-located
+ * amount, a malformed timestamp. When one of these yields undefined the field
+ * is dropped, so we treat it the same as a missing required field.
+ */
+const KEY_TRANSFORMS: ReadonlySet<TransformName> = new Set([
+  "appointmentStatus",
+  "amountToCents",
+  "absAmountToCents",
+  "isoDateTime",
+]);
+const MAX_RAW_SAMPLES_PER_FIELD = 3;
+const RAW_SAMPLE_MAX_LEN = 60;
+
+export interface FirstPollValidation {
+  ok: boolean;
+  sampleSize: number;
+  passingRows: number;
+  threshold: number;
+  issues: ConfigInvalidFieldIssue[];
+}
+
+function transformOf(
+  mapping: FieldMapping | undefined
+): TransformName | undefined {
+  if (mapping && typeof mapping === "object" && "transform" in mapping) {
+    return mapping.transform;
+  }
+  return undefined;
+}
+
+/**
+ * The canonical fields a row must resolve for the config to count it valid:
+ * the always-required envelope, the kind's required fields, plus any field
+ * whose mapping uses a key transform (even if otherwise optional).
+ */
+function fieldsToValidate(stream: StreamConfig): string[] {
+  const out = new Set<string>([
+    ...ALWAYS_REQUIRED,
+    ...REQUIRED_FIELDS_BY_KIND[stream.kind],
+  ]);
+  for (const [field, mapping] of Object.entries(stream.map)) {
+    const transform = transformOf(mapping);
+    if (transform && KEY_TRANSFORMS.has(transform)) out.add(field);
+  }
+  return [...out];
+}
+
+/** The raw source-column value behind a field, for diagnostics. Templates and
+ *  literals have no single source column, so they surface nothing. */
+function rawValueForField(
+  mapping: FieldMapping | undefined,
+  row: Record<string, unknown>
+): unknown {
+  if (mapping === undefined) return undefined;
+  if (typeof mapping === "string") return row[mapping];
+  if (mapping.from) return row[mapping.from];
+  return undefined;
+}
+
+function reasonForField(
+  mapping: FieldMapping | undefined,
+  failed: number,
+  total: number
+): string {
+  const transform = transformOf(mapping);
+  if (transform) {
+    return `Transformation '${transform}' ergab in ${failed}/${total} Stichproben-Zeilen keinen gültigen Wert`;
+  }
+  return `Pflichtfeld in ${failed}/${total} Stichproben-Zeilen leer`;
+}
+
+function truncateRaw(v: unknown): string {
+  const s = v === null || v === undefined ? "<leer>" : String(v);
+  return s.length > RAW_SAMPLE_MAX_LEN
+    ? `${s.slice(0, RAW_SAMPLE_MAX_LEN)}...`
+    : s;
+}
+
+/**
+ * Validate the first poll's row data against the stream's YAML map. Samples up
+ * to FIRST_POLL_SAMPLE_SIZE rows, runs the real normalizer on each, and counts
+ * a row valid only when the envelope resolves (normalizeRow !== null) AND every
+ * field in fieldsToValidate resolves to a defined value. Returns the pass-
+ * fraction verdict plus a per-field issue list (which field, why, sample raw
+ * values) for the health card.
+ *
+ * An empty first poll is accepted (nothing to validate): a table that happens
+ * to be empty right now must not be mistaken for a broken config.
+ */
+function validateFirstPoll(
+  rows: Record<string, unknown>[],
+  ctx: { clinicId: string; vendor: VendorConfig; stream: StreamConfig }
+): FirstPollValidation {
+  const sample = rows.slice(0, FIRST_POLL_SAMPLE_SIZE);
+  const total = sample.length;
+  if (total === 0) {
+    return {
+      ok: true,
+      sampleSize: 0,
+      passingRows: 0,
+      threshold: MIN_PASS_FRACTION,
+      issues: [],
+    };
+  }
+
+  const fields = fieldsToValidate(ctx.stream);
+  const failCount = new Map<string, number>();
+  const rawSamples = new Map<string, Set<string>>();
+  let passingRows = 0;
+
+  for (const row of sample) {
+    // Run the real normalizer (it enforces the envelope null-check);
+    // resolveField then re-derives each tracked field so a miss is attributed
+    // to the exact field rather than blaming the whole row.
+    const event = normalizeRow(row, ctx);
+    let rowOk = event !== null;
+    for (const f of fields) {
+      const mapping = ctx.stream.map[f];
+      const value =
+        mapping === undefined ? undefined : resolveField(mapping, row);
+      if (value === undefined) {
+        rowOk = false;
+        failCount.set(f, (failCount.get(f) ?? 0) + 1);
+        const samples = rawSamples.get(f) ?? new Set<string>();
+        if (samples.size < MAX_RAW_SAMPLES_PER_FIELD) {
+          samples.add(truncateRaw(rawValueForField(mapping, row)));
+        }
+        rawSamples.set(f, samples);
+      }
+    }
+    if (rowOk) passingRows++;
+  }
+
+  const issues: ConfigInvalidFieldIssue[] = [...failCount.entries()].map(
+    ([field, failed]) => ({
+      field,
+      reason: reasonForField(ctx.stream.map[field], failed, total),
+      sampleRawValues: [...(rawSamples.get(field) ?? [])],
+    })
+  );
+  // Worst field first so the health message + UI lead with it.
+  issues.sort(
+    (a, b) => (failCount.get(b.field) ?? 0) - (failCount.get(a.field) ?? 0)
+  );
+
+  return {
+    ok: passingRows / total >= MIN_PASS_FRACTION,
+    sampleSize: total,
+    passingRows,
+    threshold: MIN_PASS_FRACTION,
+    issues,
+  };
 }
 
 function buildDriftReport(
@@ -587,8 +945,13 @@ export const _internal = {
   stringifyCursor,
   columnsMatch,
   cursorAdvances,
+  compareCursor,
   buildDriftReport,
   isSchemaError,
   extractDriftColumns,
+  validateFirstPoll,
+  fieldsToValidate,
+  MIN_PASS_FRACTION,
+  FIRST_POLL_SAMPLE_SIZE,
   SCHEMA_DRIFT_SOURCE,
 };

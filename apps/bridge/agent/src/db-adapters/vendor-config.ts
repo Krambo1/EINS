@@ -1,6 +1,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
+import { BRIDGE_SOURCES, EVENT_KINDS } from "./generated-canonical.js";
 import type {
   CanonicalEventKind,
   FieldMapping,
@@ -30,21 +31,22 @@ import type {
  *   • SQL without :cursor binding (would never advance)
  */
 
-const VALID_KINDS: ReadonlySet<CanonicalEventKind> = new Set([
-  "PatientUpserted",
-  "AppointmentCreated",
-  "AppointmentStatusChanged",
-  "AppointmentCancelled",
-  "EncounterCompleted",
-  "InvoicePaid",
-  "RecallScheduled",
-  "PatientMerged",
-]);
+// Derived from the generated canonical set so a new event kind can never be
+// valid here but unknown to the portal (or vice-versa). EVENT_KINDS is the
+// committed mirror of apps/bridge/src/canonical/schema-source.ts.
+const VALID_KINDS: ReadonlySet<CanonicalEventKind> = new Set(EVENT_KINDS);
+
+// Likewise for bridge sources: deriving from BRIDGE_SOURCES fixes the latent
+// bug where this validator was missing `pabau` and `consentz` (a config
+// stamping either would have been rejected at load even though the portal
+// accepts them).
+const VALID_BRIDGE_SOURCES: ReadonlySet<string> = new Set(BRIDGE_SOURCES);
 
 const VALID_TRANSFORMS: ReadonlySet<TransformName> = new Set([
   "gender",
   "appointmentStatus",
   "amountToCents",
+  "absAmountToCents",
   "integerCents",
   "isoDateTime",
   "isoDate",
@@ -67,7 +69,7 @@ const VALID_DRIVERS: ReadonlySet<string> = new Set([
  * silently drops the event for). Validation refuses configs that don't
  * declare these in `map:`. Optional fields are advisory.
  */
-const REQUIRED_FIELDS_BY_KIND: Record<CanonicalEventKind, string[]> = {
+export const REQUIRED_FIELDS_BY_KIND: Record<CanonicalEventKind, string[]> = {
   PatientUpserted: ["pvsPatientId"],
   AppointmentCreated: ["pvsPatientId", "pvsAppointmentId", "scheduledAt"],
   AppointmentStatusChanged: ["pvsPatientId", "pvsAppointmentId", "newStatus"],
@@ -85,6 +87,16 @@ const REQUIRED_FIELDS_BY_KIND: Record<CanonicalEventKind, string[]> = {
     "amountCents",
     "paidAt",
   ],
+  // pvsAppointmentId is optional for refunds (the derive worker bridges via
+  // invoiceApptIndex on pvsInvoiceId). Adding this entry is forced now because
+  // CanonicalEventKind gained InvoiceRefunded; the InvoiceRefunded DB streams
+  // themselves land in a later phase.
+  InvoiceRefunded: [
+    "pvsPatientId",
+    "pvsInvoiceId",
+    "refundedAmountCents",
+    "refundedAt",
+  ],
   RecallScheduled: ["pvsPatientId", "pvsRecallId", "recallAt"],
   PatientMerged: ["fromPvsPatientId", "toPvsPatientId"],
 };
@@ -96,7 +108,7 @@ const REQUIRED_FIELDS_BY_KIND: Record<CanonicalEventKind, string[]> = {
  * config authors usually copy the same template across streams; future work
  * can default them per-vendor.
  */
-const ALWAYS_REQUIRED: string[] = ["pvsExternalEventId", "occurredAt"];
+export const ALWAYS_REQUIRED: string[] = ["pvsExternalEventId", "occurredAt"];
 
 export class VendorConfigError extends Error {
   constructor(
@@ -185,18 +197,11 @@ function validateConfig(input: unknown, path: string): VendorConfig {
   }
 
   const bridgeSource = stringField(raw, "bridgeSource", path, vendor);
-  if (
-    bridgeSource !== "tomedo" &&
-    bridgeSource !== "healthhub" &&
-    bridgeSource !== "red" &&
-    bridgeSource !== "gdt_agent" &&
-    bridgeSource !== "csv_upload" &&
-    bridgeSource !== "n8n_custom"
-  ) {
+  if (!VALID_BRIDGE_SOURCES.has(bridgeSource)) {
     throw new VendorConfigError(
       vendor,
       path,
-      `bridgeSource '${bridgeSource}' is not a known BridgeSource. The portal route rejects unknown values.`
+      `bridgeSource '${bridgeSource}' is not a known BridgeSource (expected one of: ${BRIDGE_SOURCES.join(", ")}). The portal route rejects unknown values.`
     );
   }
 

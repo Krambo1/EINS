@@ -61,6 +61,17 @@ export interface HeartbeatPayload {
   lastFailureReason: string | null;
   /** Top 10 distinct failure reasons (with counts). */
   recentReasons: Array<{ reason: string; count: number }>;
+  /**
+   * Phase 8: the distinct bridge_sources this agent currently emits. Built
+   * from the enabled DB-adapter vendors (via bridgeSourceForVendor) plus
+   * "gdt_agent" whenever the GDT file-watcher is active. The portal upserts
+   * each into pvs_link_source so the clinic is allowed to emit them; this is
+   * what makes the post-upgrade window lossless, because a freshly
+   * per-vendor-stamped event (e.g. medatixx) would otherwise 409 until the
+   * clinic is enrolled for that source. Bounded by the fixed vendor set
+   * (<= 9 distinct sources); the portal caps the array at 20.
+   */
+  enrolledVendors: string[];
   /** Epoch-ms of when this heartbeat was produced. */
   sentAt: number;
 }

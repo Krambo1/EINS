@@ -90,6 +90,6 @@ Nur Lese-Zugriff. Keine Schreiboperationen.
 * "Field calibration mismatch": Consentz hat keine oeffentliche
   Schema-Dokumentation; die EINS-Bridge protokolliert nicht-zuordenbare
   Felder im Bridge-Log und meldet sie als `pvs_link_health`. Bei
-  Auftreten: Karam pingen (`karam@einsvisuals.de`); 1-Stunden-Fix.
+  Auftreten: Karam pingen (`karam@eins.ag`); 1-Stunden-Fix.
 * Konkrete Fehlersymptome: `apps/bridge/docs/troubleshooting.md`
   Abschnitt "Consentz / Cloud REST".

@@ -31,7 +31,7 @@ export async function setupSubscription(
       const subscription = {
         resourceType: "Subscription",
         status: "requested",
-        reason: `EINS Visuals — ${resType} sync for ROAS attribution`,
+        reason: `EINS: ${resType} sync for ROAS attribution`,
         criteria: `${resType}?_lastUpdated=gt${new Date(0).toISOString()}`,
         channel: {
           type: "rest-hook",

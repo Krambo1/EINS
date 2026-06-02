@@ -9,7 +9,7 @@ Stand: 2026-05.
 | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `no config found. Run --enroll first.`                           | Enrollment wurde nicht durchgefuehrt. Token im Portal generieren und `./eins-agent --enroll <token> --clinic <praxis-uuid>` ausfuehren.                                                                                                                                            |
 | `enrollment failed: portal 401 ...`                              | Der Enrollment-Token ist abgelaufen (24 h Gueltigkeit) oder die `clinic-uuid` passt nicht zum Token. Im Portal einen neuen Token generieren.                                                                                                                                       |
-| LaunchDaemon laeuft nicht, kein `eins-agent`-Prozess auf macOS   | `sudo launchctl list \| grep eins`. Falls leer: `sudo launchctl load -w /Library/LaunchDaemons/com.einsvisuals.agent.plist`. Bei `Bootstrap failed: 5: Input/output error`: `.plist` liegt nicht unter `/Library/LaunchDaemons` oder Owner ist nicht root. Mit `sudo chown root:wheel`. |
+| LaunchDaemon laeuft nicht, kein `eins-agent`-Prozess auf macOS   | `sudo launchctl list \| grep eins`. Falls leer: `sudo launchctl load -w /Library/LaunchDaemons/com.eins.agent.plist`. Bei `Bootstrap failed: 5: Input/output error`: `.plist` liegt nicht unter `/Library/LaunchDaemons` oder Owner ist nicht root. Mit `sudo chown root:wheel`. |
 
 ## 2. Der DB-Adapter laeuft, aber keine Events kommen an
 
@@ -35,7 +35,7 @@ Stand: 2026-05.
 | Symptom in Tomedo Skript-Log                                     | Ursache + Behebung                                                                                                                                                                                                                                                                  |
 | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `HMAC computation failed (openssl missing?)`                     | `/usr/bin/openssl` fehlt oder ist nicht ausfuehrbar. Mit `which openssl` pruefen; auf moderne macOS-Version (Tomedo unterstuetzt 10.13+) updaten oder `brew install openssl` und in der Lua-Datei den Pfad anpassen.                                                                |
-| `POST failed for AppointmentCreated: curl: (6) ...`              | DNS-/Firewall-Problem. Pruefen, ob `portal.einsvisuals.de` ausgehend auf 443 erreichbar ist. Bei Praxis-VLAN: Firewall-Regel ergaenzen.                                                                                                                                            |
+| `POST failed for AppointmentCreated: curl: (6) ...`              | DNS-/Firewall-Problem. Pruefen, ob `portal.eins.ag` ausgehend auf 443 erreichbar ist. Bei Praxis-VLAN: Firewall-Regel ergaenzen.                                                                                                                                            |
 | `POST failed ... invalid_bridge_source` oder `vendor_mismatch`   | `pvs_link.vendor` auf Portal-Seite passt nicht zur `bridgeSource = "tomedo"`-Signatur. Im Portal die Praxis-Integration auf `Tomedo` setzen.                                                                                                                                       |
 | `missing required fields` Warnung                                | Tomedo hat das Row-Schema des Hooks veraendert. Die `pick(row, ...)`-Liste in der betroffenen Hook-Datei um den neuen Feldnamen erweitern.                                                                                                                                         |
 
@@ -91,11 +91,11 @@ Aufmerksamkeit". Pro Stream stehen dort:
 
    ```bash
    # macOS
-   sudo launchctl unload /Library/LaunchDaemons/com.einsvisuals.agent.plist
+   sudo launchctl unload /Library/LaunchDaemons/com.eins.agent.plist
    sqlite3 ~/Library/Application\ Support/EINS-Agent/outbox.sqlite \
      "UPDATE db_adapter_state SET status='idle', column_snapshot=NULL
       WHERE vendor_id='<vendor>' AND stream_kind='<StreamKind>';"
-   sudo launchctl load -w /Library/LaunchDaemons/com.einsvisuals.agent.plist
+   sudo launchctl load -w /Library/LaunchDaemons/com.eins.agent.plist
    ```
 
    Auf Windows:
@@ -156,14 +156,14 @@ Sollten Cursors korrupt sein und ein Full-Reset noetig:
 
 ```bash
 # Stoppt den Agent
-sudo launchctl unload /Library/LaunchDaemons/com.einsvisuals.agent.plist
+sudo launchctl unload /Library/LaunchDaemons/com.eins.agent.plist
 
 # Loescht die DB-Adapter-Cursors (NICHT die Outbox; ungesendete Events bleiben).
 sqlite3 ~/Library/Application\ Support/EINS-Agent/outbox.sqlite \
   "DELETE FROM db_adapter_state;"
 
 # Startet neu, alle Streams beginnen wieder bei Epoch
-sudo launchctl load -w /Library/LaunchDaemons/com.einsvisuals.agent.plist
+sudo launchctl load -w /Library/LaunchDaemons/com.eins.agent.plist
 ```
 
 Vorsicht: Der erste Poll nach Reset wiederholt alle Events seit 1970-
@@ -227,7 +227,7 @@ Praxis-Sprechzeiten ausfuehren.
 | `consentz health 401/403/...` (drei Stufen)                       | Token ist abgelaufen oder hat zu wenige Scopes. Consentz-Support kontaktieren (`support@consentz.com`) und einen neuen Token mit Scope `clients,appointments,treatment-notes,payments,recalls` anfordern. |
 | `consentz health 404/404/...`                                     | `consentzEndpoint` zeigt auf eine alte Tenant-URL. Consentz hat den Tenant verschoben. Im Support-Ticket nach der neuen Base URL fragen und im Portal aktualisieren. |
 | `consentz GET /clients page=N 429`                                | Rate-Limit; Bridge backed off automatisch. Bei wiederholtem Auftreten ist die Consentz-Plan-Quote ausgeschoepft; Support kontaktieren. |
-| `Field calibration mismatch` im Bridge-Log                        | Consentz hat keine oeffentliche Schema-Dokumentation; die Bridge protokolliert nicht-zuordenbare Felder als `pvs_link_health`-Event. Karam (`karam@einsvisuals.de`) pingen; 1-Stunden-Fix in `apps/bridge/src/adapters/consentz/normalize.ts`. |
+| `Field calibration mismatch` im Bridge-Log                        | Consentz hat keine oeffentliche Schema-Dokumentation; die Bridge protokolliert nicht-zuordenbare Felder als `pvs_link_health`-Event. Karam (`karam@eins.ag`) pingen; 1-Stunden-Fix in `apps/bridge/src/adapters/consentz/normalize.ts`. |
 | Keine Events trotz erfolgreichem Healthcheck                       | Consentz schickt Events ueber `updated_since`; manche Tenants nennen den Parameter `modified_since`. Karam pingen; Adapter-Patch in `apps/bridge/src/adapters/consentz/client.ts` Zeile `updated_since=`. |
 
 ### 8.7 Oracle (CGM M1 PRO Oracle-Installationen)
@@ -261,5 +261,5 @@ Wenn keine der obigen Massnahmen hilft:
 
 * Im Portal: Einstellungen → Integrationen → PVS → "Diagnose-Pack
   herunterladen". Datei enthaelt sanitisierte Logs (PII entfernt) und
-  Agent-State-Auszug. An `support@einsvisuals.de` schicken.
+  Agent-State-Auszug. An `support@eins.ag` schicken.
 * Antwort-SLA: 1 Werktag im Wartungsfenster (Mo-Fr 9-18 Uhr).

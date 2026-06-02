@@ -68,7 +68,9 @@ beforeEach(() => {
       missing TEXT NOT NULL,
       added TEXT NOT NULL,
       detected_at INTEGER NOT NULL,
-      reported_to_portal INTEGER NOT NULL DEFAULT 0
+      reported_to_portal INTEGER NOT NULL DEFAULT 0,
+      report_kind TEXT NOT NULL DEFAULT 'schema_drift',
+      detail TEXT
     );
   `);
   _setStateDbForTesting(handle);
@@ -365,12 +367,22 @@ describe("integration: pg-mem driven Tomedo poll", () => {
       password: "x",
     });
 
-    // Replace the seed with one fat cluster: 7 patients that all carry the
+    // Replace the seed with one fat cluster of patients that ALL carry the
     // EXACT same modified_at (a bulk import stamps one transaction timestamp
-    // on every row). 7 > batchSize 3, so the cluster spans batch boundaries.
+    // on every row), using MIXED-DIGIT-LENGTH ids 9, 10, 11, ..., 100. The
+    // mixed lengths are what make this test discriminating: the PK is aliased
+    // `id::text AS id`, so a bare `id` in ORDER BY would bind to that TEXT
+    // alias and sort LEXICALLY ("100" right after "10", "9" near the end)
+    // while the framework advances the tiebreak NUMERICALLY. Under that
+    // mismatch the numeric cursor leaps past the lexically-early ids and the
+    // rest are never re-read. The old 101-107 seed (all 3-digit) could not
+    // expose this, because for equal-length ids lexical order == numeric
+    // order. 92 rows also far exceeds batchSize 3, so the cluster spans many
+    // batch boundaries.
     memDb.public.none(`DELETE FROM patient;`);
     const ts = "2026-07-01 00:00:00";
-    const ids = [101, 102, 103, 104, 105, 106, 107];
+    const ids: number[] = [];
+    for (let id = 9; id <= 100; id++) ids.push(id);
     for (const id of ids) {
       memDb.public.none(
         `INSERT INTO patient (id, vorname, nachname, email, telefon_mobil, geburtsdatum, geschlecht, bemerkung, modified_at)
@@ -379,9 +391,11 @@ describe("integration: pg-mem driven Tomedo poll", () => {
     }
 
     const seen: string[] = [];
-    // Drain until a poll emits nothing. The iteration cap is a livelock guard:
-    // a regression that re-reads the cluster without advancing would spin here.
-    for (let i = 0; i < 20; i++) {
+    // Drain until a poll emits nothing. 92 rows / batchSize 3 = 31 polls plus
+    // one empty poll to stop; the cap sits well above that purely as a
+    // livelock guard: a regression that re-reads the cluster without advancing
+    // the cursor would spin here instead of hanging the suite.
+    for (let i = 0; i < 64; i++) {
       const out = await pollOnce({
         clinicId: "c1",
         vendor: smallBatch,
@@ -396,6 +410,83 @@ describe("integration: pg-mem driven Tomedo poll", () => {
     // no duplicate from re-reading the cluster (>= over-correction).
     expect(seen.slice().sort()).toEqual(ids.map(String).sort());
     expect(new Set(seen).size).toBe(ids.length);
+
+    await driver.close();
+  });
+
+  // Phase 9: the InvoiceRefunded stream. A Storno / Gutschrift must emit a
+  // refund event with a POSITIVE refundedAmountCents (ABS in SQL, because
+  // amountToCents rejects negatives), pick up both storno conventions (a
+  // negative betrag, or a storno-status row), stay disjoint from InvoicePaid,
+  // and leave appt-less refunds without a pvsAppointmentId (the derive worker
+  // bridges those via the original invoice id). Driven through the real
+  // PostgresDriver against pg-mem so the ABS()/IN()/keyset SQL is parsed and
+  // executed, not just validated as a string.
+  it("emits InvoiceRefunded with a positive magnitude, disjoint from InvoicePaid", async () => {
+    const vendor = await loadVendorConfigFile(TOMEDO_YAML);
+    const refundStream = vendor.streams.find((s) => s.kind === "InvoiceRefunded")!;
+
+    // Alongside the seeded paid invoice 5001 (betrag 450, status 'bezahlt'):
+    //   6001 = a Gutschrift stored as a NEGATIVE betrag, linked to appt 777
+    //   6002 = a 'storniert' row with a POSITIVE betrag and NO appointment
+    memDb.public.none(`
+      INSERT INTO rechnung (id, patient_id, termin_id, behandlung_id, betrag, bezahlt_am, status, modified_at)
+      VALUES
+        (6001, 42, 777, 901, -450.00, NULL, 'gutschrift', '2026-05-26 09:00:00'),
+        (6002, 42, NULL, NULL, 120.00, NULL, 'storniert', '2026-05-27 09:00:00');
+    `);
+
+    const driver = new PostgresDriver();
+    await driver.connect({
+      host: "127.0.0.1",
+      port: 5432,
+      database: "tomedo",
+      username: "readonly",
+      password: "x",
+    });
+
+    const refunds: CanonicalEventBase[] = [];
+    const out = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: refundStream,
+      driver,
+      sink: (e) => refunds.push(e),
+    });
+
+    expect(out.emitted).toBe(2);
+    const byInvoice = new Map(refunds.map((e) => [String(e.pvsInvoiceId), e]));
+
+    // Negative-betrag Gutschrift -> positive magnitude, appointment carried.
+    const g = byInvoice.get("6001")!;
+    expect(g.kind).toBe("InvoiceRefunded");
+    expect(g.refundedAmountCents).toBe(45000);
+    expect(g.pvsAppointmentId).toBe("777");
+    expect(typeof g.refundedAt).toBe("string");
+    // Distinct external-id namespace so a refund can't collide with the paid
+    // event for the same invoice id.
+    expect(String(g.pvsExternalEventId).startsWith("tomedo:refund:")).toBe(true);
+
+    // Storno on a positive betrag with no appointment -> magnitude still
+    // positive, pvsAppointmentId omitted (optional; worker bridges via invoice).
+    const s = byInvoice.get("6002")!;
+    expect(s.refundedAmountCents).toBe(12000);
+    expect(s.pvsAppointmentId).toBeUndefined();
+
+    // The paid invoice 5001 must NOT leak into the refund stream.
+    expect(refunds.some((e) => String(e.pvsInvoiceId) === "5001")).toBe(false);
+
+    // Cursor advanced past both storno rows: a second poll is empty.
+    const second = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: refundStream,
+      driver,
+      sink: () => {
+        throw new Error("second refund poll must emit nothing");
+      },
+    });
+    expect(second.emitted).toBe(0);
 
     await driver.close();
   });

@@ -41,6 +41,19 @@ connection:
   database: tomedo
   options: {}
 
+# Keyset pagination (Phase 4 / review finding 6): every stream pages by
+# (modified_at, primary key) so a cluster of rows sharing one modified_at
+# can never be split across a batch boundary. Each stream aliases the PK as
+# `id::text AS id` for the canonical event, and in Postgres a bare `id` in
+# ORDER BY binds to that TEXT output alias and sorts LEXICALLY ("10" < "9").
+# That would skip rows, because the framework advances the tiebreak
+# NUMERICALLY (framework.ts cursorAdvances plus the `id > :cursorTiebreak`
+# predicate): the lexical ORDER BY would return "10","11" before "9", the
+# numeric cursor would jump to 11, and id 9 would never be re-read. We
+# therefore qualify the tiebreak as `<table>.id` so the predicate and the
+# ORDER BY both compare the raw INTEGER PK column, not the text alias.
+# Assumes `id` is numeric and monotonic per install.
+
 streams:
   # ----- 1. Patients -------------------------------------------------------
   # Emits PatientUpserted per modified row. Re-poll of a patient whose
@@ -63,8 +76,8 @@ streams:
         bemerkung         AS bemerkung,
         modified_at       AS modified_at
       FROM patient
-      WHERE (modified_at > :cursor OR (modified_at = :cursor AND id > :cursorTiebreak))
-      ORDER BY modified_at ASC, id ASC
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND patient.id > :cursorTiebreak))
+      ORDER BY modified_at ASC, patient.id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "tomedo:patient:{id}:{modified_at}" }
@@ -99,8 +112,8 @@ streams:
         kommentar         AS kommentar,
         modified_at       AS modified_at
       FROM termin
-      WHERE (modified_at > :cursor OR (modified_at = :cursor AND id > :cursorTiebreak))
-      ORDER BY modified_at ASC, id ASC
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND termin.id > :cursorTiebreak))
+      ORDER BY modified_at ASC, termin.id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "tomedo:appointment:{id}" }
@@ -130,9 +143,9 @@ streams:
         status           AS status,
         modified_at      AS modified_at
       FROM termin
-      WHERE (modified_at > :cursor OR (modified_at = :cursor AND id > :cursorTiebreak))
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND termin.id > :cursorTiebreak))
         AND status IS NOT NULL
-      ORDER BY modified_at ASC, id ASC
+      ORDER BY modified_at ASC, termin.id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "tomedo:appointment-status:{id}:{status}:{modified_at}" }
@@ -162,9 +175,9 @@ streams:
         behandler_name            AS behandler_name,
         modified_at               AS modified_at
       FROM behandlung
-      WHERE (modified_at > :cursor OR (modified_at = :cursor AND id > :cursorTiebreak))
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND behandlung.id > :cursorTiebreak))
         AND termin_id IS NOT NULL
-      ORDER BY modified_at ASC, id ASC
+      ORDER BY modified_at ASC, behandlung.id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "tomedo:encounter:{id}" }
@@ -197,10 +210,10 @@ streams:
         status                   AS status,
         modified_at              AS modified_at
       FROM rechnung
-      WHERE (modified_at > :cursor OR (modified_at = :cursor AND id > :cursorTiebreak))
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND rechnung.id > :cursorTiebreak))
         AND status = 'bezahlt'
         AND termin_id IS NOT NULL
-      ORDER BY modified_at ASC, id ASC
+      ORDER BY modified_at ASC, rechnung.id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "tomedo:invoice:{id}" }
@@ -231,14 +244,61 @@ streams:
         behandlung_name   AS behandlung_name,
         modified_at       AS modified_at
       FROM recall
-      WHERE (modified_at > :cursor OR (modified_at = :cursor AND id > :cursorTiebreak))
-      ORDER BY modified_at ASC, id ASC
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND recall.id > :cursorTiebreak))
+      ORDER BY modified_at ASC, recall.id ASC
       LIMIT :limit
     map:
       pvsExternalEventId: { template: "tomedo:recall:{id}" }
-      occurredAt: { from: recall_zeit, transform: isoDateTime }
+      # occurredAt is the scheduling moment (modified_at), NOT the future recall
+      # target (recall_zeit). This matches the REST adapter (normalize.ts
+      # RecallScheduled) so the two paths produce the same dedup tuple, and is
+      # the correct "when did this event happen" semantic. recallAt keeps the
+      # target time. See apps/bridge/src/adapters/tomedo/event-identity.ts.
+      occurredAt: { from: modified_at, transform: isoDateTime }
       pvsPatientId: patient_id
       pvsRecallId: id
       recallAt: { from: recall_zeit, transform: isoDateTime }
       treatmentCode: behandlung_code
       treatmentLabel: behandlung_name
+
+  # ----- 7. Invoice refunds / storno / Gutschrift (Phase 9) --------------
+  # InvoiceRefunded: money OUT, one event per Storno / Gutschrift row, so the
+  # derive worker nets the patient total + appointment bucket back down and the
+  # P2-3 downgrade alarm catches a gewonnen -> lower flip. refundedAmountCents
+  # must be a POSITIVE magnitude (the portal Zod rejects negatives), so it maps
+  # through the absAmountToCents transform: the amount may arrive as a negative
+  # betrag (a credit) or a positive amount on a storno-status row, and either
+  # way the magnitude is taken. Inherits Phase 3 (Date bind) +
+  # Phase 4 (keyset). No termin_id-NOT-NULL filter: an appt-less refund still
+  # nets the patient total (derive bridges via the original invoice id).
+  # SCHEMA-DISCOVERY DRAFT: storno predicate (betrag < 0 OR status in
+  # storniert/gutschrift) + refundedAt source (modified_at) are guesses;
+  # disjoint from InvoicePaid (status = 'bezahlt') by construction.
+  # Cancellations stay on stream 3 (AppointmentStatusChanged -> cancelled); no
+  # AppointmentCancelled stream until a real schema separates patient- vs
+  # Praxis-side cancel.
+  - kind: InvoiceRefunded
+    cursorColumn: modified_at
+    cursorType: timestamp
+    tiebreakColumn: id
+    query: |
+      SELECT
+        id::text                 AS id,
+        patient_id::text         AS patient_id,
+        termin_id::text          AS termin_id,
+        betrag                   AS betrag,
+        status                   AS status,
+        modified_at              AS modified_at
+      FROM rechnung
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND rechnung.id > :cursorTiebreak))
+        AND (betrag < 0 OR status IN ('storniert', 'gutschrift'))
+      ORDER BY modified_at ASC, rechnung.id ASC
+      LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "tomedo:refund:{id}:{modified_at}" }
+      occurredAt: { from: modified_at, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsInvoiceId: id
+      pvsAppointmentId: termin_id
+      refundedAmountCents: { from: betrag, transform: absAmountToCents }
+      refundedAt: { from: modified_at, transform: isoDateTime }

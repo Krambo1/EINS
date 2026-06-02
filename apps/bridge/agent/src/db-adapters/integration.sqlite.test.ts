@@ -120,7 +120,9 @@ beforeEach(() => {
       missing TEXT NOT NULL,
       added TEXT NOT NULL,
       detected_at INTEGER NOT NULL,
-      reported_to_portal INTEGER NOT NULL DEFAULT 0
+      reported_to_portal INTEGER NOT NULL DEFAULT 0,
+      report_kind TEXT NOT NULL DEFAULT 'schema_drift',
+      detail TEXT
     );
   `);
   _setStateDbForTesting(handle);
@@ -156,7 +158,7 @@ describe("integration: Pixelmedics SQLite end-to-end", () => {
     expect(outcome.emitted).toBe(1);
     const ev = collected[0];
     expect(ev.kind).toBe("AppointmentCreated");
-    expect(ev.bridgeSource).toBe("gdt_agent");
+    expect(ev.bridgeSource).toBe("pixelmedics");
     expect(ev.pvsExternalEventId).toBe("pixelmedics:appointment:200");
     expect(ev.pvsAppointmentId).toBe("200");
     expect(ev.pvsPatientId).toBe("10");
@@ -209,6 +211,53 @@ describe("integration: Pixelmedics SQLite end-to-end", () => {
     const second = await pollOnce({ clinicId: "c1", vendor, stream, driver, sink: () => void 0 });
     expect(second.emitted).toBe(0);
     expect(second.newCursor).toBe(first.newCursor);
+    await driver.close();
+  });
+
+  // Phase 9: InvoiceRefunded against the real SQLite engine. Proves abs() and
+  // the storno predicate actually run in better-sqlite3, the magnitude comes
+  // out positive, and an appt-less credit still emits (pvsAppointmentId
+  // omitted; the derive worker bridges it via the original invoice id).
+  it("emits InvoiceRefunded with a positive magnitude from credit rows", async () => {
+    // Add a negative-amount credit (linked to appt 200) and a 'credited' row
+    // with a positive amount and no appointment, beside the paid invoice 5000.
+    const seed = new BetterSqlite3(dbPath);
+    seed.exec(`
+      INSERT INTO invoices (id, patient_id, appointment_id, encounter_id, amount_total, paid_at, status, modified_at)
+      VALUES
+        (5100, 10, 200, NULL, -120.0, NULL, 'refunded', '2026-06-05T09:00:00.000Z'),
+        (5101, 10, NULL, NULL, 80.0, NULL, 'credited', '2026-06-06T09:00:00.000Z');
+    `);
+    seed.close();
+
+    const vendor = await loadVendorConfigFile(PIXEL_YAML);
+    const stream = vendor.streams.find((s) => s.kind === "InvoiceRefunded")!;
+    const driver = new SqliteDriver();
+    await driver.connect({
+      host: "",
+      port: 0,
+      database: dbPath,
+      username: "",
+      password: "",
+    });
+
+    const refunds: CanonicalEventBase[] = [];
+    const out = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream,
+      driver,
+      sink: (e) => refunds.push(e),
+    });
+
+    expect(out.emitted).toBe(2);
+    const byInvoice = new Map(refunds.map((e) => [String(e.pvsInvoiceId), e]));
+    expect(byInvoice.get("5100")!.refundedAmountCents).toBe(12000); // abs(-120)
+    expect(byInvoice.get("5100")!.pvsAppointmentId).toBe("200");
+    expect(byInvoice.get("5101")!.refundedAmountCents).toBe(8000);
+    expect(byInvoice.get("5101")!.pvsAppointmentId).toBeUndefined();
+    // The paid invoice 5000 stays out of the refund stream.
+    expect(refunds.some((e) => String(e.pvsInvoiceId) === "5000")).toBe(false);
     await driver.close();
   });
 });

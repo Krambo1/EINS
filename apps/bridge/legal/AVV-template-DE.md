@@ -108,7 +108,7 @@ Der Auftragsverarbeiter verarbeitet personenbezogene Daten ausschließlich auf d
 
 ### 4.2 Weisungsempfänger:innen bei EINS
 
-Weisungen sind zu richten an: privacy@einsvisuals.de oder schriftlich an die in der Präambel genannte Anschrift.
+Weisungen sind zu richten an: privacy@eins.ag oder schriftlich an die in der Präambel genannte Anschrift.
 
 ### 4.3 Hinweispflicht des Auftragsverarbeiters
 
@@ -140,7 +140,7 @@ EINS informiert den Auftraggeber unverzüglich, spätestens jedoch innerhalb von
 
 ### 5.6 Datenschutzbeauftragte:r
 
-EINS hat eine:n Datenschutzbeauftragte:n bestellt, erreichbar unter datenschutz@einsvisuals.de.
+EINS hat eine:n Datenschutzbeauftragte:n bestellt, erreichbar unter datenschutz@eins.ag.
 
 ---
 

@@ -125,11 +125,14 @@ export class PostgresDriver implements DbDriver {
 
   async query(
     sql: string,
-    params: Record<string, string | number>
+    params: Record<string, string | number | Date>
   ): Promise<QueryResult> {
     if (!this.client || !this.healthy) {
       await this.connect(this.params!);
     }
+    // A Date param flows straight through to `pg`, which serialises it to a
+    // Postgres timestamp on the wire. Timestamp cursors are bound as Date
+    // (framework Phase 3); strings/numbers pass through unchanged.
     const { translated, values } = translateNamedToPositional(sql, params);
     const result = await this.client!.query(translated, values);
     return {
@@ -179,7 +182,7 @@ export class PostgresDriver implements DbDriver {
  */
 export function translateNamedToPositional(
   sql: string,
-  params: Record<string, string | number>
+  params: Record<string, string | number | Date>
 ): { translated: string; values: unknown[] } {
   const values: unknown[] = [];
   const translated = sql.replace(/(?<!:):([a-zA-Z_][a-zA-Z0-9_]*)/g, (_match, name) => {

@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { tmpdir } from "node:os";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import PlaintextDatabase from "better-sqlite3";
 
@@ -33,6 +40,39 @@ vi.mock("./config.js", () => ({
 }));
 
 let outbox: typeof import("./outbox");
+
+/** Seed a pre-P3-4 plaintext outbox at `path` with one 'pending' row (h-1). */
+function seedLegacyOutbox(path: string): void {
+  const legacy = new PlaintextDatabase(path);
+  legacy.exec(`
+    CREATE TABLE outbox (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      payload TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      next_attempt_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      UNIQUE(content_hash)
+    );
+  `);
+  legacy
+    .prepare(
+      `INSERT INTO outbox (payload, content_hash, status, attempt_count, last_error, next_attempt_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      '{"kind":"PatientUpserted","pvsPatientId":"P-1"}',
+      "h-1",
+      "pending",
+      0,
+      null,
+      1_000,
+      1_000
+    );
+  legacy.close();
+}
 
 beforeEach(async () => {
   tempDir = mkdtempSync(join(tmpdir(), "eins-outbox-enc-"));
@@ -284,5 +324,51 @@ describe("legacy plaintext migration (P3-4)", () => {
     outbox.setOutboxKey(TEST_KEY_HEX);
     const rows = outbox.dueRows(10);
     expect(rows.map((r) => r.id).sort((a, b) => a - b)).toEqual([100, 101]);
+  });
+
+  it("leaves no .migrating temp file behind after a successful migration", () => {
+    const path = join(tempDir, "outbox.sqlite");
+    seedLegacyOutbox(path);
+
+    outbox.setOutboxKey(TEST_KEY_HEX);
+    expect(outbox.dueRows(10)).toHaveLength(1); // triggers the migration
+
+    // The atomic rename consumes the temp file; nothing matching *.migrating
+    // should remain next to the canonical outbox.
+    const siblings = readdirSync(tempDir);
+    expect(siblings.some((n) => n.includes(".migrating"))).toBe(false);
+  });
+
+  it("clears a stale .migrating temp from a crashed attempt and still migrates", () => {
+    const path = join(tempDir, "outbox.sqlite");
+    seedLegacyOutbox(path);
+
+    // Simulate a half-written temp left by a process that died mid-migration.
+    // Without the pre-rebuild cleanup, the keyed open of this non-SQLite junk
+    // would throw, bricking the retry. The temp suffix is an internal detail of
+    // migrateLegacyToEncrypted.
+    writeFileSync(`${path}.migrating`, "not a database, leftover junk");
+
+    outbox.setOutboxKey(TEST_KEY_HEX);
+    const rows = outbox.dueRows(10);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.contentHash).toBe("h-1");
+
+    // Final state: encrypted canonical file (not plaintext-readable), a legacy
+    // backup, and no lingering temp.
+    const probe = new PlaintextDatabase(path);
+    let probeErr: Error | null = null;
+    try {
+      probe.prepare("SELECT count(*) FROM outbox").get();
+    } catch (err) {
+      probeErr = err as Error;
+    } finally {
+      probe.close();
+    }
+    expect(probeErr).not.toBeNull();
+
+    const siblings = readdirSync(tempDir);
+    expect(siblings.some((n) => /\.legacy-\d+$/.test(n))).toBe(true);
+    expect(siblings.some((n) => n.includes(".migrating"))).toBe(false);
   });
 });
