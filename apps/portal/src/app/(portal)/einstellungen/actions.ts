@@ -432,7 +432,7 @@ export async function archiveLocationAction(formData: FormData) {
 }
 
 // ============================================================
-// EINS Stimme — Bewertungen & Reputation settings
+// EINS Bewertungen — Bewertungen & Reputation settings
 // ============================================================
 
 /** Cookie that flashes a freshly-rotated HMAC secret to the next page render. */
@@ -467,6 +467,10 @@ export async function updateReviewSettingsAction(formData: FormData) {
           (v) => v === "on" || v === "true" || v === true,
           z.boolean()
         ),
+        reviewConsentAttested: z.preprocess(
+          (v) => v === "on" || v === "true" || v === true,
+          z.boolean()
+        ),
         googleReviewUrl: ReviewUrlSchema.optional().or(z.literal("")),
         jamedaReviewUrl: ReviewUrlSchema.optional().or(z.literal("")),
         reviewLandingOrigin: ReviewUrlSchema.optional().or(z.literal("")),
@@ -482,6 +486,8 @@ export async function updateReviewSettingsAction(formData: FormData) {
       })
       .parse({
         reviewRequestEnabled: formData.get("reviewRequestEnabled") ?? "false",
+        reviewConsentAttested:
+          formData.get("reviewConsentAttested") ?? "false",
         googleReviewUrl: formData.get("googleReviewUrl") ?? undefined,
         jamedaReviewUrl: formData.get("jamedaReviewUrl") ?? undefined,
         reviewLandingOrigin: formData.get("reviewLandingOrigin") ?? undefined,
@@ -509,6 +515,7 @@ export async function updateReviewSettingsAction(formData: FormData) {
         .update(schema.clinics)
         .set({
           reviewRequestEnabled: input.reviewRequestEnabled,
+          reviewConsentAttested: input.reviewConsentAttested,
           googleReviewUrl: input.googleReviewUrl || null,
           jamedaReviewUrl: input.jamedaReviewUrl || null,
           reviewLandingOrigin: input.reviewLandingOrigin || null,
@@ -528,6 +535,7 @@ export async function updateReviewSettingsAction(formData: FormData) {
       entityKind: "clinic_review_settings",
       diff: {
         reviewRequestEnabled: input.reviewRequestEnabled,
+        reviewConsentAttested: input.reviewConsentAttested,
         hasGoogleUrl: Boolean(input.googleReviewUrl),
         hasJamedaUrl: Boolean(input.jamedaReviewUrl),
         hasGooglePlaceId: Boolean(input.googlePlaceId),

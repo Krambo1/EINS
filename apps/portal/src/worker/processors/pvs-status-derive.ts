@@ -2,6 +2,7 @@ import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { enqueueInvoiceConversions } from "@/server/ads-conversion-outbox";
 import { enqueueKpiRebuild } from "@/server/jobs";
+import { scheduleReviewRequest } from "@/server/patient-events";
 import type { PvsEvent } from "@/server/pvs-events";
 
 /**
@@ -659,6 +660,14 @@ async function applyAppointmentBuckets(
       );
       if (applied) {
         await fanoutInvoiceConversions(clinicId, linked.id, bucket);
+        if (bucket.completedAt) {
+          await maybeScheduleReviewForCompletedEncounter({
+            clinicId,
+            portalPatientId,
+            requestId: linked.id,
+            bucket,
+          });
+        }
       }
       continue;
     }
@@ -690,6 +699,14 @@ async function applyAppointmentBuckets(
       );
       if (applied) {
         await fanoutInvoiceConversions(clinicId, attachable.id, bucket);
+        if (bucket.completedAt) {
+          await maybeScheduleReviewForCompletedEncounter({
+            clinicId,
+            portalPatientId,
+            requestId: attachable.id,
+            bucket,
+          });
+        }
       }
       continue;
     }
@@ -906,5 +923,114 @@ async function fanoutInvoiceConversions(
       );
       // Swallow — request update already committed; reconcile job will retry.
     }
+  }
+}
+
+// ---------------------------------------------------------------
+// EINS Bewertungen — schedule a review when a PVS encounter completes
+// ---------------------------------------------------------------
+
+/**
+ * Schedule a post-visit review-request when a PVS encounter has completed.
+ * Called from applyAppointmentBuckets after a bucket carrying `completedAt`
+ * has been applied to its request.
+ *
+ * Three PVS-specific concerns the Make.com webhook path does not have:
+ *   1. Email — PVS canonical events are pseudonymized and carry no address.
+ *      We resolve it from the EINS lead linkage: the request's contactEmail
+ *      (captured at lead intake), falling back to the linked patient row. A
+ *      walk-in with no EINS lead has neither, so we SKIP silently — never
+ *      invent an address. This is what scopes EINS Bewertungen to EINS-attributed
+ *      patients.
+ *   2. Consent — the stream carries no per-event consent, so we gate on the
+ *      per-Praxis attestation `clinics.review_consent_attested` (HWG model,
+ *      §7 UWG Abs. 3 Nr. 4) in addition to the master switch
+ *      `reviewRequestEnabled`.
+ *   3. Idempotency — handled inside scheduleReviewRequest (per-appointment
+ *      pre-check + the 0058 unique index), so a re-derived encounter never
+ *      schedules a second email.
+ *
+ * Best-effort: a failure here MUST NOT roll back the status derivation above
+ * ("PVS gewinnt immer"). The next derive run retries idempotently.
+ *
+ * Exported for unit tests (pvs-review-schedule.test.ts).
+ */
+export async function maybeScheduleReviewForCompletedEncounter(args: {
+  clinicId: string;
+  portalPatientId: string;
+  requestId: string;
+  bucket: AppointmentBucket;
+}): Promise<void> {
+  const { clinicId, portalPatientId, requestId, bucket } = args;
+  try {
+    // Gate on BOTH the master switch and the HWG attestation.
+    const [clinic] = await db
+      .select({
+        reviewRequestEnabled: schema.clinics.reviewRequestEnabled,
+        reviewConsentAttested: schema.clinics.reviewConsentAttested,
+        reviewRequestDelayDays: schema.clinics.reviewRequestDelayDays,
+      })
+      .from(schema.clinics)
+      .where(eq(schema.clinics.id, clinicId))
+      .limit(1);
+    if (
+      !clinic ||
+      !clinic.reviewRequestEnabled ||
+      !clinic.reviewConsentAttested
+    ) {
+      return;
+    }
+
+    // Resolve the patient email from the EINS lead linkage. Prefer the email
+    // captured on the request at lead intake; fall back to the linked patient.
+    const [reqRow] = await db
+      .select({
+        contactEmail: schema.requests.contactEmail,
+        contactName: schema.requests.contactName,
+      })
+      .from(schema.requests)
+      .where(eq(schema.requests.id, requestId))
+      .limit(1);
+
+    let email = reqRow?.contactEmail?.trim() ?? "";
+    let patientName: string | null = reqRow?.contactName ?? null;
+
+    if (!email) {
+      const [pat] = await db
+        .select({
+          email: schema.patients.email,
+          fullName: schema.patients.fullName,
+        })
+        .from(schema.patients)
+        .where(eq(schema.patients.id, portalPatientId))
+        .limit(1);
+      email = pat?.email?.trim() ?? "";
+      patientName = patientName ?? pat?.fullName ?? null;
+    }
+
+    if (!email) {
+      // Walk-in / no EINS lead — correctly out of scope for EINS Bewertungen.
+      return;
+    }
+
+    await scheduleReviewRequest({
+      clinicId,
+      patientId: portalPatientId,
+      email,
+      patientName,
+      treatmentLabel: bucket.treatmentLabel,
+      completedAt: bucket.completedAt,
+      delayDays: clinic.reviewRequestDelayDays,
+      requestId,
+      pvsAppointmentId: bucket.pvsAppointmentId,
+      pvsEncounterId: bucket.pvsEncounterId,
+    });
+  } catch (err) {
+    console.error(
+      `[pvs-status-derive] review scheduling failed (clinic=${clinicId}, request=${requestId}, appt=${bucket.pvsAppointmentId}):`,
+      err
+    );
+    // Swallow — request status already committed; review scheduling is
+    // best-effort and the next derive re-run will retry (idempotent).
   }
 }

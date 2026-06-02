@@ -23,6 +23,7 @@ import {
   inet,
   check,
   index,
+  uniqueIndex,
   customType,
   pgEnum,
   type AnyPgColumn,
@@ -72,7 +73,7 @@ export const clinics = pgTable("clinics", {
   hwgContactName: text("hwg_contact_name"),
   hwgContactEmail: text("hwg_contact_email"),
   locations: jsonb("locations").default(sql`'[]'::jsonb`),
-  // --- EINS Stimme (post-visit review request engine) ---
+  // --- EINS Bewertungen (post-visit review request engine) ---
   /** Public review URL for Google (or Google Business Profile place form). */
   googleReviewUrl: text("google_review_url"),
   /** Public review URL for Jameda. */
@@ -87,6 +88,17 @@ export const clinics = pgTable("clinics", {
     .default(3),
   /** Master switch: when false, /api/patients/events refuses to schedule sends. */
   reviewRequestEnabled: boolean("review_request_enabled")
+    .notNull()
+    .default(false),
+  /**
+   * Per-Praxis HWG attestation: the owner confirms they inform patients at
+   * intake that a post-visit review email may follow (§7 UWG Abs. 3 Nr. 4,
+   * see apps/portal/docs/eins-bewertungen.md). The PVS stream carries no per-event
+   * consent (events are pseudonymized), so the pvs-status-derive worker only
+   * schedules a review when this is true. The Make.com webhook keeps its own
+   * per-event reviewConsent and is unaffected. Default false (migration 0058).
+   */
+  reviewConsentAttested: boolean("review_consent_attested")
     .notNull()
     .default(false),
   /** Origin used to render rating-token links in patient emails (`https://praxis-X.de`). */
@@ -464,7 +476,7 @@ export const reviewEmailSchedule = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
-    // --- EINS Stimme (kind = 'review_request') ---
+    // --- EINS Bewertungen (kind = 'review_request') ---
     /** Random 32-byte opaque token; embedded in the patient email URL. */
     reviewToken: text("review_token").unique(),
     /**
@@ -494,6 +506,16 @@ export const reviewEmailSchedule = pgTable(
     publicClickedPlatform: text("public_clicked_platform"),
     /** Set when patient submits the private feedback form. */
     feedbackAt: timestamp("feedback_at", { withTimezone: true }),
+    // --- PVS-bridge-driven scheduling (0058) ---
+    /**
+     * The PVS appointment whose EncounterCompleted scheduled this row. NULL for
+     * Make.com-webhook rows. Doubles as the idempotency key: a re-derived
+     * encounter never schedules a second email (uniqueAppt below + a pre-check
+     * in scheduleReviewRequest).
+     */
+    pvsAppointmentId: text("pvs_appointment_id"),
+    /** The PVS encounter id behind this row; provenance only. NULL for webhook rows. */
+    pvsEncounterId: text("pvs_encounter_id"),
   },
   (t) => ({
     kindCheck: check(
@@ -521,6 +543,12 @@ export const reviewEmailSchedule = pgTable(
       t.kind,
       t.status,
       t.scheduledFor
+    ),
+    // 0058: at most one review per (clinic, PVS appointment). Webhook + legacy
+    // rows have pvs_appointment_id = NULL and are exempt (Postgres NULL-distinct).
+    uniqueAppt: uniqueIndex("review_email_schedule_pvs_appt_uidx").on(
+      t.clinicId,
+      t.pvsAppointmentId
     ),
   })
 );
@@ -1381,11 +1409,11 @@ export const adminSessions = pgTable(
 );
 
 // ---------------------------------------------------------------
-// EINS Stimme — private patient feedback inbox.
+// EINS Bewertungen — private patient feedback inbox.
 //
 // Distinct from `reviews` (aggregate platform snapshots). One row per
 // patient submission triggered from the rating landing's private form.
-// Visible inside the portal as a triage queue at /stimme.
+// Visible inside the portal as a triage queue at /bewertungen/feedback.
 // ---------------------------------------------------------------
 export const patientFeedback = pgTable(
   "patient_feedback",

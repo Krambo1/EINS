@@ -252,7 +252,7 @@ export default async function EinstellungenPage() {
         </Card>
       )}
 
-      {/* EINS Stimme — Bewertungen & Reputation. Inhaber only. */}
+      {/* EINS Bewertungen — Bewertungen & Reputation. Inhaber only. */}
       {isInhaber && clinic && (
         <Card id="bewertungen" className="scroll-mt-24">
           <CardHeader>
@@ -291,6 +291,28 @@ export default async function EinstellungenPage() {
                     Nur aktivieren, wenn Sie Patient:innen bei Termin-
                     vereinbarung über die spätere E-Mail informieren
                     (siehe Onboarding-Checkliste).
+                  </span>
+                </span>
+              </label>
+
+              <label className="md:col-span-2 flex items-center gap-3 rounded-xl border border-border bg-bg-secondary p-4">
+                <input
+                  type="checkbox"
+                  name="reviewConsentAttested"
+                  defaultChecked={clinic.reviewConsentAttested}
+                  className="h-5 w-5 rounded border-border"
+                />
+                <span>
+                  <span className="block font-medium text-fg-primary">
+                    Einwilligung der Praxis bestätigen
+                  </span>
+                  <span className="block text-sm text-fg-secondary">
+                    Wir informieren unsere Patient:innen bereits bei der
+                    Terminvereinbarung darüber, dass sie nach dem Termin eine
+                    E-Mail mit der Bitte um eine Bewertung erhalten und dieser
+                    jederzeit widersprechen können. Nur mit dieser Bestätigung
+                    versendet EINS Bewertungs-Anfragen automatisch über die
+                    PVS-Anbindung.
                   </span>
                 </span>
               </label>
