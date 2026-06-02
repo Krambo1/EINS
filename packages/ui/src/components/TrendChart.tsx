@@ -20,6 +20,23 @@ export interface TrendChartPoint {
 }
 
 /**
+ * One curve in a multi-series chart. Pass `series` to `<TrendChart>` to render
+ * N curves against one shared y-axis with a single crosshair + tooltip that
+ * lists every series at the hovered x. This is the shared-SVG replacement for
+ * the admin Recharts Area/Line overlays (e.g. spend vs revenue).
+ */
+export interface TrendChartSeries {
+  points: TrendChartPoint[];
+  tone: TrendChartTone;
+  /** Tooltip row label for this curve (e.g. "Werbebudget"). */
+  label?: string;
+  /** Render as a dashed line — e.g. a comparison / prior-period curve. */
+  dashed?: boolean;
+  /** Render a gradient area fill under this curve. Default false for `series`. */
+  filled?: boolean;
+}
+
+/**
  * Serializable formatter spec. Use this from server components (function
  * props can't cross the server→client boundary). Client callers may keep
  * passing `formatValue` directly.
@@ -27,6 +44,7 @@ export interface TrendChartPoint {
 export type TrendChartValueFormat =
   | "number"
   | "euro"
+  | "chf"
   | "rating"
   | "roas"
   | "minutes"
@@ -34,6 +52,15 @@ export type TrendChartValueFormat =
 
 export interface TrendChartProps {
   data: TrendChartPoint[];
+  /**
+   * Multi-series mode. When set (non-empty), the chart renders every series in
+   * the array against a shared y-axis and ignores `comparisonData` (use a
+   * `dashed` series instead). The x-axis / tooltip dates come from the first
+   * series. `data` is still required by the type but unused in this mode — pass
+   * `series[0].points` (or any array) for it. Back-compatible: omit `series` to
+   * keep the original single-series + `comparisonData` behavior unchanged.
+   */
+  series?: TrendChartSeries[];
   /**
    * Optional comparison series rendered as a low-contrast grey line behind
    * `data`. Plotted at the same x positions as `data` (index-aligned, so
@@ -148,6 +175,14 @@ const euroDeFormat = new Intl.NumberFormat("de-DE", {
   currency: "EUR",
   maximumFractionDigits: 0,
 });
+// CHF axis labels for a Swiss Praxis' own-revenue charts. de-DE locale so the
+// separators match every other money string ("1.234 CHF"); only the symbol
+// differs from euroDeFormat.
+const chfDeFormat = new Intl.NumberFormat("de-DE", {
+  style: "currency",
+  currency: "CHF",
+  maximumFractionDigits: 0,
+});
 
 function resolveValueFormat(spec: TrendChartValueFormat): (n: number) => string {
   switch (spec) {
@@ -155,6 +190,8 @@ function resolveValueFormat(spec: TrendChartValueFormat): (n: number) => string 
       return (n) => (Number.isFinite(n) ? numberDeFormat.format(n) : "–");
     case "euro":
       return (n) => (Number.isFinite(n) ? euroDeFormat.format(n) : "–");
+    case "chf":
+      return (n) => (Number.isFinite(n) ? chfDeFormat.format(n) : "–");
     case "rating":
       return (n) =>
         Number.isFinite(n) ? n.toFixed(2).replace(".", ",") + " ★" : "–";
@@ -220,7 +257,17 @@ function niceAxisMax(rawMax: number): number {
  * - Pointer handler reads `getBoundingClientRect` on the wrapping div and
  *   maps mouse-x into a data index — no per-frame layout work.
  */
-export function TrendChart({
+export function TrendChart(props: TrendChartProps) {
+  // Delegate to whichever renderer fits. Each branch component has a stable
+  // hook order; the wrapper itself calls no hooks, so a given call site (always
+  // single OR always multi) never trips the rules-of-hooks.
+  if (props.series && props.series.length > 0) {
+    return <MultiSeriesTrendChart {...props} series={props.series} />;
+  }
+  return <SingleSeriesTrendChart {...props} />;
+}
+
+function SingleSeriesTrendChart({
   data,
   comparisonData,
   comparisonLabel = "Vorperiode",
@@ -632,4 +679,324 @@ function parseDateLoose(raw: string): Date | null {
   }
   const t = Date.parse(raw);
   return Number.isNaN(t) ? null : new Date(t);
+}
+
+/**
+ * Multi-series renderer used when `<TrendChart series=...>` is passed. Plots N
+ * curves against one shared y-axis with a single crosshair, per-series focus
+ * dots, and a tooltip that lists every series at the hovered x. Shares all
+ * geometry/formatting helpers with the single-series renderer so the curves
+ * look identical (same monotone-cubic smoothing, nice-axis fit, date ticks).
+ */
+function MultiSeriesTrendChart({
+  series,
+  height = 64,
+  className,
+  showAxes = false,
+  showYAxis = true,
+  showGrid = false,
+  formatValue,
+  valueFormat,
+  label,
+  locale = "de-DE",
+  ariaLabel,
+}: TrendChartProps & { series: TrendChartSeries[] }) {
+  const reactId = React.useId();
+  const gradPrefix = `trend-mgrad-${reactId.replace(/:/g, "")}`;
+  const [activeIdx, setActiveIdx] = React.useState<number | null>(null);
+
+  const fmtValue = React.useMemo(
+    () =>
+      valueFormat
+        ? resolveValueFormat(valueFormat)
+        : formatValue ?? defaultFormatValue,
+    [valueFormat, formatValue]
+  );
+  const fmtDateShort = React.useMemo(
+    () => new Intl.DateTimeFormat(locale, { day: "2-digit", month: "short" }),
+    [locale]
+  );
+  const fmtDateLong = React.useMemo(
+    () =>
+      new Intl.DateTimeFormat(locale, {
+        weekday: "short",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }),
+    [locale]
+  );
+
+  // First series drives the x-axis dates + active-index math.
+  const ref = series[0];
+  const refLen = ref?.points.length ?? 0;
+
+  const geom = React.useMemo(() => {
+    if (!series.length || refLen === 0) return null;
+    const allValues = series.flatMap((s) => s.points.map((p) => p.value));
+    const rawMax = Math.max(...allValues, 0);
+    const min = 0;
+    const max = niceAxisMax(rawMax);
+    const range = max - min || 1;
+    const width = Math.max(refLen * 4, 80);
+    const toY = (v: number) => height - ((v - min) / range) * height;
+
+    const resolved = series.map((s) => {
+      const len = s.points.length;
+      const stepX = len > 1 ? width / (len - 1) : width;
+      const pts =
+        len === 1
+          ? (() => {
+              const y = toY(s.points[0].value);
+              return [
+                { x: 0, y },
+                { x: width, y },
+              ];
+            })()
+          : s.points.map((p, i) => ({ x: i * stepX, y: toY(p.value) }));
+      const { move, segments } = monotoneCubicPath(pts);
+      const first = pts[0];
+      const last = pts[pts.length - 1];
+      const areaPath = `M${first.x.toFixed(2)},${height.toFixed(2)} L${first.x.toFixed(2)},${first.y.toFixed(2)}${segments} L${last.x.toFixed(2)},${height.toFixed(2)} Z`;
+      return { s, pts, linePath: move + segments, areaPath };
+    });
+
+    return { resolved, width, min, max };
+  }, [series, refLen, height]);
+
+  if (!geom) {
+    return (
+      <div
+        className={cn("h-9 w-full rounded bg-bg-secondary", className)}
+        style={{ height }}
+        aria-hidden
+      />
+    );
+  }
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0 || refLen === 0) return;
+    const ratio = (e.clientX - rect.left) / rect.width;
+    const idx = Math.round(ratio * (refLen - 1));
+    setActiveIdx(Math.max(0, Math.min(refLen - 1, idx)));
+  };
+  const handlePointerLeave = () => setActiveIdx(null);
+
+  const denom = Math.max(1, refLen - 1);
+  const activePct = activeIdx !== null ? (activeIdx / denom) * 100 : 0;
+  const activeDate =
+    activeIdx !== null && ref ? ref.points[activeIdx]?.date ?? null : null;
+
+  /** y / value of one resolved series at the active data index (handles the
+   *  single-point pad where `pts` has 2 entries for 1 datum). */
+  const atIdx = (
+    r: { s: TrendChartSeries; pts: { x: number; y: number }[] },
+    idx: number
+  ): { y: number; value: number } | null => {
+    if (r.s.points.length <= 1) {
+      const p = r.s.points[0];
+      return p ? { y: r.pts[0].y, value: p.value } : null;
+    }
+    const pt = r.pts[idx];
+    const datum = r.s.points[idx];
+    if (!pt || !datum) return null;
+    return { y: pt.y, value: datum.value };
+  };
+
+  const xTickIdx = showAxes || showGrid ? pickTickIndices(refLen, 5) : [];
+  const yTickFractions = [0, 0.25, 0.5, 0.75, 1];
+  const yAxisLabelWidth = showAxes && showYAxis ? 28 : 0;
+
+  return (
+    <div className={cn("flex w-full max-w-full flex-col gap-1", className)}>
+      <div className="flex w-full" style={{ height }}>
+        {showAxes && showYAxis && (() => {
+          const seen = new Set<string>();
+          const ticks = yTickFractions
+            .map((t) => ({ t, v: geom.min + (geom.max - geom.min) * t }))
+            .map(({ t, v }) => ({ t, v, text: fmtValue(v) }))
+            .filter(({ text }) => {
+              if (seen.has(text)) return false;
+              seen.add(text);
+              return true;
+            });
+          return (
+            <div
+              aria-hidden
+              className="relative shrink-0 font-mono text-[10px] tabular-nums text-fg-tertiary"
+              style={{ width: yAxisLabelWidth, height }}
+            >
+              {ticks.map(({ t, text }) => (
+                <span
+                  key={`yl-${t}`}
+                  className="absolute right-1 -translate-y-1/2 whitespace-nowrap"
+                  style={{ top: `${(1 - t) * 100}%` }}
+                >
+                  {text}
+                </span>
+              ))}
+            </div>
+          );
+        })()}
+        <div
+          className="relative min-w-0 flex-1 select-none touch-none"
+          style={{ height }}
+          onPointerMove={handlePointerMove}
+          onPointerLeave={handlePointerLeave}
+          onPointerCancel={handlePointerLeave}
+          role="img"
+          aria-label={ariaLabel ?? label}
+        >
+          <svg
+            viewBox={`0 0 ${geom.width} ${height}`}
+            preserveAspectRatio="none"
+            className="block h-full w-full pointer-events-none"
+            aria-hidden
+          >
+            {showGrid && (
+              <g stroke="var(--border)" strokeWidth={1} vectorEffect="non-scaling-stroke" opacity={0.6}>
+                {yTickFractions.map((t) => (
+                  <line
+                    key={`h${t}`}
+                    x1={0}
+                    x2={geom.width}
+                    y1={(1 - t) * height}
+                    y2={(1 - t) * height}
+                  />
+                ))}
+              </g>
+            )}
+            <defs>
+              {geom.resolved.map((r, i) =>
+                r.s.filled ? (
+                  <linearGradient key={i} id={`${gradPrefix}-${i}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" style={{ stopColor: stroke[r.s.tone], stopOpacity: 0.35 }} />
+                    <stop offset="100%" style={{ stopColor: stroke[r.s.tone], stopOpacity: 0.04 }} />
+                  </linearGradient>
+                ) : null
+              )}
+            </defs>
+            {geom.resolved.map((r, i) =>
+              r.s.filled ? (
+                <path key={`area-${i}`} d={r.areaPath} fill={`url(#${gradPrefix}-${i})`} stroke="none" />
+              ) : null
+            )}
+            {geom.resolved.map((r, i) => (
+              <path
+                key={`line-${i}`}
+                d={r.linePath}
+                fill="none"
+                stroke={stroke[r.s.tone]}
+                strokeWidth={1.5}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                strokeDasharray={r.s.dashed ? "3 3" : undefined}
+                vectorEffect="non-scaling-stroke"
+              />
+            ))}
+          </svg>
+
+          {activeIdx !== null && (
+            <span
+              aria-hidden
+              className="pointer-events-none absolute top-0 bottom-0 w-px bg-fg-tertiary/45"
+              style={{ left: `${activePct}%` }}
+            />
+          )}
+
+          {activeIdx !== null &&
+            geom.resolved.map((r, i) => {
+              const hit = atIdx(r, activeIdx);
+              if (!hit) return null;
+              const yPct = (hit.y / Math.max(1, height)) * 100;
+              return (
+                <span
+                  key={`dot-${i}`}
+                  aria-hidden
+                  className="pointer-events-none absolute h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full ring-[1.5px] ring-bg-primary"
+                  style={{
+                    left: `${activePct}%`,
+                    top: `${yPct}%`,
+                    backgroundColor: stroke[r.s.tone],
+                  }}
+                />
+              );
+            })}
+
+          {activeIdx !== null && activeDate && (
+            <div
+              className="pointer-events-none absolute z-10 whitespace-nowrap rounded-md border border-border bg-bg-secondary px-3 py-2 shadow-lg"
+              style={{
+                left: `${activePct}%`,
+                top: 0,
+                transform: `translate(${activePct < 15 ? "0" : activePct > 85 ? "-100%" : "-50%"}, calc(-100% - 8px))`,
+              }}
+            >
+              <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
+                {formatTooltipDate(activeDate, fmtDateLong)}
+              </div>
+              <div className="mt-1 space-y-1">
+                {geom.resolved.map((r, i) => {
+                  const hit = atIdx(r, activeIdx);
+                  if (!hit) return null;
+                  return (
+                    <div key={`tt-${i}`} className="flex items-center gap-2 text-sm tabular-nums">
+                      <span
+                        aria-hidden
+                        className="inline-block h-[3px] w-3 shrink-0 rounded-full"
+                        style={
+                          r.s.dashed
+                            ? {
+                                backgroundImage: `repeating-linear-gradient(90deg, ${stroke[r.s.tone]} 0 3px, transparent 3px 6px)`,
+                              }
+                            : { backgroundColor: stroke[r.s.tone] }
+                        }
+                      />
+                      {r.s.label ? (
+                        <span className="text-fg-secondary">{r.s.label}:</span>
+                      ) : null}
+                      <span className="ml-auto font-display font-semibold text-fg-primary">
+                        {fmtValue(hit.value)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {showAxes && refLen > 1 && (
+        <div className="flex w-full">
+          {yAxisLabelWidth > 0 && (
+            <div className="shrink-0" style={{ width: yAxisLabelWidth }} aria-hidden />
+          )}
+          <div
+            aria-hidden
+            className="relative min-w-0 flex-1 h-3 text-[10px] font-mono tabular-nums text-fg-tertiary"
+          >
+            {xTickIdx.map((i) => {
+              const pct = (i / denom) * 100;
+              const d = ref.points[i]?.date;
+              if (!d) return null;
+              return (
+                <span
+                  key={i}
+                  className="absolute top-0"
+                  style={{
+                    left: `${pct}%`,
+                    transform: `translateX(${pct < 5 ? "0" : pct > 95 ? "-100%" : "-50%"})`,
+                  }}
+                >
+                  {formatTickDate(d, fmtDateShort)}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }

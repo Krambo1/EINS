@@ -171,6 +171,43 @@ svg.text-accent,
     0 32px 64px -20px rgba(16, 16, 26, 0.14);
 }
 
+/* Hot mint band hugging the top edge of the portal showcase. Echoes the CTA
+   button (ShinyButton): a near-white core (the button's white conic-shine peak)
+   bleeding into its two mint tones (#64CEC9 subtle, #58BAB5 highlight), with the
+   same slow breathe pulse. All three gradient layers are anchored low (at
+   ~50% 100%) so the brightest part lands on the bottom edge of this element,
+   which is positioned right at the image's top edge: intense at the edge,
+   falling off upward. On a light page a literally-white core is near-invisible,
+   so the core is a high-luminance pale mint that still reads "almost white".
+   Centered via left-1/2 + translateX here (not a Tailwind util) so the breathe
+   scale stays anchored on center and centering survives reduced-motion. */
+.portal-glow {
+  transform: translateX(-50%);
+  background:
+    radial-gradient(ellipse 28% 78% at 50% 100%, rgba(233, 253, 251, 0.98), transparent 52%),
+    radial-gradient(ellipse 48% 95% at 50% 100%, rgba(150, 233, 228, 0.9), transparent 58%),
+    radial-gradient(ellipse 66% 100% at 50% 96%, rgba(108, 210, 205, 0.82), transparent 64%),
+    radial-gradient(ellipse 92% 100% at 50% 90%, rgba(88, 186, 181, 0.42), transparent 72%);
+  animation: portal-glow-breathe 9s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+@keyframes portal-glow-breathe {
+  0%,
+  100% {
+    transform: translateX(-50%) scale(1);
+    opacity: 0.82;
+  }
+  50% {
+    transform: translateX(-50%) scale(1.08);
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .portal-glow {
+    animation: none;
+  }
+}
+
 /* Shine sweep for primary buttons */
 .btn-shine {
   position: relative;

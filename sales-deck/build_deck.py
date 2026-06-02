@@ -1299,7 +1299,7 @@ def slide_15_close(prs):
 
     # Contact strip
     add_text(s, Inches(0.5), Inches(7.0), Inches(12.4), Inches(0.4),
-             "team@einsvisuals.com  ·  +49 162 8456643  ·  einsvisuals.com",
+             "team@eins.ag  ·  +49 162 8456643  ·  eins.ag",
              font=FONT_MONO, size=11, color=FG_PRIMARY,
              align=PP_ALIGN.CENTER)
 

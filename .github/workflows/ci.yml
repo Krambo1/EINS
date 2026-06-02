@@ -99,3 +99,48 @@ jobs:
           # HAPI roundtrip — the docker-compose path exists for local
           # vendor-quirk debugging.
           CI: "true"
+
+  # The DB-read adapter matrix had never run against the real engines it
+  # targets: only pg-mem (Postgres) and a real-file SQLite were covered, so
+  # Firebird, Oracle, MSSQL and MySQL/MariaDB were unproven. This job runs the
+  # gated real-engine harness (PVS_DB_IT=1) against actual database containers
+  # via testcontainers, proving per engine that a timestamp cursor round-trips
+  # (Phase 3 Date bind), the keyset never skips rows at a shared-timestamp batch
+  # boundary (Phase 4), and a renamed column halts the stream as drift via that
+  # engine's own undefined-column error (framework finding 2). Without the env
+  # var these specs skip, so the local `vitest run` and the `bridge` job above
+  # stay Docker-free and fast. ubuntu-latest ships a running Docker daemon.
+  bridge-db-it:
+    name: Bridge DB adapters (real-engine harness)
+    runs-on: ubuntu-latest
+    needs: typecheck
+    # Oracle's image is ~2 GB; the pull dominates the wall-clock on a cold
+    # runner. Generous so a slow pull never flakes the job.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Real-engine adapter harness (Firebird, Oracle, MSSQL, MySQL/MariaDB)
+        # --no-file-parallelism keeps at most one heavy DB container resident at
+        # a time (Oracle + MSSQL together are memory-hungry), so the job is
+        # deterministic regardless of runner size. The unit specs run in the
+        # same pass; they are fast even serialised.
+        run: pnpm --filter eins-agent exec vitest run --no-file-parallelism
+        env:
+          PVS_DB_IT: "1"
+          # Pin the harness timezone so the Oracle/Firebird TIMESTAMP cursor
+          # round-trip is an exact read/bind inverse (it-support.ts sets this
+          # too; belt-and-suspenders for the CI shell).
+          TZ: "UTC"

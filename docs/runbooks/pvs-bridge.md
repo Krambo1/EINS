@@ -3,7 +3,7 @@
 **Audience**: an on-call engineer (or Karam) responding to a PVS Bridge
 incident in production. Assumes you have:
 
-- Portal admin access at `admin.localhost` (dev) or `https://admin.einsvisuals.de` (prod).
+- Portal admin access at `admin.localhost` (dev) or `https://admin.eins.ag` (prod).
 - SSH/RDP access to the Praxis Windows workstation OR ability to ask the
   Praxis admin to run a PowerShell command via screen-share.
 - `pnpm` and Node 20 locally so you can run `pnpm --filter portal pvs:reconcile …`.
@@ -53,7 +53,7 @@ agent has stored?
 └── If NO → not a rotation; continue.
 
 Does the admin clinic-detail page show the cert expiry on the linked
-domain (portal.einsvisuals.de)?
+domain (portal.eins.ag)?
 ├── If expired or expiring < 7 days → cert/TLS issue masking as 401.
 │   ─→ Renew the cert; on Vercel the auto-renewal usually catches this.
 └── If not → likely IP ban; continue.
@@ -79,7 +79,7 @@ pnpm --filter portal tsx scripts/show-recent-link-audit.ts --clinic-id <UUID> --
 Issue a new install command from the admin clinic-detail page UI
 (`/admin/clinics/<id>` → Integrationen tab → "Reissue install command").
 Send the resulting one-line `eins-agent --enroll <token> --clinic <UUID>
---portal https://portal.einsvisuals.de` to the Praxis admin and have them
+--portal https://portal.eins.ag` to the Praxis admin and have them
 run it on the workstation (`Win+R cmd`, paste, enter). The agent's
 config + secret are overwritten on the next start; restart the
 `EINS Agent` Windows Service (or close-and-reopen the console for
@@ -93,7 +93,7 @@ fresh `[agent] enrollment successful` line.
 Replay the failed rows so the Praxis doesn't lose data: see
 [Reconciliation primitives → replay-events](#replay-events).
 
-**Cert/TLS issue**: Vercel auto-renews `portal.einsvisuals.de`. If it
+**Cert/TLS issue**: Vercel auto-renews `portal.eins.ag`. If it
 fails, the dashboard at `https://vercel.com/eins/portal/settings/domains`
 shows the expiry. Trigger a manual renewal via Vercel UI; the agent's
 next flush succeeds within minutes.

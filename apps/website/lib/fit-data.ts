@@ -7,7 +7,7 @@ export const NOT_FOR_YOU = [
 ];
 
 export const FOR_YOU = [
-  "Sie bieten hochpreisige Behandlungen an: Faltenunterspritzung, Lippenunterspritzung, Laser, Kryolipolyse, HIFU, Body Contouring.",
+  "Sie bieten hochpreisige Behandlungen an: Faltenunterspritzung, Lippenunterspritzung, Laser, Kryolipolyse, HIFU, Körperformung.",
   "Sie wollen Kontrolle über Ihre Werbung und Ihren Patientenstrom.",
   "Sie wollen rechtssicher werben, ohne Angst vor Abmahnungen.",
   "Sie sind bereit, in echtes Wachstum zu investieren statt zu testen.",

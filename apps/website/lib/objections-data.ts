@@ -15,7 +15,7 @@ export const OBJECTIONS: Objection[] = [
   },
   {
     q: "Was, wenn es nicht funktioniert?",
-    a: "Erreichen wir die im Strategie-Call vereinbarte Anfragen-Schwelle nicht innerhalb von 90 Tagen, bekommen Sie alle bis dahin gezahlten Gebühren vollständig zurück. Sie können außerdem jederzeit monatlich kündigen, vom ersten Tag an. Die konkreten Garantie-Bedingungen werden vor Beauftragung schriftlich fixiert.",
+    a: "Erreichen wir die im Strategie-Gespräch vereinbarte Anfragen-Schwelle nicht innerhalb von 90 Tagen, bekommen Sie alle bis dahin gezahlten Gebühren vollständig zurück. Sie können außerdem jederzeit monatlich kündigen, vom ersten Tag an. Die konkreten Garantie-Bedingungen werden vor Beauftragung schriftlich fixiert.",
   },
   {
     q: "Wie lange dauert der Start?",

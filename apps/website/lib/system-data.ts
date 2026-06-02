@@ -23,7 +23,7 @@ export const OFFER_CARDS: OfferCard[] = [
       "Exklusives Strategie-Meeting: Zielgruppen, Positionierung, USPs und Tonalität.",
       "Hochauflösendes Hauptvideo mit medizinischer Videoanimation. Erklärt komplexe Eingriffe verständlich und vertrauensbildend: Ablauf, Ausfallzeit, realistische Ergebnisse.",
       "20 hochwertige Fotos für Website, Anzeigen und soziale Medien: Praxis, Team, Behandlungsräume, Technologie. Professionelle Premium-Nachbearbeitung, sofort einsetzbar.",
-      "Eigene Bibliothek an 2D-Animationen, maßgeschneidert auf Ihre Praxis: Faltenunterspritzung, Lippenunterspritzung, Botox, Hyaluron-Filler, Kryolipolyse, HIFU, Laser-Behandlungen, Body Contouring.",
+      "Eigene Bibliothek an 2D-Animationen, maßgeschneidert auf Ihre Praxis: Faltenunterspritzung, Lippenunterspritzung, Botox, Hyaluron-Filler, Kryolipolyse, HIFU, Laser-Behandlungen, Körperformung.",
       "Reduziert Patientenangst vor dem ersten Kontakt durch visuelle Aufklärung der Behandlungsschritte. Besonders wirksam für erklärungsbedürftige Eingriffe.",
       "Eine neue Premium-Medienproduktion pro Monat, laufend frisches Material für Anzeigen und soziale Medien.",
     ],
@@ -44,7 +44,7 @@ export const OFFER_CARDS: OfferCard[] = [
     id: "landingpages",
     title: "Maßgeschneiderte Ziel-Websites",
     teaser:
-      "Eigene Landing Pages für hochpreisige Behandlungen, ausschließlich für bezahlte Anzeigen gebaut.",
+      "Eigene Ziel-Websites für hochpreisige Behandlungen, ausschließlich für bezahlte Anzeigen gebaut.",
     bullets: [
       "Eigene Ziel-Websites für hochpreisige Behandlungen, ausschließlich für bezahlte Anzeigen gebaut.",
       "Voroptimierte Vorlagen für Faltenbehandlung, Lippenunterspritzung, Kryolipolyse, Laser-Behandlungen, Facelift.",
@@ -55,16 +55,16 @@ export const OFFER_CARDS: OfferCard[] = [
   },
   {
     id: "social-ads",
-    title: "Anzeigen auf Social Media",
+    title: "Anzeigen auf sozialen Medien",
     teaser:
       "Anzeigen auf Instagram, Facebook und Google, gezielt in Ihrer Region. Sie sehen täglich, was jeder Euro an Anfragen bringt.",
     bullets: [
       "Anzeigen auf Instagram, Facebook und Google, gezielt in Ihrer Region.",
-      "Erreicht Menschen, die gerade nach Faltenbehandlung, Lippenunterspritzung oder Body Contouring suchen.",
+      "Erreicht Menschen, die gerade nach Faltenbehandlung, Lippenunterspritzung oder Körperformung suchen.",
       "Sie sehen täglich, was jeder Euro an Anfragen bringt.",
       "Tägliche Kampagnensteuerung & Optimierung durch das EINS-Optimierungsteam.",
       "Volle Werbebudget-Kontrolle: jeder Euro live einsehbar, direkt an Meta und Google gezahlt.",
-      "Laufende Strecken-Optimierung, von der Anzeige über die Landing Page bis zur Anfrage.",
+      "Laufende Strecken-Optimierung, von der Anzeige über die Ziel-Website bis zur Anfrage.",
       "Monatliche Auswertung mit kompakter Übersicht aller relevanten Kennzahlen.",
     ],
   },
@@ -72,10 +72,11 @@ export const OFFER_CARDS: OfferCard[] = [
     id: "reputation",
     title: "Praxis-Reputationssystem",
     teaser:
-      "Mehr 5 Sterne auf Google und Jameda, strukturierte Patientenstimmen und organische Präsenz. Vertrauen, bevor das Werbebudget greift.",
+      "Eine schlechte Bewertung kostet schnell einen Monat Anfragen. Wir bauen kontinuierlich echte 5-Sterne-Bewertungen auf Google und Jameda auf, sodass einzelne Ausreißer untergehen.",
     bullets: [
-      "Aktive Steuerung Ihrer Bewertungen auf Google und Jameda mit erprobtem System: mehr Sterne, mehr Anfragen.",
-      "Strukturierte Erfassung von Patientenstimmen für Website, Anzeigen und Landing Pages.",
+      "Kontinuierlicher Aufbau echter 5-Sterne-Bewertungen auf Google und Jameda, damit eine einzelne negative Stimme nicht den Ausschlag gibt.",
+      "Hält Ihre Praxis sicher über der 4-Sterne-Schwelle, ab der die meisten Patienten überhaupt erst anfragen.",
+      "Strukturierte Erfassung von Patientenstimmen für Website, Anzeigen und Ziel-Websites.",
       "Organische Beiträge auf sozialen Medien begleiten die bezahlten Kampagnen und halten Ihre Praxis sichtbar.",
     ],
   },
@@ -98,7 +99,7 @@ export const OFFER_CARDS: OfferCard[] = [
     bullets: [
       "Regelmäßige Strategie-Meetings mit Ihrem dedizierten EINS-Ansprechpartner.",
       "Vertriebsleitfaden für Ihr Praxisteam: erprobte Skripte für die Annahme qualifizierter Anfragen.",
-      "Technischer Support für Portal, Landing Pages und Anfrage-Strecken: direkter Draht statt Servicewarteschleife.",
+      "Technischer Support für Portal, Ziel-Websites und Anfrage-Strecken: direkter Draht statt Servicewarteschleife.",
     ],
   },
 ];

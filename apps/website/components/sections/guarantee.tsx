@@ -130,6 +130,9 @@ export function Guarantee() {
                     <div className="text-sm leading-tight text-fg-secondary">
                       Gründer
                     </div>
+                    <div className="mt-2 text-xs leading-snug text-fg-primary">
+                      Wir arbeiten nur mit ästhetischen Praxen.
+                    </div>
                   </div>
                 </div>
 
@@ -172,6 +175,9 @@ export function Guarantee() {
                     <div className="text-xs text-fg-secondary">
                       Gründer, EINS
                     </div>
+                    <div className="mt-1.5 text-[11px] leading-snug text-fg-primary">
+                      Wir arbeiten nur mit ästhetischen Praxen.
+                    </div>
                   </div>
                 </div>
               </div>
@@ -181,7 +187,7 @@ export function Guarantee() {
 
         <Reveal delay={0.22}>
           <p className="mx-auto mt-6 max-w-3xl text-center text-sm leading-relaxed text-fg-secondary md:mt-8">
-            Konditionen werden im Strategie-Call individuell festgelegt. Garantie-Bedingungen werden vor Beauftragung schriftlich fixiert.
+            Konditionen werden im Strategie-Gespräch individuell festgelegt. Garantie-Bedingungen werden vor Beauftragung schriftlich fixiert.
           </p>
         </Reveal>
       </div>

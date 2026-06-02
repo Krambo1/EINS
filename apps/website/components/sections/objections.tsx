@@ -37,7 +37,7 @@ export function Objections() {
 
             <div className="mt-8 flex justify-center">
               <a
-                href={`mailto:${CONTACT_EMAIL}?subject=Frage%20zu%20EINS%20Visuals`}
+                href={`mailto:${CONTACT_EMAIL}?subject=Frage%20zu%20EINS`}
                 className="inline-flex items-center gap-2 rounded-full border border-border bg-bg-secondary/60 px-4 py-2 font-mono text-sm text-fg-secondary transition-colors hover:border-accent/60 hover:text-accent"
               >
                 <Mail className="h-3.5 w-3.5" />

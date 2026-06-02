@@ -99,8 +99,15 @@ export {
   type TrendChartProps,
   type TrendChartTone,
   type TrendChartPoint,
+  type TrendChartSeries,
   type TrendChartValueFormat,
 } from "./components/TrendChart";
+export {
+  Donut,
+  type DonutProps,
+  type DonutSlice,
+  type DonutValueFormat,
+} from "./components/Donut";
 export {
   MetricTile,
   MetricStatusBadge,

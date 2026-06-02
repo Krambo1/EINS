@@ -34,17 +34,7 @@ export function Offer() {
                 swap between live screenshots so clinics see what they get rather
                 than reading another bullet list. */}
             <Reveal delay={0.1}>
-              <div className="card-glow relative mx-auto mt-28 max-w-5xl overflow-hidden rounded-2xl border border-accent/40 bg-gradient-to-br from-accent/[0.08] via-bg-secondary/60 to-bg-secondary/40 p-3 backdrop-blur-sm md:mt-44 md:p-12">
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute -right-24 -top-24 h-72 w-72 rounded-full bg-accent/20 blur-3xl"
-                />
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute -left-24 top-1/3 h-72 w-72 rounded-full bg-accent/15 blur-3xl"
-                />
-                <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent to-transparent" />
-
+              <div className="relative mx-auto mt-28 max-w-5xl md:mt-44">
                 <div className="relative mx-auto max-w-3xl text-center">
                   <div className="flex flex-wrap items-center justify-center gap-3">
                     <span className="eyebrow">Enthalten</span>
@@ -60,9 +50,10 @@ export function Offer() {
                     Anfragen in Echtzeit. <span className="text-accent">Umsatz täglich.</span>
                   </h4>
                   <p className="mt-5 text-lg leading-relaxed text-fg-primary md:text-xl">
-                    Portal für Ihre Praxis mit Anfragen, Werbebudget und Werbeertrag.
-                    Anfragen kommen sofort an, Umsatzzahlen werden über Nacht aktualisiert.
-                    Klarheit jeden Morgen, nicht erst im Monatsreport.
+                    Anfragen, Werbebudget und Umsatz auf einen Blick. In 30 Sekunden
+                    sehen Sie, wo Ihre Praxis steht: zwischen zwei Eingriffen oder von
+                    unterwegs. Klarheit jeden Morgen, nicht erst in der monatlichen
+                    Auswertung.
                   </p>
                 </div>
 

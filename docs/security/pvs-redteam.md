@@ -184,7 +184,7 @@ token, hoping the consumed-flag check is non-atomic.
 **Manual gate**: in staging, run
 ```pwsh
 $tok = (issue-enrollment).Token
-1..20 | ForEach-Object -Parallel { Invoke-RestMethod -Method Post -Uri "https://staging.einsvisuals.de/api/pvs/agent-enroll" -Body (@{ clinicId="…"; token=$using:tok; machineFingerprint="host-$_" } | ConvertTo-Json) -ContentType "application/json" }
+1..20 | ForEach-Object -Parallel { Invoke-RestMethod -Method Post -Uri "https://staging.eins.ag/api/pvs/agent-enroll" -Body (@{ clinicId="…"; token=$using:tok; machineFingerprint="host-$_" } | ConvertTo-Json) -ContentType "application/json" }
 ```
 Assert: exactly one 200, 19 401s, one row in `pvs_agent_enroll`, 19
 in `pvs_agent_enroll_reject`.

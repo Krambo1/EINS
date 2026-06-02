@@ -165,7 +165,7 @@ export function PortalTabShowcase() {
       <Tabs value={activeId} onValueChange={onTabChange}>
         <div className="flex justify-center">
           <div className="tabs-fade-mask w-full max-w-full overflow-x-auto md:w-auto md:overflow-visible md:[mask-image:none]">
-            <TabsList className="px-1 md:px-1.5">
+            <TabsList className="bg-bg-primary px-1 md:px-1.5 shadow-sm">
               {TABS.map(({ id, label, icon: Icon, src }) => (
                 <TabsTrigger
                   key={id}
@@ -184,12 +184,21 @@ export function PortalTabShowcase() {
       </Tabs>
 
       <div className="relative mt-8 md:mt-12">
+        {/* Hot mint band hugging the top edge: a strong, near-white-cored glow
+            that sits just above the image's top edge and fades upward (only the
+            top, not the sides). Sits behind the opaque card (-z-10) so its lower
+            half is clipped by the card, leaving a crisp lit edge. Styled in
+            globals.css (.portal-glow); centering + breathe live there. */}
+        <div
+          aria-hidden
+          className="portal-glow pointer-events-none absolute -top-24 left-1/2 -z-10 h-24 w-[78%] blur-xl md:-top-28 md:h-28 md:w-[72%] md:blur-2xl"
+        />
         <div
           aria-hidden
           className="pointer-events-none absolute -inset-6 -z-10 rounded-[2rem] bg-gradient-to-b from-accent/20 via-accent/5 to-transparent blur-2xl md:-inset-10"
         />
         <div
-          className="relative w-full overflow-hidden border border-border bg-bg-primary shadow-[0_2px_4px_rgba(16,16,26,0.06),0_18px_40px_-12px_rgba(16,16,26,0.18),0_40px_80px_-24px_rgba(88,186,181,0.18)] transition-[padding-bottom] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
+          className="relative w-full overflow-hidden rounded-2xl border border-border bg-bg-primary shadow-[0_2px_4px_rgba(16,16,26,0.06),0_18px_40px_-12px_rgba(16,16,26,0.18),0_40px_80px_-24px_rgba(88,186,181,0.18)] transition-[padding-bottom] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
           style={{ paddingBottom }}
         >
           {outgoing && outgoing.id !== current.id && (

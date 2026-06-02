@@ -14,7 +14,7 @@ If the soak passes without surprises, we ship to pilots.
 
 ### 0.1 Portal side
 
-The staging cluster at `staging.einsvisuals.de` is already up. Create
+The staging cluster at `staging.eins.ag` is already up. Create
 the seed clinic if missing:
 
 ```sql
@@ -24,7 +24,7 @@ INSERT INTO clinics (id, name)
 
 INSERT INTO clinic_users (clinic_id, email, role)
   VALUES ('00000000-0000-4000-8000-000000000001',
-          'staging-soak@einsvisuals.de', 'inhaber');
+          'staging-soak@eins.ag', 'inhaber');
 
 INSERT INTO pvs_link (clinic_id, pvs_vendor, status, connection_config)
   VALUES ('00000000-0000-4000-8000-000000000001', 'gdt_agent', 'connected', '{}'::jsonb);
@@ -46,7 +46,7 @@ agent build:
 # 2) On the VM:
 .\eins-agent.exe --enroll <TOKEN> `
   --clinic 00000000-0000-4000-8000-000000000001 `
-  --portal https://staging.einsvisuals.de `
+  --portal https://staging.eins.ag `
   --folder C:\GDT-Out
 
 # 3) Register as a Windows Service (so it survives reboots):
