@@ -232,6 +232,15 @@ function finishInsert(
     });
     return [];
   }
+  if (table.__tag === "pvs_link_source") {
+    if (!isTx) {
+      throw new Error(
+        "pvs_link_source seed must happen inside a transaction (Phase 7)"
+      );
+    }
+    state.trace.push("link_source:seed");
+    return [];
+  }
   if (table.__tag === "pvs_link_audit") {
     if (!isTx) {
       throw new Error("audit write must happen inside a transaction (P1-3)");
@@ -265,6 +274,11 @@ vi.mock("@/db/client", () => {
         // beyond satisfying the call shape.
         pvsVendor: { __column: "pvs_vendor" },
         clinicId: { __column: "clinic_id" },
+      },
+      pvsLinkSource: {
+        __tag: "pvs_link_source",
+        clinicId: { __column: "clinic_id" },
+        bridgeSource: { __column: "bridge_source" },
       },
       pvsLinkAudit: { __tag: "pvs_link_audit" },
       platformCredentials: { __tag: "platform_credentials" },
@@ -374,6 +388,7 @@ describe("redeemAgentEnrollment — P0-1 atomicity contract", () => {
       "token:claim",
       "mint:credential",
       "link:upsert",
+      "link_source:seed",
       "audit:enrollment_redeemed",
       "tx:commit",
     ]);

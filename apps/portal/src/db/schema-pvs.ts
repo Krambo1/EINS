@@ -21,6 +21,7 @@ import {
   check,
   index,
   boolean,
+  primaryKey,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -56,9 +57,13 @@ export const pvsLink = pgTable(
   },
   (t) => ({
     uniqClinic: unique("pvs_link_clinic_unique").on(t.clinicId),
+    // Widened by 0055 to add the 7 per-Praxis DB-read vendors (underscores;
+    // CGM-M1 Postgres + Oracle both collapse to cgm_m1pro). Keep in sync with
+    // pvs_event_log.bridge_source + pvs_link_source.bridge_source and the
+    // canonical BRIDGE_SOURCES (apps/bridge/src/canonical/schema-source.ts).
     vendorCheck: check(
       "pvs_link_vendor_check",
-      sql`${t.pvsVendor} IN ('tomedo','healthhub','red','pabau','consentz','gdt_agent','csv_upload','n8n_custom','none')`
+      sql`${t.pvsVendor} IN ('tomedo','healthhub','red','pabau','consentz','gdt_agent','csv_upload','n8n_custom','none','medatixx','cgm_albis','cgm_turbomed','cgm_m1pro','indamed','quincy','pixelmedics')`
     ),
     statusCheck: check(
       "pvs_link_status_check",
@@ -70,6 +75,51 @@ export const pvsLink = pgTable(
     ),
     statusIdx: index("pvs_link_status_idx").on(t.status),
     vendorIdx: index("pvs_link_vendor_idx").on(t.pvsVendor),
+  })
+);
+
+// ---------------------------------------------------------------
+// PVS_LINK_SOURCE — the set of bridge_sources a clinic may emit (0055).
+// ---------------------------------------------------------------
+//
+// Phase 7 per-vendor identity. pvs_link stays 1:1 with the clinic; this table
+// holds the many provenances a single clinic can legitimately stamp (one GDT
+// agent can read several PVS engines). applyPvsEvent treats a missing row as a
+// transient "not enrolled yet" state (vendor_mismatch -> 409, retryable), NOT
+// a hard 400: the HMAC already proved the clinic, and the agent reports its
+// vendors on the next heartbeat. Seeded by enrollment + heartbeat + the 0055
+// backfill. RLS-enforced (0055) like every other clinic-scoped PVS table.
+export const pvsLinkSource = pgTable(
+  "pvs_link_source",
+  {
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    bridgeSource: text("bridge_source").notNull(),
+    pvsVendor: text("pvs_vendor").notNull(),
+    enrolledVia: text("enrolled_via").notNull().default("heartbeat"),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.clinicId, t.bridgeSource] }),
+    // Mirror of pvs_event_log.bridge_source / pvs_link.pvs_vendor + the
+    // canonical BRIDGE_SOURCES. Keep all four in sync.
+    bridgeSourceCheck: check(
+      "pvs_link_source_bridge_source_check",
+      sql`${t.bridgeSource} IN ('tomedo','healthhub','red','pabau','consentz','gdt_agent','csv_upload','n8n_custom','medatixx','cgm_albis','cgm_turbomed','cgm_m1pro','indamed','quincy','pixelmedics')`
+    ),
+    enrolledViaCheck: check(
+      "pvs_link_source_enrolled_via_check",
+      sql`${t.enrolledVia} IN ('enrollment','heartbeat','backfill','manual')`
+    ),
+    // No standalone clinic_id index: the composite PK already covers clinic_id
+    // as its leftmost prefix, and every query filters by clinic_id or the
+    // full PK.
   })
 );
 
@@ -122,13 +172,19 @@ export const pvsEventLog = pgTable(
     needsRederive: boolean("needs_rederive").notNull().default(false),
   },
   (t) => ({
+    // Widened by 0055 (NOT VALID, partitioned) to add the 7 per-Praxis
+    // DB-read vendors. Keep in sync with the canonical BRIDGE_SOURCES
+    // (apps/bridge/src/canonical/schema-source.ts) + the portal Zod enum.
     bridgeSourceCheck: check(
       "pvs_event_log_bridge_source_check",
-      sql`${t.bridgeSource} IN ('tomedo','healthhub','red','pabau','consentz','gdt_agent','csv_upload','n8n_custom')`
+      sql`${t.bridgeSource} IN ('tomedo','healthhub','red','pabau','consentz','gdt_agent','csv_upload','n8n_custom','medatixx','cgm_albis','cgm_turbomed','cgm_m1pro','indamed','quincy','pixelmedics')`
     ),
+    // 9 canonical kinds. Mirror of the CHECK created in 0022 and widened by
+    // 0053 to add InvoiceRefunded (refunds / storni). Keep in sync with the
+    // Zod discriminated union in server/pvs-events.ts.
     kindCheck: check(
       "pvs_event_log_kind_check",
-      sql`${t.kind} IN ('PatientUpserted','AppointmentCreated','AppointmentStatusChanged','AppointmentCancelled','EncounterCompleted','InvoicePaid','RecallScheduled','PatientMerged')`
+      sql`${t.kind} IN ('PatientUpserted','AppointmentCreated','AppointmentStatusChanged','AppointmentCancelled','EncounterCompleted','InvoicePaid','InvoiceRefunded','RecallScheduled','PatientMerged')`
     ),
   })
 );
@@ -604,6 +660,8 @@ export const pvsLinkHealth = pgTable(
       t.eventKind,
       t.detectedAt
     ),
+    // Mirror of 0040, widened by 0054 to add 'config_invalid' (first-poll
+    // value validation halts a stream whose data does not match its YAML map).
     eventKindCheck: check(
       "pvs_link_health_event_kind_check",
       sql`${t.eventKind} IN (
@@ -613,7 +671,8 @@ export const pvsLinkHealth = pgTable(
         'stream_recovered',
         'auth_expired',
         'connection_lost',
-        'rate_limited'
+        'rate_limited',
+        'config_invalid'
       )`
     ),
     severityCheck: check(

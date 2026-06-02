@@ -92,7 +92,6 @@ function writePinned(items: PinnedItem[]) {
 const GROUP_ORDER: { kind: Exclude<SearchKind, "lead">; label: string; icon: typeof Hash }[] = [
   { kind: "nav", label: "Navigation", icon: Compass },
   { kind: "kpi", label: "Kennzahlen", icon: BarChart3 },
-  { kind: "auswertung", label: "Auswertung", icon: BarChart3 },
   { kind: "setting", label: "Einstellungen", icon: Settings },
   { kind: "leitfaden", label: "Leitfaden", icon: BookOpen },
 ];

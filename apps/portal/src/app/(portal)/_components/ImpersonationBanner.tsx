@@ -51,7 +51,7 @@ export function ImpersonationBanner({ targetEmail, clinicName }: Props) {
     <div
       role="status"
       aria-live="polite"
-      className="border-b border-border bg-bg-secondary/70 text-xs text-fg-secondary"
+      className="border-b border-border bg-bg-secondary text-xs text-fg-secondary"
     >
       <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-3 px-4 py-1.5 md:px-6">
         <div className="flex min-w-0 items-center gap-2">

@@ -1,6 +1,7 @@
 import "server-only";
 import {
   and,
+  asc,
   desc,
   eq,
   gte,
@@ -10,9 +11,10 @@ import {
   lte,
   or,
   sql,
+  type SQL,
 } from "drizzle-orm";
 import { withClinicContext, schema } from "@/db/client";
-import type { RequestStatus } from "@/lib/constants";
+import type { RequestStatus, RequestSort } from "@/lib/constants";
 import { avatarUrlForKey } from "@/server/avatars";
 import { invalidateNavBadges } from "./navBadgesCache";
 
@@ -37,6 +39,43 @@ export interface RequestListItem {
   firstContactedAt: Date | null;
   createdAt: Date;
   assignedTo: string | null;
+  /** Lifetime-Wert des verknüpften Patienten; null wenn keiner verknüpft ist. */
+  patientLtv: number | null;
+}
+
+/**
+ * ORDER BY expressions per sort key. Every non-default sort appends
+ * `createdAt DESC` as the final tiebreaker so rows that tie on the primary
+ * key (the many LTV-0 or noch-nicht-bewerteten leads) still read newest-first.
+ */
+function requestSortOrderBy(sort: RequestSort): SQL[] {
+  switch (sort) {
+    case "aelteste":
+      return [asc(schema.requests.createdAt)];
+    case "ki":
+      return [
+        sql`${schema.requests.aiScore} desc nulls last`,
+        desc(schema.requests.createdAt),
+      ];
+    case "ltv":
+      return [
+        sql`${schema.patients.lifetimeRevenueEur} desc nulls last`,
+        desc(schema.requests.createdAt),
+      ];
+    case "dringlichkeit":
+      // Überfällige, noch nicht bearbeitete Anfragen zuerst (Reaktion jetzt
+      // nötig), dann nach Frist-Nähe (früheste SLA zuerst), dann neueste.
+      return [
+        sql`(${schema.requests.firstContactedAt} is null
+              and ${schema.requests.slaRespondBy} is not null
+              and ${schema.requests.slaRespondBy} < now()) desc`,
+        sql`${schema.requests.slaRespondBy} asc nulls last`,
+        desc(schema.requests.createdAt),
+      ];
+    case "neueste":
+    default:
+      return [desc(schema.requests.createdAt)];
+  }
 }
 
 export interface RequestListFilters {
@@ -52,16 +91,22 @@ export interface RequestListFilters {
 }
 
 /**
- * Paginated list for the inbox. Default sort: SLA first, then newest.
+ * Paginated list for the inbox. Sort orders (see `requestSortOrderBy`):
+ *   - `neueste` (default): newest first
+ *   - `aelteste`: oldest first (FIFO, nichts fällt hinten runter)
+ *   - `ki`: highest KI-Score first (hottest leads), unscored last
+ *   - `ltv`: highest Patienten-Lifetime-Wert first, unlinked/0 last
+ *   - `dringlichkeit`: overdue-uncontacted first, then earliest SLA deadline
  */
 export async function listRequests(
   clinicId: string,
   userId: string,
   filters: RequestListFilters = {},
-  opts: { limit?: number; offset?: number } = {}
+  opts: { limit?: number; offset?: number; sort?: RequestSort } = {}
 ): Promise<{ items: RequestListItem[]; total: number }> {
   const limit = opts.limit ?? 50;
   const offset = opts.offset ?? 0;
+  const sort = opts.sort ?? "neueste";
 
   return withClinicContext(clinicId, userId, async (tx) => {
     const predicates = [eq(schema.requests.clinicId, clinicId)];
@@ -138,14 +183,19 @@ export async function listRequests(
           firstContactedAt: schema.requests.firstContactedAt,
           createdAt: schema.requests.createdAt,
           assignedTo: schema.requests.assignedTo,
+          patientLtv: schema.patients.lifetimeRevenueEur,
         })
         .from(schema.requests)
         .leftJoin(
           schema.treatments,
           eq(schema.requests.treatmentId, schema.treatments.id)
         )
+        .leftJoin(
+          schema.patients,
+          eq(schema.requests.patientId, schema.patients.id)
+        )
         .where(whereClause)
-        .orderBy(desc(schema.requests.createdAt))
+        .orderBy(...requestSortOrderBy(sort))
         .limit(limit)
         .offset(offset),
       tx
@@ -155,7 +205,11 @@ export async function listRequests(
     ]);
 
     return {
-      items: items.map((i) => ({ ...i, status: i.status as RequestStatus })),
+      items: items.map((i) => ({
+        ...i,
+        status: i.status as RequestStatus,
+        patientLtv: i.patientLtv != null ? Number(i.patientLtv) : null,
+      })),
       total: Number(count ?? 0),
     };
   });
@@ -246,6 +300,9 @@ export interface CallQueueLead {
   createdAt: Date;
   /** Earliest still-pending Wiedervorlage for this lead, NULL if none. */
   nextFollowupAt: Date | null;
+  /** Linked to a PVS appointment → the PVS owns the lifecycle, manual status
+   *  writes are refused. The card hides the status-flip when this is true. */
+  pvsControlled: boolean;
 }
 
 /**
@@ -301,6 +358,7 @@ export async function nextCallQueueLeads(
         slaRespondBy: schema.requests.slaRespondBy,
         firstContactedAt: schema.requests.firstContactedAt,
         createdAt: schema.requests.createdAt,
+        pvsAppointmentId: schema.requests.pvsAppointmentId,
         nextFollowupAt: nextFollowupAt.as("next_followup_at"),
       })
       .from(schema.requests)
@@ -338,10 +396,11 @@ export async function nextCallQueueLeads(
       )
       .limit(limit);
 
-    return rows.map((r) => ({
+    return rows.map(({ pvsAppointmentId, ...r }) => ({
       ...r,
       status: r.status as RequestStatus,
       nextFollowupAt: r.nextFollowupAt ? new Date(r.nextFollowupAt) : null,
+      pvsControlled: pvsAppointmentId != null,
     }));
   });
 }

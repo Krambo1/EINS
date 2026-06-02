@@ -39,7 +39,7 @@ import { withBrandLogos } from "@/app/_components/Brand";
 import {
   formatDate,
   formatDateTime,
-  formatEuro,
+  formatMoney,
 } from "@/lib/formatting";
 import {
   ArrowLeft,
@@ -162,7 +162,7 @@ export default async function AnfrageDetailPage({
         asChild
         variant="outline"
         size="lg"
-        className="group gap-2 border-border bg-bg-secondary/60 px-4 font-semibold text-fg-primary shadow-sm hover:bg-bg-secondary hover:text-fg-primary"
+        className="group gap-2 border-border bg-bg-secondary px-4 font-semibold text-fg-primary shadow-sm hover:bg-bg-secondary hover:text-fg-primary"
       >
         <Link href="/anfragen">
           <ArrowLeft className="h-5 w-5 transition-transform group-hover:-translate-x-0.5" />
@@ -230,7 +230,7 @@ export default async function AnfrageDetailPage({
           </div>
 
           {/* Contact strip with inline quick actions */}
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-border bg-bg-secondary/40 px-4 py-2.5">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-border bg-bg-secondary px-4 py-2.5">
             {request.contactEmail ? (
               <a
                 href={`mailto:${request.contactEmail}`}
@@ -302,7 +302,7 @@ export default async function AnfrageDetailPage({
                   <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
                     KI-Einschätzung
                   </div>
-                  <p className="mt-1.5 rounded-lg bg-bg-secondary/40 p-3 text-sm italic leading-relaxed text-fg-primary">
+                  <p className="mt-1.5 rounded-lg bg-bg-secondary p-3 text-sm italic leading-relaxed text-fg-primary">
                     {request.aiReasoning}
                   </p>
                   {request.aiPromptVersion === "rules-v3-llm-notes" && (
@@ -463,7 +463,7 @@ export default async function AnfrageDetailPage({
                       Lifetime-Wert dieses Patienten
                     </div>
                     <div className="mt-1 font-display text-2xl font-semibold tabular-nums">
-                      {formatEuro(patientLtv)}
+                      {formatMoney(patientLtv, session.currency)}
                     </div>
                   </div>
                 )}
@@ -491,7 +491,7 @@ export default async function AnfrageDetailPage({
                             </span>
                             {s.convertedRevenueEur != null && (
                               <span className="text-tone-good tabular-nums">
-                                {formatEuro(s.convertedRevenueEur)}
+                                {formatMoney(s.convertedRevenueEur, session.currency)}
                               </span>
                             )}
                           </div>
@@ -518,7 +518,7 @@ export default async function AnfrageDetailPage({
                     label="Umsatz"
                     value={
                       request.convertedRevenueEur
-                        ? formatEuro(Number(request.convertedRevenueEur))
+                        ? formatMoney(Number(request.convertedRevenueEur), session.currency)
                         : null
                     }
                   />
@@ -554,7 +554,7 @@ export default async function AnfrageDetailPage({
                 <AccordionItem value="raw">
                   <AccordionTrigger>Rohdaten</AccordionTrigger>
                   <AccordionContent>
-                    <pre className="overflow-x-auto rounded-md border border-border bg-bg-secondary/40 p-4 text-xs">
+                    <pre className="overflow-x-auto rounded-md border border-border bg-bg-secondary p-4 text-xs">
                       {JSON.stringify(request.rawPayload, null, 2)}
                     </pre>
                   </AccordionContent>
@@ -579,7 +579,7 @@ export default async function AnfrageDetailPage({
                           {a.actorEmail ?? "—"}
                         </div>
                         {!!a.diff && (
-                          <pre className="mt-1 overflow-x-auto rounded bg-bg-secondary/40 p-2 text-xs">
+                          <pre className="mt-1 overflow-x-auto rounded bg-bg-secondary p-2 text-xs">
                             {JSON.stringify(a.diff, null, 2)}
                           </pre>
                         )}

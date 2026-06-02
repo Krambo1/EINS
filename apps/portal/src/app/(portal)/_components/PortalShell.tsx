@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import dynamic from "next/dynamic";
@@ -9,19 +16,17 @@ import { TopProgressBar } from "./TopProgressBar";
 import {
   LayoutDashboard,
   Inbox,
-  BarChart3,
   Megaphone,
   Film,
   FileText,
   BookOpen,
   Milestone,
   Settings,
-  Calculator,
   MessageSquare,
   Star,
   Menu,
 } from "lucide-react";
-import { type Role } from "@/lib/constants";
+import { CONTACT_CARD_COOKIE, type Role } from "@/lib/constants";
 import { can } from "@/lib/roles";
 import { ImpersonationBanner } from "./ImpersonationBanner";
 import { GlobalSearch } from "./GlobalSearch";
@@ -34,6 +39,7 @@ const GlobalSearchDialog = dynamic(
   { ssr: false }
 );
 import { UserMenu } from "./UserMenu";
+import { SidebarContactCard } from "./SidebarContactCard";
 import { ThemeToggle } from "@/app/_components/ThemeToggle";
 import { EinsLogo } from "@/app/_components/EinsLogo";
 
@@ -69,7 +75,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/anfragen", label: "Anfragen", icon: Inbox, permission: "requests.view" },
       { href: "/werbebudget", label: "Werbebudget", icon: Megaphone, permission: "campaigns.live" },
-      { href: "/auswertung", label: "Auswertung", icon: BarChart3, permission: "reports.view" },
     ],
   },
   {
@@ -102,12 +107,6 @@ const NAV_GROUPS: NavGroup[] = [
           { href: "/leitfaden/pruefung", label: "Prüfung" },
         ],
       },
-    ],
-  },
-  {
-    label: "Werkzeuge",
-    items: [
-      { href: "/was-waere-wenn", label: "Rechner", icon: Calculator, permission: "tools.what_if" },
     ],
   },
   {
@@ -148,6 +147,9 @@ interface PortalShellProps {
    * - 0 / "" / missing → no badge
    */
   navBadgeCounts?: Record<string, number | string>;
+  /** Initial minimized state of the sidebar contact card, read from a cookie
+   *  server-side so the first paint matches the user's last choice. */
+  contactCardCollapsed?: boolean;
   children: ReactNode;
 }
 
@@ -169,9 +171,23 @@ export function PortalShell({
   impersonating,
   pendingBadges,
   navBadgeCounts,
+  contactCardCollapsed,
   children,
 }: PortalShellProps) {
   const pathname = usePathname();
+
+  // Sidebar contact card: minimized/expanded, persisted to a cookie so the
+  // choice survives navigations and future sessions. State is lifted here (not
+  // in the card) so the desktop rail and mobile drawer instances stay in sync.
+  const [contactCollapsed, setContactCollapsed] = useState(!!contactCardCollapsed);
+  const toggleContactCard = (next: boolean) => {
+    setContactCollapsed(next);
+    try {
+      document.cookie = `${CONTACT_CARD_COOKIE}=${next ? "1" : "0"}; path=/; max-age=31536000; samesite=lax`;
+    } catch {
+      // document unavailable (shouldn't happen client-side) — ignore.
+    }
+  };
 
   // Permission-filter both groups and sub-items, drop empty groups.
   const visibleGroups = useMemo<NavGroup[]>(
@@ -496,7 +512,10 @@ export function PortalShell({
         />
       )}
       {/* Header */}
-      <header className="sticky top-0 z-40 border-b border-border bg-bg-primary/95 backdrop-blur">
+      <header
+        className="sticky top-0 z-40 border-b border-border backdrop-blur"
+        style={{ backgroundColor: "color-mix(in srgb, var(--bg-primary) 95%, transparent)" }}
+      >
         <div className="mx-auto flex max-w-screen-2xl items-center gap-4 px-4 py-3 md:px-6">
           <button
             type="button"
@@ -550,17 +569,22 @@ export function PortalShell({
               }}
             />
           )}
-          {visibleGroups.map((group) => (
-            <div
-              key={group.label}
-              className={cn(
-                "flex flex-col gap-0.5",
-                // Push the System group to the bottom of the sidenav so it
-                // reads as a settings-style footer rather than just the last
-                // category in the stack.
-                group.label === BOTTOM_ANCHORED_GROUP && "mt-auto"
+          {visibleGroups.map((group) => {
+            const isBottom = group.label === BOTTOM_ANCHORED_GROUP;
+            return (
+            <Fragment key={group.label}>
+              {/* Contact card sits in the free space above the System group.
+                  It carries `mt-auto` (rather than the group below it) so the
+                  card + footer cluster at the bottom with no gap between
+                  them. */}
+              {isBottom && (
+                <SidebarContactCard
+                  className="mt-auto"
+                  collapsed={contactCollapsed}
+                  onToggle={toggleContactCard}
+                />
               )}
-            >
+            <div className="flex flex-col gap-0.5">
               <h3 className="px-3 pb-1 text-[0.7rem] font-medium text-fg-tertiary">
                 {group.label}
               </h3>
@@ -688,7 +712,9 @@ export function PortalShell({
                 );
               })}
             </div>
-          ))}
+            </Fragment>
+            );
+          })}
           </nav>
         </div>
 
@@ -734,14 +760,18 @@ export function PortalShell({
             <GlobalSearch onOpen={openSearchPalette} />
 
             <nav aria-label="Hauptnavigation" className="flex flex-1 flex-col gap-4">
-              {visibleGroups.map((group) => (
-                <div
-                  key={group.label}
-                  className={cn(
-                    "flex flex-col gap-0.5",
-                    group.label === BOTTOM_ANCHORED_GROUP && "mt-auto"
+              {visibleGroups.map((group) => {
+                const isBottom = group.label === BOTTOM_ANCHORED_GROUP;
+                return (
+                <Fragment key={group.label}>
+                  {isBottom && (
+                    <SidebarContactCard
+                      className="mt-auto"
+                      collapsed={contactCollapsed}
+                      onToggle={toggleContactCard}
+                    />
                   )}
-                >
+                <div className="flex flex-col gap-0.5">
                   <h3 className="px-3 pb-1 text-[0.7rem] font-medium text-fg-tertiary">
                     {group.label}
                   </h3>
@@ -853,7 +883,9 @@ export function PortalShell({
                     );
                   })}
                 </div>
-              ))}
+                </Fragment>
+                );
+              })}
             </nav>
           </aside>
         </div>

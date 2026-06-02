@@ -3,18 +3,33 @@
  * manually concat "€" or "%", and tabular-nums rendering works.
  */
 
-const euroFormatter = new Intl.NumberFormat("de-DE", {
-  style: "currency",
-  currency: "EUR",
-  maximumFractionDigits: 0,
-});
+export type CurrencyCode = "EUR" | "CHF";
 
-const euroFormatterDecimal = new Intl.NumberFormat("de-DE", {
-  style: "currency",
-  currency: "EUR",
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
+// One Intl currency formatter per (currency, decimal) combination, built
+// lazily. The locale stays de-DE for every currency so the thousands/decimal
+// separators match the rest of the German UI; only the symbol changes
+// ("1.234 CHF"). PVS revenue can be EUR (DE/AT) or CHF (CH); agency-side money
+// is always EUR.
+const currencyFormatterCache = new Map<string, Intl.NumberFormat>();
+
+function currencyFormatter(
+  currency: CurrencyCode,
+  decimal: boolean
+): Intl.NumberFormat {
+  const key = `${currency}:${decimal ? "d" : "i"}`;
+  let f = currencyFormatterCache.get(key);
+  if (!f) {
+    f = new Intl.NumberFormat("de-DE", {
+      style: "currency",
+      currency,
+      ...(decimal
+        ? { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+        : { maximumFractionDigits: 0 }),
+    });
+    currencyFormatterCache.set(key, f);
+  }
+  return f;
+}
 
 const numberFormatter = new Intl.NumberFormat("de-DE");
 
@@ -41,9 +56,50 @@ const relativeTimeFormatter = new Intl.RelativeTimeFormat("de-DE", {
   numeric: "auto",
 });
 
-export function formatEuro(value: number | null | undefined, options?: { decimal?: boolean }): string {
+/**
+ * Format an amount in the given currency (default EUR). Use this wherever the
+ * value can be CHF (PVS revenue from a Swiss Praxis); pass the clinic's
+ * currency. `formatEuro` is the EUR-only shorthand for the many call sites that
+ * are always EUR (agency-side spend, ROAS, etc.).
+ */
+export function formatMoney(
+  value: number | null | undefined,
+  currency: CurrencyCode = "EUR",
+  options?: { decimal?: boolean }
+): string {
   if (value == null || Number.isNaN(value)) return "–";
-  return (options?.decimal ? euroFormatterDecimal : euroFormatter).format(value);
+  return currencyFormatter(currency, options?.decimal ?? false).format(value);
+}
+
+export function formatEuro(value: number | null | undefined, options?: { decimal?: boolean }): string {
+  return formatMoney(value, "EUR", options);
+}
+
+/**
+ * Format a revenue figure that SUMS across multiple Praxen (admin cross-clinic
+ * totals). Such a sum only has a meaningful currency when every contributing
+ * Praxis bills in the same one: you cannot add CHF to EUR. Pass the distinct
+ * currencies present in the summed set.
+ *
+ * - exactly one currency → format the value in it (the all-EUR case today, and
+ *   the all-CHF case once a Swiss cohort exists);
+ * - more than one (EUR + CHF mix) → return `mixedLabel` ("gemischt" by default)
+ *   instead of a wrong number;
+ * - empty set → treated as EUR (nothing summed, value is 0).
+ *
+ * Per-row revenue (one Praxis per row) should use `formatMoney` with that row's
+ * own currency, not this helper. Phase 11.
+ */
+export function formatClinicAggregate(
+  value: number | null | undefined,
+  currencies: Iterable<CurrencyCode | string>,
+  options?: { mixedLabel?: string; decimal?: boolean }
+): string {
+  const distinct = new Set<string>();
+  for (const c of currencies) distinct.add(c);
+  if (distinct.size > 1) return options?.mixedLabel ?? "gemischt";
+  const only = (distinct.values().next().value ?? "EUR") as CurrencyCode;
+  return formatMoney(value, only, { decimal: options?.decimal });
 }
 
 export function formatNumber(value: number | null | undefined): string {

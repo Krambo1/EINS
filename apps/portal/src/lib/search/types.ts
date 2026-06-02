@@ -1,6 +1,6 @@
 import type { Permission } from "@/lib/roles";
 
-export type SearchKind = "nav" | "setting" | "leitfaden" | "kpi" | "auswertung" | "lead";
+export type SearchKind = "nav" | "setting" | "leitfaden" | "kpi" | "lead";
 
 export interface SearchEntry {
   kind: SearchKind;

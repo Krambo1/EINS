@@ -25,7 +25,7 @@ import type { LatLng } from "./haversine";
 const POSITIVE_TTL_DAYS = 30;
 const NEGATIVE_TTL_DAYS = 7;
 
-const USER_AGENT = "EINS-Visuals/1.0 (team@einsvisuals.com)";
+const USER_AGENT = "EINS/1.0 (team@eins.ag)";
 
 interface NominatimItem {
   lat: string;

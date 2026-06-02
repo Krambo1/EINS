@@ -4,6 +4,7 @@ import { listRequests } from "@/server/queries/requests";
 import {
   REQUEST_STATUSES,
   REQUEST_SOURCES,
+  REQUEST_SORTS,
   AI_CATEGORIES,
   type RequestStatus,
 } from "@/lib/constants";
@@ -21,6 +22,7 @@ import {
  *   search=jens
  *   assignedTo=<userId>|unassigned
  *   slaBreachedOnly=1
+ *   sort=neueste|aelteste|ki|ltv|dringlichkeit (default neueste)
  *   limit=50 (max 200)
  *   offset=0
  */
@@ -31,6 +33,7 @@ const Query = z.object({
   search: z.string().max(200).optional(),
   assignedTo: z.string().optional(),
   slaBreachedOnly: z.enum(["0", "1"]).optional(),
+  sort: z.enum(REQUEST_SORTS).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
   offset: z.coerce.number().int().min(0).default(0),
 });
@@ -75,7 +78,7 @@ export const GET = withApi({ permission: "requests.view" }, async ({ session, re
       assignedTo,
       slaBreachedOnly: q.slaBreachedOnly === "1",
     },
-    { limit: q.limit, offset: q.offset }
+    { limit: q.limit, offset: q.offset, sort: q.sort }
   );
 
   return {

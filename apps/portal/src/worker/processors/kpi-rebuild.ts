@@ -46,6 +46,10 @@ export async function processKpiRebuild(job: KpiRebuildJob): Promise<void> {
       leads: sql<number>`count(*) filter (where ${schema.requests.status} <> 'spam')::int`,
       appointments: sql<number>`count(*) filter (where ${schema.requests.status} in ('termin_vereinbart','beratung_erschienen','gewonnen'))::int`,
       consultationsHeld: sql<number>`count(*) filter (where ${schema.requests.status} in ('beratung_erschienen','gewonnen'))::int`,
+      // No-shows: PVS-derived status only (constants.ts STATUS_TRANSITIONS) —
+      // a booked Termin the patient missed. Used with consultationsHeld below
+      // to derive the no-show rate among *resolved* consultations.
+      noShows: sql<number>`count(*) filter (where ${schema.requests.status} = 'no_show')::int`,
       casesWon: sql<number>`count(*) filter (where ${schema.requests.status} = 'gewonnen')::int`,
       revenueAttributedEur: sql<string>`coalesce(sum(${schema.requests.convertedRevenueEur}) filter (where ${schema.requests.status} = 'gewonnen'), 0)::text`,
     })
@@ -67,6 +71,7 @@ export async function processKpiRebuild(job: KpiRebuildJob): Promise<void> {
       leads: number;
       appointments: number;
       consultationsHeld: number;
+      noShows: number;
       casesWon: number;
       revenueAttributedEur: number;
     }
@@ -82,6 +87,7 @@ export async function processKpiRebuild(job: KpiRebuildJob): Promise<void> {
     ex.leads = Number(r.leads);
     ex.appointments = Number(r.appointments);
     ex.consultationsHeld = Number(r.consultationsHeld);
+    ex.noShows = Number(r.noShows);
     ex.casesWon = Number(r.casesWon);
     ex.revenueAttributedEur = Number(r.revenueAttributedEur);
     byDate.set(r.date, ex);
@@ -95,6 +101,18 @@ export async function processKpiRebuild(job: KpiRebuildJob): Promise<void> {
     const cpl = m.leads > 0 ? (m.totalSpendEur / m.leads).toFixed(2) : null;
     const roas =
       m.totalSpendEur > 0 ? (m.revenueAttributedEur / m.totalSpendEur).toFixed(2) : null;
+    // No-show rate among *resolved* consultations: of the Termine whose
+    // outcome we know (patient showed = consultationsHeld, or missed =
+    // noShows), the missed share. Pending Termine (termin_vereinbart, no
+    // outcome yet) are deliberately excluded so a day full of future bookings
+    // doesn't read as 0 % no-show. null when nothing has resolved yet — the
+    // dashboard cards render that as "no data" rather than 0 %.
+    // No-shows are PVS-only, so this stays null for clinics without the bridge.
+    const resolvedConsultations = m.consultationsHeld + m.noShows;
+    const noShowRate =
+      resolvedConsultations > 0
+        ? (m.noShows / resolvedConsultations).toFixed(4)
+        : null;
     await db
       .insert(schema.kpiDaily)
       .values({
@@ -104,6 +122,7 @@ export async function processKpiRebuild(job: KpiRebuildJob): Promise<void> {
         appointments: m.appointments,
         consultationsHeld: m.consultationsHeld,
         casesWon: m.casesWon,
+        noShowRate,
         totalSpendEur: m.totalSpendEur.toFixed(2),
         revenueAttributedEur: m.revenueAttributedEur.toFixed(2),
         costPerLead: cpl,
@@ -116,6 +135,7 @@ export async function processKpiRebuild(job: KpiRebuildJob): Promise<void> {
           appointments: m.appointments,
           consultationsHeld: m.consultationsHeld,
           casesWon: m.casesWon,
+          noShowRate,
           totalSpendEur: m.totalSpendEur.toFixed(2),
           revenueAttributedEur: m.revenueAttributedEur.toFixed(2),
           costPerLead: cpl,
@@ -126,7 +146,7 @@ export async function processKpiRebuild(job: KpiRebuildJob): Promise<void> {
     didWrite = true;
   }
 
-  // Flush the request-path cache for this clinic so /auswertung sees the
+  // Flush the request-path cache for this clinic so the dashboard sees the
   // fresh aggregations on the next render. Best-effort across processes —
   // see invalidateClinicKpiCache for details.
   if (didWrite) {
@@ -140,6 +160,7 @@ function emptyDay() {
     leads: 0,
     appointments: 0,
     consultationsHeld: 0,
+    noShows: 0,
     casesWon: 0,
     revenueAttributedEur: 0,
   };

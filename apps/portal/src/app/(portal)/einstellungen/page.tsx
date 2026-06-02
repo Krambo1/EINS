@@ -276,7 +276,7 @@ export default async function EinstellungenPage() {
               action={updateReviewSettingsAction}
               className="grid gap-4 md:grid-cols-2"
             >
-              <label className="md:col-span-2 flex items-center gap-3 rounded-xl border border-border bg-bg-secondary/40 p-4">
+              <label className="md:col-span-2 flex items-center gap-3 rounded-xl border border-border bg-bg-secondary p-4">
                 <input
                   type="checkbox"
                   name="reviewRequestEnabled"
@@ -375,7 +375,7 @@ export default async function EinstellungenPage() {
                 </p>
               </div>
 
-              <div className="md:col-span-2 mt-4 rounded-xl border border-border bg-bg-secondary/40 p-4">
+              <div className="md:col-span-2 mt-4 rounded-xl border border-border bg-bg-secondary p-4">
                 <h3 className="text-sm font-semibold text-fg-primary">
                   Live-Synchronisation der Bewertungen
                 </h3>
@@ -436,7 +436,7 @@ export default async function EinstellungenPage() {
             </form>
 
             {/* Manual sync trigger + last-run flash */}
-            <div className="rounded-xl border border-border bg-bg-secondary/40 p-4">
+            <div className="rounded-xl border border-border bg-bg-secondary p-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <h3 className="text-sm font-semibold text-fg-primary">
@@ -493,17 +493,17 @@ export default async function EinstellungenPage() {
                   einen signierten Webhook an folgende Adresse:
                 </p>
               </div>
-              <div className="rounded-xl border border-border bg-bg-secondary/40 p-3 font-mono text-xs">
+              <div className="rounded-xl border border-border bg-bg-secondary p-3 font-mono text-xs">
                 <div className="text-fg-secondary">Webhook-URL</div>
                 <div className="mt-1 break-all text-fg-primary">
                   {env.APP_ORIGIN}/api/patients/events
                 </div>
               </div>
-              <div className="rounded-xl border border-border bg-bg-secondary/40 p-3 font-mono text-xs">
+              <div className="rounded-xl border border-border bg-bg-secondary p-3 font-mono text-xs">
                 <div className="text-fg-secondary">Praxis-ID (clinicId)</div>
                 <div className="mt-1 break-all text-fg-primary">{clinic.id}</div>
               </div>
-              <div className="rounded-xl border border-border bg-bg-secondary/40 p-3">
+              <div className="rounded-xl border border-border bg-bg-secondary p-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <div className="font-mono text-xs text-fg-secondary">
@@ -553,7 +553,7 @@ export default async function EinstellungenPage() {
             {/* Invite form */}
             <form
               action={inviteTeamMemberAction}
-              className="grid gap-3 rounded-xl border border-border bg-bg-secondary/40 p-4 md:grid-cols-[1fr_1fr_auto_auto]"
+              className="grid gap-3 rounded-xl border border-border bg-bg-secondary p-4 md:grid-cols-[1fr_1fr_auto_auto]"
             >
               <div>
                 <label className="mb-1 block text-xs font-medium text-fg-secondary">
@@ -699,7 +699,7 @@ export default async function EinstellungenPage() {
                 </p>
                 <form
                   action={createTreatmentAction}
-                  className="grid gap-3 rounded-xl border border-border bg-bg-secondary/40 p-4 md:grid-cols-[1fr_1fr_1.5fr_auto]"
+                  className="grid gap-3 rounded-xl border border-border bg-bg-secondary p-4 md:grid-cols-[1fr_1fr_1.5fr_auto]"
                 >
                   <div>
                     <label className="mb-1 block text-xs font-medium text-fg-secondary">
@@ -769,7 +769,7 @@ export default async function EinstellungenPage() {
               <CardContent className="space-y-4">
                 <form
                   action={createLocationAction}
-                  className="grid gap-3 rounded-xl border border-border bg-bg-secondary/40 p-4 md:grid-cols-[1fr_2fr_auto]"
+                  className="grid gap-3 rounded-xl border border-border bg-bg-secondary p-4 md:grid-cols-[1fr_2fr_auto]"
                 >
                   <div>
                     <label className="mb-1 block text-xs font-medium text-fg-secondary">
@@ -893,7 +893,7 @@ function IntegrationRow({
   available: boolean;
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-bg-secondary/40 p-4">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-bg-secondary p-4">
       <div>
         <div className="flex items-center gap-2">
           <span className="font-medium text-fg-primary">{label}</span>

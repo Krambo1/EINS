@@ -65,6 +65,11 @@ vi.mock("@/db/client", () => ({
   schema: {
     pvsAgentStatus: { __name: "pvs_agent_status", clinicId: "clinicId" },
     pvsAgentFailureSummary: { __name: "pvs_agent_failure_summary", id: "id" },
+    pvsLinkSource: {
+      __name: "pvs_link_source",
+      clinicId: "clinicId",
+      bridgeSource: "bridgeSource",
+    },
   },
 }));
 
@@ -180,6 +185,50 @@ describe("POST /api/pvs/agent/heartbeat", () => {
     const res = await heartbeatPOST(req(validHeartbeat));
     expect(res.status).toBe(429);
     expect(res.headers.get("X-PVS-RateLimit-Reason")).toBe("clinic");
+    expect(upserts).toHaveLength(0);
+  });
+
+  it("no enrolledVendors → only the pvs_agent_status upsert (no source write)", async () => {
+    // Back-compat: an older agent omits the field, so the common heartbeat
+    // stays a single write.
+    await heartbeatPOST(req(validHeartbeat));
+    expect(upserts).toHaveLength(1);
+    expect(upserts.some((u) => u.table === "pvs_link_source")).toBe(false);
+  });
+
+  it("enrolledVendors → batched upsert into pvs_link_source (Phase 7)", async () => {
+    const res = await heartbeatPOST(
+      req({ ...validHeartbeat, enrolledVendors: ["gdt_agent", "medatixx"] })
+    );
+    expect(res.status).toBe(200);
+    // One upsert for pvs_agent_status, one batched upsert for pvs_link_source.
+    expect(upserts).toHaveLength(2);
+    const sourceUpsert = upserts.find((u) => u.table === "pvs_link_source");
+    expect(sourceUpsert).toBeDefined();
+    expect(sourceUpsert!.vals).toEqual([
+      expect.objectContaining({
+        clinicId: CLINIC,
+        bridgeSource: "gdt_agent",
+        pvsVendor: "gdt_agent",
+        enrolledVia: "heartbeat",
+      }),
+      expect.objectContaining({
+        clinicId: CLINIC,
+        bridgeSource: "medatixx",
+        pvsVendor: "medatixx",
+        enrolledVia: "heartbeat",
+      }),
+    ]);
+  });
+
+  it("an unknown enrolledVendors value → 400 invalid_envelope, no DB write", async () => {
+    const res = await heartbeatPOST(
+      req({ ...validHeartbeat, enrolledVendors: ["totally_made_up"] })
+    );
+    expect(res.status).toBe(400);
+    await expect(res.json()).resolves.toMatchObject({
+      error: { code: "invalid_envelope" },
+    });
     expect(upserts).toHaveLength(0);
   });
 });

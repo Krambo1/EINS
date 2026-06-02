@@ -1,6 +1,7 @@
 import "server-only";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { withClinicContext, schema } from "@/db/client";
+import { cacheClinicQuery } from "./_cache";
 
 export interface LocationRow {
   id: string;
@@ -10,7 +11,7 @@ export interface LocationRow {
   displayOrder: number;
 }
 
-export async function listLocations(
+async function listLocationsUncached(
   clinicId: string,
   userId: string
 ): Promise<LocationRow[]> {
@@ -33,3 +34,9 @@ export async function listLocations(
       .orderBy(asc(schema.locations.displayOrder), asc(schema.locations.name));
   });
 }
+
+export const listLocations = cacheClinicQuery(
+  "listLocations",
+  listLocationsUncached,
+  {}
+);

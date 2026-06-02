@@ -585,7 +585,6 @@ export async function syncReviewsNowAction() {
   revalidatePath("/einstellungen");
   revalidatePath("/bewertungen");
   revalidatePath("/dashboard");
-  revalidatePath("/auswertung");
 }
 
 const REVIEW_SYNC_FLASH_COOKIE = "eins_review_sync_flash";

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { headers } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { requireSession } from "@/auth/guards";
 import { PortalShell } from "./_components/PortalShell";
 import { ActionFlashToast } from "./_components/ActionFlashToast";
@@ -9,7 +9,7 @@ import {
   type NavSection,
 } from "@/server/queries/navBadges";
 import { getNavBadges } from "@/server/queries/navBadgesCache";
-import type { Role } from "@/lib/constants";
+import { CONTACT_CARD_COOKIE, type Role } from "@/lib/constants";
 import { readActionFlash } from "@/lib/flash";
 
 /**
@@ -45,6 +45,11 @@ export default async function PortalLayout({ children }: { children: ReactNode }
     await markSectionSeen(session.clinicId, session.userId, section);
   }
 
+  // Sidebar contact card minimized state — read here (server-side) so the
+  // first paint matches the user's last choice instead of flashing expanded.
+  const contactCardCollapsed =
+    (await cookies()).get(CONTACT_CARD_COOKIE)?.value === "1";
+
   const [clinic, badges, actionFlash] = await Promise.all([
     getClinicHeader(session.clinicId),
     getNavBadges(session.clinicId, session.userId, session.role as Role),
@@ -70,6 +75,7 @@ export default async function PortalLayout({ children }: { children: ReactNode }
         }}
         clinic={clinic ?? { id: session.clinicId, displayName: "", logoUrl: null }}
         impersonating={session.impersonatedByAdminId !== null}
+        contactCardCollapsed={contactCardCollapsed}
         pendingBadges={{ leitfaden: !hasPassedLeitfaden }}
         navBadgeCounts={{
           "/anfragen": newRequests,

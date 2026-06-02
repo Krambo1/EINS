@@ -30,6 +30,18 @@ export function platformLabelNode(p: Platform | string): ReactNode {
   }
 }
 
+/** Button-Beschriftung pro Plattform für die Antwort-Aktion. */
+export function replyButtonLabel(p: Platform | string): string | null {
+  switch (p) {
+    case "google":
+      return "Auf Google antworten";
+    case "jameda":
+      return "Auf Jameda antworten";
+    default:
+      return null;
+  }
+}
+
 /**
  * Best-effort deep link to the public profile. We don't store the exact
  * profile URL — instead we open a search on the platform with the Praxis
@@ -48,6 +60,42 @@ export function publicProfileUrl(
       return `https://www.jameda.de/suche?q=${q}`;
     case "manual":
       return null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Stored review/profile URLs per platform, as configured under
+ * /einstellungen. Used to deep-link the "Antworten"-Aktion directly to the
+ * Praxis-Profil where a reply can be written.
+ */
+export interface ClinicReviewLinks {
+  googleReviewUrl: string | null;
+  jamedaReviewUrl: string | null;
+  jamedaProfileUrl: string | null;
+}
+
+/**
+ * Best link for replying to reviews on a platform. Prefers the explicitly
+ * configured URL, then falls back to a name-based search so the button is
+ * still useful before the Praxis has filled in its exact profile link.
+ * Returns null only when there is nothing useful to open.
+ */
+export function replyLinkUrl(
+  platform: Platform,
+  clinicName: string,
+  links: ClinicReviewLinks
+): string | null {
+  switch (platform) {
+    case "google":
+      return links.googleReviewUrl?.trim() || publicProfileUrl("google", clinicName);
+    case "jameda":
+      return (
+        links.jamedaReviewUrl?.trim() ||
+        links.jamedaProfileUrl?.trim() ||
+        publicProfileUrl("jameda", clinicName)
+      );
     default:
       return null;
   }

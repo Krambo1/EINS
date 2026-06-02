@@ -68,7 +68,7 @@ export default async function FeedbackPage() {
                   return (
                     <li
                       key={row.id}
-                      className="rounded-lg border border-border bg-bg-secondary/30 p-3"
+                      className="rounded-lg border border-border bg-bg-secondary p-3"
                     >
                       <div className="flex flex-wrap items-center gap-2 text-sm">
                         <Badge tone="accent">{categoryLabel}</Badge>

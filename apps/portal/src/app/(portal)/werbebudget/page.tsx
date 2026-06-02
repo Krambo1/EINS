@@ -16,6 +16,7 @@ import {
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
+  cn,
 } from "@eins/ui";
 import { campaignLiveSummary } from "@/server/queries/kpis";
 import {
@@ -32,7 +33,7 @@ import {
   formatRelative,
 } from "@/lib/formatting";
 import { AlertTriangle, Link as LinkIcon, Plug } from "lucide-react";
-import { DataTable } from "../auswertung/_components/detail-helpers";
+import { DataTable } from "../dashboard/_components/detail-helpers";
 import { Brand } from "@/app/_components/Brand";
 
 export const metadata = { title: "Werbebudget Live" };
@@ -43,6 +44,16 @@ const PLATFORM_LABELS: Record<"meta" | "google", React.ReactNode> = {
   meta: <Brand brand="meta">Meta · Facebook & Instagram</Brand>,
   google: <Brand brand="google">Google Ads</Brand>,
 };
+
+/**
+ * Shared elevated-card surface. Matches the dashboard's MetricTile /
+ * ForecastStrip look (soft off-white fill that lifts via shadow) so the
+ * Werbebudget tab reads as the same product instead of flat grey boxes.
+ */
+const CARD_SURFACE = {
+  backgroundColor: "var(--bg-card)",
+  boxShadow: "var(--shadow-card)",
+} as const;
 
 export default async function WerbebudgetPage({
   searchParams,
@@ -77,7 +88,7 @@ export default async function WerbebudgetPage({
   const noIntegrations = !metaCred && !googleCred;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-3xl font-semibold md:text-4xl">Werbebudget Live.</h1>
@@ -86,20 +97,30 @@ export default async function WerbebudgetPage({
             direkt aus Meta und Google.
           </p>
         </div>
-        <div className="flex gap-2">
-          {[7, 30, 90].map((d) => (
-            <Link
-              key={d}
-              href={`/werbebudget?days=${d}`}
-              className={`rounded-full border px-3 py-1.5 text-sm transition ${
-                days === d
-                  ? "border-accent bg-accent/15 text-fg-primary"
-                  : "border-border text-fg-secondary hover:bg-bg-secondary"
-              }`}
-            >
-              {d} Tage
-            </Link>
-          ))}
+        <div
+          role="tablist"
+          aria-label="Zeitraum"
+          className="inline-flex items-center gap-0.5 rounded-full border border-border bg-bg-secondary p-1"
+        >
+          {[7, 30, 90].map((d) => {
+            const active = days === d;
+            return (
+              <Link
+                key={d}
+                href={`/werbebudget?days=${d}`}
+                role="tab"
+                aria-selected={active}
+                className={cn(
+                  "rounded-full px-3 py-1.5 text-sm font-medium tabular-nums transition-colors",
+                  active
+                    ? "bg-fg-primary text-bg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
+                    : "text-fg-secondary hover:text-fg-primary"
+                )}
+              >
+                {d} Tage
+              </Link>
+            );
+          })}
         </div>
       </header>
 
@@ -119,63 +140,61 @@ export default async function WerbebudgetPage({
         />
       ) : (
         <>
-          <section className="grid gap-4 md:grid-cols-3">
-            <SummaryBox
-              label="Budget in letzten"
-              sub={`${days} Tagen`}
-              value={formatEuro(totalSpend)}
-            />
-            <SummaryBox
-              label="Anfragen über Werbung"
-              sub="aus beiden Plattformen"
-              value={formatNumber(totalLeads)}
-            />
-            <SummaryBox
-              label="Ø Kosten je Anfrage"
-              sub="über alle Plattformen"
-              value={avgCpl !== null ? formatEuro(avgCpl) : "–"}
-            />
-          </section>
+          <StatStrip
+            size="lg"
+            title="Insgesamt"
+            stats={[
+              {
+                label: "Budget",
+                value: formatEuro(totalSpend),
+              },
+              {
+                label: "Anfragen über Werbung",
+                value: formatNumber(totalLeads),
+              },
+              {
+                label: "Ø Kosten je Anfrage",
+                value: avgCpl !== null ? formatEuro(avgCpl) : "–",
+              },
+            ]}
+          />
 
           {detail?.pace && (
-            <section className="print:break-inside-avoid">
-              <h3 className="opa-h3 mb-4 text-fg-primary">Monats-Hochrechnung (Pace)</h3>
-              <div className="grid gap-4 md:grid-cols-4">
-                <PaceStat
-                  label="Bisher diesen Monat"
-                  value={formatEuro(detail.pace.monthSpendSoFar)}
-                />
-                <PaceStat
-                  label={`Hochrechnung (Ende Tag ${detail.pace.daysInMonth})`}
-                  value={formatEuro(detail.pace.projectedMonthSpend)}
-                />
-                <PaceStat
-                  label="Monatsziel"
-                  value={
+            <StatStrip
+              title="Hochrechnung (Pace)"
+              stats={[
+                {
+                  label: "Bisher diesen Monat ausgegeben",
+                  value: formatEuro(detail.pace.monthSpendSoFar),
+                },
+                {
+                  label: `Hochrechnung (Ende Tag ${detail.pace.daysInMonth})`,
+                  value: formatEuro(detail.pace.projectedMonthSpend),
+                },
+                {
+                  label: "Monatsziel",
+                  value:
                     detail.pace.goalTargetEur != null
                       ? formatEuro(detail.pace.goalTargetEur)
-                      : "Kein Ziel"
-                  }
-                />
-                <PaceStat
-                  label="Pace"
-                  value={
+                      : "Kein Ziel",
+                },
+                {
+                  label: "Pace",
+                  value:
                     detail.pace.pacePct != null
                       ? formatPercent(detail.pace.pacePct)
-                      : "–"
-                  }
-                  tone={
+                      : "–",
+                  tone:
                     detail.pace.pacePct == null
                       ? "neutral"
                       : detail.pace.pacePct > 1.1
-                      ? "bad"
-                      : detail.pace.pacePct < 0.85
-                      ? "warn"
-                      : "good"
-                  }
-                />
-              </div>
-            </section>
+                        ? "bad"
+                        : detail.pace.pacePct < 0.85
+                          ? "warn"
+                          : "good",
+                },
+              ]}
+            />
           )}
 
           {/* Per-platform cards */}
@@ -195,9 +214,11 @@ export default async function WerbebudgetPage({
           </section>
 
           {detail?.campaigns && detail.campaigns.length > 0 && (
-            <Card className="print:break-inside-avoid">
+            <Card className="print:break-inside-avoid" style={CARD_SURFACE}>
               <CardHeader>
-                <CardTitle>Kampagnen-Übersicht</CardTitle>
+                <CardTitle className="!text-xl !font-medium md:!text-2xl">
+                  Kampagnen-Übersicht
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <DataTable
@@ -261,9 +282,11 @@ export default async function WerbebudgetPage({
         </>
       )}
 
-      <Card className="print:break-inside-avoid">
+      <Card className="print:break-inside-avoid" style={CARD_SURFACE}>
         <CardHeader>
-          <CardTitle>Hinweise zur Messung</CardTitle>
+          <CardTitle className="!text-xl !font-medium md:!text-2xl">
+            Hinweise zur Messung
+          </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-base text-fg-primary">
           <p>
@@ -302,51 +325,91 @@ async function fetchDetail(clinicId: string, userId: string, days: number) {
   };
 }
 
-function SummaryBox({
-  label,
-  sub,
-  value,
-}: {
+type StatTone = "good" | "warn" | "bad" | "neutral";
+
+const statToneClass: Record<StatTone, string> = {
+  good: "text-tone-good",
+  warn: "text-tone-warn",
+  bad: "text-tone-bad",
+  neutral: "text-fg-primary",
+};
+
+interface StatItem {
   label: string;
-  sub?: string;
   value: string;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-bg-secondary/40 p-6">
-      <div className="text-sm font-medium text-fg-secondary">
-        {label} {sub && <span className="text-fg-secondary">{sub}</span>}
-      </div>
-      <div className="mt-2 font-display text-4xl font-semibold tabular-nums">
-        {value}
-      </div>
-    </div>
-  );
+  /** Optional sub-line under the value, e.g. "letzte 30 Tage". */
+  hint?: string;
+  tone?: StatTone;
 }
 
-function PaceStat({
-  label,
-  value,
-  tone = "neutral",
+/**
+ * A group of related numbers sharing ONE elevated card, separated by hairline
+ * dividers on wide viewports and stacked with spacing on narrow ones. Replaces
+ * the old "one bordered box per value" grid and mirrors the dashboard's
+ * MetricTile / ForecastStrip surface so the two tabs read as one product.
+ *
+ * `size="lg"` is the three hero numbers (one row from `sm` up); the default
+ * `md` is the four Pace numbers (2x2 on small, one row from `lg` up).
+ */
+function StatStrip({
+  title,
+  stats,
+  size = "md",
 }: {
-  label: string;
-  value: string;
-  tone?: "good" | "warn" | "bad" | "neutral";
+  title?: string;
+  stats: StatItem[];
+  size?: "md" | "lg";
 }) {
-  const toneClass: Record<typeof tone, string> = {
-    good: "text-tone-good",
-    warn: "text-tone-warn",
-    bad: "text-tone-bad",
-    neutral: "text-fg-primary",
-  };
+  const isHero = size === "lg";
   return (
-    <div className="rounded-xl border border-border bg-bg-secondary/40 p-4">
-      <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
-        {label}
-      </div>
-      <div className={`mt-1 font-display text-2xl font-semibold tabular-nums ${toneClass[tone]}`}>
-        {value}
-      </div>
-    </div>
+    <section
+      className="rounded-2xl border border-border p-6 md:p-8 print:break-inside-avoid"
+      style={CARD_SURFACE}
+    >
+      {title && (
+        <h2 className="mb-5 text-xl font-medium text-fg-primary md:text-2xl">
+          {title}
+        </h2>
+      )}
+      <dl
+        className={cn(
+          "grid gap-6",
+          isHero
+            ? "grid-cols-3 gap-3 sm:gap-0"
+            : "grid-cols-2 lg:grid-cols-4 lg:gap-0"
+        )}
+      >
+        {stats.map((s, i) => (
+          <div
+            key={s.label}
+            className={cn(
+              "flex h-full flex-col",
+              isHero
+                ? "sm:px-6 sm:first:pl-0 sm:last:pr-0"
+                : "lg:px-6 lg:first:pl-0 lg:last:pr-0",
+              i > 0 &&
+                (isHero
+                  ? "sm:border-l sm:border-border"
+                  : "lg:border-l lg:border-border")
+            )}
+          >
+            <dt className="text-sm text-fg-secondary">{s.label}</dt>
+            <dd
+              className={cn(
+                "mt-auto pt-1.5 font-display font-semibold tabular-nums",
+                isHero ? "text-3xl md:text-4xl" : "text-2xl md:text-3xl",
+                statToneClass[s.tone ?? "neutral"]
+              )}
+            >
+              {s.value}
+            </dd>
+            {s.hint && (
+              <dd className="mt-1 text-xs text-fg-tertiary">{s.hint}</dd>
+            )}
+          </div>
+        ))}
+      </dl>
+    </section>
   );
 }
 
@@ -378,10 +441,12 @@ function PlatformCard({
 }) {
   const connected = !!cred;
   return (
-    <Card className="print:break-inside-avoid">
+    <Card className="print:break-inside-avoid" style={CARD_SURFACE}>
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <CardTitle>{PLATFORM_LABELS[platform]}</CardTitle>
+          <CardTitle className="!text-xl !font-medium md:!text-2xl">
+            {PLATFORM_LABELS[platform]}
+          </CardTitle>
           {connected ? (
             <Badge tone="good">Verbunden</Badge>
           ) : (
@@ -462,7 +527,7 @@ function PlatformCard({
                         </p>
                       ) : (
                         <table className="w-full text-sm">
-                          <thead className="text-left text-xs uppercase tracking-wide text-fg-secondary">
+                          <thead className="text-left text-xs font-medium text-fg-secondary">
                             <tr>
                               <th className="px-3 py-1.5">Datum</th>
                               <th className="px-3 py-1.5 text-right">Datensätze</th>
@@ -525,9 +590,7 @@ function PlatformCard({
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
-        {label}
-      </div>
+      <div className="text-xs font-medium text-fg-secondary">{label}</div>
       <div className="mt-1 font-display text-xl font-semibold tabular-nums">
         {value}
       </div>
@@ -548,9 +611,7 @@ function MiniTrend({
 }) {
   return (
     <div>
-      <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
-        {label}
-      </div>
+      <div className="text-xs font-medium text-fg-secondary">{label}</div>
       <TrendChart
         data={data}
         tone={tone}

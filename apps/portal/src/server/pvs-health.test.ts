@@ -53,6 +53,33 @@ describe("pvs-health Zod schema", () => {
     expect(r.success).toBe(true);
   });
 
+  it("accepts a config_invalid envelope with first-poll detail (Phase 5)", () => {
+    const r = PvsHealthEventSchema.safeParse({
+      ...base,
+      pvsVendor: "medatixx",
+      bridgeSource: "gdt_agent",
+      streamKind: "AppointmentStatusChanged",
+      eventKind: "config_invalid",
+      severity: "error",
+      message:
+        "Konfiguration prüfen in medatixx/AppointmentStatusChanged: Felder newStatus lieferten unerwartete Werte (Stichprobe: 0/5 Zeilen gültig).",
+      detail: {
+        sampleSize: 5,
+        passingRows: 0,
+        threshold: 0.8,
+        issues: [
+          {
+            field: "newStatus",
+            reason:
+              "Transformation 'appointmentStatus' ergab in 5/5 Stichproben-Zeilen keinen gültigen Wert",
+            sampleRawValues: ["FANTASIE", "Z99"],
+          },
+        ],
+      },
+    });
+    expect(r.success).toBe(true);
+  });
+
   it("rejects unknown eventKind", () => {
     const r = PvsHealthEventSchema.safeParse({
       ...base,

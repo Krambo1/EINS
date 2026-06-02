@@ -39,6 +39,11 @@
  *     --reason "wrong-fuzzy-match: phone-only collision" --apply
  */
 
+// MUST be first: neutralizes the `server-only` throw before any module that
+// imports it (transitively via ../src/db/client → server modules) evaluates
+// under plain tsx. See ../src/worker/shim-server-only.ts.
+import "../src/worker/shim-server-only";
+
 import { and, asc, eq, gte, lt, sql } from "drizzle-orm";
 import { db, schema } from "../src/db/client";
 import {

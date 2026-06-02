@@ -1,6 +1,7 @@
 import "server-only";
 import { and, desc, eq, gte, isNotNull, ne, sql } from "drizzle-orm";
 import { withClinicContext, schema } from "@/db/client";
+import { cacheClinicQuery } from "./_cache";
 
 /**
  * Patient + recall helpers — Detail-mode panels: Top LTV, LTV by channel,
@@ -19,7 +20,7 @@ export interface TopPatientRow {
   firstTouchSource: string | null;
 }
 
-export async function topPatientsByLtv(
+async function topPatientsByLtvUncached(
   clinicId: string,
   userId: string,
   limit = 10
@@ -51,6 +52,12 @@ export async function topPatientsByLtv(
   });
 }
 
+export const topPatientsByLtv = cacheClinicQuery(
+  "topPatientsByLtv",
+  topPatientsByLtvUncached,
+  {}
+);
+
 export interface LtvByChannelRow {
   channel: string;
   patientCount: number;
@@ -69,7 +76,7 @@ const CHANNEL_FOR_SOURCE: Record<string, string> = {
   empfehlung: "empfehlung",
 };
 
-export async function ltvByChannel(
+async function ltvByChannelUncached(
   clinicId: string,
   userId: string
 ): Promise<LtvByChannelRow[]> {
@@ -112,6 +119,46 @@ export async function ltvByChannel(
     return Array.from(grouped.values()).sort(
       (a, b) => (b.avgLtvEur ?? 0) - (a.avgLtvEur ?? 0)
     );
+  });
+}
+
+export const ltvByChannel = cacheClinicQuery(
+  "ltvByChannel",
+  ltvByChannelUncached,
+  {}
+);
+
+/**
+ * Average lifetime value keyed by raw first-touch source (the same source
+ * vocabulary as `requests.source` / `bySource`), so it maps onto the
+ * Quellen-Aufschlüsselung rows 1:1 — no collapsing into coarse channels the
+ * way `ltvByChannel` does. Deliberately *not* window-scoped: LTV is a lifetime
+ * metric, so it aggregates every patient regardless of the dashboard period.
+ */
+export async function ltvBySource(
+  clinicId: string,
+  userId: string
+): Promise<Map<string, number>> {
+  return withClinicContext(clinicId, userId, async (tx) => {
+    const rows = await tx
+      .select({
+        firstTouchSource: schema.patients.firstTouchSource,
+        patientCount: sql<number>`count(*)::int`,
+        totalRevenueEur: sql<number>`coalesce(sum(${schema.patients.lifetimeRevenueEur}), 0)`,
+      })
+      .from(schema.patients)
+      .where(eq(schema.patients.clinicId, clinicId))
+      .groupBy(schema.patients.firstTouchSource);
+
+    const out = new Map<string, number>();
+    for (const r of rows) {
+      if (!r.firstTouchSource) continue;
+      const count = Number(r.patientCount);
+      if (count > 0) {
+        out.set(r.firstTouchSource, Number(r.totalRevenueEur) / count);
+      }
+    }
+    return out;
   });
 }
 

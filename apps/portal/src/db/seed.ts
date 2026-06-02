@@ -116,7 +116,7 @@ const MESSAGES = [
   "Ich bin 58 und überlege schon lange. Bitte rufen Sie mich an.",
   "Gibt es auch Termine am Wochenende? Unter der Woche ist es schwierig.",
   "Ich möchte unverbindlich Infos. Vielen Dank im Voraus.",
-  "HILFE — war bei einer anderen Praxis und bin unzufrieden. Können Sie das korrigieren?",
+  "HILFE: war bei einer anderen Praxis und bin unzufrieden. Können Sie das korrigieren?",
 ];
 const SOURCES = ["meta", "google", "formular", "manuell"] as const;
 
@@ -358,7 +358,7 @@ async function main() {
           ${message},
           ${aiScore},
           ${aiCategory},
-          ${`Score ${aiScore} (${aiCategory}) — basierend auf Nachrichtenlänge, Terminbereitschaft, Budget-Indikation.`},
+          ${`Score ${aiScore} (${aiCategory}): basierend auf Nachrichtenlänge, Terminbereitschaft, Budget-Indikation.`},
           ${sql.json(aiSignals)},
           'v1',
           ${status},
@@ -564,15 +564,52 @@ async function main() {
       `;
     }
 
-    // --- documents (placeholder PDFs, storage_key points to local files) ---
+    // --- Vertriebsleitfaden PDF: generate the COMPLETE playbook from the
+    // single source of truth (leitfaden/content.ts) and publish it as a real,
+    // downloadable document. This is the exact buffer the page's "vollständige
+    // PDF" link resolves to, so what staff download can never drift from the
+    // page.
+    //
+    // We write straight to the local storage driver's directory rather than
+    // importing `@/server/storage`: that module begins with `import
+    // "server-only"`, which throws under tsx (this seed's runner). The seed is
+    // hard-guarded to dev only (see the NODE_ENV check at the top), where the
+    // local driver is always active, so this inline write is equivalent to
+    // getStorage().put(leitfadenKey, pdf) here.
+    const { generateLeitfadenPdf } = await import(
+      "../server/reports/leitfaden-pdf"
+    );
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { dirname, join, resolve: resolvePath } = await import("node:path");
+    const leitfadenKey = "global/vertriebsleitfaden.pdf";
+    const leitfadenPdf = await generateLeitfadenPdf();
+    const leitfadenPath = join(
+      resolvePath(process.cwd(), "storage"),
+      leitfadenKey
+    );
+    await mkdir(dirname(leitfadenPath), { recursive: true });
+    await writeFile(leitfadenPath, leitfadenPdf);
+
+    // --- documents (vertrag/avv/auswertung are placeholder keys; the
+    // Vertriebsleitfaden row below points at the freshly generated file) ---
     await sql`
       INSERT INTO documents (clinic_id, kind, title, storage_key, visible_to_roles)
       VALUES
         (${clinicId}, 'vertrag',              'Hauptvertrag EINS',                                    'clinics/praxis-dr-demo/vertrag-2026.pdf',                ARRAY['inhaber']::text[]),
         (${clinicId}, 'avv',                  'Auftragsverarbeitungsvertrag',                         'clinics/praxis-dr-demo/avv-2026.pdf',                    ARRAY['inhaber']::text[]),
-        (${clinicId}, 'vertriebsleitfaden',   'Vertriebsleitfaden Version 2.1',                       'global/vertriebsleitfaden-v2-1.pdf',                     ARRAY['inhaber','marketing','frontdesk']::text[]),
         (${clinicId}, 'auswertung_monatlich', ${'Monats-Auswertung ' + (now.getMonth() > 0 ? `${String(now.getMonth()).padStart(2,'0')}/${now.getFullYear()}` : `12/${now.getFullYear() - 1}`)},
                                                                                                       'clinics/praxis-dr-demo/monatsbericht-letzter.pdf',       ARRAY['inhaber','marketing']::text[])
+    `;
+    await sql`
+      INSERT INTO documents (clinic_id, kind, title, storage_key, file_size_bytes, visible_to_roles)
+      VALUES (
+        ${clinicId},
+        'vertriebsleitfaden',
+        'Vertriebsleitfaden (komplettes Playbook)',
+        ${leitfadenKey},
+        ${leitfadenPdf.byteLength},
+        ARRAY['inhaber','marketing','frontdesk']::text[]
+      )
     `;
 
     // --- notifications ---
@@ -604,8 +641,10 @@ async function main() {
     `;
 
     // --- clinic_timeline_entries (Fortschritt page) ---
-    // Praxisinhaber:innen sind keine Marketing-Profis — Titel und Beschreibungen
+    // Praxisinhaber:innen sind keine Marketing-Profis. Titel und Beschreibungen
     // werden bewusst in einfachem Deutsch ohne Anglizismen geschrieben.
+    // Admin-authored: created_by_email = team@eins.ag (das EINS-Team-Postfach,
+    // identisch mit dem Empfänger in feedback/actions.ts).
     const reportEventDate = new Date();
     reportEventDate.setDate(reportEventDate.getDate() + 6);
     const reportMonthLabel = new Intl.DateTimeFormat("de-DE", {
@@ -618,25 +657,51 @@ async function main() {
       ) VALUES
         (${clinicId}, 'Auftakt-Gespräch',
          'Erstes Treffen mit Ihrem Team. Wir klären Ihre Ziele, Ihre Wunsch-Patientinnen und die Bildsprache Ihrer Praxis.',
-         now() - interval '52 days', 'abgeschlossen', 'team@eins-visuals.de'),
+         now() - interval '52 days', 'abgeschlossen', 'team@eins.ag'),
         (${clinicId}, 'Erste Werbeanzeigen gestartet',
          'Anzeigen bei Instagram, Facebook und Google laufen parallel. Schwerpunkt: Hyaluron-Behandlungen.',
-         now() - interval '38 days', 'abgeschlossen', 'team@eins-visuals.de'),
+         now() - interval '38 days', 'abgeschlossen', 'team@eins.ag'),
         (${clinicId}, 'Foto- und Videoaufnahmen in München',
          'Aufnahmen bei Ihnen vor Ort für die Werbeanzeigen im Frühjahr.',
-         now() - interval '21 days', 'abgeschlossen', 'team@eins-visuals.de'),
+         now() - interval '21 days', 'abgeschlossen', 'team@eins.ag'),
         (${clinicId}, 'Zwei Anzeigen-Varianten verglichen',
          'Die einfühlsamere Variante wird 37 % häufiger angeklickt. Sie wird ab dieser Woche unsere Haupt-Anzeige.',
-         now() - interval '6 days', 'abgeschlossen', 'team@eins-visuals.de'),
+         now() - interval '6 days', 'abgeschlossen', 'team@eins.ag'),
         (${clinicId}, 'Empfehlung: Automatische Erinnerungen aktivieren',
          'Wir empfehlen, Ihre Patientinnen alle vier Monate automatisch zu erinnern. Direkt aus dem Portal.',
-         now() - interval '1 day', 'laeuft', 'team@eins-visuals.de'),
+         now() - interval '1 day', 'laeuft', 'team@eins.ag'),
         (${clinicId}, ${`Monatsbericht ${reportMonthLabel}`},
          'Ihr Monatsbericht mit allen wichtigen Zahlen, einer Auswertung der Anfragen und unseren Empfehlungen für den nächsten Monat.',
-         now() + interval '6 days', 'geplant', 'team@eins-visuals.de'),
+         now() + interval '6 days', 'geplant', 'team@eins.ag'),
         (${clinicId}, 'Großes Quartals-Gespräch',
          'Wir blicken auf die letzten drei Monate zurück, verteilen das Werbebudget neu und entwickeln neue Anzeigen-Ideen für die kommenden Monate.',
-         now() + interval '23 days', 'geplant', 'team@eins-visuals.de')
+         now() + interval '23 days', 'geplant', 'team@eins.ag')
+    `;
+
+    // --- feedback (Kunden-Portal Feedback-Postfach) ---
+    // Demo-Zeilen, damit die nutzerseitige Status-Anzeige unter /feedback sichtbar
+    // ist. Mindestens eine Zeile trägt eine karam_note (Antwort des EINS-Teams),
+    // damit die Darstellung "Antwort vom Team" gefüllt erscheint. submitted_by
+    // verweist auf die geseedeten Demo-Nutzer; Kategorien + Status nutzen die
+    // exakten CHECK-Constraint-Werte aus schema.ts (feedback_category_check /
+    // feedback_status_check).
+    await sql`
+      INSERT INTO feedback (
+        clinic_id, submitted_by, category, message, page_url,
+        status, karam_note, submitted_at
+      ) VALUES
+        (${clinicId}, ${inhaberId}, 'verbesserung',
+         'Auf der Anfragen-Seite würde ich mir wünschen, dass ich mehrere Anfragen auf einmal als kontaktiert markieren kann. Das spart morgens viel Zeit.',
+         '/anfragen',
+         'bearbeitet',
+         'Vielen Dank für den Hinweis. Die Sammel-Aktion ist eingeplant und kommt mit dem nächsten Update. Wir melden uns, sobald sie verfügbar ist.',
+         now() - interval '9 days'),
+        (${clinicId}, ${marketingId}, 'fehler',
+         'Die monatliche Auswertung als PDF lädt bei mir nur sehr langsam, manchmal bricht der Download ab.',
+         '/dashboard',
+         'gesehen',
+         NULL,
+         now() - interval '2 days')
     `;
 
     console.log(`✓ seeded clinic ${clinicId} (Praxis Dr. Demo)`);
@@ -646,6 +711,9 @@ async function main() {
     console.log(`  Anfragen:   ${REQUEST_COUNT} (${newCount} neu, schwerpunktmäßig im laufenden Monat)`);
     console.log(`  KPI-Tage:   60`);
     console.log(`  Werbekonten: meta + google verbunden (Demo-Token)`);
+    console.log(
+      `  Leitfaden:   ${leitfadenPdf.byteLength.toLocaleString("de-DE")} Bytes PDF → ${leitfadenKey} (Dokumente)`
+    );
   } finally {
     await sql.end();
   }

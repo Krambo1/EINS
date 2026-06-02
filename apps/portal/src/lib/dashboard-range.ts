@@ -17,10 +17,25 @@ export const DASHBOARD_RANGE_KEYS = {
   total: "rTotal",
   sources: "rSources",
   funnel: "rFunnel",
+  locations: "rLocations",
+  treatments: "rTreatments",
+  noShow: "rNoShow",
 } as const;
 
 export type DashboardRangeKey =
   (typeof DASHBOARD_RANGE_KEYS)[keyof typeof DASHBOARD_RANGE_KEYS];
+
+/** URL search-param keys for each admin Übersicht chart card with its own
+ *  range toggle. Reuses DASHBOARD_RANGES / parseDashboardRange / dashboardRangeDays
+ *  so the admin switchers behave identically to the clinic ones. */
+export const ADMIN_RANGE_KEYS = {
+  perf: "rPerf",
+  pipeline: "rPipeline",
+  ai: "rAi",
+} as const;
+
+export type AdminRangeKey =
+  (typeof ADMIN_RANGE_KEYS)[keyof typeof ADMIN_RANGE_KEYS];
 
 export const DASHBOARD_RANGE_LABELS: Record<DashboardRange, string> = {
   heute: "Heute",

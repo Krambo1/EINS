@@ -17,11 +17,11 @@ return {
   -- agent-enrollment time. The portal verifies signatures with this key.
   pvsSecret     = "REPLACE-WITH-PVS-SECRET",
 
-  -- Where to POST events. Production: portal.einsvisuals.de. Staging /
+  -- Where to POST events. Production: portal.eins.ag. Staging /
   -- self-host: replace with the appropriate origin.
-  portalBaseUrl = "https://portal.einsvisuals.de",
+  portalBaseUrl = "https://portal.eins.ag",
 
   -- Alternative endpoint for self-hosted bridge deployments. Leave at the
   -- default unless instructed otherwise by EINS support.
-  bridgeBaseUrl = "https://bridge.einsvisuals.de",
+  bridgeBaseUrl = "https://bridge.eins.ag",
 }

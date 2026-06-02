@@ -105,7 +105,7 @@ export default async function PatientenfeedbackPage({
                   <li key={r.id}>
                     <Link
                       href={`/bewertungen/feedback/${r.id}`}
-                      className="flex flex-col gap-1 p-4 transition-colors hover:bg-bg-secondary/40"
+                      className="flex flex-col gap-1 p-4 transition-colors hover:bg-bg-secondary"
                     >
                       <div className="flex flex-wrap items-center gap-3">
                         <span

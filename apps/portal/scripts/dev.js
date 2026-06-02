@@ -19,10 +19,13 @@ const readline = require("node:readline");
 const path = require("node:path");
 const { pinNode20IntoEnv } = require(path.join(__dirname, "..", "..", "..", "scripts", "find-node20.cjs"));
 
-// Port + worker are parameterizable so the preview tooling can run several
-// portal instances in parallel (see .claude/launch.json: portal / portal-b /
-// portal-c). Pass `--port=3005` and `--no-worker` after a `--` separator:
-//   pnpm --filter portal dev -- --port=3005 --no-worker
+// Port + worker are parameterizable so several Claude Code sessions can each
+// preview the portal at once. The Claude preview registry is shared across
+// sessions and reuses servers by NAME, so each session points at a distinct
+// config (.claude/launch.json: portal / portal-b / portal-c), which boots a
+// fresh process on its own port. Pass `--port=` (and `--no-worker` for the
+// extras) after a `--` separator; PORT env is also honored. Default 3001 keeps
+// the normal single-instance `pnpm dev` case unchanged.
 const cliArgs = process.argv.slice(2);
 const portArg = cliArgs.find((a) => a.startsWith("--port="));
 const port = portArg ? portArg.slice("--port=".length) : process.env.PORT || "3001";

@@ -22,8 +22,10 @@ export interface EnqueueInvoiceConversionArgs {
   clinicId: string;
   requestId: string;
   pvsEventLogId: string;
-  /** EUR value (decimal). Stored verbatim on the outbox row. */
+  /** Value (decimal) in `currency`. Stored verbatim on the outbox row. */
   valueEur: number;
+  /** Currency of valueEur (EUR/CHF). Defaults EUR. Sent to CAPI/OCI. Phase 11. */
+  currency?: "EUR" | "CHF";
   occurredAt: Date;
 }
 
@@ -63,6 +65,7 @@ export async function enqueueInvoiceConversions(
         channel,
         eventName: "Purchase",
         valueEur: args.valueEur.toFixed(2),
+        currency: args.currency ?? "EUR",
         occurredAt: args.occurredAt,
         dedupKey,
       })
@@ -98,6 +101,7 @@ export interface OutboxRowForWorker {
   channel: AdsChannel;
   eventName: string;
   valueEur: string;
+  currency: "EUR" | "CHF";
   occurredAt: Date;
   status: string;
   attemptCount: number;
@@ -116,6 +120,7 @@ export async function loadOutboxRow(
       channel: schema.adsConversionOutbox.channel,
       eventName: schema.adsConversionOutbox.eventName,
       valueEur: schema.adsConversionOutbox.valueEur,
+      currency: schema.adsConversionOutbox.currency,
       occurredAt: schema.adsConversionOutbox.occurredAt,
       status: schema.adsConversionOutbox.status,
       attemptCount: schema.adsConversionOutbox.attemptCount,
@@ -125,7 +130,11 @@ export async function loadOutboxRow(
     .where(eq(schema.adsConversionOutbox.id, outboxId))
     .limit(1);
   if (!row) return null;
-  return { ...row, channel: row.channel as AdsChannel };
+  return {
+    ...row,
+    channel: row.channel as AdsChannel,
+    currency: row.currency as "EUR" | "CHF",
+  };
 }
 
 export async function markSent(

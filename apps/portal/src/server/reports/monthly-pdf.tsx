@@ -8,7 +8,8 @@ import {
   StyleSheet,
   renderToBuffer,
 } from "@react-pdf/renderer";
-import { formatEuro, formatNumber } from "@/lib/formatting";
+import { formatEuro, formatMoney, formatNumber } from "@/lib/formatting";
+import type { CurrencyCode } from "@/lib/formatting";
 import type { KpiSummary } from "@/server/queries/kpis";
 
 /**
@@ -23,6 +24,9 @@ export interface RenderMonthlyReportInput {
   clinicName: string;
   period: string; // YYYY-MM
   summary: KpiSummary;
+  /** Praxis billing currency. Formats the attributed-revenue line (own PVS
+   *  revenue, EUR or CHF); agency-side spend + cost-per-lead stay EUR. */
+  currency: CurrencyCode;
 }
 
 const styles = StyleSheet.create({
@@ -53,7 +57,7 @@ const styles = StyleSheet.create({
 export async function renderMonthlyReportPdf(
   input: RenderMonthlyReportInput
 ): Promise<Buffer> {
-  const { clinicName, period, summary } = input;
+  const { clinicName, period, summary, currency } = input;
   const [y, m] = period.split("-");
   const monthName = new Date(Number(y), Number(m) - 1, 1).toLocaleDateString(
     "de-DE",
@@ -81,7 +85,10 @@ export async function renderMonthlyReportPdf(
 
         <Text style={styles.h2}>Finanzen</Text>
         <Row label="Werbebudget" value={formatEuro(summary.spendEur)} />
-        <Row label="Umsatz (zugeordnet)" value={formatEuro(summary.revenueEur)} />
+        <Row
+          label="Umsatz (zugeordnet)"
+          value={formatMoney(summary.revenueEur, currency)}
+        />
         <Row
           label="Werbeertrag"
           value={summary.roas !== null ? `${summary.roas.toFixed(2)} ×` : "—"}

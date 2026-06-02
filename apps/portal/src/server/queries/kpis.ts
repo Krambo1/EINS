@@ -39,7 +39,7 @@ const emptySummary = (): KpiSummary => ({
  * Uncached KPI summary. Called directly by `currentMonthSummary` and
  * `lastNDaysSummary` (both hit the live "as of right now" path — see the
  * cache-strategy notes in _cache.ts). The cached export `kpiSummary` is
- * the wrapper used by /auswertung's detail bundle.
+ * the wrapper used by the dashboard's detail bundle.
  */
 export async function kpiSummaryUncached(
   clinicId: string,
@@ -84,7 +84,7 @@ export async function kpiSummaryUncached(
 }
 
 /**
- * Cached version — read from /auswertung's detail bundle. Tagged
+ * Cached version, read from the dashboard's detail bundle. Tagged
  * `kpi:<clinicId>`; flushed when the kpi-rebuild worker finishes.
  */
 export const kpiSummary = cacheClinicQuery(
@@ -116,8 +116,8 @@ async function kpiDailySeriesUncached(
 }
 
 /**
- * Cached version — used by /auswertung. The only callers today live in
- * /auswertung and the auswertung detail bundle, both of which are happy
+ * Cached version. The only callers today live in the dashboard and its
+ * detail bundle, both of which are happy
  * with worker-bounded freshness.
  */
 export const kpiDailySeries = cacheClinicQuery(
@@ -381,6 +381,78 @@ export async function noShowRateSeries(
       date: r.date,
       rate: r.noShowRate ? Number(r.noShowRate) : 0,
     }));
+  });
+}
+
+export interface NoShowWindow {
+  /**
+   * Appointment-weighted no-show rate across the window (0..1), or null when
+   * no appointments with a computed rate fell in the window. Weighting by
+   * appointment count (not a flat mean of daily rates) matches
+   * `ruleNoShowSpike` and stops a single low-volume day with a freak rate
+   * from dominating the headline.
+   */
+  rate: number | null;
+  /** Appointments counted toward the rate (days that carry a computed rate). */
+  appointments: number;
+  /** Estimated no-shows in the window = round(Σ rate·appointments). */
+  noShows: number;
+  /**
+   * Daily series for the sparkline, ascending by date. Days without a
+   * computed rate render as 0 (mirrors the Auswertung No-Show-Quote chart).
+   */
+  series: Array<{ date: string; rate: number }>;
+}
+
+/**
+ * No-show summary for a dashboard window: an appointment-weighted headline
+ * rate plus the daily series for a sparkline. Uncached — the dashboard's
+ * freshness contract is "today's numbers within seconds" (same reason
+ * `kpiSummaryUncached` is used for the funnel).
+ */
+export async function noShowWindow(
+  clinicId: string,
+  userId: string,
+  from: Date,
+  to: Date
+): Promise<NoShowWindow> {
+  return withClinicContext(clinicId, userId, async (tx) => {
+    const rows = await tx
+      .select({
+        date: schema.kpiDaily.date,
+        rate: schema.kpiDaily.noShowRate,
+        appointments: schema.kpiDaily.appointments,
+      })
+      .from(schema.kpiDaily)
+      .where(
+        and(
+          eq(schema.kpiDaily.clinicId, clinicId),
+          gte(schema.kpiDaily.date, from.toISOString().slice(0, 10)),
+          lte(schema.kpiDaily.date, to.toISOString().slice(0, 10))
+        )
+      )
+      .orderBy(schema.kpiDaily.date);
+
+    let appointments = 0;
+    let weightedNoShows = 0;
+    const series = rows.map((r) => {
+      const rate = r.rate != null ? Number(r.rate) : null;
+      const apps = r.appointments ?? 0;
+      // Skip days without a computed rate or without appointments, exactly
+      // like ruleNoShowSpike — they carry no signal for the weighted rate.
+      if (rate != null && apps > 0) {
+        appointments += apps;
+        weightedNoShows += rate * apps;
+      }
+      return { date: r.date, rate: rate ?? 0 };
+    });
+
+    return {
+      rate: appointments > 0 ? weightedNoShows / appointments : null,
+      appointments,
+      noShows: Math.round(weightedNoShows),
+      series,
+    };
   });
 }
 

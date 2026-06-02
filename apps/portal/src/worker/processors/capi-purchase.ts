@@ -122,7 +122,7 @@ export async function processCapiPurchase(job: CapiPurchaseJob): Promise<void> {
         user_data: userData,
         custom_data: {
           value: Number(row.valueEur),
-          currency: "EUR",
+          currency: row.currency,
           order_id: row.pvsEventLogId,
         },
       },

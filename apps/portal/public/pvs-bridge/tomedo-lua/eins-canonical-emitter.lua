@@ -3,7 +3,7 @@
 -- Generic helper invoked by the per-event hook scripts (appointment_created,
 -- appointment_status_changed, encounter_completed, invoice_paid,
 -- recall_scheduled). Computes an HMAC-SHA256 signature with the per-Praxis
--- secret and POSTs the canonical JSON envelope to bridge.einsvisuals.de.
+-- secret and POSTs the canonical JSON envelope to bridge.eins.ag.
 --
 -- Why this exists alongside the DB-read path: it is a FALLBACK, not a
 -- simultaneous redundant feed. A Tomedo software update could break the
@@ -52,8 +52,8 @@ function require_or_dofile(name)
   return {
     clinicId        = os.getenv("EINS_CLINIC_ID") or "",
     pvsSecret       = os.getenv("EINS_PVS_SECRET") or "",
-    bridgeBaseUrl   = os.getenv("EINS_BRIDGE_URL") or "https://bridge.einsvisuals.de",
-    portalBaseUrl   = os.getenv("EINS_PORTAL_URL") or "https://portal.einsvisuals.de",
+    bridgeBaseUrl   = os.getenv("EINS_BRIDGE_URL") or "https://bridge.eins.ag",
+    portalBaseUrl   = os.getenv("EINS_PORTAL_URL") or "https://portal.eins.ag",
   }
 end
 

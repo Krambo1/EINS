@@ -4,7 +4,7 @@
  * Spins up a 10,000-patient cohort plus 60 days of canonical PVS events
  * against a known clinic_id, including the linker adversarial set the
  * P1-1 hardening was tuned against. Used to populate
- * `staging.einsvisuals.de` for the 30-day soak called for in the
+ * `staging.eins.ag` for the 30-day soak called for in the
  * hardening plan's Phase 3.
  *
  * What it does:
@@ -55,6 +55,11 @@
  * UNIQUE-on-conflict + dedupe path means a re-run is a no-op rather
  * than a duplicate burst.
  */
+
+// MUST be first: neutralizes the `server-only` throw before any module that
+// imports it (transitively via ../src/db/client → server modules) evaluates
+// under plain tsx. See ../src/worker/shim-server-only.ts.
+import "../src/worker/shim-server-only";
 
 import { and, eq, sql } from "drizzle-orm";
 import { db, schema } from "../src/db/client";
@@ -533,7 +538,7 @@ function assertNotProduction(): void {
   const url = process.env.DATABASE_URL ?? "";
   const lowered = url.toLowerCase();
   if (
-    lowered.includes("portal.einsvisuals.de") ||
+    lowered.includes("portal.eins.ag") ||
     lowered.includes("prod") ||
     lowered.includes("production")
   ) {

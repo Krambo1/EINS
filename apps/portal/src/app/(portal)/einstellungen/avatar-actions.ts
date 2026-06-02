@@ -97,7 +97,6 @@ export async function uploadOwnAvatarAction(formData: FormData) {
   revalidatePath("/einstellungen");
   revalidatePath("/dashboard");
   revalidatePath("/anfragen");
-  revalidatePath("/auswertung");
 }
 
 export async function removeOwnAvatarAction() {
@@ -135,5 +134,4 @@ export async function removeOwnAvatarAction() {
   revalidatePath("/einstellungen");
   revalidatePath("/dashboard");
   revalidatePath("/anfragen");
-  revalidatePath("/auswertung");
 }

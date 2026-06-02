@@ -26,11 +26,14 @@ import type {
   OpenLeadForDashboard,
 } from "@/server/queries/requests";
 import type { bySource } from "@/server/queries/attribution";
+import { ltvBySource } from "@/server/queries/patients";
 import {
   formatEuro,
+  formatMoney,
   formatNumber,
   formatRelative,
   toneForGoalRatio,
+  type CurrencyCode,
 } from "@/lib/formatting";
 import { zipSeries } from "@/lib/chart-data";
 import type { KpiSummary } from "@/server/queries/kpis";
@@ -41,9 +44,9 @@ import {
   formatRelationshipDurationDe,
   type DashboardRange,
 } from "@/lib/dashboard-range";
-import { TimeRangeToggle } from "./TimeRangeToggle";
-import { BreakdownStackChart } from "../../auswertung/_components/BreakdownStackChart";
-import type { BreakdownTone } from "../../auswertung/_components/detail-helpers";
+import { TimeRangeToggle } from "@/app/_components/TimeRangeToggle";
+import { BreakdownStackChart } from "./BreakdownStackChart";
+import type { BreakdownTone } from "./detail-helpers";
 import { SOURCE_LABELS, type RequestSource } from "@/lib/constants";
 
 type Goal = Awaited<ReturnType<typeof currentGoals>>[number];
@@ -66,6 +69,7 @@ export interface LeadsBreakdownSummary {
 export async function DashboardTopMetricsEnhanced({
   clinicId,
   userId,
+  currency,
   leadsBreakdown,
   revenueSummary,
   openSummary,
@@ -83,6 +87,8 @@ export async function DashboardTopMetricsEnhanced({
 }: {
   clinicId: string;
   userId: string;
+  /** Billing currency of this (single) Praxis; formats own-revenue figures. */
+  currency: CurrencyCode;
   leadsBreakdown: LeadsBreakdownSummary;
   revenueSummary: KpiSummary;
   openSummary: KpiSummary;
@@ -133,6 +139,7 @@ export async function DashboardTopMetricsEnhanced({
     revenueSpark,
     revenuePriorSpark,
     openPriorQueue,
+    ltvMap,
   ] = await Promise.all([
     // Leads card's headline counts come from `leadsBreakdown` (passed in from
     // page.tsx, computed against the live `requests` table).
@@ -173,6 +180,9 @@ export async function DashboardTopMetricsEnhanced({
       openPriorWin.from,
       openPriorWin.to
     ),
+    // Lifetime value per source — not window-scoped (LTV is a lifetime metric),
+    // surfaced inside each Quellen-Aufschlüsselung row's economics drawer.
+    ltvBySource(clinicId, userId),
   ]);
 
 
@@ -210,30 +220,19 @@ export async function DashboardTopMetricsEnhanced({
   const openTone: MetricTileTone =
     slaBreaches > 0 ? "bad" : openRequests > 0 ? "warn" : "good";
 
-  // Source-matrix totals: same row slice as the chart so the footer sums what
-  // the user actually sees. ROAS is spend-weighted (Σ revenue / Σ spend) — an
-  // arithmetic mean of per-source ROAS over-weights low-spend channels.
+  // Source-matrix totals: same row slice as the chart so the footer sums the
+  // funnel the user actually sees (Anfragen → Termine → Gewonnen).
   const sourceRows = sourceBreakdown.slice(0, 6);
   const sourceTotals = sourceRows.reduce(
     (acc, r) => {
       acc.leads += r.leads;
+      acc.appointments += r.appointments;
+      acc.casesWon += r.casesWon;
       if (r.spendEur != null) acc.spend += r.spendEur;
-      acc.revenue += r.revenueEur ?? 0;
       return acc;
     },
-    { leads: 0, spend: 0, revenue: 0 },
+    { leads: 0, appointments: 0, casesWon: 0, spend: 0 },
   );
-  const sourceTotalRoas =
-    sourceTotals.spend > 0 ? sourceTotals.revenue / sourceTotals.spend : null;
-  const sourceTotalRoasTone: BreakdownTone | null = roasToneFor(sourceTotalRoas);
-  const leadsToneBySource = rankTones(
-    sourceRows.map((r) => ({ key: r.source, value: r.leads })),
-    "asc"
-  );
-  const cplCandidates = sourceRows
-    .filter((r) => r.spendEur != null && r.spendEur > 0 && r.leads > 0)
-    .map((r) => ({ key: r.source, value: r.spendEur! / r.leads }));
-  const budgetToneBySource = rankTones(cplCandidates, "desc");
 
   return (
     <section
@@ -331,7 +330,7 @@ export async function DashboardTopMetricsEnhanced({
             </div>
           </>
         }
-        value={formatEuro(revenueSummary.revenueEur)}
+        value={formatMoney(revenueSummary.revenueEur, currency)}
         statusBadge={
           <MetricStatusBadge status={metricStatusFromTone(revenueTone)} />
         }
@@ -341,7 +340,7 @@ export async function DashboardTopMetricsEnhanced({
             ? {
                 current: revenueSummary.revenueEur,
                 target: revenueScaledTarget,
-                formatTarget: formatEuro,
+                formatTarget: (v) => formatMoney(v, currency),
               }
             : undefined
         }
@@ -361,14 +360,13 @@ export async function DashboardTopMetricsEnhanced({
             )}
             tone="accent"
             label="Umsatz"
-            valueFormat="euro"
+            valueFormat={currency === "CHF" ? "chf" : "euro"}
             height={120}
             showAxes
             showYAxis={false}
             showGrid
           />
         }
-        linkSlot={<TileLink href="/auswertung" ariaLabel="Zur Auswertung" />}
       />
       <MetricTile
         size="large"
@@ -435,7 +433,22 @@ export async function DashboardTopMetricsEnhanced({
         }}
       >
         <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
-          <CardTitle>Quellen-Aufschlüsselung</CardTitle>
+          <div className="flex items-center gap-1.5">
+            <CardTitle className="!text-xl !font-medium md:!text-2xl">
+              Quellen-Aufschlüsselung
+            </CardTitle>
+            <ExplainerPopover term="Quellen-Aufschlüsselung">
+              <p>
+                Woher Ihre Anfragen im gewählten Zeitraum kommen. Der Balken
+                zeigt den Anteil jeder Quelle.
+              </p>
+              <p className="mt-2">
+                Tippen Sie eine Zeile an für die Wirtschaftlichkeit der Quelle:
+                Werbebudget, Kosten pro Anfrage und pro gewonnenem Patienten,
+                Lebenszeitwert und Werbeertrag.
+              </p>
+            </ExplainerPopover>
+          </div>
           <TimeRangeToggle
             value={sourcesRange}
             paramKey={DASHBOARD_RANGE_KEYS.sources}
@@ -446,50 +459,81 @@ export async function DashboardTopMetricsEnhanced({
           <BreakdownStackChart
             centerLabel="Anfragen"
             emptyText="Keine Quellen-Daten."
-            legendColumns={[
-              { label: "Anfragen" },
-              { label: "Budget" },
-              { label: "ROAS" },
-            ]}
-            totalsRow={{
-              label: "Gesamt",
-              stats: [
-                formatNumber(sourceTotals.leads),
-                sourceTotals.spend > 0 ? formatEuro(sourceTotals.spend) : null,
-                sourceTotalRoas != null
-                  ? `${sourceTotalRoas.toFixed(1).replace(".", ",")}×`
-                  : null,
-              ],
-              statTones: [null, null, sourceTotalRoasTone],
-            }}
-            slices={sourceRows.map((c) => {
-              const labelStr =
-                SOURCE_LABELS[c.source as RequestSource] ?? c.source;
-              return {
-                key: c.source,
-                labelText: labelStr,
-                value: c.leads,
-                stats: [
-                  formatNumber(c.leads),
-                  c.spendEur != null ? formatEuro(c.spendEur) : null,
-                  c.roas != null
-                    ? `${c.roas.toFixed(1).replace(".", ",")}×`
-                    : null,
-                ],
-                statTones: [
-                  leadsToneBySource.get(c.source) ?? null,
-                  budgetToneBySource.get(c.source) ?? null,
-                  roasToneFor(c.roas),
-                ],
-                tone: sourceTone(c.source),
-              };
-            })}
+            totals={
+              sourceRows.length > 0
+                ? {
+                    label: "Gesamt",
+                    budget:
+                      sourceTotals.spend > 0
+                        ? formatEuro(sourceTotals.spend)
+                        : null,
+                    anfragen: formatNumber(sourceTotals.leads),
+                    termine: formatNumber(sourceTotals.appointments),
+                    gewonnen: formatNumber(sourceTotals.casesWon),
+                  }
+                : {
+                    label: "Gesamt",
+                    budget: null,
+                    anfragen: null,
+                    termine: null,
+                    gewonnen: null,
+                  }
+            }
+            rows={
+              sourceRows.length > 0
+                ? sourceRows.map((c) => {
+                    const labelStr =
+                      SOURCE_LABELS[c.source as RequestSource] ?? c.source;
+                    const ltv = ltvMap.get(c.source) ?? null;
+                    return {
+                      key: c.source,
+                      labelText: labelStr,
+                      value: c.leads,
+                      tone: sourceTone(c.source),
+                      anfragen: formatNumber(c.leads),
+                      termine: formatNumber(c.appointments),
+                      gewonnen: formatNumber(c.casesWon),
+                      budget:
+                        c.spendEur != null ? formatEuro(c.spendEur) : null,
+                      cpl: c.cplEur != null ? formatEuro(c.cplEur) : null,
+                      cac: c.cacEur != null ? formatEuro(c.cacEur) : null,
+                      ltv: ltv != null ? formatMoney(ltv, currency) : null,
+                      roas:
+                        c.roas != null
+                          ? `${c.roas.toFixed(1).replace(".", ",")}×`
+                          : null,
+                      roasTone: roasToneFor(c.roas),
+                    };
+                  })
+                : // No source data in the period (e.g. "Heute" before the first
+                  // Anfrage): still show the standard channels with "–" values
+                  // and an outlined bar instead of an empty card.
+                  PLACEHOLDER_SOURCES.map((s) => ({
+                    key: s,
+                    labelText: SOURCE_LABELS[s as RequestSource] ?? s,
+                    value: 0,
+                    tone: sourceTone(s),
+                    anfragen: null,
+                    termine: null,
+                    gewonnen: null,
+                    budget: null,
+                    cpl: null,
+                    cac: null,
+                    ltv: null,
+                    roas: null,
+                    roasTone: null,
+                  }))
+            }
           />
         </CardContent>
       </Card>
     </section>
   );
 }
+
+// Standard channels shown as "–" placeholders when the period has no source
+// data yet (so the card isn't blank on e.g. the "Heute" range).
+const PLACEHOLDER_SOURCES = ["meta", "google", "formular", "manuell"] as const;
 
 // Distinct slice color per source so the donut never repeats hues.
 function sourceTone(source: string): BreakdownTone {
@@ -516,29 +560,6 @@ function roasToneFor(roas: number | null | undefined): BreakdownTone | null {
   if (roas >= 2) return "good";
   if (roas >= 1) return "neutral";
   return "warn";
-}
-
-/**
- * Rank an array of {key, value} entries and emit tones — top tertile = "good",
- * bottom tertile = "warn", middle stays null. `direction` controls whether
- * larger values are better (`"asc"` → big = good) or smaller (`"desc"` →
- * small = good, used for CPL).
- */
-function rankTones(
-  entries: { key: string; value: number }[],
-  direction: "asc" | "desc",
-): Map<string, BreakdownTone> {
-  const out = new Map<string, BreakdownTone>();
-  if (entries.length < 2) return out;
-  const sorted = [...entries].sort((a, b) =>
-    direction === "asc" ? b.value - a.value : a.value - b.value
-  );
-  const tertile = Math.max(1, Math.floor(sorted.length / 3));
-  sorted.slice(0, tertile).forEach((e) => out.set(e.key, "good"));
-  sorted.slice(sorted.length - tertile).forEach((e) => {
-    if (!out.has(e.key)) out.set(e.key, "warn");
-  });
-  return out;
 }
 
 /**

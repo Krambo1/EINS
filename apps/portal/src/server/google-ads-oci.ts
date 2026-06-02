@@ -35,8 +35,10 @@ export interface UploadClickConversionArgs {
   gbraid?: string | null;
   /** Conversion timestamp in ISO 8601; we format to Google's `YYYY-MM-DD HH:MM:SS+ZZ:ZZ`. */
   occurredAt: Date;
-  /** EUR value (decimal). Google wants this as a float. */
+  /** Value (decimal) in `currency`. Google wants this as a float. */
   valueEur: number;
+  /** Currency of valueEur (EUR/CHF). Defaults EUR when omitted. Phase 11. */
+  currency?: "EUR" | "CHF";
   /**
    * Order id used by Google for dedup within 24h. We pass the outbox row's
    * pvs_event_log_id so a worker retry produces an identical key.
@@ -125,7 +127,7 @@ interface ClickConversionPayload {
   conversionAction: string;
   conversionDateTime: string;
   conversionValue: number;
-  currencyCode: "EUR";
+  currencyCode: "EUR" | "CHF";
   orderId: string;
   gclid?: string;
   wbraid?: string;
@@ -146,7 +148,7 @@ export function buildClickConversionPayload(
     conversionAction: args.conversionAction,
     conversionDateTime: formatGoogleConversionDateTime(args.occurredAt),
     conversionValue: Number(args.valueEur.toFixed(2)),
-    currencyCode: "EUR",
+    currencyCode: args.currency ?? "EUR",
     orderId: args.orderId,
   };
   if (args.gclid) payload.gclid = args.gclid;

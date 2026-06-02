@@ -44,7 +44,7 @@ Lua-Hooks weiter, und umgekehrt.
    * `clinicId`: aus dem EINS-Portal kopieren.
    * `pvsSecret`: aus dem EINS-Portal kopieren (wird beim Agent-Enrollment
      vergeben).
-   * `portalBaseUrl`: bleibt bei Standard `https://portal.einsvisuals.de`
+   * `portalBaseUrl`: bleibt bei Standard `https://portal.eins.ag`
      unveraendert. Self-Hosted Setups passen die URL hier an.
 
 4. In Tomedo Einstellungen → Skripte → Workflow-Trigger jeden Hook an
@@ -78,7 +78,7 @@ muss das Event innerhalb von einigen Sekunden auftauchen.
 | Symptom in Tomedo Skript-Log                                                | Ursache + Loesung                                                                                                                                       |
 | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `HMAC computation failed (openssl missing?)`                                | macOS-Update hat `/usr/bin/openssl` veraendert. Pfad in `eins-canonical-emitter.lua` (Suchmuster `openssl`) anpassen oder openssl ueber brew nachinstallieren. |
-| `POST failed for AppointmentCreated: curl: (6) Could not resolve host`     | Netzwerk-/DNS-Problem. Pruefe Firewall, ob `portal.einsvisuals.de` ausgehend auf Port 443 erreichbar ist.                                              |
+| `POST failed for AppointmentCreated: curl: (6) Could not resolve host`     | Netzwerk-/DNS-Problem. Pruefe Firewall, ob `portal.eins.ag` ausgehend auf Port 443 erreichbar ist.                                              |
 | `POST failed ... invalid_bridge_source` oder `vendor_mismatch`              | `pvs_link.vendor` auf Portal-Seite passt nicht zu `bridgeSource = "tomedo"`. Im Portal die Praxis-Integration auf `Tomedo` setzen.                      |
 | `missing required fields` Warnung                                           | Tomedo hat das Row-Schema fuer den Hook-Trigger veraendert. Hook-Datei oeffnen, `pick(row, ...)` Liste um den neuen Feldnamen erweitern.               |
 

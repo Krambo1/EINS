@@ -84,6 +84,8 @@ interface InvoiceEvent {
   eventLogId: string;
   amountCents: number;
   paidAt: Date;
+  /** Phase 11: the invoice's currency (EUR/CHF), threaded to the ads outbox. */
+  currency?: "EUR" | "CHF";
 }
 
 interface AppointmentBucket {
@@ -570,6 +572,7 @@ export function foldEvents(
             eventLogId: e.id,
             amountCents: payload.amountCents,
             paidAt: paid,
+            currency: payload.currency,
           });
         }
         // #10: record the appointment (or null) this invoice landed on, so a
@@ -891,6 +894,9 @@ async function fanoutInvoiceConversions(
         requestId,
         pvsEventLogId: invoice.eventLogId,
         valueEur: invoice.amountCents / 100,
+        // Phase 11: attribute in the invoice's real currency (EUR/CHF);
+        // defaults EUR in the outbox insert.
+        currency: invoice.currency,
         occurredAt: invoice.paidAt,
       });
     } catch (err) {

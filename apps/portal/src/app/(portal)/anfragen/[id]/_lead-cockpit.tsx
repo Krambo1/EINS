@@ -234,7 +234,7 @@ function CallDialog({
           <div>
             <FieldLabel>Status</FieldLabel>
             {pvsControlled ? (
-              <p className="inline-flex items-center gap-1.5 rounded-lg bg-bg-secondary/60 px-3 py-2 text-sm text-fg-secondary">
+              <p className="inline-flex items-center gap-1.5 rounded-lg bg-bg-secondary px-3 py-2 text-sm text-fg-secondary">
                 <Lock className="h-4 w-4" />
                 Status wird von Ihrer PVS gesteuert.
               </p>

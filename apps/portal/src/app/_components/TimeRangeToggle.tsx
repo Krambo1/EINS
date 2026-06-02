@@ -109,7 +109,7 @@ export function TimeRangeToggle({ value, paramKey, ariaLabel }: Props) {
       role="tablist"
       aria-label={ariaLabel}
       className={cn(
-        "relative inline-flex items-center gap-0.5 rounded-full border border-border bg-bg-secondary/60 p-0.5 backdrop-blur-sm transition-opacity sm:p-1",
+        "relative inline-flex items-center gap-0.5 rounded-full border border-border bg-bg-secondary p-0.5 backdrop-blur-sm transition-opacity sm:p-1",
         isPending && "opacity-70"
       )}
       aria-busy={isPending}

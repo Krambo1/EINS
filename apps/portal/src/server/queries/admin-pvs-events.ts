@@ -13,6 +13,11 @@ import { db, schema } from "@/db/client";
 
 export const EVENTS_HARD_CAP = 5000;
 
+// Local copy of the canonical BRIDGE_SOURCES, used only to populate + validate
+// the admin event-trace `?bridgeSource=` filter (an unknown value is dropped,
+// not rejected). Kept in step with apps/bridge/src/canonical/schema-source.ts;
+// the last 7 are the Phase 7 per-Praxis DB-read engines so the admin can filter
+// by them once they start emitting (Phase 8).
 export const BRIDGE_SOURCES = [
   "tomedo",
   "healthhub",
@@ -22,6 +27,13 @@ export const BRIDGE_SOURCES = [
   "gdt_agent",
   "csv_upload",
   "n8n_custom",
+  "medatixx",
+  "cgm_albis",
+  "cgm_turbomed",
+  "cgm_m1pro",
+  "indamed",
+  "quincy",
+  "pixelmedics",
 ] as const;
 export type BridgeSourceValue = (typeof BRIDGE_SOURCES)[number];
 

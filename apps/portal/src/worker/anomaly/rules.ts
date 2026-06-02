@@ -377,11 +377,11 @@ export async function ruleRevenueDrop(
       defaultActionSteps:
         severity === "warn"
           ? [
-              "Gewonnen-Quote in /auswertung prüfen: fehlen Abschlüsse oder fehlen Anfragen?",
+              "Gewonnen-Quote in der Übersicht prüfen: fehlen Abschlüsse oder fehlen Anfragen?",
               "Wenn Anfragen okay: Beratungs-Show-Rate und Angebote prüfen",
             ]
           : [
-              "Pipeline-Vorhersage in /auswertung prüfen: ist die Lücke schon im Forecast?",
+              "Pipeline-Vorhersage in der Übersicht prüfen: ist die Lücke schon im Forecast?",
               "Top-Behandlungen Vorjahr vs. aktuell: welche fehlt?",
               "Anfragen-Reaktionszeit prüfen: gibt es Verzögerungen, die Abschlüsse kosten?",
             ],

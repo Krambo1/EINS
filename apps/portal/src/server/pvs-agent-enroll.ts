@@ -282,6 +282,27 @@ export async function redeemAgentEnrollment(input: {
           },
         });
 
+      // Phase 7: seed the gdt_agent provenance in pvs_link_source inside the
+      // same tx. The file-watcher path signs and POSTs gdt_agent events the
+      // moment the agent starts, which can be before its first heartbeat; this
+      // closes that gap so those events never hit the membership 409. Idempotent
+      // on re-enrollment (reinstall / workstation move).
+      await tx
+        .insert(schema.pvsLinkSource)
+        .values({
+          clinicId: input.clinicId,
+          bridgeSource: "gdt_agent",
+          pvsVendor: "gdt_agent",
+          enrolledVia: "enrollment",
+        })
+        .onConflictDoUpdate({
+          target: [
+            schema.pvsLinkSource.clinicId,
+            schema.pvsLinkSource.bridgeSource,
+          ],
+          set: { lastSeenAt: new Date(), enrolledVia: "enrollment" },
+        });
+
       // Audit: always log the enrollment; additionally log the vendor
       // change if one happened.
       await tx.insert(schema.pvsLinkAudit).values({

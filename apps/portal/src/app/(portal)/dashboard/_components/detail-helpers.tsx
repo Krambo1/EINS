@@ -4,9 +4,10 @@ import { cn } from "@eins/ui";
 import { formatNumber } from "@/lib/formatting";
 
 /**
- * Small co-located helpers for the Auswertung deep-dive bundle. Kept inside
- * the page folder to avoid bloating @eins/ui until we've used the same shape
- * on three different pages. Server components — no hooks, no events, no state.
+ * Small co-located helpers for the dashboard deep-dive bundle (also reused by
+ * Werbebudget). Kept inside the page folder to avoid bloating @eins/ui until
+ * we've used the same shape on three different pages. Server components — no
+ * hooks, no events, no state.
  */
 
 // ---------- Shared tone vocabulary ----------
@@ -51,7 +52,7 @@ export function BreakdownBars({ rows }: { rows: BreakdownBarRow[] }) {
           >
             <span className="truncate text-sm text-fg-primary">{r.label}</span>
             <div
-              className="relative h-6 cursor-default rounded-full bg-bg-secondary/50"
+              className="relative h-6 cursor-default rounded-full bg-bg-secondary"
               title={`${labelStr}: ${formatNumber(r.value)} (${sharePct.toFixed(1).replace(".", ",")} % Anteil)`}
             >
               <div
@@ -270,7 +271,7 @@ export function ScoreDistribution({
               </span>
             </span>
             <div
-              className="relative h-5 cursor-default rounded-full bg-bg-secondary/50"
+              className="relative h-5 cursor-default rounded-full bg-bg-secondary"
               title={`${b.label} (${b.min}–${b.max}): ${formatNumber(b.count)} Anfragen${total > 0 ? ` · ${sharePct.toFixed(1).replace(".", ",")} % aller bewerteten Anfragen` : ""}`}
             >
               <div
@@ -314,7 +315,7 @@ export function DataTable<T>({
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
-        <thead className="bg-bg-secondary/50 text-left text-xs font-medium uppercase tracking-wide text-fg-secondary">
+        <thead className="bg-bg-secondary text-left text-xs font-medium text-fg-secondary">
           <tr>
             {columns.map((c) => (
               <th
@@ -331,7 +332,7 @@ export function DataTable<T>({
         </thead>
         <tbody className="divide-y divide-border">
           {rows.map((r, idx) => (
-            <tr key={idx} className="hover:bg-bg-secondary/30">
+            <tr key={idx} className="hover:bg-bg-secondary">
               {columns.map((c) => (
                 <td
                   key={String(c.key)}

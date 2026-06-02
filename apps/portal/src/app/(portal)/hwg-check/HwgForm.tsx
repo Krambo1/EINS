@@ -124,7 +124,7 @@ function ResultPanel({
               <div className="mb-1 text-xs font-medium uppercase tracking-wide text-fg-secondary">
                 Markierter Text
               </div>
-              <p className="whitespace-pre-wrap rounded-xl border border-border bg-bg-secondary/40 p-4 text-base leading-relaxed">
+              <p className="whitespace-pre-wrap rounded-xl border border-border bg-bg-secondary p-4 text-base leading-relaxed">
                 {renderWithHighlights(input, findings)}
               </p>
             </div>
@@ -137,7 +137,7 @@ function ResultPanel({
                 {findings.map((f, i) => (
                   <li
                     key={`${f.ruleId}-${i}`}
-                    className="flex gap-3 rounded-lg border border-border bg-bg-secondary/30 p-3"
+                    className="flex gap-3 rounded-lg border border-border bg-bg-secondary p-3"
                   >
                     <Badge tone={f.severity === "red" ? "bad" : "warn"}>
                       {f.severity === "red" ? "Rot" : "Gelb"}

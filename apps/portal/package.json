@@ -23,6 +23,7 @@
     "cron": "tsx src/worker/cron.ts",
     "admin:create": "tsx src/scripts/create-admin.ts",
     "setup:intake": "tsx src/scripts/setup-intake.ts",
+    "pdf:leitfaden": "tsx scripts/generate-leitfaden-pdf.ts",
     "pvs:reconcile": "tsx scripts/pvs-reconcile.ts",
     "pvs:seed-staging": "tsx scripts/pvs-seed-staging.ts"
   },
@@ -67,7 +68,6 @@
     "react-dom": "^19.0.0",
     "react-easy-crop": "^5.5.7",
     "react-hook-form": "^7.53.2",
-    "recharts": "^2.13.3",
     "resend": "^4.0.1",
     "server-only": "^0.0.1",
     "tailwind-merge": "^2.5.4",

@@ -1,15 +1,13 @@
 import "server-only";
-import Link from "next/link";
-import { ChevronRight, LineChart } from "lucide-react";
+import { LineChart } from "lucide-react";
 import { getLatestSnapshot, loadForecastInputs } from "@/server/queries/forecast";
 import { runForecast, MIN_SAMPLE_WON } from "@/server/forecast/engine";
-import { formatEuro } from "@/lib/formatting";
+import { formatMoney, type CurrencyCode } from "@/lib/formatting";
 
 /**
- * Dashboard Forecast strip: three numbers (Pipeline-Wert, 30d, 90d) that
- * deep-link to /auswertung/forecast. Hidden entirely when the cold-start
- * gate is active. The dashboard already has enough density without a
- * placeholder that won't render numbers.
+ * Dashboard Forecast strip: three numbers (Pipeline-Wert, 30d, 90d). Hidden
+ * entirely when the cold-start gate is active. The dashboard already has enough
+ * density without a placeholder that won't render numbers.
  *
  * Reads the nightly snapshot; falls back to a live recompute if the
  * snapshot is older than 25 hours.
@@ -29,53 +27,51 @@ interface StripData {
 export async function ForecastStrip({
   clinicId,
   userId,
+  currency,
 }: {
   clinicId: string;
   userId: string;
+  currency: CurrencyCode;
 }) {
   const data = await loadStripData(clinicId, userId);
-  // Cold-start: hide. The /auswertung/forecast page shows the gate copy.
+  // Cold-start: hide. Show the strip only once the forecast has enough signal.
   if (!data || data.sampleSizeWon < MIN_SAMPLE_WON) return null;
 
   return (
-    <Link
-      href="/auswertung/forecast"
-      className="group block rounded-2xl border border-border p-5 transition hover:border-accent"
+    <div
+      className="block rounded-2xl border border-border p-5"
       style={{
         backgroundColor: "var(--bg-card)",
         boxShadow: "var(--shadow-card)",
       }}
-      aria-label="Zum Cashflow-Forecast"
+      aria-label="Cashflow-Forecast"
     >
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="rounded-lg bg-accent/10 p-2 text-accent">
-            <LineChart className="h-4 w-4" />
-          </div>
-          <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
-            Cashflow-Forecast (90 Tage)
-          </div>
+      <div className="flex items-center gap-3">
+        <div className="rounded-lg bg-accent/10 p-2 text-accent">
+          <LineChart className="h-4 w-4" />
         </div>
-        <ChevronRight className="h-4 w-4 text-fg-tertiary transition group-hover:translate-x-0.5 group-hover:text-fg-secondary" />
+        <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
+          Cashflow-Forecast (90 Tage)
+        </div>
       </div>
       <div className="mt-3 grid gap-4 md:grid-cols-3">
         <StripNumber
           label="Pipeline-Wert"
-          value={formatEuro(data.pipelineValueEur)}
+          value={formatMoney(data.pipelineValueEur, currency)}
           hint="aus offenen Anfragen"
         />
         <StripNumber
           label="Erwartet 30 Tage"
-          value={formatEuro(data.expectedBooked30dEur)}
-          hint={`gezahlt ≈ ${formatEuro(data.expectedPaid30dEur)}`}
+          value={formatMoney(data.expectedBooked30dEur, currency)}
+          hint={`gezahlt ≈ ${formatMoney(data.expectedPaid30dEur, currency)}`}
         />
         <StripNumber
           label="Erwartet 90 Tage"
-          value={formatEuro(data.expectedBooked90dEur)}
-          hint={`gezahlt ≈ ${formatEuro(data.expectedPaid90dEur)}`}
+          value={formatMoney(data.expectedBooked90dEur, currency)}
+          hint={`gezahlt ≈ ${formatMoney(data.expectedPaid90dEur, currency)}`}
         />
       </div>
-    </Link>
+    </div>
   );
 }
 

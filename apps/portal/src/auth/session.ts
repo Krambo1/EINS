@@ -5,6 +5,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { and, eq, isNull, ne, sql as dsql } from "drizzle-orm";
 import { db, schema } from "../db/client";
 import { env } from "../lib/env";
+import { type CurrencyCode } from "../lib/formatting";
 import {
   SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
@@ -58,6 +59,10 @@ export interface ResolvedSession {
   sessionId: string;
   userId: string;
   clinicId: string;
+  /** Billing currency of the user's Praxis (clinics.currency). Drives money
+   *  formatting for this clinic's own PVS revenue (EUR for DE/AT, CHF for a
+   *  Swiss Praxis); agency-side spend/ROAS stay EUR regardless. */
+  currency: CurrencyCode;
   email: string;
   fullName: string | null;
   avatarUrl: string | null;
@@ -146,6 +151,7 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
       expiresAt: schema.sessions.expiresAt,
       revokedAt: schema.sessions.revokedAt,
       clinicId: schema.clinicUsers.clinicId,
+      currency: schema.clinics.currency,
       email: schema.clinicUsers.email,
       fullName: schema.clinicUsers.fullName,
       avatarKey: schema.clinicUsers.avatarKey,
@@ -155,6 +161,7 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
     })
     .from(schema.sessions)
     .innerJoin(schema.clinicUsers, eq(schema.sessions.userId, schema.clinicUsers.id))
+    .innerJoin(schema.clinics, eq(schema.clinics.id, schema.clinicUsers.clinicId))
     .where(
       and(
         eq(schema.sessions.id, payload.sid),
@@ -184,6 +191,7 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
     sessionId: row.sessionId,
     userId: row.userId,
     clinicId: row.clinicId,
+    currency: row.currency as CurrencyCode,
     email: row.email,
     fullName: row.fullName,
     avatarUrl: avatarUrlForKey(row.avatarKey, row.avatarUpdatedAt),

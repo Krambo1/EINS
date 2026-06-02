@@ -104,7 +104,7 @@ function PendingRow({
       className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2.5 ${
         overdue
           ? "border-tone-warn/40 bg-[var(--tone-warn-bg)]"
-          : "border-border bg-bg-secondary/40"
+          : "border-border bg-bg-secondary"
       }`}
     >
       <div className="min-w-0">

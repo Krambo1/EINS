@@ -38,7 +38,14 @@ import { ensurePartitionForMonth } from "@/worker/processors/pvs-partition-rotat
 const isoDatetime = z.string().datetime({ offset: true });
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
-const BridgeSource = z.enum([
+// The portal's canonical bridge-source enum. Conformance-pinned to
+// BRIDGE_SOURCES (apps/bridge/src/canonical/schema-source.ts) by
+// pvs-events.canonical.test.ts. Exported as the portal-side source of truth;
+// other server modules that need the value set keep their own local copy when
+// importing this module would pull heavy deps (e.g. the heartbeat route avoids
+// the BullMQ/Redis chain). The last 7 are the Phase 7 per-Praxis DB-read
+// engines (underscores; CGM-M1 Postgres + Oracle both collapse to cgm_m1pro).
+export const BridgeSource = z.enum([
   "tomedo",
   "healthhub",
   "red",
@@ -47,6 +54,13 @@ const BridgeSource = z.enum([
   "gdt_agent",
   "csv_upload",
   "n8n_custom",
+  "medatixx",
+  "cgm_albis",
+  "cgm_turbomed",
+  "cgm_m1pro",
+  "indamed",
+  "quincy",
+  "pixelmedics",
 ]);
 export type BridgeSource = z.infer<typeof BridgeSource>;
 
@@ -297,16 +311,40 @@ export async function applyPvsEvent(
   ) {
     return { ok: false, reason: "link_not_ready" };
   }
-  // Reject events whose bridge_source contradicts the configured vendor —
-  // an obvious misconfiguration that we'd rather fail closed on than ingest
-  // and confuse the resolver. CSV / n8n are universal so we accept those
-  // for any vendor.
+  // Provenance membership check (Phase 7 per-vendor identity).
+  //
+  // The HMAC signature already authenticated the clinic; bridge_source is a
+  // provenance label, not an auth boundary. One GDT agent can read several PVS
+  // engines, so a clinic may legitimately emit more than one source. Accept
+  // when:
+  //   - the source is universal (csv_upload / n8n_custom), OR
+  //   - it matches the clinic's configured vendor (back-compat fast path: every
+  //     existing single-vendor clinic keeps emitting with zero new rows), OR
+  //   - the clinic has enrolled that source in pvs_link_source (seeded by GDT
+  //     enrollment, the agent heartbeat, and the 0055 backfill).
+  //
+  // A miss is NOT a hard misconfiguration: it is the transient window before
+  // the agent's next heartbeat reports its vendors. We return vendor_mismatch,
+  // which the route maps to 409 (retryable) so the agent retries instead of
+  // dropping the event on a 400.
   if (
     input.bridgeSource !== "csv_upload" &&
     input.bridgeSource !== "n8n_custom" &&
     input.bridgeSource !== link.vendor
   ) {
-    return { ok: false, reason: "vendor_mismatch" };
+    const [enrolledSource] = await db
+      .select({ bridgeSource: schema.pvsLinkSource.bridgeSource })
+      .from(schema.pvsLinkSource)
+      .where(
+        and(
+          eq(schema.pvsLinkSource.clinicId, input.clinicId),
+          eq(schema.pvsLinkSource.bridgeSource, input.bridgeSource)
+        )
+      )
+      .limit(1);
+    if (!enrolledSource) {
+      return { ok: false, reason: "vendor_mismatch" };
+    }
   }
 
   // 2) Insert event_log (idempotent). The link.status snapshot is

@@ -129,7 +129,7 @@ export function LoginForm({ initialError }: { initialError?: string }) {
       <button
         type="button"
         onClick={() => setMode("magic")}
-        className="w-full rounded-xl border border-border bg-bg-secondary/40 px-4 py-3 text-sm text-fg-primary transition hover:bg-bg-secondary"
+        className="w-full rounded-xl border border-border bg-bg-secondary px-4 py-3 text-sm text-fg-primary transition hover:bg-bg-secondary"
       >
         Lieber per E-Mail-Link anmelden
       </button>

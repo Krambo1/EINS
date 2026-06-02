@@ -114,6 +114,7 @@ export async function processOciPurchase(job: OciPurchaseJob): Promise<void> {
       gbraid: request.gbraid,
       occurredAt: row.occurredAt,
       valueEur: Number(row.valueEur),
+      currency: row.currency,
       orderId: row.pvsEventLogId,
       hashedEmail,
       hashedPhone,

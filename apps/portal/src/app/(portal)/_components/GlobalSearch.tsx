@@ -27,7 +27,7 @@ export function GlobalSearch({ onOpen }: GlobalSearchProps) {
       onClick={onOpen}
       aria-label="Suchen (Tastenkürzel Strg + K)"
       className={cn(
-        "group flex h-9 w-full items-center gap-2 rounded-xl border border-border bg-bg-secondary/40 px-3 text-sm text-fg-secondary transition-colors",
+        "group flex h-9 w-full items-center gap-2 rounded-xl border border-border bg-bg-secondary px-3 text-sm text-fg-secondary transition-colors",
         "hover:border-fg-tertiary hover:text-fg-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-fg-primary"
       )}
     >

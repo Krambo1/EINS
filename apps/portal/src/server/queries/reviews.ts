@@ -1,6 +1,7 @@
 import "server-only";
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { withClinicContext, schema } from "@/db/client";
+import { cacheClinicQuery } from "./_cache";
 
 /**
  * Reputation helpers — Detail-mode reviews card. The reviews table holds
@@ -17,7 +18,7 @@ export interface ReviewSnapshot {
 }
 
 /** Most-recent snapshot per platform. */
-export async function latestReviews(
+async function latestReviewsUncached(
   clinicId: string,
   userId: string
 ): Promise<ReviewSnapshot[]> {
@@ -47,6 +48,12 @@ export async function latestReviews(
   });
 }
 
+export const latestReviews = cacheClinicQuery(
+  "latestReviews",
+  latestReviewsUncached,
+  {}
+);
+
 export interface ReviewTrendRow {
   platform: string;
   rating: number;
@@ -54,7 +61,7 @@ export interface ReviewTrendRow {
 }
 
 /** Trend over the last N months. Multiple rows per platform. */
-export async function reviewTrend(
+async function reviewTrendUncached(
   clinicId: string,
   userId: string,
   months = 6
@@ -84,92 +91,14 @@ export async function reviewTrend(
   });
 }
 
-/**
- * Bewertungen tab fetches latest snapshots, 6-month trend, and full history.
- * Runs all three in a single transaction so the page pays one round-trip
- * instead of three.
- */
-export async function bewertungenPageData(
-  clinicId: string,
-  userId: string,
-  trendMonths = 6
-): Promise<{
-  latest: ReviewSnapshot[];
-  trend: ReviewTrendRow[];
-  history: Awaited<ReturnType<typeof listReviews>>;
-}> {
-  return withClinicContext(clinicId, userId, async (tx) => {
-    const since = new Date();
-    since.setMonth(since.getMonth() - trendMonths);
-
-    const [latestRowsRaw, trendRows, historyRows] = await Promise.all([
-      tx.execute(sql`
-        SELECT DISTINCT ON (platform)
-          id, platform, rating, total_count, recorded_at, notes
-        FROM reviews
-        WHERE clinic_id = ${clinicId}
-        ORDER BY platform, recorded_at DESC
-      `),
-      tx
-        .select({
-          platform: schema.reviews.platform,
-          rating: schema.reviews.rating,
-          recordedAt: schema.reviews.recordedAt,
-        })
-        .from(schema.reviews)
-        .where(
-          and(
-            eq(schema.reviews.clinicId, clinicId),
-            gte(schema.reviews.recordedAt, since)
-          )
-        )
-        .orderBy(schema.reviews.platform, schema.reviews.recordedAt),
-      tx
-        .select()
-        .from(schema.reviews)
-        .where(eq(schema.reviews.clinicId, clinicId))
-        .orderBy(desc(schema.reviews.recordedAt)),
-    ]);
-
-    const latestRows = latestRowsRaw as unknown as Array<{
-      id: string;
-      platform: string;
-      rating: string;
-      total_count: number;
-      recorded_at: Date;
-      notes: string | null;
-    }>;
-
-    return {
-      latest: latestRows.map((r) => ({
-        id: r.id,
-        platform: r.platform as ReviewSnapshot["platform"],
-        rating: Number(r.rating),
-        totalCount: Number(r.total_count),
-        recordedAt: r.recorded_at,
-        notes: r.notes,
-      })),
-      trend: trendRows.map((r) => ({
-        platform: r.platform,
-        rating: Number(r.rating),
-        recordedAt: r.recordedAt,
-      })),
-      history: historyRows.map((r) => ({
-        id: r.id,
-        platform: r.platform,
-        rating: Number(r.rating),
-        totalCount: Number(r.totalCount),
-        periodStart: r.periodStart,
-        periodEnd: r.periodEnd,
-        recordedAt: r.recordedAt,
-        notes: r.notes,
-      })),
-    };
-  }, "bewertungen:page");
-}
+export const reviewTrend = cacheClinicQuery(
+  "reviewTrend",
+  reviewTrendUncached,
+  { dateArgs: [] }
+);
 
 /** Full reviews list — admin-style page in /einstellungen. */
-export async function listReviews(
+async function listReviewsUncached(
   clinicId: string,
   userId: string
 ): Promise<
@@ -201,4 +130,36 @@ export async function listReviews(
       notes: r.notes,
     }));
   });
+}
+
+export const listReviews = cacheClinicQuery(
+  "listReviews",
+  listReviewsUncached,
+  {}
+);
+
+/**
+ * Bewertungen tab fetches latest snapshots, an N-month trend, and the full
+ * history. Each read now routes through `cacheClinicQuery` (tag
+ * `kpi:<clinicId>`), so a warm cache serves the whole page with zero Postgres
+ * round-trips. On a cold cache the three reads run in parallel, so the
+ * wall-clock cost is roughly a single transaction rather than three serial
+ * ones. The previous single-transaction implementation saved one round-trip
+ * on every render; the cache now saves all three on the common (warm) path.
+ */
+export async function bewertungenPageData(
+  clinicId: string,
+  userId: string,
+  trendMonths = 6
+): Promise<{
+  latest: ReviewSnapshot[];
+  trend: ReviewTrendRow[];
+  history: Awaited<ReturnType<typeof listReviews>>;
+}> {
+  const [latest, trend, history] = await Promise.all([
+    latestReviews(clinicId, userId),
+    reviewTrend(clinicId, userId, trendMonths),
+    listReviews(clinicId, userId),
+  ]);
+  return { latest, trend, history };
 }

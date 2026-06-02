@@ -59,6 +59,12 @@ export const clinics = pgTable("clinics", {
   legalName: text("legal_name").notNull(),
   displayName: text("display_name").notNull(),
   slug: text("slug").notNull().unique(),
+  /** Praxis billing currency, the display currency for all of this clinic's
+   *  revenue. lifetime_revenue_eur / converted_revenue_eur hold values in THIS
+   *  currency; the _eur suffix is a legacy name, not an EUR assertion. EUR
+   *  default; set to CHF when onboarding a Swiss Praxis. CHECK in migration
+   *  0057. Phase 11. */
+  currency: text("currency").notNull().default("EUR"),
   logoUrl: text("logo_url"),
   primaryColor: text("primary_color"),
   defaultDoctorEmail: text("default_doctor_email"),
@@ -1055,6 +1061,10 @@ export const adsConversionOutbox = pgTable(
     channel: text("channel").notNull(),
     eventName: text("event_name").notNull(),
     valueEur: numeric("value_eur", { precision: 10, scale: 2 }).notNull(),
+    /** Currency of value_eur (legacy name): EUR default, CHF for a Swiss
+     *  Praxis. Captured from the invoice event and sent verbatim to Meta CAPI /
+     *  Google OCI. CHECK in migration 0057. Phase 11. */
+    currency: text("currency").notNull().default("EUR"),
     /** PVS `paidAt` timestamp; sent to platforms as the conversion time. */
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
     /**
@@ -1113,6 +1123,7 @@ export const adsConversionOutbox = pgTable(
 // ---------------------------------------------------------------
 export {
   pvsLink,
+  pvsLinkSource,
   pvsEventLog,
   pvsPatientMap,
   pvsTreatmentMapping,

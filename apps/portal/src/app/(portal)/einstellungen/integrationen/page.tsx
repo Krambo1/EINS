@@ -44,6 +44,14 @@ const VENDOR_LABELS: Record<string, string> = {
   gdt_agent: "GDT-Agent",
   csv_upload: "CSV-Upload",
   n8n_custom: "n8n Workflow",
+  // Phase 7 per-Praxis DB-read engines (on-prem agent, Lesepfad Datenbank).
+  medatixx: "medatixx",
+  cgm_albis: "CGM Albis",
+  cgm_turbomed: "CGM Turbomed",
+  cgm_m1pro: "CGM M1 Pro",
+  indamed: "Indamed Medical Office",
+  quincy: "Quincy / Frey ADV",
+  pixelmedics: "Pixelmedics",
   none: "Nicht verbunden",
 };
 
@@ -86,6 +94,7 @@ const EVENT_KIND_LABELS: Record<
   auth_expired: { label: "Anmeldedaten abgelaufen", tone: "bad" },
   connection_lost: { label: "Verbindung verloren", tone: "bad" },
   rate_limited: { label: "Rate-Limit erreicht", tone: "warn" },
+  config_invalid: { label: "Konfiguration prüfen", tone: "bad" },
 };
 
 function healthVendorLabel(vendorId: string): string {
@@ -111,6 +120,34 @@ function healthDetailLines(eventKind: string, detail: unknown): string[] {
     if (d.reason) lines.push(`Ursache: ${d.reason}`);
     if (typeof d.consecutiveFailures === "number") {
       lines.push(`Aufeinanderfolgende Fehlversuche: ${d.consecutiveFailures}`);
+    }
+  } else if (eventKind === "config_invalid") {
+    const d = detail as {
+      sampleSize?: number;
+      passingRows?: number;
+      issues?: Array<{
+        field?: string;
+        reason?: string;
+        sampleRawValues?: string[];
+      }>;
+    };
+    if (
+      typeof d.passingRows === "number" &&
+      typeof d.sampleSize === "number"
+    ) {
+      lines.push(
+        `Stichprobe: ${d.passingRows} von ${d.sampleSize} Zeilen gültig`
+      );
+    }
+    for (const issue of d.issues ?? []) {
+      if (!issue.field) continue;
+      const samples =
+        issue.sampleRawValues && issue.sampleRawValues.length > 0
+          ? ` (Beispiele: ${issue.sampleRawValues.join(", ")})`
+          : "";
+      lines.push(
+        `Feld ${issue.field}: ${issue.reason ?? "unerwartete Werte"}${samples}`
+      );
     }
   } else if (
     eventKind === "auth_expired" ||

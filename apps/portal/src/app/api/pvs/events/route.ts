@@ -200,10 +200,16 @@ export async function POST(request: NextRequest) {
           requestMeta,
         })
       );
+      // vendor_mismatch is now a transient "source not enrolled yet" state
+      // (Phase 7): the clinic is authenticated, but pvs_link_source has no row
+      // for this bridge_source yet (the agent reports it on the next ~60s
+      // heartbeat). Map it to 409 like link_not_ready so the agent retries
+      // instead of permanently dropping the event on a 400.
       const status =
         result.reason === "clinic_not_found"
           ? 404
-          : result.reason === "link_not_ready"
+          : result.reason === "link_not_ready" ||
+            result.reason === "vendor_mismatch"
           ? 409
           : result.reason === "internal_error"
           ? 500

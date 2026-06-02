@@ -34,6 +34,10 @@ import { db, schema } from "@/db/client";
 
 const isoDatetime = z.string().datetime({ offset: true });
 
+// Kept in sync with the canonical BRIDGE_SOURCES + pvs-events.ts. The last 7
+// are the Phase 7 per-Praxis DB-read engines, accepted here so a config_invalid
+// / schema_drift health event from e.g. the medatixx adapter ingests (Phase 8
+// has the agent stamp them).
 const BridgeSource = z.enum([
   "tomedo",
   "healthhub",
@@ -43,6 +47,13 @@ const BridgeSource = z.enum([
   "gdt_agent",
   "csv_upload",
   "n8n_custom",
+  "medatixx",
+  "cgm_albis",
+  "cgm_turbomed",
+  "cgm_m1pro",
+  "indamed",
+  "quincy",
+  "pixelmedics",
 ]);
 
 /**
@@ -74,6 +85,10 @@ const EventKind = z.enum([
   "auth_expired",
   "connection_lost",
   "rate_limited",
+  // Phase 5: the agent's first-poll value validator halted a stream because the
+  // returned data does not match the YAML map (wrong status codes, mostly-NULL
+  // required column, a failing transform). Widened in migration 0054.
+  "config_invalid",
 ]);
 
 const SchemaDriftDetail = z.object({
@@ -93,6 +108,23 @@ const TransientDetail = z.object({
   retryAfterSeconds: z.number().int().nonnegative().optional(),
 });
 
+/** Phase 5: first-poll value-validation specifics. The integrations UI renders
+ *  the failing fields, their cause, and a few sample raw values. */
+const ConfigInvalidDetail = z.object({
+  sampleSize: z.number().int().nonnegative(),
+  passingRows: z.number().int().nonnegative(),
+  threshold: z.number().min(0).max(1),
+  issues: z
+    .array(
+      z.object({
+        field: z.string().max(120),
+        reason: z.string().max(500),
+        sampleRawValues: z.array(z.string().max(200)).max(10),
+      })
+    )
+    .max(40),
+});
+
 export const PvsHealthEventSchema = z
   .object({
     clinicId: z.string().uuid(),
@@ -103,7 +135,13 @@ export const PvsHealthEventSchema = z
     severity: z.enum(["info", "warn", "error"]).default("warn"),
     message: z.string().min(1).max(500),
     detail: z
-      .union([SchemaDriftDetail, StreamErrorDetail, TransientDetail, z.object({}).passthrough()])
+      .union([
+        SchemaDriftDetail,
+        StreamErrorDetail,
+        ConfigInvalidDetail,
+        TransientDetail,
+        z.object({}).passthrough(),
+      ])
       .default({}),
     detectedAt: isoDatetime,
     /** Honeypot: same pattern as /api/pvs/events. Tripping it returns 202

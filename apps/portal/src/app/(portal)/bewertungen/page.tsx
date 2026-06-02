@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { ArrowRight, MessageSquare, Star } from "lucide-react";
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
   Badge,
   Card,
   CardContent,
@@ -24,11 +28,17 @@ import {
   listPatientFeedback,
 } from "@/server/queries/stimme";
 import { PlatformTile } from "./_components/PlatformTile";
+import { CopyButton } from "./_components/CopyButton";
 import {
   TRACKED_PLATFORMS,
   platformLabelNode,
   type Platform,
 } from "./_lib/platforms";
+import {
+  REPLY_BUCKET_LABELS,
+  REPLY_BUCKET_ORDER,
+  templatesByBucket,
+} from "./_lib/reply-templates";
 import { Brand } from "@/app/_components/Brand";
 
 export const metadata = { title: "Bewertungen" };
@@ -46,7 +56,12 @@ export default async function BewertungenPage() {
   const [clinicRows, { latest, trend, history }, newFeedbackCount, feedbackPreview] =
     await Promise.all([
       db
-        .select({ displayName: schema.clinics.displayName })
+        .select({
+          displayName: schema.clinics.displayName,
+          googleReviewUrl: schema.clinics.googleReviewUrl,
+          jamedaReviewUrl: schema.clinics.jamedaReviewUrl,
+          jamedaProfileUrl: schema.clinics.jamedaProfileUrl,
+        })
         .from(schema.clinics)
         .where(eq(schema.clinics.id, session.clinicId))
         .limit(1),
@@ -60,6 +75,11 @@ export default async function BewertungenPage() {
     ]);
   const clinic = clinicRows[0];
   const recentNewFeedback = feedbackPreview.slice(0, 3);
+  const reviewLinks = {
+    googleReviewUrl: clinic?.googleReviewUrl ?? null,
+    jamedaReviewUrl: clinic?.jamedaReviewUrl ?? null,
+    jamedaProfileUrl: clinic?.jamedaProfileUrl ?? null,
+  };
 
   const byPlatform = new Map<string, ReviewSnapshot>();
   for (const snap of latest) byPlatform.set(snap.platform, snap);
@@ -148,9 +168,51 @@ export default async function BewertungenPage() {
             snapshot={byPlatform.get(p) ?? null}
             trend={trendByPlatform.get(p) ?? []}
             clinicName={clinic?.displayName ?? ""}
+            reviewLinks={reviewLinks}
           />
         ))}
       </section>
+
+      {/* Antwortvorlagen */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Antwortvorlagen</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="mb-2 text-sm text-fg-secondary">
+            Vorformulierte, rechtssichere Antworten zum Kopieren. Ersetzen Sie
+            die Platzhalter [Praxisname] und [Vorname], bevor Sie eine Antwort
+            veröffentlichen.
+          </p>
+          <Accordion type="single" collapsible>
+            {REPLY_BUCKET_ORDER.map((bucket) => (
+              <AccordionItem key={bucket} value={bucket}>
+                <AccordionTrigger>{REPLY_BUCKET_LABELS[bucket]}</AccordionTrigger>
+                <AccordionContent>
+                  <ul className="space-y-4">
+                    {templatesByBucket(bucket).map((tpl) => (
+                      <li
+                        key={tpl.id}
+                        className="rounded-xl border border-border bg-bg-secondary p-4"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="text-sm font-medium text-fg-primary">
+                            {tpl.title}
+                          </div>
+                          <CopyButton text={tpl.text} label="Kopieren" />
+                        </div>
+                        <p className="mt-2 whitespace-pre-wrap text-sm text-fg-secondary">
+                          {tpl.text}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        </CardContent>
+      </Card>
 
       {/* Full history */}
       <Card>
@@ -185,7 +247,7 @@ function HistoryTable({
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
-        <thead className="bg-bg-secondary/50 text-left text-fg-secondary">
+        <thead className="bg-bg-secondary text-left text-fg-secondary">
           <tr>
             <Th>Datum</Th>
             <Th>Plattform</Th>
@@ -196,7 +258,7 @@ function HistoryTable({
         </thead>
         <tbody className="divide-y divide-border">
           {rows.map((r) => (
-            <tr key={r.id} className="hover:bg-bg-secondary/40">
+            <tr key={r.id} className="hover:bg-bg-secondary">
               <Td>{formatDateTime(r.recordedAt)}</Td>
               <Td>{platformLabelNode(r.platform as Platform)}</Td>
               <Td align="right">

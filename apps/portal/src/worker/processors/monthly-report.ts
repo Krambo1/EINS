@@ -4,6 +4,7 @@ import { kpiSummaryAdmin } from "@/server/queries/kpis";
 import { getEmailSender, renderEmailLayout, escapeHtml } from "@/server/email";
 import { isEmailSuppressed } from "@/server/email-suppression";
 import { env } from "@/lib/env";
+import type { CurrencyCode } from "@/lib/formatting";
 
 /**
  * Monthly clinic report. Generates a PDF, stores it as a document, and emails
@@ -52,6 +53,7 @@ export async function processMonthlyReport(job: MonthlyReportJob): Promise<void>
     clinicName: clinic.displayName ?? clinic.legalName,
     period,
     summary,
+    currency: clinic.currency as CurrencyCode,
   });
 
   const { getStorage } = await import("@/server/storage");

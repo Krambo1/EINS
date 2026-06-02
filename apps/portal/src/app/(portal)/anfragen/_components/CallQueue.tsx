@@ -22,6 +22,7 @@ import {
 import { SourceLabel } from "@/app/_components/Brand";
 import { formatRelative } from "@/lib/formatting";
 import type { CallQueueLead } from "@/server/queries/requests";
+import { CallOutcomeActions } from "./CallOutcomeActions";
 
 /**
  * Call-Center-Header für die Anfragen-Seite. Wird ausschließlich für
@@ -34,9 +35,12 @@ import type { CallQueueLead } from "@/server/queries/requests";
  *  - Schmaler Stack daneben/darunter = "Warteschlange" (nächste 5 Leads
  *    als kompakte Zeilen, Click → Detail).
  *
- * Status-Buttons gibt es bewusst keine: das Portal ist Listener — alle
- * Lead-Status-Writes laufen über die PVS-Bridge zurück. Auf der Karte
- * spiegeln wir den Status nur als read-only Pill.
+ * Auf der Hero-Karte kann das Frontdesk den Anruf direkt festhalten
+ * (Erreicht / Termin vereinbart / Nicht erreicht). Das ist kein neuer
+ * Schreibpfad: es ruft dieselbe `logCall`-Action wie das Lead-Cockpit und
+ * fällt damit in die "Portal-native" Vorbuchungs-Phase (siehe actions.ts).
+ * Ist der Lead an einen PVS-Termin gebunden, besitzt die PVS den Status —
+ * der Statuswechsel entfällt dann und nur der Anruf wird protokolliert.
  */
 export function CallQueue({
   leads,
@@ -53,7 +57,7 @@ export function CallQueue({
   return (
     <section
       aria-label="Anrufliste"
-      className="space-y-4 rounded-2xl border border-border bg-bg-secondary/40 p-4 md:p-5"
+      className="space-y-4 rounded-2xl border border-border bg-bg-secondary p-4 md:p-5"
     >
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
@@ -175,7 +179,7 @@ function HeroCard({ lead }: { lead: CallQueueLead }) {
           </div>
 
           {lead.message && (
-            <blockquote className="rounded-lg border-l-2 border-accent/50 bg-bg-secondary/60 px-3 py-2 text-sm leading-relaxed text-fg-primary">
+            <blockquote className="rounded-lg border-l-2 border-accent/50 bg-bg-secondary px-3 py-2 text-sm leading-relaxed text-fg-primary">
               {truncate(lead.message, 320)}
             </blockquote>
           )}
@@ -244,6 +248,14 @@ function HeroCard({ lead }: { lead: CallQueueLead }) {
           </Button>
         </div>
       </div>
+
+      <div className="mt-5 border-t border-border pt-4">
+        <CallOutcomeActions
+          requestId={lead.id}
+          currentStatus={lead.status}
+          pvsControlled={lead.pvsControlled}
+        />
+      </div>
     </Card>
   );
 }
@@ -254,7 +266,7 @@ function QueueRow({ lead }: { lead: CallQueueLead }) {
 
   return (
     <li>
-      <div className="flex flex-wrap items-center gap-3 px-4 py-3 transition hover:bg-bg-secondary/60 md:gap-4 md:px-5">
+      <div className="flex flex-wrap items-center gap-3 px-4 py-3 transition hover:bg-bg-secondary md:gap-4 md:px-5">
         <Link
           href={`/anfragen/${lead.id}`}
           className="flex min-w-0 flex-1 items-center gap-3"

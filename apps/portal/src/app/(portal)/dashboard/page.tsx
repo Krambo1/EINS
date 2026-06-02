@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { requireSession } from "@/auth/guards";
+import type { CurrencyCode } from "@/lib/formatting";
 import {
   currentGoals,
   kpiSummary,
@@ -64,6 +65,9 @@ export default async function DashboardPage({
   const openRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.open]);
   const sourcesRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.sources]);
   const funnelRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.funnel]);
+  const locationsRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.locations]);
+  const treatmentsRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.treatments]);
+  const noShowRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.noShow]);
 
   const now = new Date();
   const greeting = germanGreeting(now);
@@ -98,6 +102,7 @@ export default async function DashboardPage({
         <DashboardTopMetricsLoader
           clinicId={session.clinicId}
           userId={session.userId}
+          currency={session.currency}
           leadsRange={leadsRange}
           revenueRange={revenueRange}
           openRange={openRange}
@@ -105,11 +110,15 @@ export default async function DashboardPage({
         />
       </Suspense>
 
-      {/* Forecast strip — three numbers + link to /auswertung/forecast.
+      {/* Forecast strip — three numbers (Pipeline-Wert, 30d, 90d).
           Hidden during cold-start (sample < MIN_SAMPLE_WON). Suspense so
           the snapshot read doesn't block the shell. */}
       <Suspense fallback={null}>
-        <ForecastStrip clinicId={session.clinicId} userId={session.userId} />
+        <ForecastStrip
+          clinicId={session.clinicId}
+          userId={session.userId}
+          currency={session.currency}
+        />
       </Suspense>
 
       {/* Anomaly alerts: rule-based detection with optional KI-sauce on the
@@ -128,7 +137,11 @@ export default async function DashboardPage({
         <DashboardDetailLoader
           clinicId={session.clinicId}
           userId={session.userId}
+          currency={session.currency}
           funnelRange={funnelRange}
+          locationsRange={locationsRange}
+          treatmentsRange={treatmentsRange}
+          noShowRange={noShowRange}
         />
       </Suspense>
     </div>
@@ -138,6 +151,7 @@ export default async function DashboardPage({
 async function DashboardTopMetricsLoader({
   clinicId,
   userId,
+  currency,
   leadsRange,
   revenueRange,
   openRange,
@@ -145,6 +159,7 @@ async function DashboardTopMetricsLoader({
 }: {
   clinicId: string;
   userId: string;
+  currency: CurrencyCode;
   leadsRange: DashboardRange;
   revenueRange: DashboardRange;
   openRange: DashboardRange;
@@ -197,6 +212,7 @@ async function DashboardTopMetricsLoader({
     <DashboardTopMetricsEnhanced
       clinicId={clinicId}
       userId={userId}
+      currency={currency}
       leadsBreakdown={leadsBreakdown}
       revenueSummary={revenueSummary}
       openSummary={openSummary}
@@ -218,11 +234,19 @@ async function DashboardTopMetricsLoader({
 async function DashboardDetailLoader({
   clinicId,
   userId,
+  currency,
   funnelRange,
+  locationsRange,
+  treatmentsRange,
+  noShowRange,
 }: {
   clinicId: string;
   userId: string;
+  currency: CurrencyCode;
   funnelRange: DashboardRange;
+  locationsRange: DashboardRange;
+  treatmentsRange: DashboardRange;
+  noShowRange: DashboardRange;
 }) {
   // Funnel card now owns its own time window via the rFunnel param. The
   // dashboard's freshness contract is "today's numbers within seconds", so
@@ -240,9 +264,13 @@ async function DashboardDetailLoader({
     <DashboardDetailBundle
       clinicId={clinicId}
       userId={userId}
+      currency={currency}
       summary={summary}
       priorSummary={priorSummary}
       funnelRange={funnelRange}
+      locationsRange={locationsRange}
+      treatmentsRange={treatmentsRange}
+      noShowRange={noShowRange}
     />
   );
 }

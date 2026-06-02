@@ -1,5 +1,7 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { requireSession } from "@/auth/guards";
+import type { ResolvedSession } from "@/auth/session";
 import {
   aiCategoryCounts,
   listRequests,
@@ -16,15 +18,18 @@ import {
   Button,
 } from "@eins/ui";
 import {
+  REQUEST_SORTS,
   SOURCE_LABELS,
+  type RequestSort,
   type RequestStatus,
   type AiCategory,
 } from "@/lib/constants";
-import { formatDateTime, formatRelative } from "@/lib/formatting";
-import { AlertTriangle, Inbox, Sparkles } from "lucide-react";
+import { formatDateTime, formatMoney, formatRelative } from "@/lib/formatting";
+import { AlertTriangle, Banknote, Inbox, Sparkles } from "lucide-react";
 import { SourceLabel } from "@/app/_components/Brand";
 import { AnfragenFilters } from "./_components/AnfragenFilters";
 import { CallQueue } from "./_components/CallQueue";
+import { RequestListSkeleton } from "./_components/RequestListSkeleton";
 
 export const metadata = { title: "Anfragen" };
 
@@ -36,6 +41,7 @@ type Search = {
   search?: string;
   slaBreached?: string;
   stale?: string;
+  sort?: string;
   page?: string;
 };
 
@@ -52,11 +58,75 @@ export default async function AnfragenPage({
   const session = await requireSession();
   const params = await searchParams;
 
+  const isFrontdesk = session.role === "frontdesk";
+
+  return (
+    <div className="space-y-6">
+      <header>
+        <h1 className="text-3xl font-semibold md:text-4xl">Anfragen.</h1>
+        <p className="mt-2 text-base text-fg-primary md:text-lg">
+          {isFrontdesk
+            ? "Anfragen behandeln, anrufen und closen. Die heißesten zuerst."
+            : "Alle Patienten-Anfragen an einem Ort. Schnell reagieren, nichts vergessen."}
+        </p>
+      </header>
+
+      <Suspense fallback={<FiltersSkeleton />}>
+        <FiltersLoader session={session} />
+      </Suspense>
+
+      <Suspense fallback={<RequestListSkeleton />}>
+        <RequestListLoader session={session} params={params} />
+      </Suspense>
+    </div>
+  );
+}
+
+/**
+ * Filter-Chrome streamt unabhängig von der schweren Liste: die Badge-Counts
+ * (Behandlungen + KI-Kategorien) sind günstige Aggregat-Queries, deren
+ * Latenz die Liste nicht blockieren soll.
+ */
+async function FiltersLoader({ session }: { session: ResolvedSession }) {
+  const [treatments, aiCounts] = await Promise.all([
+    listTreatments(session.clinicId, session.userId),
+    aiCategoryCounts(session.clinicId, session.userId),
+  ]);
+
+  return (
+    <AnfragenFilters
+      treatments={treatments.map((t) => ({ id: t.id, name: t.name }))}
+      aiCounts={aiCounts}
+    />
+  );
+}
+
+function FiltersSkeleton() {
+  return (
+    <div
+      className="h-12 w-full animate-pulse rounded-xl bg-bg-secondary"
+      aria-busy="true"
+    />
+  );
+}
+
+async function RequestListLoader({
+  session,
+  params,
+}: {
+  session: ResolvedSession;
+  params: Search;
+}) {
   const page = Math.max(1, Number(params.page ?? 1));
   const statusFilter = params.status?.split(",").filter(Boolean) as RequestStatus[] | undefined;
   const sourceFilter = params.source?.split(",").filter(Boolean) as string[] | undefined;
   const aiFilter = params.aiCategory?.split(",").filter(Boolean) as AiCategory[] | undefined;
   const treatmentFilter = params.treatment?.split(",").filter(Boolean);
+  const sort: RequestSort = (REQUEST_SORTS as readonly string[]).includes(
+    params.sort ?? ""
+  )
+    ? (params.sort as RequestSort)
+    : "neueste";
 
   // Call-queue is only useful when there are no filters applied — once the
   // MFA filters down to "spam" or one specific treatment, surfacing a hero
@@ -73,60 +143,40 @@ export default async function AnfragenPage({
     params.slaBreached !== "1" &&
     params.stale !== "1";
 
-  const [{ items, total }, treatments, callQueue, aiCounts, dueList] =
-    await Promise.all([
-      listRequests(
-        session.clinicId,
-        session.userId,
-        {
-          status: statusFilter,
-          source: sourceFilter,
-          aiCategory: aiFilter,
-          treatmentId: treatmentFilter,
-          search: params.search,
-          slaBreachedOnly: params.slaBreached === "1",
-          staleOnly: params.stale === "1",
-        },
-        { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }
-      ),
-      listTreatments(session.clinicId, session.userId),
-      showCallQueue
-        ? nextCallQueueLeads(session.clinicId, session.userId, 6)
-        : Promise.resolve([]),
-      aiCategoryCounts(session.clinicId, session.userId),
-      showCallQueue
-        ? dueFollowups(session.clinicId, session.userId)
-        : Promise.resolve([]),
-    ]);
-
-  const isFrontdesk = session.role === "frontdesk";
+  const [{ items, total }, callQueue, dueList] = await Promise.all([
+    listRequests(
+      session.clinicId,
+      session.userId,
+      {
+        status: statusFilter,
+        source: sourceFilter,
+        aiCategory: aiFilter,
+        treatmentId: treatmentFilter,
+        search: params.search,
+        slaBreachedOnly: params.slaBreached === "1",
+        staleOnly: params.stale === "1",
+      },
+      { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE, sort }
+    ),
+    showCallQueue
+      ? nextCallQueueLeads(session.clinicId, session.userId, 6)
+      : Promise.resolve([]),
+    showCallQueue
+      ? dueFollowups(session.clinicId, session.userId)
+      : Promise.resolve([]),
+  ]);
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-semibold md:text-4xl">Anfragen.</h1>
-          <p className="mt-2 text-base text-fg-primary md:text-lg">
-            {isFrontdesk
-              ? "Anfragen behandeln, anrufen und closen. Die heißesten zuerst."
-              : "Alle Patienten-Anfragen an einem Ort. Schnell reagieren, nichts vergessen."}
-          </p>
-        </div>
-        <div className="text-sm text-fg-secondary">
-          {total === 0
-            ? "Keine Einträge"
-            : `${total} Eintrag${total === 1 ? "" : "e"}`}
-        </div>
-      </header>
+      <div className="text-sm text-fg-secondary">
+        {total === 0
+          ? "Keine Einträge"
+          : `${total} Eintrag${total === 1 ? "" : "e"}`}
+      </div>
 
       {showCallQueue && callQueue.length > 0 && (
         <CallQueue leads={callQueue} dueCount={dueList.length} />
       )}
-
-      <AnfragenFilters
-        treatments={treatments.map((t) => ({ id: t.id, name: t.name }))}
-        aiCounts={aiCounts}
-      />
 
       {items.length === 0 ? (
         <EmptyState
@@ -205,6 +255,17 @@ export default async function AnfragenPage({
                             </Badge>
                           )}
                           {stale && <Badge tone="warn">Stagniert</Badge>}
+                          {r.patientLtv != null && r.patientLtv > 0 && (
+                            <Badge
+                              tone="good"
+                              title="Lifetime-Wert dieses Patienten"
+                            >
+                              <Banknote className="h-3 w-3" aria-hidden />
+                              <span className="tabular-nums">
+                                {formatMoney(r.patientLtv, session.currency)}
+                              </span>
+                            </Badge>
+                          )}
                         </div>
                         <div className="mt-0.5 truncate text-sm text-fg-secondary">
                           {r.treatmentName ?? r.treatmentWish ?? "Keine Angabe zur Behandlung"}

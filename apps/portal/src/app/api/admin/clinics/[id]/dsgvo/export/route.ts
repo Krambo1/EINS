@@ -14,13 +14,14 @@ import { writeAudit } from "@/server/audit";
  */
 export async function GET(
   _request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const gate = await requireAdminForApi();
   if (!gate.ok) return gate.response;
   const admin = gate.admin;
 
-  const id = z.string().uuid().parse(params.id);
+  const { id: rawId } = await params;
+  const id = z.string().uuid().parse(rawId);
 
   await writeAudit({
     clinicId: id,

@@ -40,7 +40,7 @@ export async function AnomalyAlertsWidget({
       }}
     >
       <CardHeader>
-        <CardTitle className="flex items-center gap-1.5">
+        <CardTitle className="flex items-center gap-1.5 !text-xl !font-medium md:!text-2xl">
           <span>Auffälligkeiten</span>
           <ExplainerPopover term="Auffälligkeiten" ariaLabel="Erklärung für Auffälligkeiten">
             <p>
@@ -69,7 +69,7 @@ export async function AnomalyAlertsWidget({
 
 function EmptyAlertsState() {
   return (
-    <div className="flex items-start gap-3 rounded-lg bg-bg-tertiary/60 px-4 py-3 text-sm">
+    <div className="flex items-start gap-3 rounded-lg bg-bg-tertiary px-4 py-3 text-sm">
       <span
         aria-hidden
         className="mt-1 h-2 w-2 shrink-0 rounded-full bg-tone-good"
@@ -195,7 +195,9 @@ export function AnomalyAlertsSkeleton() {
       }}
     >
       <CardHeader>
-        <CardTitle>Auffälligkeiten</CardTitle>
+        <CardTitle className="!text-xl !font-medium md:!text-2xl">
+          Auffälligkeiten
+        </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="flex items-center gap-3 text-sm text-fg-tertiary">

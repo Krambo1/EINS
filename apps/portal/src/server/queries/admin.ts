@@ -21,6 +21,7 @@ import {
   REQUEST_STATUSES,
   type RequestStatus,
 } from "@/lib/constants";
+import type { CurrencyCode } from "@/lib/formatting";
 import {
   KPI_THRESHOLDS,
   clinicHealthTone,
@@ -69,6 +70,11 @@ export interface PlatformOverviewMetrics {
   totalClinics: number;
   monthSpend: number;
   monthRevenue: number;
+  /** Distinct billing currencies across the clinics whose revenue feeds the
+   *  cross-clinic sums here. One entry → a uniform total formattable in that
+   *  currency; two (EUR + CHF) → the sum mixes currencies and must be
+   *  suppressed (formatClinicAggregate). Spend always stays EUR. */
+  revenueCurrencies: CurrencyCode[];
   monthLeads: number;
   monthCasesWon: number;
   avgCpl: number | null;
@@ -109,6 +115,7 @@ export async function platformOverviewMetrics(): Promise<PlatformOverviewMetrics
 
   const [
     [clinicCounts],
+    currencyRows,
     [monthAgg],
     [priorAgg],
     sparkRows,
@@ -118,6 +125,13 @@ export async function platformOverviewMetrics(): Promise<PlatformOverviewMetrics
         total: count(),
         active: sql<number>`count(*) filter (where ${schema.clinics.archivedAt} is null)::int`,
       })
+      .from(schema.clinics),
+    // Distinct billing currencies across all clinics — a superset of the
+    // clinics actually contributing to the month sums. While it stays a single
+    // entry (all-EUR today) the cross-clinic revenue total renders normally;
+    // the moment a CHF Praxis exists the total is flagged as mixed.
+    db
+      .selectDistinct({ currency: schema.clinics.currency })
       .from(schema.clinics),
     aggregateKpiRange(monthStart, today),
     aggregateKpiRange(priorMonthStart, priorMonthEnd),
@@ -160,6 +174,7 @@ export async function platformOverviewMetrics(): Promise<PlatformOverviewMetrics
     totalClinics: Number(clinicCounts?.total ?? 0),
     monthSpend,
     monthRevenue,
+    revenueCurrencies: currencyRows.map((r) => r.currency as CurrencyCode),
     monthLeads,
     monthCasesWon: monthCases,
     avgCpl,
@@ -484,6 +499,9 @@ export interface ClinicLeaderboardRow {
   name: string;
   slug: string;
   archivedAt: Date | null;
+  /** This Praxis's billing currency. Row-level revenue formats with it; the
+   *  cross-clinic totals built from these rows use formatClinicAggregate. */
+  currency: CurrencyCode;
   spendEur: number;
   revenueEur: number;
   roas: number | null;
@@ -508,6 +526,7 @@ export async function clinicLeaderboard(args: {
     name: string;
     slug: string;
     archived_at: Date | null;
+    currency: string | null;
     spend: string | null;
     revenue: string | null;
     leads: number | null;
@@ -521,6 +540,7 @@ export async function clinicLeaderboard(args: {
       c.display_name  AS name,
       c.slug          AS slug,
       c.archived_at   AS archived_at,
+      c.currency      AS currency,
       kpi.spend       AS spend,
       kpi.revenue     AS revenue,
       kpi.leads       AS leads,
@@ -566,6 +586,7 @@ export async function clinicLeaderboard(args: {
       name: r.name,
       slug: r.slug,
       archivedAt: r.archived_at ? new Date(r.archived_at) : null,
+      currency: (r.currency ?? "EUR") as CurrencyCode,
       spendEur: spend,
       revenueEur: revenue,
       roas,
@@ -593,6 +614,10 @@ function pickLatest(...dates: (Date | null | undefined)[]): Date | null {
 // ---------------------------------------------------------------
 
 export interface ClinicPerformance {
+  /** Billing currency of this Praxis (clinics.currency). Formats this clinic's
+   *  own attributed revenue (revenueEur / per-source / revenue goals); agency
+   *  spend, CPL, CPP stay EUR. */
+  currency: CurrencyCode;
   summary: {
     spendEur: number;
     revenueEur: number;
@@ -624,6 +649,7 @@ export async function clinicPerformance(
   const from = subDays(today, days - 1);
 
   const [
+    [clinicRow],
     [summaryRow],
     dailyRows,
     bySourceRows,
@@ -631,6 +657,11 @@ export async function clinicPerformance(
     funnelRows,
     goalRows,
   ] = await Promise.all([
+    db
+      .select({ currency: schema.clinics.currency })
+      .from(schema.clinics)
+      .where(eq(schema.clinics.id, clinicId))
+      .limit(1),
     db
       .select({
         spend: sql<number>`coalesce(sum(${schema.kpiDaily.totalSpendEur}), 0)`,
@@ -760,6 +791,7 @@ export async function clinicPerformance(
   );
 
   return {
+    currency: (clinicRow?.currency ?? "EUR") as CurrencyCode,
     summary: {
       spendEur: spend,
       revenueEur: revenue,
@@ -843,6 +875,9 @@ export interface AdminLeadRow {
   id: string;
   clinicId: string;
   clinicName: string;
+  /** Billing currency of THIS row's Praxis. Cross-clinic table, so each row
+   *  formats its own revenue with its own currency. */
+  currency: CurrencyCode;
   contactName: string | null;
   contactEmail: string | null;
   contactPhone: string | null;
@@ -865,6 +900,9 @@ export async function globalLeads(
   inFunnel: number;
   won: number;
   revenueEur: number;
+  /** Distinct billing currencies across the filtered set. One entry → the
+   *  revenue total is formattable in it; EUR + CHF → mixed, suppress the sum. */
+  currencies: CurrencyCode[];
 } }> {
   const limit = Math.max(1, Math.min(500, opts.limit ?? 50));
   const offset = Math.max(0, opts.offset ?? 0);
@@ -876,6 +914,7 @@ export async function globalLeads(
         id: schema.requests.id,
         clinicId: schema.requests.clinicId,
         clinicName: schema.clinics.displayName,
+        currency: schema.clinics.currency,
         contactName: schema.requests.contactName,
         contactEmail: schema.requests.contactEmail,
         contactPhone: schema.requests.contactPhone,
@@ -906,6 +945,7 @@ export async function globalLeads(
         inFunnel: sql<number>`count(*) filter (where ${schema.requests.status} in ('termin_vereinbart','beratung_erschienen','gewonnen'))::int`,
         won: sql<number>`count(*) filter (where ${schema.requests.status} = 'gewonnen')::int`,
         revenue: sql<number>`coalesce(sum(${schema.requests.convertedRevenueEur}), 0)`,
+        currencies: sql<string[] | null>`array_agg(distinct ${schema.clinics.currency})`,
       })
       .from(schema.requests)
       .innerJoin(schema.clinics, eq(schema.clinics.id, schema.requests.clinicId))
@@ -916,6 +956,7 @@ export async function globalLeads(
     items: items.map((i) => ({
       ...i,
       status: i.status as RequestStatus,
+      currency: i.currency as CurrencyCode,
       convertedRevenueEur:
         i.convertedRevenueEur == null ? null : Number(i.convertedRevenueEur),
     })),
@@ -925,6 +966,7 @@ export async function globalLeads(
       inFunnel: Number(aggRow?.inFunnel ?? 0),
       won: Number(aggRow?.won ?? 0),
       revenueEur: Number(aggRow?.revenue ?? 0),
+      currencies: (aggRow?.currencies ?? []).map((c) => c as CurrencyCode),
     },
   };
 }
@@ -1440,6 +1482,8 @@ export async function auditOverview(periodDays = 30): Promise<AuditOverview> {
 export interface CampaignAggregateRow {
   clinicId: string;
   clinicName: string;
+  /** Billing currency of this row's Praxis; row-level revenue formats with it. */
+  currency: CurrencyCode;
   source: string;
   campaignId: string | null;
   leads: number;
@@ -1462,6 +1506,7 @@ export async function topCampaigns(args: {
     .select({
       clinicId: schema.requests.clinicId,
       clinicName: schema.clinics.displayName,
+      currency: schema.clinics.currency,
       source: schema.requests.source,
       campaignId: schema.requests.sourceCampaignId,
       leads: sql<number>`count(*)::int`,
@@ -1473,6 +1518,7 @@ export async function topCampaigns(args: {
     .groupBy(
       schema.requests.clinicId,
       schema.clinics.displayName,
+      schema.clinics.currency,
       schema.requests.source,
       schema.requests.sourceCampaignId
     );
@@ -1502,6 +1548,7 @@ export async function topCampaigns(args: {
     return {
       clinicId: l.clinicId,
       clinicName: l.clinicName,
+      currency: (l.currency ?? "EUR") as CurrencyCode,
       source: l.source,
       campaignId: l.campaignId,
       leads,
@@ -1519,6 +1566,338 @@ export async function topCampaigns(args: {
   });
 
   return rows.slice(0, args.limit ?? 10);
+}
+
+// ---------------------------------------------------------------
+// Cross-clinic user directory (/admin/users)
+// Generalizes the per-clinic Team tab: clinic_users ⋈ clinics.
+// ---------------------------------------------------------------
+
+export type AdminUserStatus = "active" | "invited" | "archived";
+
+export interface AdminUserRow {
+  id: string;
+  email: string;
+  fullName: string | null;
+  role: string;
+  status: AdminUserStatus;
+  lastLoginAt: Date | null;
+  invitedAt: Date | null;
+  createdAt: Date;
+  clinicId: string;
+  clinicName: string;
+}
+
+export interface AdminUserFilters {
+  role?: string;
+  status?: AdminUserStatus;
+  search?: string;
+  /** Only users who have never logged in (last_login_at IS NULL). */
+  neverLoggedIn?: boolean;
+}
+
+function userStatus(u: {
+  archivedAt: Date | null;
+  invitedAt: Date | null;
+  lastLoginAt: Date | null;
+}): AdminUserStatus {
+  if (u.archivedAt) return "archived";
+  if (u.invitedAt && !u.lastLoginAt) return "invited";
+  return "active";
+}
+
+export async function adminAllUsers(
+  filters: AdminUserFilters = {}
+): Promise<AdminUserRow[]> {
+  const predicates: SQL[] = [];
+  if (filters.role) predicates.push(eq(schema.clinicUsers.role, filters.role));
+  if (filters.neverLoggedIn) {
+    predicates.push(isNull(schema.clinicUsers.lastLoginAt));
+  }
+  if (filters.search) {
+    const term = `%${filters.search}%`;
+    predicates.push(
+      or(
+        ilike(schema.clinicUsers.email, term),
+        ilike(schema.clinicUsers.fullName, term),
+        ilike(schema.clinics.displayName, term)
+      )!
+    );
+  }
+  const where = predicates.length ? and(...predicates) : undefined;
+
+  const rows = await db
+    .select({
+      id: schema.clinicUsers.id,
+      email: schema.clinicUsers.email,
+      fullName: schema.clinicUsers.fullName,
+      role: schema.clinicUsers.role,
+      lastLoginAt: schema.clinicUsers.lastLoginAt,
+      invitedAt: schema.clinicUsers.invitedAt,
+      archivedAt: schema.clinicUsers.archivedAt,
+      createdAt: schema.clinicUsers.createdAt,
+      clinicId: schema.clinicUsers.clinicId,
+      clinicName: schema.clinics.displayName,
+    })
+    .from(schema.clinicUsers)
+    .innerJoin(schema.clinics, eq(schema.clinics.id, schema.clinicUsers.clinicId))
+    .where(where)
+    .orderBy(asc(schema.clinics.displayName), asc(schema.clinicUsers.email));
+
+  const mapped: AdminUserRow[] = rows.map((u) => ({
+    id: u.id,
+    email: u.email,
+    fullName: u.fullName,
+    role: u.role,
+    status: userStatus(u),
+    lastLoginAt: u.lastLoginAt,
+    invitedAt: u.invitedAt,
+    createdAt: u.createdAt,
+    clinicId: u.clinicId,
+    clinicName: u.clinicName,
+  }));
+
+  // Status is derived, so filter it after mapping.
+  return filters.status
+    ? mapped.filter((u) => u.status === filters.status)
+    : mapped;
+}
+
+// ---------------------------------------------------------------
+// Integration health (/admin/integrations)
+// Generalizes the per-clinic Integrationen tab: platform_credentials ⋈ clinics.
+// ---------------------------------------------------------------
+
+export interface AdminIntegrationRow {
+  clinicId: string;
+  clinicName: string;
+  provider: string;
+  accountId: string | null;
+  lastSyncedAt: Date | null;
+  lastSyncError: string | null;
+  tokenExpiresAt: Date | null;
+  tone: ToneKey;
+}
+
+const STALE_SYNC_MS = 48 * 3_600_000;
+const TOKEN_SOON_MS = 7 * 86_400_000;
+
+export async function adminIntegrationHealth(): Promise<AdminIntegrationRow[]> {
+  const rows = await db
+    .select({
+      clinicId: schema.platformCredentials.clinicId,
+      clinicName: schema.clinics.displayName,
+      provider: schema.platformCredentials.platform,
+      accountId: schema.platformCredentials.accountId,
+      lastSyncedAt: schema.platformCredentials.lastSyncedAt,
+      lastSyncError: schema.platformCredentials.lastSyncError,
+      tokenExpiresAt: schema.platformCredentials.expiresAt,
+    })
+    .from(schema.platformCredentials)
+    .innerJoin(
+      schema.clinics,
+      eq(schema.clinics.id, schema.platformCredentials.clinicId)
+    )
+    .orderBy(asc(schema.clinics.displayName), asc(schema.platformCredentials.platform));
+
+  const now = Date.now();
+  const out = rows.map((r) => {
+    const expMs = r.tokenExpiresAt ? new Date(r.tokenExpiresAt).getTime() : null;
+    const syncMs = r.lastSyncedAt ? new Date(r.lastSyncedAt).getTime() : null;
+    let tone: ToneKey = "good";
+    if (r.lastSyncError || (expMs != null && expMs < now)) {
+      tone = "bad";
+    } else if (
+      (expMs != null && expMs < now + TOKEN_SOON_MS) ||
+      syncMs == null ||
+      now - syncMs > STALE_SYNC_MS
+    ) {
+      tone = "warn";
+    }
+    return { ...r, tone };
+  });
+
+  // Worst first so the operator sees problems at the top.
+  const order: Record<ToneKey, number> = { bad: 0, warn: 1, neutral: 2, good: 3 };
+  return out.sort((a, b) => order[a.tone] - order[b.tone]);
+}
+
+// ---------------------------------------------------------------
+// Onboarding pipeline (/admin/onboarding)
+// Per-clinic: signup → integration → first request → training → active.
+// ---------------------------------------------------------------
+
+export type OnboardingStage =
+  | "registriert"
+  | "integration_verbunden"
+  | "erste_anfrage"
+  | "schulung_bestanden"
+  | "aktiv";
+
+export interface AdminOnboardingRow {
+  clinicId: string;
+  clinicName: string;
+  slug: string;
+  createdAt: Date;
+  hasIntegration: boolean;
+  hasFirstRequest: boolean;
+  quizPassed: boolean;
+  latestQuizScore: number | null;
+  latestQuizTotal: number | null;
+  timelineCount: number;
+  lastActivityAt: Date | null;
+  stage: OnboardingStage;
+  daysSinceSignup: number;
+  /** No activity for STUCK_DAYS and not yet "aktiv". */
+  stuck: boolean;
+}
+
+/** Days without activity (post-signup) before a clinic counts as "stuck". */
+const STUCK_DAYS = 14;
+
+function deriveOnboardingStage(r: {
+  hasIntegration: boolean;
+  hasFirstRequest: boolean;
+  quizPassed: boolean;
+  recentlyActive: boolean;
+}): OnboardingStage {
+  if (r.hasIntegration && r.hasFirstRequest && r.quizPassed && r.recentlyActive) {
+    return "aktiv";
+  }
+  if (r.quizPassed) return "schulung_bestanden";
+  if (r.hasFirstRequest) return "erste_anfrage";
+  if (r.hasIntegration) return "integration_verbunden";
+  return "registriert";
+}
+
+export async function adminOnboardingStatus(): Promise<AdminOnboardingRow[]> {
+  const [
+    clinicRows,
+    credRows,
+    requestRows,
+    timelineRows,
+    loginRows,
+    quizRows,
+  ] = await Promise.all([
+    db
+      .select({
+        id: schema.clinics.id,
+        name: schema.clinics.displayName,
+        slug: schema.clinics.slug,
+        createdAt: schema.clinics.createdAt,
+      })
+      .from(schema.clinics)
+      .where(isNull(schema.clinics.archivedAt))
+      .orderBy(desc(schema.clinics.createdAt)),
+    db
+      .select({
+        clinicId: schema.platformCredentials.clinicId,
+        total: sql<number>`count(*)::int`,
+      })
+      .from(schema.platformCredentials)
+      .groupBy(schema.platformCredentials.clinicId),
+    db
+      .select({
+        clinicId: schema.requests.clinicId,
+        total: sql<number>`count(*)::int`,
+        lastAt: sql<Date>`max(${schema.requests.createdAt})`,
+      })
+      .from(schema.requests)
+      .groupBy(schema.requests.clinicId),
+    db
+      .select({
+        clinicId: schema.clinicTimelineEntries.clinicId,
+        total: sql<number>`count(*)::int`,
+      })
+      .from(schema.clinicTimelineEntries)
+      .groupBy(schema.clinicTimelineEntries.clinicId),
+    db
+      .select({
+        clinicId: schema.clinicUsers.clinicId,
+        lastLogin: sql<Date>`max(${schema.clinicUsers.lastLoginAt})`,
+      })
+      .from(schema.clinicUsers)
+      .where(isNull(schema.clinicUsers.archivedAt))
+      .groupBy(schema.clinicUsers.clinicId),
+    db.execute<{
+      clinic_id: string;
+      passed: boolean;
+      score: number;
+      total: number;
+    }>(sql`
+      SELECT DISTINCT ON (clinic_id)
+        clinic_id, passed, score, total
+      FROM ${schema.leitfadenQuizAttempts}
+      ORDER BY clinic_id, created_at DESC
+    `),
+  ]);
+
+  const credSet = new Set(credRows.map((r) => r.clinicId));
+  const reqMap = new Map<string, { total: number; lastAt: Date | null }>();
+  for (const r of requestRows) {
+    reqMap.set(r.clinicId, {
+      total: Number(r.total),
+      lastAt: r.lastAt ? new Date(r.lastAt) : null,
+    });
+  }
+  const timelineMap = new Map<string, number>();
+  for (const r of timelineRows) timelineMap.set(r.clinicId, Number(r.total));
+  const loginMap = new Map<string, Date | null>();
+  for (const r of loginRows) {
+    loginMap.set(r.clinicId, r.lastLogin ? new Date(r.lastLogin) : null);
+  }
+  const quizMap = new Map<string, { passed: boolean; score: number; total: number }>();
+  for (const r of quizRows) {
+    quizMap.set(r.clinic_id, {
+      passed: r.passed,
+      score: Number(r.score),
+      total: Number(r.total),
+    });
+  }
+
+  const now = Date.now();
+  return clinicRows.map((c) => {
+    const req = reqMap.get(c.id);
+    const quiz = quizMap.get(c.id);
+    const lastLogin = loginMap.get(c.id) ?? null;
+    const lastActivityAt = pickLatest(req?.lastAt ?? null, lastLogin);
+    const hasIntegration = credSet.has(c.id);
+    const hasFirstRequest = (req?.total ?? 0) > 0;
+    const quizPassed = quiz?.passed ?? false;
+    const recentlyActive =
+      lastActivityAt != null && now - lastActivityAt.getTime() < 30 * 86_400_000;
+    const stage = deriveOnboardingStage({
+      hasIntegration,
+      hasFirstRequest,
+      quizPassed,
+      recentlyActive,
+    });
+    const daysSinceSignup = Math.max(
+      0,
+      Math.floor((now - new Date(c.createdAt).getTime()) / 86_400_000)
+    );
+    const idleMs = lastActivityAt
+      ? now - lastActivityAt.getTime()
+      : now - new Date(c.createdAt).getTime();
+    const stuck = stage !== "aktiv" && idleMs > STUCK_DAYS * 86_400_000;
+
+    return {
+      clinicId: c.id,
+      clinicName: c.name,
+      slug: c.slug,
+      createdAt: new Date(c.createdAt),
+      hasIntegration,
+      hasFirstRequest,
+      quizPassed,
+      latestQuizScore: quiz ? quiz.score : null,
+      latestQuizTotal: quiz ? quiz.total : null,
+      timelineCount: timelineMap.get(c.id) ?? 0,
+      lastActivityAt,
+      stage,
+      daysSinceSignup,
+      stuck,
+    };
+  });
 }
 
 // ---------------------------------------------------------------

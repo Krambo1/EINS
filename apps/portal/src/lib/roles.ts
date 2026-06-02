@@ -39,7 +39,6 @@ export const PERMISSIONS = {
   "audit.view": ["inhaber"],
   // Tools
   "tools.hwg_check": ["inhaber", "marketing", "frontdesk"],
-  "tools.what_if": ["inhaber", "marketing", "frontdesk"],
   // Bewertungen / Reputation
   "reviews.view": ["inhaber", "marketing", "frontdesk"],
   "reviews.manage": ["inhaber", "marketing", "frontdesk"],

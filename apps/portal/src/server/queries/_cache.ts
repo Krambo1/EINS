@@ -6,7 +6,7 @@ import { unstable_cache } from "next/cache";
  *
  * Why this exists:
  *   The KPI aggregation queries (kpis.ts, attribution.ts, lifecycle.ts)
- *   are called from /dashboard and /auswertung. They run
+ *   are called from /dashboard. They run
  *   per-clinic, parameterised by date range (and a few extras like limit,
  *   weeks, etc.). Without caching, every render re-hits Postgres for
  *   numbers that are at most "fresh as of the last worker rebuild" anyway.

@@ -27,10 +27,8 @@ import {
   getPatientFeedback,
   markPatientFeedbackSeen,
 } from "@/server/queries/stimme";
-import {
-  setFeedbackNoteAction,
-  setFeedbackStatusAction,
-} from "../actions";
+import { setFeedbackStatusAction } from "../actions";
+import { FeedbackReplyEditor } from "./_reply-editor";
 
 export const metadata = { title: "Patientenfeedback — Rückmeldung" };
 
@@ -147,7 +145,7 @@ export default async function PatientenfeedbackDetailPage({
               automatisch bei {platformLabel}, sobald sie veröffentlicht wurde.
             </p>
             {(feedback.contactName || feedback.contactEmail) && (
-              <p className="rounded-lg bg-bg-secondary/60 px-3 py-2 text-fg-secondary">
+              <p className="rounded-lg bg-bg-secondary px-3 py-2 text-fg-secondary">
                 Zuordnung (intern):{" "}
                 <span className="font-medium text-fg-primary">
                   {feedback.contactName ?? "Ohne Namen"}
@@ -209,13 +207,32 @@ export default async function PatientenfeedbackDetailPage({
                 )}
               </div>
               {feedback.contactBackOk ? (
-                <p className="inline-flex items-center gap-2 rounded-lg bg-bg-secondary/60 px-3 py-2 text-fg-primary">
-                  <PhoneCall className="h-4 w-4" />
-                  Patient:in erlaubt aktiv die Kontaktaufnahme zu dieser
-                  Rückmeldung.
-                </p>
+                <div className="space-y-3">
+                  <p className="inline-flex items-center gap-2 rounded-lg bg-bg-secondary px-3 py-2 text-fg-primary">
+                    <PhoneCall className="h-4 w-4" />
+                    Patient:in erlaubt aktiv die Kontaktaufnahme zu dieser
+                    Rückmeldung.
+                  </p>
+                  {feedback.contactEmail && (
+                    <div>
+                      <a
+                        href={`mailto:${feedback.contactEmail}?subject=${encodeURIComponent(
+                          "Ihre Rückmeldung an unsere Praxis"
+                        )}&body=${encodeURIComponent(
+                          `Guten Tag${
+                            feedback.contactName ? ` ${feedback.contactName}` : ""
+                          },\n\nvielen Dank, dass Sie sich die Zeit für Ihre Rückmeldung genommen haben. Ihr Anliegen ist uns wichtig, und wir möchten gerne darauf eingehen.\n\nMit freundlichen Grüßen\nIhr Praxis-Team`
+                        )}`}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-border bg-bg-primary px-3 py-2 text-sm font-medium text-fg-primary hover:bg-bg-secondary"
+                      >
+                        <Mail className="h-4 w-4" />
+                        Per E-Mail antworten
+                      </a>
+                    </div>
+                  )}
+                </div>
               ) : (
-                <p className="rounded-lg bg-bg-secondary/60 px-3 py-2 text-fg-secondary">
+                <p className="rounded-lg bg-bg-secondary px-3 py-2 text-fg-secondary">
                   Kein Rückrufwunsch &mdash; bitte ungefragt nicht kontaktieren.
                 </p>
               )}
@@ -253,32 +270,11 @@ export default async function PatientenfeedbackDetailPage({
               </div>
             </div>
 
-            <form
-              action={setFeedbackNoteAction}
-              className="space-y-2 border-t border-border pt-4"
-            >
-              <input type="hidden" name="id" value={feedback.id} />
-              <label
-                htmlFor="internalNote"
-                className="block text-sm font-medium text-fg-primary"
-              >
-                Interne Notiz (nur Praxis-Team sichtbar)
-              </label>
-              <textarea
-                id="internalNote"
-                name="internalNote"
-                rows={4}
-                maxLength={5000}
-                defaultValue={feedback.internalNote ?? ""}
-                placeholder="z. B. Patient:in zurückgerufen am 12.04., Beschwerde berechtigt, Ablauf intern besprochen."
-                className="w-full rounded-xl border border-border bg-bg-primary px-3 py-2 text-sm"
-              />
-              <div className="flex justify-end">
-                <Button type="submit" size="sm">
-                  Notiz speichern
-                </Button>
-              </div>
-            </form>
+            <FeedbackReplyEditor
+              feedbackId={feedback.id}
+              rating={feedback.rating ?? null}
+              defaultNote={feedback.internalNote ?? ""}
+            />
           </CardContent>
         </Card>
       )}

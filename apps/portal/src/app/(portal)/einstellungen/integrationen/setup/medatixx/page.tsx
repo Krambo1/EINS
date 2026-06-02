@@ -113,7 +113,7 @@ export default async function MedatixxSetupPage() {
               Detail-Anleitung: GDT-Konfiguration in medatixx, Lead-Token-Setup,
               Troubleshooting.{" "}
               <a
-                href="https://github.com/eins-visuals/EINSWebsite/blob/main/apps/bridge/agent/docs/SETUP-MEDATIXX.md"
+                href="https://github.com/Krambo1/EINS/blob/main/apps/bridge/agent/docs/SETUP-MEDATIXX.md"
                 className="underline"
                 target="_blank"
                 rel="noreferrer"

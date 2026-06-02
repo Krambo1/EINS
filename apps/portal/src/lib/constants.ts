@@ -108,6 +108,28 @@ export const AI_CATEGORY_LABELS: Record<AiCategory, string> = {
   cold: "Kalt",
 };
 
+/**
+ * Sort orders for the Anfragen inbox list. `neueste` is the default (newest
+ * first) and is represented by the absence of the `sort` URL param, so the
+ * canonical /anfragen URL stays clean.
+ */
+export const REQUEST_SORTS = [
+  "neueste",
+  "aelteste",
+  "ki",
+  "ltv",
+  "dringlichkeit",
+] as const;
+export type RequestSort = (typeof REQUEST_SORTS)[number];
+
+export const REQUEST_SORT_LABELS: Record<RequestSort, string> = {
+  neueste: "Neueste zuerst",
+  aelteste: "Älteste zuerst",
+  ki: "Höchste KI-Bewertung",
+  ltv: "Höchster Lifetime-Wert",
+  dringlichkeit: "Dringlichkeit",
+};
+
 /** SLA respond-by-time in hours for new leads. */
 export const SLA_HOURS = 3;
 
@@ -247,3 +269,27 @@ export const AUDIT_RETENTION_MONTHS = 24;
 
 /** Dashboard cache TTL for live advertising data. */
 export const CAMPAIGN_LIVE_CACHE_SECONDS = 15 * 60;
+
+/**
+ * Ansprechpartner surfaced in the sidebar contact card (SidebarContactCard).
+ *
+ * There is no per-clinic account-manager field in the data model yet, so this
+ * is a single shared EINS-Team identity. When clinics get a named
+ * Ansprechpartner, pass an override into `PortalShell` instead of relying on
+ * this default — the card already accepts a `contact` prop.
+ *
+ * `bookingUrl` is the same Calendly link the marketing site uses.
+ */
+export const EINS_CONTACT = {
+  name: "Ihr EINS-Team",
+  bookingUrl: "https://calendly.com/karam8issa/30min",
+  email: "team@eins.ag",
+} as const;
+
+/**
+ * Cookie persisting whether the sidebar contact card (SidebarContactCard) is
+ * minimized. Read server-side in the (portal) layout so the first paint
+ * matches the user's last choice (no expand→collapse flash), written
+ * client-side on toggle. Value: "1" = minimized, anything else = expanded.
+ */
+export const CONTACT_CARD_COOKIE = "eins_contact_card_collapsed";

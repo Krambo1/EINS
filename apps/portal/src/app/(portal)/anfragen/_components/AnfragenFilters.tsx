@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
+  ArrowDownWideNarrow,
   CheckCircle2,
   Flame,
   Loader2,
@@ -20,10 +21,13 @@ import { withBrandLogos } from "@/app/_components/Brand";
 import {
   AI_CATEGORIES,
   AI_CATEGORY_LABELS,
+  REQUEST_SORTS,
+  REQUEST_SORT_LABELS,
   REQUEST_SOURCES,
   REQUEST_STATUS_LABELS,
   SOURCE_LABELS,
   type AiCategory,
+  type RequestSort,
   type RequestSource,
   type RequestStatus,
 } from "@/lib/constants";
@@ -110,6 +114,21 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
     navigate(next);
   };
 
+  // Sort is single-select, not a filter: "neueste" is the default and drops
+  // the param entirely so the canonical /anfragen URL stays clean.
+  const sortParam = params.get("sort");
+  const currentSort: RequestSort = (REQUEST_SORTS as readonly string[]).includes(
+    sortParam ?? ""
+  )
+    ? (sortParam as RequestSort)
+    : "neueste";
+  const setSort = (value: RequestSort) => {
+    const next = new URLSearchParams(params.toString());
+    if (value === "neueste") next.delete("sort");
+    else next.set("sort", value);
+    navigate(next);
+  };
+
   const isSetMember = (key: string, value: string) =>
     (params.get(key) ?? "").split(",").filter(Boolean).includes(value);
 
@@ -176,6 +195,18 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
       </div>
 
       <div className="divide-y divide-border/60 border-t border-border/60">
+        <FilterGroup icon={ArrowDownWideNarrow} label="Sortierung">
+          {REQUEST_SORTS.map((s) => (
+            <Chip
+              key={s}
+              active={currentSort === s}
+              onClick={() => setSort(s)}
+            >
+              {REQUEST_SORT_LABELS[s]}
+            </Chip>
+          ))}
+        </FilterGroup>
+
         <FilterGroup icon={CheckCircle2} label="Status">
           {STATUSES.map((s) => (
             <Chip

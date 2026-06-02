@@ -19,7 +19,7 @@ export function EinsLogo({ className, width = 600, height = 240 }: Props) {
       />
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src="/EINS VISUALS LOGO inverted.svg"
+        src="/eins-logo-inverted.svg"
         alt="EINS"
         width={width}
         height={height}
