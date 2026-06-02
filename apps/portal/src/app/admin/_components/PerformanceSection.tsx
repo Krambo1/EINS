@@ -1,138 +1,124 @@
-import { Card, CardContent } from "@eins/ui";
-import { formatEuro, formatNumber } from "@/lib/formatting";
+import { Card, CardContent, CardHeader, CardTitle, TrendChart } from "@eins/ui";
+import { formatEuro } from "@/lib/formatting";
 import { SOURCE_LABELS, type RequestSource } from "@/lib/constants";
-import type {
-  PlatformMixRow,
-  SpendRevenuePoint,
-} from "@/server/queries/admin";
-import { AreaChart } from "../_charts/AreaChart";
-import { Donut } from "../_charts/Donut";
+import { SegmentedShareBar } from "@/app/_components/SegmentedShareBar";
+import { SHARE_TONE_VAR, type ShareTone } from "@/lib/share-tone";
+import { TimeRangeToggle } from "@/app/_components/TimeRangeToggle";
+import { ADMIN_RANGE_KEYS, type DashboardRange } from "@/lib/dashboard-range";
+import type { PlatformMixRow, SpendRevenuePoint } from "@/server/queries/admin";
 
-const PLATFORM_COLOR: Record<string, string> = {
-  meta: "#1877F2",
-  google: "#EA4335",
-  csv: "#94a3b8",
+const PLATFORM_TONE: Record<string, ShareTone> = {
+  meta: "accent",
+  google: "good",
+  csv: "neutral",
 };
 
 interface Props {
   daily: SpendRevenuePoint[];
   mix: PlatformMixRow[];
-  monthSpend: number;
-  monthRevenue: number;
-  monthLeads: number;
-  monthCasesWon: number;
+  range: DashboardRange;
 }
 
-const GLOW_CARD = "!bg-bg-secondary/60";
+/**
+ * Werbeleistung — spend vs. revenue trend over the card's own time window, with
+ * the platform-budget split rendered as the shared segmented share bar (the
+ * same visual the clinic uses). Both sit directly on the card surface: no inner
+ * boxes, no derived sub-metric tiles.
+ */
+export function PerformanceSection({ daily, mix, range }: Props) {
+  const spendPoints = daily.map((d) => ({ date: d.date, value: d.spendEur }));
+  const revenuePoints = daily.map((d) => ({ date: d.date, value: d.revenueEur }));
 
-export function PerformanceSection({
-  daily,
-  mix,
-  monthSpend,
-  monthRevenue,
-  monthLeads,
-  monthCasesWon,
-}: Props) {
-  const chartData = daily.map((d) => ({
-    date: d.date,
-    spend: d.spendEur,
-    revenue: d.revenueEur,
-  }));
-
-  const slices = mix.map((m) => ({
-    name: SOURCE_LABELS[m.platform as RequestSource] ?? m.platform.toUpperCase(),
+  const segments = mix.map((m) => ({
+    key: m.platform,
+    label: SOURCE_LABELS[m.platform as RequestSource] ?? m.platform.toUpperCase(),
     value: m.spendEur,
-    color: PLATFORM_COLOR[m.platform] ?? "#cbd5e1",
+    tone: PLATFORM_TONE[m.platform] ?? "neutral",
   }));
-
-  const cpp = monthCasesWon > 0 ? monthSpend / monthCasesWon : null;
-  const conversion =
-    monthLeads > 0 ? (monthCasesWon / monthLeads) * 100 : null;
+  const mixTotal = segments.reduce((acc, s) => acc + s.value, 0);
 
   return (
-    <Card className={GLOW_CARD}>
-      <CardContent className="space-y-6 pt-6">
-        <header className="flex flex-wrap items-end justify-between gap-2">
-          <div>
-            <span className="font-mono text-[0.6875rem] uppercase tracking-[0.18em] text-fg-secondary">
-              Werbeleistung
-            </span>
-            <h2 className="mt-1 font-display text-2xl font-semibold">
-              Ausgaben &amp; Umsatz · 90 Tage
-            </h2>
+    <Card
+      className="print:break-inside-avoid"
+      style={{
+        backgroundColor: "var(--bg-card)",
+        boxShadow: "var(--shadow-card)",
+      }}
+    >
+      <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
+        <div className="flex flex-col gap-1">
+          <CardTitle className="!text-xl !font-medium md:!text-2xl">
+            Werbeleistung
+          </CardTitle>
+          <p className="text-sm text-fg-secondary">
+            Werbebudget und Werbeumsatz im Zeitraum.
+          </p>
+        </div>
+        <TimeRangeToggle
+          value={range}
+          paramKey={ADMIN_RANGE_KEYS.perf}
+          ariaLabel="Zeitraum für Werbeleistung"
+        />
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <div className="flex flex-wrap gap-4 text-xs">
+          <Legend dot="var(--fg-secondary)" label="Werbebudget" />
+          <Legend dot="var(--accent)" label="Werbeumsatz" />
+        </div>
+        <TrendChart
+          data={spendPoints}
+          series={[
+            {
+              points: spendPoints,
+              tone: "neutral",
+              label: "Werbebudget",
+              filled: true,
+            },
+            {
+              points: revenuePoints,
+              tone: "accent",
+              label: "Werbeumsatz",
+              filled: true,
+            },
+          ]}
+          height={240}
+          showAxes
+          showGrid
+          valueFormat="euro"
+          ariaLabel="Werbebudget und Werbeumsatz im Zeitraum"
+        />
+        <div className="space-y-2">
+          <div className="flex items-center justify-between text-xs text-fg-secondary">
+            <span>Werbebudget je Plattform</span>
+            <span className="font-mono tabular-nums">{formatEuro(mixTotal)}</span>
           </div>
-          <div className="flex flex-wrap gap-4 text-xs">
-            <Legend dot="#94a3b8" label="Werbebudget" />
-            <Legend dot="var(--accent)" label="Werbeumsatz" />
-          </div>
-        </header>
-        <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-          <div className="rounded-xl border border-border bg-bg-primary/40 p-3">
-            <AreaChart
-              data={chartData}
-              series={[
-                { key: "spend", name: "Werbebudget", color: "#94a3b8" },
-                { key: "revenue", name: "Werbeumsatz", color: "var(--accent)" },
-              ]}
-              height={260}
-              yKind="eur"
-            />
-          </div>
-          <div className="rounded-xl border border-border bg-bg-primary/40 p-3">
-            <div className="mb-1 px-2 text-xs text-fg-secondary">
-              Werbebudget je Plattform · 30 Tage
-            </div>
-            <Donut
-              slices={slices}
-              centerLabel={formatEuro(
-                slices.reduce((acc, s) => acc + s.value, 0)
-              )}
-              centerSubLabel="Spend 30T"
-              valueKind="eur"
-              height={220}
-            />
-            <div className="mt-3 space-y-1 px-2 text-xs">
-              {slices.length === 0 && (
-                <span className="text-fg-secondary">
-                  Noch keine Plattform-Daten.
-                </span>
-              )}
-              {slices.map((s) => (
-                <div key={s.name} className="flex items-center gap-2">
+          <SegmentedShareBar
+            segments={segments}
+            ariaLabel={`Werbebudget je Plattform: ${formatEuro(mixTotal)}`}
+            valueFormat="euro"
+            valueLabel="Budget"
+          />
+          {segments.length === 0 ? (
+            <p className="text-xs text-fg-secondary">
+              Noch keine Plattform-Daten.
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+              {segments.map((s) => (
+                <span key={s.key} className="inline-flex items-center gap-1.5">
                   <span
                     className="inline-block h-2.5 w-2.5 rounded-sm"
-                    style={{ background: s.color }}
+                    style={{ background: SHARE_TONE_VAR[s.tone] }}
                     aria-hidden
                   />
-                  <span className="flex-1 text-fg-primary">{s.name}</span>
+                  <span className="text-fg-primary">{s.label}</span>
                   <span className="font-mono tabular-nums text-fg-secondary">
                     {formatEuro(s.value)}
                   </span>
-                </div>
+                </span>
               ))}
             </div>
-          </div>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-3">
-          <SubMetric
-            label="Kosten pro Patient"
-            value={cpp == null ? "–" : formatEuro(cpp)}
-            sub={`${formatNumber(monthCasesWon)} gewonnen · Monat`}
-          />
-          <SubMetric
-            label="Abschlussquote (Anfrage → Patient)"
-            value={conversion == null ? "–" : `${conversion.toFixed(1)} %`}
-            sub={`${formatNumber(monthLeads)} qual. Anfragen`}
-          />
-          <SubMetric
-            label="Nettomarge"
-            value={
-              monthRevenue > 0
-                ? `${((1 - monthSpend / Math.max(monthRevenue, 1)) * 100).toFixed(0)} %`
-                : "–"
-            }
-            sub={`${formatEuro(monthRevenue - monthSpend)} Δ`}
-          />
+          )}
         </div>
       </CardContent>
     </Card>
@@ -149,27 +135,5 @@ function Legend({ dot, label }: { dot: string; label: string }) {
       />
       {label}
     </span>
-  );
-}
-
-function SubMetric({
-  label,
-  value,
-  sub,
-}: {
-  label: string;
-  value: string;
-  sub?: string;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-bg-primary/40 px-4 py-3">
-      <div className="font-mono text-[0.6875rem] uppercase tracking-[0.18em] text-fg-secondary">
-        {label}
-      </div>
-      <div className="mt-1 font-display text-2xl font-semibold tabular-nums">
-        {value}
-      </div>
-      {sub && <div className="mt-0.5 text-xs text-fg-secondary">{sub}</div>}
-    </div>
   );
 }

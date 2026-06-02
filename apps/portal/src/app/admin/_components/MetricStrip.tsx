@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { MetricTile, TrendChart } from "@eins/ui";
-import { formatEuro, formatNumber } from "@/lib/formatting";
+import { formatClinicAggregate, formatEuro, formatNumber } from "@/lib/formatting";
 import { zipSeries } from "@/lib/chart-data";
 import {
   KPI_THRESHOLDS,
@@ -33,7 +33,7 @@ export function MetricStrip({ data }: { data: PlatformOverviewMetrics }) {
       <Link href="/admin/leistung" className={TILE_LINK_CLASS} aria-label="Werbeumsatz in Leistung ansehen">
         <MetricTile
           label="Werbeumsatz (Monat)"
-          value={formatEuro(data.monthRevenue)}
+          value={formatClinicAggregate(data.monthRevenue, data.revenueCurrencies)}
           delta={data.deltas.revenue}
           chartSlot={
             <TrendChart

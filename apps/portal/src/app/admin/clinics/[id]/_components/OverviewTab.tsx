@@ -2,6 +2,7 @@ import { Card, CardContent } from "@eins/ui";
 import {
   formatDateTime,
   formatEuro,
+  formatMoney,
   formatNumber,
   formatPercent,
 } from "@/lib/formatting";
@@ -16,7 +17,7 @@ import { MetricTile } from "@eins/ui";
 
 type Clinic = typeof schema.clinics.$inferSelect;
 
-const GLOW_CARD = "!bg-bg-secondary/60";
+const GLOW_CARD = "!bg-bg-secondary";
 
 export function OverviewTab({
   clinic,
@@ -27,7 +28,7 @@ export function OverviewTab({
   totals: { requests: number; documents: number; assets: number };
   perf: ClinicPerformance;
 }) {
-  const { summary } = perf;
+  const { summary, currency } = perf;
   const cplTone = toneForLowerBetter(summary.cpl, KPI_THRESHOLDS.cpl);
   const cppTone = toneForLowerBetter(summary.cpp, KPI_THRESHOLDS.cpp);
   const roasTone = toneForHigherBetter(summary.roas, KPI_THRESHOLDS.roas);
@@ -43,7 +44,7 @@ export function OverviewTab({
         />
         <MetricTile
           label="Werbeumsatz"
-          value={formatEuro(summary.revenueEur)}
+          value={formatMoney(summary.revenueEur, currency)}
           sublabel="90 Tage"
           tone="accent"
         />

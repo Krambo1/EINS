@@ -37,7 +37,7 @@ export default async function AdminSetPasswordPage() {
           Admin
         </span>
       </div>
-      <Card className="!bg-bg-secondary/60">
+      <Card className="!bg-bg-secondary">
         <CardHeader>
           <CardTitle>Passwort setzen</CardTitle>
           <CardDescription>

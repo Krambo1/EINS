@@ -10,7 +10,7 @@ import { formatDateTime, formatRelative } from "@/lib/formatting";
 import type { schema } from "@/db/client";
 import { Brand } from "@/app/_components/Brand";
 
-const GLOW_CARD = "!bg-bg-secondary/60";
+const GLOW_CARD = "!bg-bg-secondary";
 
 type Cred = typeof schema.platformCredentials.$inferSelect;
 interface SyncEvent {
@@ -91,7 +91,7 @@ export function IntegrationenTab({
             return (
               <div
                 key={p}
-                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-bg-secondary/40 px-4 py-3"
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-bg-secondary px-4 py-3"
               >
                 <div>
                   <div className="font-medium">
@@ -252,7 +252,7 @@ function OutboxStat({
   tone: "good" | "neutral" | "bad";
 }) {
   return (
-    <div className="rounded-md border border-border bg-bg-secondary/40 px-2.5 py-2">
+    <div className="rounded-md border border-border bg-bg-secondary px-2.5 py-2">
       <div className="text-fg-secondary">{label}</div>
       <div
         className={
@@ -315,7 +315,7 @@ function AgentStatusCard({ status }: { status: AgentStatusHealth }) {
             value={status.failedEvents}
             tone={failedTone}
           />
-          <div className="rounded-md border border-border bg-bg-secondary/40 px-2.5 py-2">
+          <div className="rounded-md border border-border bg-bg-secondary px-2.5 py-2">
             <div className="text-fg-secondary">Letzter Heartbeat</div>
             <div className={heartbeatStale ? "text-tone-bad" : "text-fg-primary"}>
               <span className="text-sm font-semibold">
@@ -326,7 +326,7 @@ function AgentStatusCard({ status }: { status: AgentStatusHealth }) {
               </div>
             </div>
           </div>
-          <div className="rounded-md border border-border bg-bg-secondary/40 px-2.5 py-2">
+          <div className="rounded-md border border-border bg-bg-secondary px-2.5 py-2">
             <div className="text-fg-secondary">Ältester Fehler</div>
             <div className="text-fg-primary">
               <span className="text-sm font-semibold">
@@ -338,7 +338,7 @@ function AgentStatusCard({ status }: { status: AgentStatusHealth }) {
           </div>
         </div>
         {status.lastFailureReason && (
-          <div className="rounded-md border border-border bg-bg-secondary/40 px-3 py-2 text-xs">
+          <div className="rounded-md border border-border bg-bg-secondary px-3 py-2 text-xs">
             <div className="text-fg-secondary">Letzter Grund</div>
             <div className="mt-0.5 truncate font-mono text-fg-primary" title={status.lastFailureReason}>
               {status.lastFailureReason}
@@ -346,7 +346,7 @@ function AgentStatusCard({ status }: { status: AgentStatusHealth }) {
           </div>
         )}
         {status.recentReasons.length > 0 && (
-          <details className="rounded-md border border-border bg-bg-secondary/40 px-3 py-2 text-xs">
+          <details className="rounded-md border border-border bg-bg-secondary px-3 py-2 text-xs">
             <summary className="cursor-pointer text-fg-secondary">
               Letzte {Math.min(10, status.recentReasons.length)} Fehlergründe
               anzeigen
@@ -366,7 +366,7 @@ function AgentStatusCard({ status }: { status: AgentStatusHealth }) {
           </details>
         )}
         {status.recentPruneSummaries.length > 0 && (
-          <details className="rounded-md border border-border bg-bg-secondary/40 px-3 py-2 text-xs">
+          <details className="rounded-md border border-border bg-bg-secondary px-3 py-2 text-xs">
             <summary className="cursor-pointer text-fg-secondary">
               Dead-Letter-Prune-Historie ({status.recentPruneSummaries.length})
             </summary>

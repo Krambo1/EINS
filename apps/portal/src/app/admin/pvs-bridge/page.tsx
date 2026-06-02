@@ -34,6 +34,10 @@ interface LinkRow {
   id: string;
   clinicId: string;
   vendor: string;
+  /** Phase 7: the full set of bridge_sources the clinic may emit
+   *  (pvs_link_source). The vendor above is the primary; this can be a
+   *  superset for a GDT agent reading several PVS engines. */
+  sources: string[];
   status: string;
   lastEventAt: Date | null;
   consecutiveFailures: number;
@@ -69,6 +73,7 @@ export default async function AdminPvsBridgePage() {
     pending_csv_uploads: number;
     agent_failed_events: number | null;
     agent_last_heartbeat_at: Date | null;
+    sources: string | null;
   }>(sql`
     SELECT
       l.id,
@@ -88,7 +93,10 @@ export default async function AdminPvsBridgePage() {
         WHERE u.clinic_id = l.clinic_id
           AND u.status IN ('pending','processing'))           AS pending_csv_uploads,
       a.failed_events                                          AS agent_failed_events,
-      a.last_heartbeat_at                                      AS agent_last_heartbeat_at
+      a.last_heartbeat_at                                      AS agent_last_heartbeat_at,
+      (SELECT string_agg(DISTINCT src.bridge_source, ',' ORDER BY src.bridge_source)
+         FROM pvs_link_source src
+        WHERE src.clinic_id = l.clinic_id)                    AS sources
     FROM pvs_link l
     LEFT JOIN pvs_sync_status s ON s.pvs_link_id = l.id
     LEFT JOIN pvs_agent_status a ON a.clinic_id = l.clinic_id
@@ -111,10 +119,12 @@ export default async function AdminPvsBridgePage() {
     pending_csv_uploads: number;
     agent_failed_events: number | null;
     agent_last_heartbeat_at: Date | null;
+    sources: string | null;
   }>).map((r) => ({
     id: r.id,
     clinicId: r.clinic_id,
     vendor: r.pvs_vendor,
+    sources: r.sources ? r.sources.split(",") : [],
     status: r.status,
     lastEventAt: r.last_event_at,
     consecutiveFailures: Number(r.consecutive_failure_count) || 0,
@@ -205,7 +215,7 @@ export default async function AdminPvsBridgePage() {
                   <td className="p-2">
                     <code>{r.clinicId.slice(0, 8)}</code>
                   </td>
-                  <td className="p-2">{r.vendor}</td>
+                  <td className="p-2">{formatAdapter(r.vendor, r.sources)}</td>
                   <td className="p-2">
                     <StatusBadge status={r.status} />
                   </td>
@@ -278,6 +288,19 @@ export default async function AdminPvsBridgePage() {
       </Card>
     </div>
   );
+}
+
+/**
+ * Render the clinic's adapter set: the primary vendor, then any additional
+ * enrolled bridge_sources as `+source` (e.g. a GDT agent that also reads
+ * medatixx shows `gdt_agent +medatixx`). Falls back to the bare vendor when
+ * pvs_link_source has nothing beyond it.
+ */
+function formatAdapter(vendor: string, sources: string[]): string {
+  const extras = sources.filter((s) => s !== vendor);
+  return extras.length > 0
+    ? `${vendor} ${extras.map((e) => `+${e}`).join(" ")}`
+    : vendor;
 }
 
 function SummaryStat({

@@ -141,7 +141,7 @@ export default async function PvsEventsPage({
             </CardHeader>
             <CardContent className="p-0">
               <table className="w-full text-xs">
-                <thead className="bg-bg-secondary/40 text-left uppercase tracking-wide text-fg-tertiary">
+                <thead className="bg-bg-secondary text-left uppercase tracking-wide text-fg-tertiary">
                   <tr>
                     <th className="p-2">Erkannt</th>
                     <th className="p-2">Praxis</th>
@@ -177,7 +177,7 @@ export default async function PvsEventsPage({
                           <summary className="cursor-pointer text-fg-tertiary hover:text-fg-primary">
                             anzeigen
                           </summary>
-                          <pre className="mt-2 max-w-md overflow-x-auto rounded bg-bg-secondary/40 p-2 text-[11px]">
+                          <pre className="mt-2 max-w-md overflow-x-auto rounded bg-bg-secondary p-2 text-[11px]">
                             {JSON.stringify(d.detail, null, 2)}
                           </pre>
                         </details>

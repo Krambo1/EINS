@@ -78,7 +78,7 @@ export function EventsPanel({ rows, truncated, hardCap }: Props) {
       )}
 
       <div className="rounded-md border border-border bg-bg-primary">
-        <div className="grid grid-cols-[160px_180px_120px_170px_1fr_120px] gap-3 border-b border-border bg-bg-secondary/30 px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-fg-tertiary">
+        <div className="grid grid-cols-[160px_180px_120px_170px_1fr_120px] gap-3 border-b border-border bg-bg-secondary px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-fg-tertiary">
           <div>Occurred</div>
           <div>Praxis</div>
           <div>Adapter</div>
@@ -108,7 +108,7 @@ export function EventsPanel({ rows, truncated, hardCap }: Props) {
                     key={r.id}
                     type="button"
                     onClick={() => setSelectedId(r.id)}
-                    className="grid w-full grid-cols-[160px_180px_120px_170px_1fr_120px] gap-3 border-b border-border/40 px-3 py-1.5 text-left text-xs hover:bg-bg-secondary/40 focus:bg-bg-secondary/60 focus:outline-none"
+                    className="grid w-full grid-cols-[160px_180px_120px_170px_1fr_120px] gap-3 border-b border-border/40 px-3 py-1.5 text-left text-xs hover:bg-bg-secondary focus:bg-bg-secondary focus:outline-none"
                     style={{ height: ROW_HEIGHT }}
                     role="row"
                     aria-rowindex={vi.index + 1}
@@ -141,7 +141,7 @@ export function EventsPanel({ rows, truncated, hardCap }: Props) {
           )}
         </div>
 
-        <div className="border-t border-border bg-bg-secondary/20 px-3 py-1.5 text-[11px] text-fg-tertiary">
+        <div className="border-t border-border bg-bg-secondary px-3 py-1.5 text-[11px] text-fg-tertiary">
           {rowModel.rows.length.toLocaleString("de-DE")} Events sichtbar
           {truncated ? ` (capped bei ${hardCap.toLocaleString("de-DE")})` : ""}
         </div>

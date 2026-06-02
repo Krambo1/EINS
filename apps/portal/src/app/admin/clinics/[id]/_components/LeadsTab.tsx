@@ -10,7 +10,7 @@ import {
 import type { AdminLeadFilters, AdminLeadRow } from "@/server/queries/admin";
 import { LeadsTable } from "../../../_components/LeadsTable";
 
-const GLOW_CARD = "!bg-bg-secondary/60";
+const GLOW_CARD = "!bg-bg-secondary";
 const PAGE_SIZE = 50;
 
 interface Props {

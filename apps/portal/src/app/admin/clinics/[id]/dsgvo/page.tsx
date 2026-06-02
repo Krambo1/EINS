@@ -57,7 +57,7 @@ export default async function ClinicDsgvoPage({ params }: PageProps) {
       </header>
 
       {/* ----- Export -------------------------------------------------- */}
-      <Card className="!bg-bg-secondary/60">
+      <Card className="!bg-bg-secondary">
         <CardHeader>
           <CardTitle>Datenauskunft herunterladen</CardTitle>
           <CardDescription>
@@ -79,7 +79,7 @@ export default async function ClinicDsgvoPage({ params }: PageProps) {
       </Card>
 
       {/* ----- Erasure ------------------------------------------------- */}
-      <Card className="!bg-bg-secondary/60">
+      <Card className="!bg-bg-secondary">
         <CardHeader>
           <CardTitle>Unwiderrufliche Löschung</CardTitle>
           <CardDescription>

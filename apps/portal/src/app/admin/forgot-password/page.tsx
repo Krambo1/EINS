@@ -13,7 +13,7 @@ export default function AdminForgotPasswordPage() {
           Admin
         </span>
       </div>
-      <Card className="!bg-bg-secondary/60">
+      <Card className="!bg-bg-secondary">
         <CardHeader>
           <CardTitle>Passwort vergessen</CardTitle>
           <CardDescription>

@@ -1,8 +1,10 @@
 import Link from "next/link";
-import { Card, CardContent, Badge, MetricTile } from "@eins/ui";
+import { Card, CardContent, Badge, MetricTile, TrendChart } from "@eins/ui";
 import { requireAdmin } from "@/auth/admin-guards";
 import {
+  formatClinicAggregate,
   formatEuro,
+  formatMoney,
   formatNumber,
   formatRelative,
 } from "@/lib/formatting";
@@ -19,12 +21,11 @@ import {
   topCampaigns,
 } from "@/server/queries/admin";
 import { AdminPageHeader } from "../_components/AdminPageHeader";
-import { LineChart } from "../_charts/LineChart";
 import { Brand } from "@/app/_components/Brand";
 
 export const metadata = { title: "Leistung · Admin" };
 
-const GLOW_CARD = "!bg-bg-secondary/60";
+const GLOW_CARD = "!bg-bg-secondary";
 
 interface PageProps {
   searchParams: Promise<{ period?: string }>;
@@ -65,11 +66,8 @@ export default async function AdminLeistungPage({ searchParams }: PageProps) {
   const cplTone = toneForLowerBetter(overview.avgCpl, KPI_THRESHOLDS.cpl);
   const roasTone = toneForHigherBetter(overview.avgRoas, KPI_THRESHOLDS.roas);
 
-  const lineData = daily.map((d) => ({
-    date: d.date,
-    spend: d.spendEur,
-    revenue: d.revenueEur,
-  }));
+  const spendPoints = daily.map((d) => ({ date: d.date, value: d.spendEur }));
+  const revenuePoints = daily.map((d) => ({ date: d.date, value: d.revenueEur }));
 
   return (
     <div className="space-y-8">
@@ -105,7 +103,10 @@ export default async function AdminLeistungPage({ searchParams }: PageProps) {
         />
         <MetricTile
           label="Umsatz (Monat)"
-          value={formatEuro(overview.monthRevenue)}
+          value={formatClinicAggregate(
+            overview.monthRevenue,
+            overview.revenueCurrencies
+          )}
           delta={overview.deltas.revenue}
           tone="accent"
         />
@@ -137,14 +138,18 @@ export default async function AdminLeistungPage({ searchParams }: PageProps) {
           <h2 className="font-display text-xl font-semibold">
             Trend · {days} Tage
           </h2>
-          <div className="rounded-xl border border-border bg-bg-primary/40 p-3">
-            <LineChart
-              data={lineData}
+          <div className="rounded-xl border border-border bg-bg-primary p-3">
+            <TrendChart
+              data={spendPoints}
               series={[
-                { key: "spend", name: "Werbebudget", color: "#94a3b8" },
-                { key: "revenue", name: "Werbeumsatz", color: "var(--accent)" },
+                { points: spendPoints, tone: "neutral", label: "Werbebudget" },
+                { points: revenuePoints, tone: "accent", label: "Werbeumsatz" },
               ]}
-              height={260}
+              height={240}
+              showAxes
+              showGrid
+              valueFormat="euro"
+              ariaLabel="Werbebudget und Werbeumsatz Trend"
             />
           </div>
         </CardContent>
@@ -310,7 +315,7 @@ function CampaignTable({
                 {formatNumber(r.leads)}
               </td>
               <td className="py-2 text-right font-mono tabular-nums">
-                {formatEuro(r.revenueEur)}
+                {formatMoney(r.revenueEur, r.currency)}
               </td>
               <td className="py-2 text-right font-mono tabular-nums">
                 {formatEuro(r.spendEur)}
@@ -331,7 +336,7 @@ function CampaignTable({
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-border bg-bg-primary/40 p-2">
+    <div className="rounded-md border border-border bg-bg-primary p-2">
       <div className="font-mono text-[10px] uppercase tracking-wider text-fg-secondary">
         {label}
       </div>

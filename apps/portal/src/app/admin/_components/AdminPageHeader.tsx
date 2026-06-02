@@ -13,10 +13,10 @@ export function AdminPageHeader({
 }: AdminPageHeaderProps) {
   return (
     <header className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-      <div className="space-y-3">
-        <h1 className="display-m">{title}</h1>
+      <div>
+        <h1 className="text-3xl font-semibold md:text-4xl">{title}</h1>
         {subtitle && (
-          <p className="max-w-2xl text-lg text-fg-primary md:text-xl">
+          <p className="mt-2 max-w-2xl text-base text-fg-primary md:text-lg">
             {subtitle}
           </p>
         )}

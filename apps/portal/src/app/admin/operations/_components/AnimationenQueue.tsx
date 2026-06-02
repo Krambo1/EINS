@@ -36,7 +36,7 @@ export function AnimationenQueue({ rows }: { rows: AnimationRow[] }) {
         {rows.map((r) => (
           <div
             key={r.id}
-            className="rounded-xl border border-border bg-bg-primary/40 p-4"
+            className="rounded-xl border border-border bg-bg-primary p-4"
           >
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
@@ -66,7 +66,7 @@ export function AnimationenQueue({ rows }: { rows: AnimationRow[] }) {
               </Badge>
             </div>
             {r.requestNote && (
-              <div className="mt-3 rounded-md border border-border bg-bg-secondary/40 p-3 text-sm">
+              <div className="mt-3 rounded-md border border-border bg-bg-secondary p-3 text-sm">
                 <div className="text-xs text-fg-secondary">Notiz der Praxis</div>
                 <p className="mt-1 whitespace-pre-wrap">{r.requestNote}</p>
               </div>

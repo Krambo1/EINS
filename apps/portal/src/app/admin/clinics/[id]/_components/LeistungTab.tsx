@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { Card, CardContent, MetricTile, Badge } from "@eins/ui";
+import { Card, CardContent, MetricTile, Badge, TrendChart, Donut } from "@eins/ui";
 import {
   formatEuro,
+  formatMoney,
   formatNumber,
   formatPercent,
 } from "@/lib/formatting";
@@ -16,12 +17,10 @@ import {
   toneForLowerBetter,
 } from "@/server/constants/admin";
 import type { ClinicPerformance } from "@/server/queries/admin";
-import { AreaChart } from "../../../_charts/AreaChart";
-import { Donut } from "../../../_charts/Donut";
 import { withBrandLogos } from "@/app/_components/Brand";
 import { FunnelBar } from "../../../_charts/FunnelBar";
 
-const GLOW_CARD = "!bg-bg-secondary/60";
+const GLOW_CARD = "!bg-bg-secondary";
 const PERIOD_OPTIONS: { key: string; label: string; days: number }[] = [
   { key: "30d", label: "30 Tage", days: 30 },
   { key: "90d", label: "90 Tage", days: 90 },
@@ -42,7 +41,9 @@ interface Props {
 }
 
 export function LeistungTab({ perf, periodKey, clinicId }: Props) {
-  const { summary, daily, bySource, byPlatform, funnel, goals } = perf;
+  const { summary, daily, bySource, byPlatform, funnel, goals, currency } = perf;
+  const spendPoints = daily.map((d) => ({ date: d.date, value: d.spendEur }));
+  const revenuePoints = daily.map((d) => ({ date: d.date, value: d.revenueEur }));
   const cplTone = toneForLowerBetter(summary.cpl, KPI_THRESHOLDS.cpl);
   const cppTone = toneForLowerBetter(summary.cpp, KPI_THRESHOLDS.cpp);
   const roasTone = toneForHigherBetter(summary.roas, KPI_THRESHOLDS.roas);
@@ -80,7 +81,7 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
         />
         <MetricTile
           label="Umsatz"
-          value={formatEuro(summary.revenueEur)}
+          value={formatMoney(summary.revenueEur, currency)}
           sublabel={`${formatNumber(summary.casesWon)} gewonnen`}
           tone="accent"
         />
@@ -103,19 +104,18 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
           <h2 className="font-display text-xl font-semibold">
             Spend &amp; Umsatz
           </h2>
-          <div className="rounded-xl border border-border bg-bg-primary/40 p-3">
-            <AreaChart
-              data={daily.map((d) => ({
-                date: d.date,
-                spend: d.spendEur,
-                revenue: d.revenueEur,
-              }))}
+          <div className="rounded-xl border border-border bg-bg-primary p-3">
+            <TrendChart
+              data={spendPoints}
               series={[
-                { key: "spend", name: "Werbebudget", color: "#94a3b8" },
-                { key: "revenue", name: "Werbeumsatz", color: "var(--accent)" },
+                { points: spendPoints, tone: "neutral", label: "Werbebudget", filled: true },
+                { points: revenuePoints, tone: "accent", label: "Werbeumsatz", filled: true },
               ]}
-              height={260}
-              yKind="eur"
+              height={240}
+              showAxes
+              showGrid
+              valueFormat="euro"
+              ariaLabel="Werbebudget und Werbeumsatz"
             />
           </div>
         </CardContent>
@@ -148,7 +148,7 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
                         {formatNumber(s.leads)}
                       </td>
                       <td className="py-2 text-right font-mono tabular-nums">
-                        {formatEuro(s.revenueEur)}
+                        {formatMoney(s.revenueEur, currency)}
                       </td>
                     </tr>
                   ))}
@@ -169,7 +169,7 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
               }))}
               centerLabel={formatEuro(summary.spendEur)}
               centerSubLabel="Spend"
-              valueKind="eur"
+              valueFormat="euro"
               height={200}
             />
             <div className="space-y-1 text-xs">
@@ -241,12 +241,12 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
                       </td>
                       <td className="py-2 text-right font-mono tabular-nums">
                         {g.metric === "revenue"
-                          ? formatEuro(g.currentValue)
+                          ? formatMoney(g.currentValue, currency)
                           : formatNumber(g.currentValue)}
                       </td>
                       <td className="py-2 text-right font-mono tabular-nums">
                         {g.metric === "revenue"
-                          ? formatEuro(g.targetValue)
+                          ? formatMoney(g.targetValue, currency)
                           : formatNumber(g.targetValue)}
                       </td>
                       <td className="py-2 text-right">

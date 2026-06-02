@@ -1,15 +1,10 @@
 import Link from "next/link";
-import {
-  Card,
-  CardContent,
-  Badge,
-  Input,
-  Button,
-  MetricTile,
-} from "@eins/ui";
+import { Card, CardContent, Badge, Button, MetricTile } from "@eins/ui";
 import { requireAdmin } from "@/auth/admin-guards";
 import {
+  formatClinicAggregate,
   formatEuro,
+  formatMoney,
   formatNumber,
   formatPercent,
   formatRelative,
@@ -19,10 +14,15 @@ import {
   type ClinicLeaderboardRow,
 } from "@/server/queries/admin";
 import { AdminPageHeader } from "../_components/AdminPageHeader";
+import {
+  AdminSearchInput,
+  AdminUrlSelect,
+} from "../_components/AdminFilters";
+import { AdminTable, type AdminColumn } from "../_components/AdminTable";
 
 export const metadata = { title: "Praxen" };
 
-const GLOW_CARD = "!bg-bg-secondary/60";
+const GLOW_CARD = "!bg-bg-secondary";
 
 const SORT_KEYS = [
   "name",
@@ -59,16 +59,35 @@ const TONE_LABEL: Record<ClinicLeaderboardRow["healthTone"], string> = {
   neutral: "Keine Daten",
 };
 
+const STATUS_OPTIONS = [
+  { value: "active", label: "Status: aktiv" },
+  { value: "archived", label: "Status: archiviert" },
+  { value: "alle", label: "Status: alle" },
+];
+const HEALTH_OPTIONS = [
+  { value: "alle", label: "Health: alle" },
+  { value: "good", label: "Gesund" },
+  { value: "warn", label: "Beobachten" },
+  { value: "bad", label: "Reagieren" },
+  { value: "neutral", label: "Keine Daten" },
+];
+const ACTIVITY_OPTIONS = [
+  { value: "alle", label: "Aktivität: alle" },
+  { value: "7", label: "Letzte 7 Tage" },
+  { value: "30", label: "Letzte 30 Tage" },
+  { value: "older", label: "Älter als 30 Tage" },
+];
+
 export default async function AdminClinicsPage({ searchParams }: PageProps) {
   await requireAdmin();
 
   const params = await searchParams;
   const all = await clinicLeaderboard({ periodDays: 30 });
 
-  // Apply filters
   const filtered = all.filter((c) => {
     if (params.status === "active" && c.archivedAt) return false;
     if (params.status === "archived" && !c.archivedAt) return false;
+    if (params.status == null && c.archivedAt) return false; // default = active
     if (params.health && params.health !== "alle") {
       if (c.healthTone !== params.health) return false;
     }
@@ -99,12 +118,116 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
     if (typeof v === "string") baseQuery[k] = v;
   }
 
-  // Aggregate cards
   const totalSpend = sorted.reduce((acc, r) => acc + r.spendEur, 0);
   const totalRevenue = sorted.reduce((acc, r) => acc + r.revenueEur, 0);
   const totalLeads = sorted.reduce((acc, r) => acc + r.leads, 0);
   const totalCases = sorted.reduce((acc, r) => acc + r.casesWon, 0);
   const avgRoas = totalSpend > 0 ? totalRevenue / totalSpend : null;
+
+  const activeChips = buildChips(params);
+
+  const columns: AdminColumn<ClinicLeaderboardRow>[] = [
+    {
+      key: "name",
+      header: <SortLink label="Name" sortKey="name" current={sortKey} dir={dir} baseQuery={baseQuery} />,
+      render: (c) => (
+        <>
+          <Link
+            href={`/admin/clinics/${c.clinicId}`}
+            className="font-medium text-fg-primary hover:text-accent"
+          >
+            {c.name}
+          </Link>
+          <div className="font-mono text-xs text-fg-secondary">{c.slug}</div>
+        </>
+      ),
+    },
+    {
+      key: "revenue",
+      align: "right",
+      header: <SortLink label="Umsatz" sortKey="revenue" current={sortKey} dir={dir} baseQuery={baseQuery} align />,
+      render: (c) => <span className="font-mono">{formatMoney(c.revenueEur, c.currency)}</span>,
+    },
+    {
+      key: "roas",
+      align: "right",
+      header: <SortLink label="ROAS" sortKey="roas" current={sortKey} dir={dir} baseQuery={baseQuery} align />,
+      render: (c) => (
+        <span className="font-mono">{c.roas == null ? "–" : `${c.roas.toFixed(2)}×`}</span>
+      ),
+    },
+    {
+      key: "leads",
+      align: "right",
+      header: <SortLink label="Leads" sortKey="leads" current={sortKey} dir={dir} baseQuery={baseQuery} align />,
+      render: (c) => <span className="font-mono">{formatNumber(c.leads)}</span>,
+    },
+    {
+      key: "cases",
+      align: "right",
+      header: <SortLink label="Cases" sortKey="cases" current={sortKey} dir={dir} baseQuery={baseQuery} align />,
+      render: (c) => <span className="font-mono">{formatNumber(c.casesWon)}</span>,
+    },
+    {
+      key: "health",
+      header: "Health",
+      render: (c) => (
+        <span className="inline-flex items-center gap-1.5 text-xs text-fg-secondary">
+          <span className={`inline-block h-2.5 w-2.5 rounded-full ${TONE_DOT[c.healthTone]}`} aria-hidden />
+          {TONE_LABEL[c.healthTone]}
+        </span>
+      ),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (c) =>
+        c.archivedAt ? <Badge tone="bad">Archiviert</Badge> : <Badge tone="good">Aktiv</Badge>,
+    },
+    {
+      key: "spend",
+      secondary: true,
+      detailLabel: "Spend",
+      header: "Spend",
+      render: (c) => formatEuro(c.spendEur),
+    },
+    {
+      key: "noShow",
+      secondary: true,
+      detailLabel: "No-Show",
+      header: "No-Show",
+      render: (c) => (c.noShowRate == null ? "–" : formatPercent(c.noShowRate)),
+    },
+    {
+      key: "lastActivity",
+      secondary: true,
+      detailLabel: "Aktivität",
+      header: "Aktivität",
+      render: (c) => (c.lastActivityAt ? formatRelative(c.lastActivityAt) : "–"),
+    },
+    {
+      key: "action",
+      align: "right",
+      header: "Aktion",
+      render: (c) =>
+        c.archivedAt ? (
+          <span className="text-xs text-fg-secondary">–</span>
+        ) : (
+          <form
+            action="/admin/start-impersonation"
+            method="POST"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex justify-end"
+          >
+            <input type="hidden" name="clinicId" value={c.clinicId} />
+            <Button type="submit" size="sm" variant="outline" title={`Portal als ${c.name} öffnen (als Inhaber)`}>
+              Öffnen
+            </Button>
+          </form>
+        ),
+    },
+  ];
 
   return (
     <div className="space-y-8">
@@ -114,14 +237,10 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricTile
-          label="Werbebudget"
-          value={formatEuro(totalSpend)}
-          sublabel="30 Tage"
-        />
+        <MetricTile label="Werbebudget" value={formatEuro(totalSpend)} sublabel="30 Tage" />
         <MetricTile
           label="Werbeumsatz"
-          value={formatEuro(totalRevenue)}
+          value={formatClinicAggregate(totalRevenue, sorted.map((r) => r.currency))}
           sublabel="30 Tage"
           tone="accent"
         />
@@ -130,223 +249,68 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
           value={avgRoas == null ? "–" : `${avgRoas.toFixed(2)}×`}
           sublabel={`${formatNumber(totalLeads)} Leads`}
         />
-        <MetricTile
-          label="Cases gewonnen"
-          value={formatNumber(totalCases)}
-          sublabel="30 Tage"
-        />
+        <MetricTile label="Cases gewonnen" value={formatNumber(totalCases)} sublabel="30 Tage" />
       </div>
 
       <Card className={GLOW_CARD}>
         <CardContent className="pt-6">
-          <form className="grid gap-3 md:grid-cols-[2fr_repeat(3,1fr)_auto]" method="get">
-            <Input
-              name="search"
-              placeholder="Suche: Praxisname oder Slug"
-              defaultValue={params.search ?? ""}
-            />
-            <select
-              name="status"
-              defaultValue={params.status ?? "active"}
-              className="rounded-md border border-border bg-bg-primary px-3 py-2 text-sm"
-            >
-              <option value="active">Status: aktiv</option>
-              <option value="archived">Status: archiviert</option>
-              <option value="alle">Status: alle</option>
-            </select>
-            <select
-              name="health"
-              defaultValue={params.health ?? "alle"}
-              className="rounded-md border border-border bg-bg-primary px-3 py-2 text-sm"
-            >
-              <option value="alle">Health: alle</option>
-              <option value="good">Gesund</option>
-              <option value="warn">Beobachten</option>
-              <option value="bad">Reagieren</option>
-              <option value="neutral">Keine Daten</option>
-            </select>
-            <select
-              name="activity"
-              defaultValue={params.activity ?? "alle"}
-              className="rounded-md border border-border bg-bg-primary px-3 py-2 text-sm"
-            >
-              <option value="alle">Aktivität: alle</option>
-              <option value="7">Letzte 7 Tage</option>
-              <option value="30">Letzte 30 Tage</option>
-              <option value="older">Älter als 30 Tage</option>
-            </select>
-            <Button type="submit" size="sm">
-              Filtern
-            </Button>
-          </form>
+          <div className="grid gap-3 md:grid-cols-[2fr_repeat(3,1fr)]">
+            <AdminSearchInput placeholder="Praxisname oder Slug" />
+            <AdminUrlSelect param="status" value={params.status ?? "active"} options={STATUS_OPTIONS} />
+            <AdminUrlSelect param="health" value={params.health ?? "alle"} options={HEALTH_OPTIONS} />
+            <AdminUrlSelect param="activity" value={params.activity ?? "alle"} options={ACTIVITY_OPTIONS} />
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-fg-secondary">
+            <span>Aktive Filter:</span>
+            {activeChips.length === 0 ? (
+              <Badge tone="neutral">Keine</Badge>
+            ) : (
+              activeChips.map((c) => (
+                <Badge key={c.key} tone={c.tone}>
+                  {c.label}
+                </Badge>
+              ))
+            )}
+          </div>
         </CardContent>
       </Card>
 
       <Card className={`${GLOW_CARD} !p-0 overflow-hidden`}>
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b border-border bg-bg-secondary/40 text-left text-xs text-fg-secondary">
-                <tr>
-                  <SortableTh
-                    label="Name"
-                    sortKey="name"
-                    current={sortKey}
-                    dir={dir}
-                    baseQuery={baseQuery}
-                  />
-                  <SortableTh
-                    label="Spend"
-                    sortKey="spend"
-                    current={sortKey}
-                    dir={dir}
-                    baseQuery={baseQuery}
-                    align="right"
-                  />
-                  <SortableTh
-                    label="Umsatz"
-                    sortKey="revenue"
-                    current={sortKey}
-                    dir={dir}
-                    baseQuery={baseQuery}
-                    align="right"
-                  />
-                  <SortableTh
-                    label="ROAS"
-                    sortKey="roas"
-                    current={sortKey}
-                    dir={dir}
-                    baseQuery={baseQuery}
-                    align="right"
-                  />
-                  <SortableTh
-                    label="Leads"
-                    sortKey="leads"
-                    current={sortKey}
-                    dir={dir}
-                    baseQuery={baseQuery}
-                    align="right"
-                  />
-                  <SortableTh
-                    label="Cases"
-                    sortKey="cases"
-                    current={sortKey}
-                    dir={dir}
-                    baseQuery={baseQuery}
-                    align="right"
-                  />
-                  <th className="px-3 py-2 text-right">No-Show</th>
-                  <SortableTh
-                    label="Aktivität"
-                    sortKey="lastActivity"
-                    current={sortKey}
-                    dir={dir}
-                    baseQuery={baseQuery}
-                    align="right"
-                  />
-                  <th className="px-3 py-2">Health</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2 text-right">Aktion</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((c) => (
-                  <tr
-                    key={c.clinicId}
-                    className="border-b border-border last:border-b-0 hover:bg-bg-secondary/30"
-                  >
-                    <td className="px-3 py-2">
-                      <Link
-                        href={`/admin/clinics/${c.clinicId}`}
-                        className="font-medium text-fg-primary hover:text-accent"
-                      >
-                        {c.name}
-                      </Link>
-                      <div className="font-mono text-xs text-fg-secondary">
-                        {c.slug}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums">
-                      {formatEuro(c.spendEur)}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums">
-                      {formatEuro(c.revenueEur)}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums">
-                      {c.roas == null ? "–" : `${c.roas.toFixed(2)}×`}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums">
-                      {formatNumber(c.leads)}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums">
-                      {formatNumber(c.casesWon)}
-                    </td>
-                    <td className="px-3 py-2 text-right font-mono tabular-nums">
-                      {c.noShowRate == null ? "–" : formatPercent(c.noShowRate)}
-                    </td>
-                    <td className="px-3 py-2 text-right text-xs text-fg-secondary">
-                      {c.lastActivityAt
-                        ? formatRelative(c.lastActivityAt)
-                        : "–"}
-                    </td>
-                    <td className="px-3 py-2">
-                      <span className="inline-flex items-center gap-1.5 text-xs text-fg-secondary">
-                        <span
-                          className={`inline-block h-2.5 w-2.5 rounded-full ${TONE_DOT[c.healthTone]}`}
-                          aria-hidden
-                        />
-                        {TONE_LABEL[c.healthTone]}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2">
-                      {c.archivedAt ? (
-                        <Badge tone="bad">Archiviert</Badge>
-                      ) : (
-                        <Badge tone="good">Aktiv</Badge>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right">
-                      {c.archivedAt ? (
-                        <span className="text-xs text-fg-secondary">—</span>
-                      ) : (
-                        <form
-                          action="/admin/start-impersonation"
-                          method="POST"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex justify-end"
-                        >
-                          <input type="hidden" name="clinicId" value={c.clinicId} />
-                          <Button
-                            type="submit"
-                            size="sm"
-                            variant="outline"
-                            title={`Portal als ${c.name} öffnen (als Inhaber)`}
-                          >
-                            Öffnen
-                          </Button>
-                        </form>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-                {sorted.length === 0 && (
-                  <tr>
-                    <td
-                      colSpan={11}
-                      className="px-4 py-10 text-center text-fg-secondary"
-                    >
-                      Keine Praxis passt zu den aktuellen Filtern.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <AdminTable
+            columns={columns}
+            rows={sorted}
+            getRowKey={(c) => c.clinicId}
+            empty="Keine Praxis passt zu den aktuellen Filtern."
+          />
         </CardContent>
       </Card>
     </div>
   );
+}
+
+function buildChips(params: {
+  status?: string;
+  health?: string;
+  activity?: string;
+  search?: string;
+}): { key: string; label: string; tone: "neutral" | "bad" | "warn" }[] {
+  const chips: { key: string; label: string; tone: "neutral" | "bad" | "warn" }[] = [];
+  if (params.status && params.status !== "active") {
+    chips.push({ key: "status", label: `Status: ${params.status}`, tone: "neutral" });
+  }
+  if (params.health && params.health !== "alle") {
+    const label = HEALTH_OPTIONS.find((o) => o.value === params.health)?.label ?? params.health;
+    chips.push({ key: "health", label, tone: params.health === "bad" ? "bad" : "neutral" });
+  }
+  if (params.activity && params.activity !== "alle") {
+    const label = ACTIVITY_OPTIONS.find((o) => o.value === params.activity)?.label ?? params.activity;
+    chips.push({ key: "activity", label, tone: "neutral" });
+  }
+  if (params.search) {
+    chips.push({ key: "search", label: `Suche: ${params.search}`, tone: "neutral" });
+  }
+  return chips;
 }
 
 function isSortKey(s: string | undefined): s is SortKey {
@@ -386,7 +350,7 @@ function activityDays(d: Date | null): number {
   return Math.floor((Date.now() - d.getTime()) / 86_400_000);
 }
 
-function SortableTh({
+function SortLink({
   label,
   sortKey,
   current,
@@ -399,24 +363,20 @@ function SortableTh({
   current: SortKey;
   dir: "asc" | "desc";
   baseQuery: Record<string, string>;
-  align?: "right";
+  align?: boolean;
 }) {
   const isActive = sortKey === current;
   const nextDir = isActive && dir === "desc" ? "asc" : "desc";
   const arrow = !isActive ? "" : dir === "desc" ? "↓" : "↑";
   return (
-    <th
-      className={`px-3 py-2 ${align === "right" ? "text-right" : "text-left"}`}
+    <Link
+      href={{
+        pathname: "/admin/clinics",
+        query: { ...baseQuery, sort: sortKey, dir: nextDir },
+      }}
+      className={`hover:text-accent ${isActive ? "text-accent" : ""} ${align ? "inline-block w-full text-right" : ""}`}
     >
-      <Link
-        href={{
-          pathname: "/admin/clinics",
-          query: { ...baseQuery, sort: sortKey, dir: nextDir },
-        }}
-        className={`hover:text-accent ${isActive ? "text-accent" : ""}`}
-      >
-        {label} {arrow}
-      </Link>
-    </th>
+      {label} {arrow}
+    </Link>
   );
 }

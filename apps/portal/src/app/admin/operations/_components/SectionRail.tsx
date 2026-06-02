@@ -52,7 +52,7 @@ export function SectionRail({ items }: { items: RailItem[] }) {
               className={`flex items-center justify-between rounded-md px-3 py-1.5 text-sm transition-colors ${
                 active === it.id
                   ? "bg-accent-soft text-accent"
-                  : "text-fg-primary hover:bg-bg-secondary/60"
+                  : "text-fg-primary hover:bg-bg-secondary"
               }`}
             >
               <span>{it.label}</span>

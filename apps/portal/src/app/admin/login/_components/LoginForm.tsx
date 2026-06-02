@@ -175,7 +175,7 @@ export function LoginForm() {
       <button
         type="button"
         onClick={() => setMode("magic")}
-        className="w-full rounded-md border border-border bg-bg-secondary/40 px-3 py-2 text-xs text-fg-primary transition hover:bg-bg-secondary"
+        className="w-full rounded-md border border-border bg-bg-secondary px-3 py-2 text-xs text-fg-primary transition hover:bg-bg-secondary"
       >
         Lieber per E-Mail-Link anmelden
       </button>

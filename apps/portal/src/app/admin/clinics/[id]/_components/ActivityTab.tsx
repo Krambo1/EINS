@@ -5,7 +5,7 @@ import {
 } from "@/lib/formatting";
 import type { ClinicActivity } from "@/server/queries/admin";
 
-const GLOW_CARD = "!bg-bg-secondary/60";
+const GLOW_CARD = "!bg-bg-secondary";
 
 export function ActivityTab({ data }: { data: ClinicActivity }) {
   return (

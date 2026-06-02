@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Card, CardContent, Badge } from "@eins/ui";
 import {
   formatDateTime,
-  formatEuro,
+  formatMoney,
   formatNumber,
   formatRelative,
 } from "@/lib/formatting";
@@ -14,7 +14,7 @@ import {
 import type { AdminLeadRow } from "@/server/queries/admin";
 import { withBrandLogos } from "@/app/_components/Brand";
 
-const GLOW_CARD = "!bg-bg-secondary/60";
+const GLOW_CARD = "!bg-bg-secondary";
 
 interface Props {
   rows: AdminLeadRow[];
@@ -50,7 +50,7 @@ export function LeadsTable({
       <CardContent className="p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <thead className="border-b border-border bg-bg-secondary/40 text-left text-xs text-fg-secondary">
+            <thead className="border-b border-border bg-bg-secondary text-left text-xs text-fg-secondary">
               <tr>
                 {!hideClinic && <th className="px-4 py-2">Praxis</th>}
                 <th className="px-4 py-2">Kontakt</th>
@@ -77,7 +77,7 @@ export function LeadsTable({
               {rows.map((r) => (
                 <tr
                   key={r.id}
-                  className="border-b border-border last:border-b-0 align-top hover:bg-bg-secondary/30"
+                  className="border-b border-border last:border-b-0 align-top hover:bg-bg-secondary"
                 >
                   {!hideClinic && (
                     <td className="px-4 py-2 text-sm">
@@ -150,7 +150,7 @@ export function LeadsTable({
                   <td className="px-4 py-2 text-right font-mono text-xs tabular-nums">
                     {r.convertedRevenueEur == null
                       ? "–"
-                      : formatEuro(r.convertedRevenueEur)}
+                      : formatMoney(r.convertedRevenueEur, r.currency)}
                   </td>
                 </tr>
               ))}

@@ -23,7 +23,7 @@ import {
   updateTimelineEntryAction,
 } from "../actions";
 
-const GLOW_CARD = "!bg-bg-secondary/60";
+const GLOW_CARD = "!bg-bg-secondary";
 
 function statusTone(
   status: TimelineStatus

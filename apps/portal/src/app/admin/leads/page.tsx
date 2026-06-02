@@ -1,11 +1,4 @@
-import {
-  Card,
-  CardContent,
-  Input,
-  Button,
-  Badge,
-  MetricTile,
-} from "@eins/ui";
+import { Card, CardContent, Badge, MetricTile } from "@eins/ui";
 import { requireAdmin } from "@/auth/admin-guards";
 import { db, schema } from "@/db/client";
 import { asc, isNull } from "drizzle-orm";
@@ -19,17 +12,22 @@ import {
   type RequestSource,
   type RequestStatus,
 } from "@/lib/constants";
-import { formatEuro, formatNumber } from "@/lib/formatting";
+import { formatClinicAggregate, formatNumber } from "@/lib/formatting";
 import {
   globalLeads,
   type AdminLeadFilters,
 } from "@/server/queries/admin";
 import { AdminPageHeader } from "../_components/AdminPageHeader";
 import { LeadsTable } from "../_components/LeadsTable";
+import {
+  AdminSearchInput,
+  AdminUrlMultiSelect,
+  AdminUrlToggle,
+} from "../_components/AdminFilters";
 
 export const metadata = { title: "Leads · Admin" };
 
-const GLOW_CARD = "!bg-bg-secondary/60";
+const GLOW_CARD = "!bg-bg-secondary";
 const PAGE_SIZE = 50;
 
 interface PageProps {
@@ -124,7 +122,10 @@ export default async function AdminLeadsPage({ searchParams }: PageProps) {
         />
         <MetricTile
           label="Umsatz"
-          value={formatEuro(result.aggregates.revenueEur)}
+          value={formatClinicAggregate(
+            result.aggregates.revenueEur,
+            result.aggregates.currencies
+          )}
           sublabel="zugeordnet"
           tone="accent"
         />
@@ -132,83 +133,50 @@ export default async function AdminLeadsPage({ searchParams }: PageProps) {
 
       <Card className={GLOW_CARD}>
         <CardContent className="pt-6">
-          <form
-            className="grid gap-3 md:grid-cols-[2fr_repeat(4,1fr)_auto]"
-            method="get"
-          >
-            <Input
-              name="search"
-              placeholder="Name, E-Mail, Telefon, Behandlungswunsch"
-              defaultValue={filters.search ?? ""}
+          <div className="grid gap-3 md:grid-cols-[2fr_repeat(4,1fr)_auto]">
+            <AdminSearchInput placeholder="Name, E-Mail, Telefon, Behandlungswunsch" />
+            <AdminUrlMultiSelect
+              param="clinicId"
+              selected={filters.clinicIds ?? []}
+              label="Praxis"
+              options={clinics.map((c) => ({ value: c.id, label: c.name }))}
             />
-            <select
-              name="clinicId"
-              multiple
-              defaultValue={filters.clinicIds ?? []}
-              className="rounded-md border border-border bg-bg-primary px-3 py-2 text-sm"
-              size={3}
-            >
-              {clinics.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-            <select
-              name="status"
-              multiple
-              defaultValue={filters.status ?? []}
-              className="rounded-md border border-border bg-bg-primary px-3 py-2 text-sm"
-              size={3}
-            >
-              {REQUEST_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {REQUEST_STATUS_LABELS[s]}
-                </option>
-              ))}
-            </select>
-            <select
-              name="source"
-              multiple
-              defaultValue={filters.source ?? []}
-              className="rounded-md border border-border bg-bg-primary px-3 py-2 text-sm"
-              size={3}
-            >
-              {REQUEST_SOURCES.map((s) => (
-                <option key={s} value={s}>
-                  {SOURCE_LABELS[s]}
-                </option>
-              ))}
-            </select>
-            <select
-              name="aiCategory"
-              multiple
-              defaultValue={filters.aiCategory ?? []}
-              className="rounded-md border border-border bg-bg-primary px-3 py-2 text-sm"
-              size={3}
-            >
-              {AI_CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {AI_CATEGORY_LABELS[c]}
-                </option>
-              ))}
-              <option value="unscored">Ungescort</option>
-            </select>
-            <div className="flex flex-col gap-2">
-              <label className="flex items-center gap-2 text-xs text-fg-secondary">
-                <input
-                  type="checkbox"
-                  name="slaBreachedOnly"
-                  value="1"
-                  defaultChecked={filters.slaBreachedOnly}
-                />
-                SLA verletzt
-              </label>
-              <Button type="submit" size="sm">
-                Filtern
-              </Button>
-            </div>
-          </form>
+            <AdminUrlMultiSelect
+              param="status"
+              selected={filters.status ?? []}
+              label="Status"
+              options={REQUEST_STATUSES.map((s) => ({
+                value: s,
+                label: REQUEST_STATUS_LABELS[s],
+              }))}
+            />
+            <AdminUrlMultiSelect
+              param="source"
+              selected={filters.source ?? []}
+              label="Quelle"
+              options={REQUEST_SOURCES.map((s) => ({
+                value: s,
+                label: SOURCE_LABELS[s],
+              }))}
+            />
+            <AdminUrlMultiSelect
+              param="aiCategory"
+              selected={filters.aiCategory ?? []}
+              label="KI-Bewertung"
+              options={[
+                ...AI_CATEGORIES.map((c) => ({
+                  value: c,
+                  label: AI_CATEGORY_LABELS[c],
+                })),
+                { value: "unscored", label: "Ungescort" },
+              ]}
+            />
+            <AdminUrlToggle
+              param="slaBreachedOnly"
+              checked={!!filters.slaBreachedOnly}
+              label="SLA verletzt"
+            />
+          </div>
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-fg-secondary">
             <span>Aktive Filter:</span>
             {!hasFilters(filters) && <Badge tone="neutral">Keine</Badge>}

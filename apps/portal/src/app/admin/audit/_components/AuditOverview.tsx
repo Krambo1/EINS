@@ -1,10 +1,9 @@
-import { Card, CardContent, MetricTile } from "@eins/ui";
+import { Card, CardContent, MetricTile, TrendChart } from "@eins/ui";
 import { formatNumber } from "@/lib/formatting";
 import type { AuditOverview } from "@/server/queries/admin";
-import { LineChart } from "../../_charts/LineChart";
 import { Heatmap } from "../../_charts/Heatmap";
 
-const GLOW_CARD = "!bg-bg-secondary/60";
+const GLOW_CARD = "!bg-bg-secondary";
 
 export function AuditOverviewPanel({ data }: { data: AuditOverview }) {
   return (
@@ -35,16 +34,19 @@ export function AuditOverviewPanel({ data }: { data: AuditOverview }) {
           <h2 className="font-display text-xl font-semibold">
             Volumen · 30 Tage
           </h2>
-          <div className="rounded-xl border border-border bg-bg-primary/40 p-3">
-            <LineChart
+          <div className="rounded-xl border border-border bg-bg-primary p-3">
+            <TrendChart
               data={data.volumeTrend.map((v) => ({
                 date: v.date,
-                events: v.count,
+                value: v.count,
               }))}
-              series={[
-                { key: "events", name: "Ereignisse", color: "var(--accent)" },
-              ]}
+              tone="accent"
               height={220}
+              showAxes
+              showGrid
+              valueFormat="number"
+              label="Ereignisse"
+              ariaLabel="Audit-Volumen, 30 Tage"
             />
           </div>
         </CardContent>

@@ -17,7 +17,7 @@ import { AuditOverviewPanel } from "./_components/AuditOverview";
 
 export const metadata = { title: "Audit-Log" };
 
-const GLOW_CARD = "!bg-bg-secondary/60";
+const GLOW_CARD = "!bg-bg-secondary";
 
 const TABS = [
   { key: "uebersicht", label: "Übersicht" },
@@ -152,7 +152,7 @@ async function AuditProtokoll({
       <Card className={`${GLOW_CARD} !p-0 overflow-hidden`}>
         <CardContent className="p-0">
           <table className="w-full text-sm">
-            <thead className="border-b border-border bg-bg-secondary/40 text-left text-xs text-fg-secondary">
+            <thead className="border-b border-border bg-bg-secondary text-left text-xs text-fg-secondary">
               <tr>
                 <th className="px-4 py-2">Zeit</th>
                 <th className="px-4 py-2">Praxis</th>
@@ -199,7 +199,7 @@ async function AuditProtokoll({
                   </td>
                   <td className="px-4 py-2 text-xs">
                     {r.diff ? (
-                      <pre className="max-w-md overflow-x-auto rounded bg-bg-secondary/60 p-2 font-mono text-[10px]">
+                      <pre className="max-w-md overflow-x-auto rounded bg-bg-secondary p-2 font-mono text-[10px]">
                         {JSON.stringify(r.diff, null, 0)}
                       </pre>
                     ) : (

@@ -14,7 +14,7 @@ import {
   unarchiveClinicAction,
 } from "../actions";
 
-const GLOW_CARD = "!bg-bg-secondary/60";
+const GLOW_CARD = "!bg-bg-secondary";
 
 export function VerwaltungTab({
   clinic,

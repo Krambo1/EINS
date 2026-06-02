@@ -4,7 +4,7 @@ import { formatRelative } from "@/lib/formatting";
 import type { schema } from "@/db/client";
 import { ImpersonateButton } from "./ImpersonateButton";
 
-const GLOW_CARD = "!bg-bg-secondary/60";
+const GLOW_CARD = "!bg-bg-secondary";
 
 type TeamMember = typeof schema.clinicUsers.$inferSelect;
 
@@ -45,7 +45,7 @@ export function TeamTab({ team }: { team: TeamMember[] }) {
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="border-t border-border bg-bg-secondary/40 text-left text-xs text-fg-secondary">
+                <thead className="border-t border-border bg-bg-secondary text-left text-xs text-fg-secondary">
                   <tr>
                     <th className="px-4 py-2">E-Mail</th>
                     <th className="px-4 py-2">Name</th>
@@ -112,7 +112,7 @@ function Stat({
   tone?: "neutral" | "good" | "warn" | "bad";
 }) {
   return (
-    <div className="rounded-xl border border-border bg-bg-secondary/60 p-4">
+    <div className="rounded-xl border border-border bg-bg-secondary p-4">
       <div className="font-mono text-[0.6875rem] uppercase tracking-[0.18em] text-fg-secondary">
         {label}
       </div>

@@ -196,7 +196,7 @@ export function EventDetailDialog({ eventId, onClose }: Props) {
               <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-fg-tertiary">
                 Payload (JSONB)
               </h3>
-              <pre className="max-h-72 overflow-auto rounded-md border border-border bg-bg-secondary/40 p-3 text-[11px] leading-snug">
+              <pre className="max-h-72 overflow-auto rounded-md border border-border bg-bg-secondary p-3 text-[11px] leading-snug">
                 {JSON.stringify(detail.payload, null, 2)}
               </pre>
             </section>

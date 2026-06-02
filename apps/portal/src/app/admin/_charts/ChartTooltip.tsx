@@ -1,29 +1,4 @@
-"use client";
-
 import * as React from "react";
-
-const fmtDateLong = new Intl.DateTimeFormat("de-DE", {
-  weekday: "short",
-  day: "2-digit",
-  month: "short",
-  year: "numeric",
-});
-
-function parseDateLoose(raw: string): Date | null {
-  if (!raw) return null;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
-    const [y, m, d] = raw.split("-").map(Number);
-    return new Date(Date.UTC(y, m - 1, d));
-  }
-  const t = Date.parse(raw);
-  return Number.isNaN(t) ? null : new Date(t);
-}
-
-function formatDateHeader(raw: unknown): string {
-  if (typeof raw !== "string") return String(raw ?? "");
-  const d = parseDateLoose(raw);
-  return d ? fmtDateLong.format(d) : raw;
-}
 
 export interface ChartTooltipRow {
   name: string;
@@ -32,9 +7,11 @@ export interface ChartTooltipRow {
 }
 
 /**
- * Tooltip card matching the clinic-side TrendChart visual: a date header,
- * then one row per series with a color swatch, name, and big formatted value.
- * Designed to be passed as `content` to recharts <Tooltip />.
+ * Tooltip card matching the shared TrendChart visual: a header, then one row
+ * per series with a color swatch, name, and big formatted value. Used by the
+ * pure-CSS admin charts that survived the Recharts → shared-SVG migration
+ * (`FunnelBar`, `Heatmap`); the line/area/donut charts now bake their own
+ * tooltip into `@eins/ui`.
  */
 export function ChartTooltipCard({
   header,
@@ -67,44 +44,4 @@ export function ChartTooltipCard({
       </div>
     </div>
   );
-}
-
-/**
- * Recharts custom Tooltip renderer. Pass via `<Tooltip content={...} />`.
- *
- * `formatValue` is per-series so callers can format euros, percentages,
- * or raw counts differently — matches the per-series formatting on the
- * clinic-side TrendChart.
- */
-export function makeRechartsTooltip(
-  formatValue: (value: number, name: string) => string,
-  options?: { headerFormatter?: (label: unknown) => React.ReactNode }
-) {
-  const headerFormatter = options?.headerFormatter ?? formatDateHeader;
-  function RechartsTooltip(props: {
-    active?: boolean;
-    label?: unknown;
-    payload?: ReadonlyArray<{
-      name?: string;
-      value?: number | string;
-      color?: string;
-      dataKey?: string;
-    }>;
-  }) {
-    if (!props.active || !props.payload || props.payload.length === 0)
-      return null;
-
-    const rows: ChartTooltipRow[] = props.payload.map((p) => {
-      const value = typeof p.value === "number" ? p.value : Number(p.value ?? 0);
-      const name = p.name ?? p.dataKey ?? "";
-      return {
-        name,
-        value: formatValue(value, name),
-        color: p.color ?? "var(--accent)",
-      };
-    });
-
-    return <ChartTooltipCard header={headerFormatter(props.label)} rows={rows} />;
-  }
-  return RechartsTooltip;
 }

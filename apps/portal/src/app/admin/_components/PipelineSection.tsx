@@ -1,13 +1,13 @@
-import { Card, CardContent } from "@eins/ui";
+import { Card, CardContent, CardHeader, CardTitle } from "@eins/ui";
 import { REQUEST_STATUS_LABELS } from "@/lib/constants";
-import type {
-  AiCategoryDistribution,
-  FunnelBucket,
-} from "@/server/queries/admin";
-import { Donut } from "../_charts/Donut";
-import { FunnelBar } from "../_charts/FunnelBar";
+import { formatNumber } from "@/lib/formatting";
+import { SegmentedShareBar } from "@/app/_components/SegmentedShareBar";
+import { SHARE_TONE_VAR, type ShareTone } from "@/lib/share-tone";
+import { TimeRangeToggle } from "@/app/_components/TimeRangeToggle";
+import { ADMIN_RANGE_KEYS, type DashboardRange } from "@/lib/dashboard-range";
+import type { FunnelBucket } from "@/server/queries/admin";
 
-const STATUS_TONE: Record<string, "neutral" | "good" | "warn" | "bad" | "accent"> = {
+const STATUS_TONE: Record<string, ShareTone> = {
   neu: "neutral",
   termin_vereinbart: "accent",
   beratung_erschienen: "warn",
@@ -16,56 +16,87 @@ const STATUS_TONE: Record<string, "neutral" | "good" | "warn" | "bad" | "accent"
   spam: "neutral",
 };
 
-const GLOW_CARD = "!bg-bg-secondary/60";
-
+/**
+ * Lead-Pipeline — the status distribution rendered through the shared segmented
+ * share bar (the same visual as the clinic's Quellen-Aufschlüsselung), directly
+ * on the card surface (no inner boxes). Owns its own time window via the
+ * rPipeline switcher. The KI-Bewertung lives in its own card alongside this one
+ * (see AiScoreSection).
+ */
 export function PipelineSection({
   funnel,
-  ai,
+  funnelRange,
 }: {
   funnel: FunnelBucket[];
-  ai: AiCategoryDistribution;
+  funnelRange: DashboardRange;
 }) {
-  const aiSlices = [
-    { name: "Sehr heiß", value: ai.hot, color: "var(--tone-bad)" },
-    { name: "Warm", value: ai.warm, color: "var(--tone-warn)" },
-    { name: "Kalt", value: ai.cold, color: "var(--tone-neutral)" },
-    { name: "Ungescort", value: ai.unscored, color: "var(--bg-tertiary)" },
-  ].filter((s) => s.value > 0);
-  const aiTotal = ai.hot + ai.warm + ai.cold + ai.unscored;
+  const totalLeads = funnel.reduce((s, b) => s + b.count, 0);
+  const segments = funnel
+    .filter((b) => b.count > 0)
+    .map((b) => ({
+      key: b.status,
+      label: REQUEST_STATUS_LABELS[b.status] ?? b.status,
+      value: b.count,
+      tone: STATUS_TONE[b.status] ?? "neutral",
+    }));
 
   return (
-    <Card className={GLOW_CARD}>
-      <CardContent className="space-y-6 pt-6">
-        <header>
-          <span className="font-mono text-[0.6875rem] uppercase tracking-[0.18em] text-fg-secondary">
-            Lead-Pipeline
-          </span>
-          <h2 className="mt-1 font-display text-2xl font-semibold">
-            Funnel · 30 Tage
-          </h2>
-        </header>
-        <div className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-          <div className="rounded-xl border border-border bg-bg-primary/40 p-4">
-            <FunnelBar
-              stages={funnel.map((b) => ({
-                label: REQUEST_STATUS_LABELS[b.status] ?? b.status,
-                count: b.count,
-                tone: STATUS_TONE[b.status] ?? "neutral",
-              }))}
-            />
-          </div>
-          <div className="rounded-xl border border-border bg-bg-primary/40 p-3">
-            <div className="mb-1 px-2 text-xs text-fg-secondary">
-              KI-Bewertung · 30 Tage
+    <Card
+      className="flex h-full flex-col print:break-inside-avoid"
+      style={{
+        backgroundColor: "var(--bg-card)",
+        boxShadow: "var(--shadow-card)",
+      }}
+    >
+      <CardHeader>
+        <CardTitle className="!text-xl !font-medium md:!text-2xl">
+          Lead-Pipeline
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-8">
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-baseline gap-2">
+              <span className="text-sm font-medium text-fg-secondary">
+                Status-Verteilung
+              </span>
+              <span className="font-display text-lg font-semibold tabular-nums text-fg-primary">
+                {formatNumber(totalLeads)}
+              </span>
             </div>
-            <Donut
-              slices={aiSlices}
-              centerLabel={aiTotal}
-              centerSubLabel="Anfragen"
-              height={200}
+            <TimeRangeToggle
+              value={funnelRange}
+              paramKey={ADMIN_RANGE_KEYS.pipeline}
+              ariaLabel="Zeitraum für Status-Verteilung"
             />
           </div>
-        </div>
+          <SegmentedShareBar
+            segments={segments}
+            ariaLabel={`Status-Verteilung: ${formatNumber(totalLeads)} Anfragen`}
+            valueFormat="number"
+          />
+          {segments.length > 0 ? (
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+              {segments.map((s) => (
+                <span key={s.key} className="inline-flex items-center gap-1.5">
+                  <span
+                    className="inline-block h-2.5 w-2.5 rounded-sm"
+                    style={{ background: SHARE_TONE_VAR[s.tone] }}
+                    aria-hidden
+                  />
+                  <span className="text-fg-primary">{s.label}</span>
+                  <span className="font-mono tabular-nums text-fg-secondary">
+                    {formatNumber(s.value)}
+                  </span>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-fg-secondary">
+              Keine Anfragen im Zeitraum.
+            </p>
+          )}
+        </section>
       </CardContent>
     </Card>
   );
