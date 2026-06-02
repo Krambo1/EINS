@@ -402,7 +402,7 @@ async function main() {
     }
 
     // --- review_email_schedule — Bewertungsanfrage-Email-Versand-Plan.
-    // Seed a handful of pending rows so /stimme analytics + the worker
+    // Seed a handful of pending rows so /bewertungen/feedback analytics + the worker
     // dry-run have something to chew on.
     const nearTermPatients = Object.values(patientIdByEmail).slice(0, 4);
     for (let i = 0; i < nearTermPatients.length; i++) {

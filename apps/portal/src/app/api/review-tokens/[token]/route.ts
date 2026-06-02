@@ -7,7 +7,7 @@ import {
 } from "@/server/review-tokens";
 
 /**
- * EINS Stimme — GET /api/review-tokens/[token]
+ * EINS Bewertungen — GET /api/review-tokens/[token]
  *
  * Resolves an opaque review token into the clinic context needed to render
  * the patient-facing rating landing on clinic-landing. Called server-to-

@@ -11,7 +11,7 @@ export default async function BewertungenLayout({
 
   const tabs = [
     { href: "/bewertungen", label: "Plattformen" },
-    ...(can(session.role, "stimme.view")
+    ...(can(session.role, "patient_feedback.view")
       ? [{ href: "/bewertungen/feedback", label: "Patientenfeedback" }]
       : []),
   ];

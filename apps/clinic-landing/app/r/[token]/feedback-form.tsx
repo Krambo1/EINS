@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 
 /**
- * EINS Stimme — private feedback client form.
+ * EINS Bewertungen — private feedback client form.
  *
  * Posts to /r/[token]/feedback (a clinic-landing API proxy that forwards
  * to the portal). On success, shows an inline thank-you instead of

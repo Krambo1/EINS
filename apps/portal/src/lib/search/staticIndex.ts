@@ -401,6 +401,6 @@ export const STATIC_INDEX: SearchEntry[] = [
     subtitle: "Dashboard · 30-Tage-Übersicht",
     href: "/bewertungen/feedback",
     keywords: ["patientenfeedback", "feedback", "bewertung", "klicks", "rate"],
-    permission: "stimme.view",
+    permission: "patient_feedback.view",
   },
 ];

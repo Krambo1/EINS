@@ -1,5 +1,5 @@
 /**
- * EINS Stimme — end-to-end test driver for the review-request pipeline.
+ * EINS Bewertungen — end-to-end test driver for the review-request pipeline.
  *
  * Modes:
  *   survey  : read-only dump of state needed to send a review email for

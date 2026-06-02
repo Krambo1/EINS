@@ -5,7 +5,7 @@ import {
 } from "@/lib/portal-review-tokens";
 
 /**
- * EINS Stimme — same-origin proxy from the client feedback form to the
+ * EINS Bewertungen — same-origin proxy from the client feedback form to the
  * portal's /api/review-tokens/[token]/feedback endpoint.
  *
  * We could let the browser hit the portal directly, but that demands a

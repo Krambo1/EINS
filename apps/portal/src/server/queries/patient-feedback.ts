@@ -4,15 +4,15 @@ import { db, schema, withClinicContext } from "@/db/client";
 import type { PatientFeedbackStatus } from "@/lib/constants";
 
 /**
- * Server-side queries backing the /stimme private-feedback inbox and the
- * dashboard "Stimme" tile. All queries scope by `clinicId` and pass through
+ * Server-side queries backing the /bewertungen/feedback inbox and the
+ * dashboard Patientenfeedback tile. All queries scope by `clinicId` and pass through
  * `withClinicContext` so RLS is enforced even on the app DB role.
  */
 
 export type PatientFeedbackSource = "private" | "public_redirect";
 export type PatientFeedbackPublicPlatform = "google" | "jameda";
 
-export interface StimmeListRow {
+export interface PatientFeedbackListRow {
   id: string;
   rating: number;
   freeText: string | null;
@@ -30,7 +30,7 @@ export async function listPatientFeedback(
   clinicId: string,
   userId: string,
   filter?: { status?: PatientFeedbackStatus }
-): Promise<StimmeListRow[]> {
+): Promise<PatientFeedbackListRow[]> {
   return await withClinicContext(
     clinicId,
     userId,
@@ -56,9 +56,9 @@ export async function listPatientFeedback(
         .where(where)
         .orderBy(desc(schema.patientFeedback.createdAt))
         .limit(200);
-      return rows as StimmeListRow[];
+      return rows as PatientFeedbackListRow[];
     },
-    "stimme:list"
+    "patient-feedback:list"
   );
 }
 
@@ -93,7 +93,7 @@ export async function markPatientFeedbackSeen(
               eq(schema.patientFeedback.status, "neu")
             )
           ),
-      "stimme:mark-seen"
+      "patient-feedback:mark-seen"
     );
   } catch {
     // Non-critical — silently drop.
@@ -125,11 +125,11 @@ export async function countNewPatientFeedback(
         );
       return Number(row?.c ?? 0);
     },
-    "stimme:count-new"
+    "patient-feedback:count-new"
   );
 }
 
-export interface StimmeDetail extends StimmeListRow {
+export interface PatientFeedbackDetail extends PatientFeedbackListRow {
   internalNote: string | null;
   resolvedBy: string | null;
   reviewRequestTreatmentLabel: string | null;
@@ -140,7 +140,7 @@ export async function getPatientFeedback(
   clinicId: string,
   userId: string,
   id: string
-): Promise<StimmeDetail | null> {
+): Promise<PatientFeedbackDetail | null> {
   return await withClinicContext(
     clinicId,
     userId,
@@ -175,19 +175,19 @@ export async function getPatientFeedback(
         .where(eq(schema.patientFeedback.id, id))
         .limit(1);
       if (!row) return null;
-      return row as StimmeDetail;
+      return row as PatientFeedbackDetail;
     },
-    "stimme:detail"
+    "patient-feedback:detail"
   );
 }
 
 /**
- * Stimme-tile metrics for the dashboard. Last `windowDays` of recall sends,
+ * Patientenfeedback-tile metrics for the dashboard. Last `windowDays` of recall sends,
  * click-through, public clicks, and OPEN private feedback count.
  *
  * Queries run on the superuser connection (no RLS) but always WHERE clinic.
  */
-export async function stimmeDashboardMetrics(
+export async function patientFeedbackDashboardMetrics(
   clinicId: string,
   windowDays = 30
 ): Promise<{

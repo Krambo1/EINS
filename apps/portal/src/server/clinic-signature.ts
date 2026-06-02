@@ -62,7 +62,7 @@ export function invalidateSignatureSecretCache(
  * `platform_credentials`:
  *
  *   • `platform='intake'` — shared by /api/leads/intake (clinic-landing)
- *                           and /api/patients/events (EINS Stimme).
+ *                           and /api/patients/events (EINS Bewertungen).
  *   • `platform='pvs'`    — used exclusively by /api/pvs/events,
  *                           /api/pvs/events/batch, and the GDT-Agent's
  *                           direct POST. Partitioned so a leak of the

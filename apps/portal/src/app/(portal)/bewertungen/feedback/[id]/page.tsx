@@ -26,7 +26,7 @@ import { formatDateTime } from "@/lib/formatting";
 import {
   getPatientFeedback,
   markPatientFeedbackSeen,
-} from "@/server/queries/stimme";
+} from "@/server/queries/patient-feedback";
 import { setFeedbackStatusAction } from "../actions";
 import { FeedbackReplyEditor } from "./_reply-editor";
 
@@ -51,7 +51,7 @@ export default async function PatientenfeedbackDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const session = await requirePermissionOrRedirect("stimme.view");
+  const session = await requirePermissionOrRedirect("patient_feedback.view");
   const { id } = await params;
 
   if (!UUID_RE.test(id)) notFound();
@@ -73,7 +73,7 @@ export default async function PatientenfeedbackDetailPage({
     feedback.status = "gesehen";
   }
 
-  const canManage = can(session.role, "stimme.manage");
+  const canManage = can(session.role, "patient_feedback.manage");
   const isPublicRedirect = feedback.source === "public_redirect";
   const platformLabel =
     isPublicRedirect && feedback.publicPlatform

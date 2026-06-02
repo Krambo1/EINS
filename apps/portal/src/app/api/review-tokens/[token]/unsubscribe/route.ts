@@ -8,7 +8,7 @@ import {
 } from "@/server/review-tokens";
 
 /**
- * EINS Stimme — POST /api/review-tokens/[token]/unsubscribe
+ * EINS Bewertungen — POST /api/review-tokens/[token]/unsubscribe
  *
  * Honors the one-click unsubscribe in every review-request email.
  *

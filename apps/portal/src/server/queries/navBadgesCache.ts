@@ -3,7 +3,7 @@ import { unstable_cache, revalidateTag } from "next/cache";
 import type { Role } from "@/lib/constants";
 import { can } from "@/lib/roles";
 import { countNewRequests } from "./requests";
-import { countNewPatientFeedback } from "./stimme";
+import { countNewPatientFeedback } from "./patient-feedback";
 import { hasRecentTimelineUpdate } from "./timeline";
 import { hasNewMedia } from "./assets";
 import { hasNewDocuments } from "./documents";
@@ -62,7 +62,7 @@ async function computeNavBadges(
     can(role, "requests.view")
       ? countNewRequests(clinicId, userId)
       : Promise.resolve(0),
-    can(role, "stimme.view")
+    can(role, "patient_feedback.view")
       ? countNewPatientFeedback(clinicId, userId)
       : Promise.resolve(0),
     hasRecentTimelineUpdate(clinicId, userId),

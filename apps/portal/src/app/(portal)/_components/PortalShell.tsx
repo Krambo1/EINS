@@ -87,7 +87,7 @@ const NAV_GROUPS: NavGroup[] = [
         permission: "reviews.view",
         subItems: [
           { href: "/bewertungen", label: "Plattformen" },
-          { href: "/bewertungen/feedback", label: "Patientenfeedback", permission: "stimme.view" },
+          { href: "/bewertungen/feedback", label: "Patientenfeedback", permission: "patient_feedback.view" },
         ],
       },
     ],

@@ -13,8 +13,8 @@ const IdSchema = z.string().uuid();
 
 export async function setFeedbackStatusAction(formData: FormData) {
   const session = await requireSession();
-  if (!can(session.role, "stimme.manage"))
-    throw new ForbiddenError("stimme.manage");
+  if (!can(session.role, "patient_feedback.manage"))
+    throw new ForbiddenError("patient_feedback.manage");
 
   const input = z
     .object({
@@ -65,8 +65,8 @@ export async function setFeedbackStatusAction(formData: FormData) {
 
 export async function setFeedbackNoteAction(formData: FormData) {
   const session = await requireSession();
-  if (!can(session.role, "stimme.manage"))
-    throw new ForbiddenError("stimme.manage");
+  if (!can(session.role, "patient_feedback.manage"))
+    throw new ForbiddenError("patient_feedback.manage");
 
   const input = z
     .object({

@@ -6,7 +6,7 @@ import {
 } from "@/lib/portal-review-tokens";
 
 /**
- * EINS Stimme — public-click redirector.
+ * EINS Bewertungen — public-click redirector.
  *
  * Records the platform click on the portal, then 302s the patient to the
  * configured Google / Jameda review URL. We do the round-trip server-side

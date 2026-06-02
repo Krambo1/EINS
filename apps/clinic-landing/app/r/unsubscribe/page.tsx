@@ -10,7 +10,7 @@ export const metadata = {
 };
 
 /**
- * EINS Stimme — one-click unsubscribe target.
+ * EINS Bewertungen — one-click unsubscribe target.
  *
  * Per §7 UWG / RFC 8058, clicking the unsubscribe link MUST take effect
  * without a further confirmation step. We process the request server-side

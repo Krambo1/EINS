@@ -7,7 +7,7 @@ import { env } from "@/lib/env";
 import { renderFeedbackAlertEmail } from "@/server/email/templates/feedback-alert";
 
 /**
- * EINS Stimme — server-side functions backing /api/review-tokens/[token]/*.
+ * EINS Bewertungen — server-side functions backing /api/review-tokens/[token]/*.
  *
  * The token (32-byte hex from `crypto.randomBytes(32)`) is the entire
  * credential — anyone holding it can resolve the clinic context, record a

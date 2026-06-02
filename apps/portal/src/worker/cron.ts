@@ -67,7 +67,7 @@ async function main() {
     { every: 15 * 60 * 1000 },
     "refresh-oauth-every-15m"
   );
-  // EINS Stimme — scans due review_request recalls and enqueues emails.
+  // EINS Bewertungen — scans due review_request recalls and enqueues emails.
   await scheduleRepeating(
     QUEUES.reviewRequestTick,
     "scan",

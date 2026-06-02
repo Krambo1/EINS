@@ -6,7 +6,7 @@ import { verifyClinicSignature } from "@/server/clinic-signature";
 import { applyPatientEvent } from "@/server/patient-events";
 
 /**
- * EINS Stimme — Make.com → portal patient-event endpoint.
+ * EINS Bewertungen — Make.com → portal patient-event endpoint.
  *
  * Make.com runs one scenario per Praxis. The scenario translates each PMS's
  * "appointment completed" / "patient consent" / "unsubscribe" webhook into
@@ -21,7 +21,7 @@ import { applyPatientEvent } from "@/server/patient-events";
  *   3. Honeypot field "hp_field" — if present, silently 202.
  *   4. Symmetric error response so probes can't enumerate clinics.
  *
- * Consent model (HWG-compliant, see apps/portal/docs/eins-stimme.md):
+ * Consent model (HWG-compliant, see apps/portal/docs/eins-bewertungen.md):
  *   - `reviewConsent: true` MUST come from the Make scenario after the
  *     Praxis attests in writing during onboarding that they inform every
  *     patient at intake about the post-visit review email. We trust the

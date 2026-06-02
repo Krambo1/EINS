@@ -42,9 +42,9 @@ export const PERMISSIONS = {
   // Bewertungen / Reputation
   "reviews.view": ["inhaber", "marketing", "frontdesk"],
   "reviews.manage": ["inhaber", "marketing", "frontdesk"],
-  // EINS Stimme — private patient feedback inbox
-  "stimme.view": ["inhaber", "marketing", "frontdesk"],
-  "stimme.manage": ["inhaber", "marketing"],
+  // EINS Bewertungen — private patient feedback inbox
+  "patient_feedback.view": ["inhaber", "marketing", "frontdesk"],
+  "patient_feedback.manage": ["inhaber", "marketing"],
   // Feedback — anyone in the clinic can send feedback to EINS
   "feedback.submit": ["inhaber", "marketing", "frontdesk"],
   "feedback.view": ["inhaber", "marketing", "frontdesk"],

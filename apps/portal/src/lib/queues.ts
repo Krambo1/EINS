@@ -14,7 +14,7 @@ export const QUEUES = {
   dbBackup: "db-backup",
   purgeAudit: "purge-audit",
   emailSend: "email-send",
-  /** EINS Stimme — 15-min scanner that emails due review_requests. */
+  /** EINS Bewertungen — 15-min scanner that emails due review_requests. */
   reviewRequestTick: "review-request-tick",
   /** Daily pull of rating + count from Google Places API. */
   syncReviewsGoogle: "sync-reviews-google",

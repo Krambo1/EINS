@@ -9,7 +9,7 @@ import {
 } from "@/server/review-tokens";
 
 /**
- * EINS Stimme — POST /api/review-tokens/[token]/feedback
+ * EINS Bewertungen — POST /api/review-tokens/[token]/feedback
  *
  * Persists a patient_feedback row, marks the recall completed, and fires
  * the alert email to the Praxisinhaber:in. Same token-as-auth + per-IP

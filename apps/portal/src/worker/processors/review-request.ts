@@ -4,7 +4,7 @@ import { renderReviewRequestEmail } from "@/server/email/templates/review-reques
 import { env } from "@/lib/env";
 
 /**
- * EINS Stimme — review-request scanner.
+ * EINS Bewertungen — review-request scanner.
  *
  * Runs every 15 min (BullMQ repeat). Selects all due review-request rows
  * from review_email_schedule that are still pending, looks up the patient +

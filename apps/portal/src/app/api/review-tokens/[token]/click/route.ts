@@ -10,7 +10,7 @@ import {
 } from "@/server/review-tokens";
 
 /**
- * EINS Stimme — POST /api/review-tokens/[token]/click
+ * EINS Bewertungen — POST /api/review-tokens/[token]/click
  *
  * Three flavours, selected by body `target`:
  *   • "land"    → patient hit /r/<token>?rating=N — record the rating tap.

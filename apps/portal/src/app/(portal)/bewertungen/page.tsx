@@ -26,7 +26,7 @@ import {
 import {
   countNewPatientFeedback,
   listPatientFeedback,
-} from "@/server/queries/stimme";
+} from "@/server/queries/patient-feedback";
 import { PlatformTile } from "./_components/PlatformTile";
 import { CopyButton } from "./_components/CopyButton";
 import {
@@ -51,7 +51,7 @@ export default async function BewertungenPage() {
   // in the navigation and find an empty platform-tile page. Pull the count
   // and a short preview here so the new feedback is visible from the
   // landing tab, with a one-click jump into the dedicated sub-tab.
-  const canViewStimme = can(session.role, "stimme.view");
+  const canViewPatientFeedback = can(session.role, "patient_feedback.view");
 
   const [clinicRows, { latest, trend, history }, newFeedbackCount, feedbackPreview] =
     await Promise.all([
@@ -66,10 +66,10 @@ export default async function BewertungenPage() {
         .where(eq(schema.clinics.id, session.clinicId))
         .limit(1),
       bewertungenPageData(session.clinicId, session.userId, 6),
-      canViewStimme
+      canViewPatientFeedback
         ? countNewPatientFeedback(session.clinicId, session.userId)
         : Promise.resolve(0),
-      canViewStimme
+      canViewPatientFeedback
         ? listPatientFeedback(session.clinicId, session.userId, { status: "neu" })
         : Promise.resolve([] as Awaited<ReturnType<typeof listPatientFeedback>>),
     ]);
@@ -100,7 +100,7 @@ export default async function BewertungenPage() {
         </p>
       </header>
 
-      {canViewStimme && newFeedbackCount > 0 && (
+      {canViewPatientFeedback && newFeedbackCount > 0 && (
         <Card className="border-tone-warn/40 bg-[var(--tone-warn-bg)]/40">
           <CardContent className="flex flex-col gap-4 pt-6 md:flex-row md:items-center md:justify-between">
             <div className="flex items-start gap-3">

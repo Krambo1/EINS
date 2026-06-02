@@ -238,7 +238,7 @@ export const TIMELINE_STATUS_LABELS: Record<TimelineStatus, string> = {
   abgeschlossen: "Abgeschlossen",
 };
 
-/** EINS Stimme — private patient_feedback triage states. */
+/** EINS Bewertungen — private patient_feedback triage states. */
 export const PATIENT_FEEDBACK_STATUSES = [
   "neu",
   "gesehen",

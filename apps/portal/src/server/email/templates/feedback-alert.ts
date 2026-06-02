@@ -1,8 +1,8 @@
 /**
- * EINS Stimme — alert mail to the Praxisinhaber:in when a patient submits
+ * EINS Bewertungen — alert mail to the Praxisinhaber:in when a patient submits
  * private feedback via the rating landing.
  *
- * Why this template: the patient_feedback inbox lives at /stimme in the
+ * Why this template: the patient_feedback inbox lives at /bewertungen/feedback in the
  * portal, but the Inhaber:in shouldn't have to babysit it. This mail
  * surfaces the rating + text inline so they can decide on the spot whether
  * to call back, and deep-links them to the inbox for triage.

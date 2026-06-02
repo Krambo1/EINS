@@ -1,4 +1,4 @@
-# EINS Stimme — internal compliance + architecture note
+# EINS Bewertungen — internal compliance + architecture note
 
 Last updated: 2026-05-16.
 
@@ -31,7 +31,7 @@ it's prohibited:
    respondents are misleading under §3 UWG.
 
 3. **Karam's own product spec** (Notion · LÖSUNG Praxis Entlastung Idea #6,
-   "EINS Stimme"): explicitly "nicht gefiltert, nicht incentiviert".
+   "EINS Bewertungen"): explicitly "nicht gefiltert, nicht incentiviert".
 
 The compliant pattern (this implementation): **every rating sees both
 options**. Visual prominence flips with rating, but neither branch is hidden
@@ -67,7 +67,7 @@ from the DOM. Patients self-select. That's what the BGH and Google want.
 | Outbound mail | `src/server/email/templates/review-request.ts`, `src/server/email/templates/feedback-alert.ts` |
 | Patient-facing | `apps/clinic-landing/app/r/[token]/page.tsx` (compliant funnel), `feedback-form.tsx`, `go/route.ts` (public click redirect), `feedback/route.ts` (form proxy), `apps/clinic-landing/app/r/unsubscribe/page.tsx` |
 | Token APIs | `src/app/api/review-tokens/[token]/{route,click,feedback,unsubscribe}.ts`, `src/server/review-tokens.ts` |
-| Portal UI | `src/app/(portal)/einstellungen/{page,actions}.ts` (Bewertungen & Reputation), `src/app/(portal)/stimme/*` (inbox) |
+| Portal UI | `src/app/(portal)/einstellungen/{page,actions}.ts` (Bewertungen & Reputation), `src/app/(portal)/bewertungen/feedback/*` (inbox) |
 
 ## Make.com scenario shape
 

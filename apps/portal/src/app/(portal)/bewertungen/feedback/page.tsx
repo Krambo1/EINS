@@ -15,7 +15,7 @@ import {
   type PatientFeedbackStatus,
 } from "@/lib/constants";
 import { formatDateTime } from "@/lib/formatting";
-import { listPatientFeedback } from "@/server/queries/stimme";
+import { listPatientFeedback } from "@/server/queries/patient-feedback";
 
 export const metadata = { title: "Patientenfeedback" };
 
@@ -36,7 +36,7 @@ export default async function PatientenfeedbackPage({
 }: {
   searchParams: Promise<{ status?: string }>;
 }) {
-  const session = await requirePermissionOrRedirect("stimme.view");
+  const session = await requirePermissionOrRedirect("patient_feedback.view");
   const { status: statusParam } = await searchParams;
 
   const status =

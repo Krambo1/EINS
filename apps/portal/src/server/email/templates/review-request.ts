@@ -1,5 +1,5 @@
 /**
- * EINS Stimme — patient-facing review-request email.
+ * EINS Bewertungen — patient-facing review-request email.
  *
  * Rebuilt 2026-05-28 from the actual Claude Design handoff bundle
  * (D:\Desktop\review-e-mail\project\Review E-Mail.html — Karam's
@@ -34,7 +34,7 @@
  * Compliance still holds: every star (1..5) links to the same
  * /r/<token>?rating=N URL, which renders BOTH the public review CTA AND
  * the private feedback form. The mail itself does NOT route 5-star
- * patients to Google directly. See apps/portal/docs/eins-stimme.md.
+ * patients to Google directly. See apps/portal/docs/eins-bewertungen.md.
  * The one-click "Hier abmelden" link in the footer satisfies §7 UWG
  * Abs. 3 Nr. 2 + RFC 8058 (one-click unsubscribe).
  *

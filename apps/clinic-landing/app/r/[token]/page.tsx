@@ -13,7 +13,7 @@ export const metadata = {
 };
 
 /**
- * EINS Stimme  patient-facing rating landing.
+ * EINS Bewertungen  patient-facing rating landing.
  *
  * Visual shell mirrors the review-request email (apps/portal/src/server/email/
  * templates/review-request.ts) so the patient feels continuity from inbox to
@@ -23,7 +23,7 @@ export const metadata = {
  * Compliance funnel preserved: every rating sees both the public Google /
  * Jameda CTA AND the private feedback form. Visual prominence flips with the
  * rating (high : public hero, private subtle link / low : private primary,
- * public secondary). Neither side is hidden. See apps/portal/docs/eins-stimme.md
+ * public secondary). Neither side is hidden. See apps/portal/docs/eins-bewertungen.md
  * for legal basis (BGH 2022 + Google GMB review policy + UWG §7).
  *
  * Token-as-auth: holding the URL implies the patient is allowed to act. The
@@ -393,7 +393,7 @@ function PublicHero({
  * deemphasized under the hero CTA. Required by the compliant funnel rule:
  * even for high ratings the patient must be able to pick "directly to the
  * Praxis" without going hunting (BGH 09.08.2022, Google GMB policy,
- * EINS Stimme spec).
+ * EINS Bewertungen spec).
  */
 function PrivateSubtle({
   token,
