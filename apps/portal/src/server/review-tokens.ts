@@ -84,8 +84,7 @@ export async function resolveReviewToken(
   if (!row.expiresAt || row.expiresAt < new Date()) {
     return null;
   }
-  // Strip expiresAt from the public shape — callers don't need it.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  // Strip expiresAt from the public shape: callers do not need it.
   const { expiresAt: _expiresAt, ...rest } = row;
   return rest;
 }

@@ -38,7 +38,6 @@ export const SelectTrigger = React.forwardRef<
         aria-expanded={false}
         className={cn(TRIGGER_CLASSES, className)}
         // Strip Radix-only props that don't belong on a plain button.
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         {...(stripRadixProps(props) as any)}
       >
         {children}
@@ -63,7 +62,6 @@ SelectTrigger.displayName = SelectPrimitive.Trigger.displayName;
 
 /** Drop props that DOM buttons can't accept (e.g. Radix `asChild`). */
 function stripRadixProps<T extends Record<string, unknown>>(props: T): T {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { asChild: _asChild, ...rest } = props as T & { asChild?: boolean };
   return rest as T;
 }
