@@ -103,15 +103,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     targetUserId: user.id,
   });
 
-  // Strip a leading `admin.` from the request host so dev (admin.localhost
-  // → localhost) and prod (admin.X → X) behave the same way without env
-  // wiring. Falls back to APP_ORIGIN if for some reason the host header is
-  // missing (shouldn't happen, but defensive).
-  const host = req.headers.get("host") ?? "";
-  const proto = req.headers.get("x-forwarded-proto") ?? req.nextUrl.protocol.replace(/:$/, "");
-  const clinicHost = host.replace(/^admin\./i, "");
-  const fallback = env.APP_ORIGIN.replace(/\/$/, "");
-  const origin = clinicHost ? `${proto}://${clinicHost}` : fallback;
+  // The clinic-facing portal lives at a fixed, configured origin (APP_ORIGIN).
+  // Do NOT derive it by stripping a leading `admin.` off the request host: the
+  // admin panel and the clinic app need not share a parent domain. In this
+  // deployment the admin host is admin.eins.ag but the clinic app is served at
+  // APP_ORIGIN (e.g. eins-portal.vercel.app / app.eins.ag), so stripping
+  // `admin.` would point at eins.ag (the marketing apex) and 404. APP_ORIGIN is
+  // the single source of truth and is correct in dev (localhost:3001) and prod.
+  const origin = env.APP_ORIGIN.replace(/\/$/, "");
 
   const url = `${origin}/api/auth/start-impersonation?token=${encodeURIComponent(token)}`;
 

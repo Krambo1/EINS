@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { getSession, destroySession } from "@/auth/session";
 import { db, schema } from "@/db/client";
 import { writeAudit } from "@/server/audit";
+import { adminOrigin } from "@/lib/env";
 
 /**
  * Ends an impersonation session.
@@ -21,26 +22,23 @@ import { writeAudit } from "@/server/audit";
  *  - 302 redirect when the request is form-submitted (Accept: text/html).
  */
 
-function adminOriginFor(req: NextRequest): string {
-  const host = req.headers.get("host") ?? "localhost:3001";
-  const proto = req.headers.get("x-forwarded-proto") ?? "http";
-  // Strip an existing `admin.` prefix to avoid stacking, then prepend.
-  const bare = host.replace(/^admin\./i, "");
-  return `${proto}://admin.${bare}`;
-}
-
 async function handle(req: NextRequest): Promise<NextResponse> {
   const session = await getSession();
-  const adminOrigin = adminOriginFor(req);
+  // Admin host is a fixed, configured origin (ADMIN_ORIGIN, falling back to
+  // `admin.` + APP_ORIGIN host). Do NOT derive it from the request host: the
+  // clinic app this runs on (APP_ORIGIN, e.g. eins-portal.vercel.app) is not a
+  // sibling of the admin host, so prepending `admin.` would yield an invalid
+  // host like admin.eins-portal.vercel.app.
+  const adminBase = adminOrigin();
   const wantsJson = (req.headers.get("accept") ?? "").includes("application/json");
 
   if (!session || session.impersonatedByAdminId === null) {
     // Idempotent no-op — never logs out a real user. Return the admin host
     // anyway so the banner JS has somewhere safe to land.
     if (wantsJson) {
-      return NextResponse.json({ ok: true, redirectTo: adminOrigin });
+      return NextResponse.json({ ok: true, redirectTo: adminBase });
     }
-    return NextResponse.redirect(new URL(adminOrigin));
+    return NextResponse.redirect(new URL(adminBase));
   }
 
   const [admin] = await db
@@ -66,7 +64,7 @@ async function handle(req: NextRequest): Promise<NextResponse> {
 
   await destroySession();
 
-  const redirectTo = `${adminOrigin}/clinics/${session.clinicId}`;
+  const redirectTo = `${adminBase}/clinics/${session.clinicId}`;
   if (wantsJson) {
     return NextResponse.json({ ok: true, redirectTo });
   }
