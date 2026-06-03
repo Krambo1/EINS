@@ -28,7 +28,6 @@ export async function processDbBackup(): Promise<void> {
   gzip.stderr.on("data", (buf) => console.error("[gzip]", buf.toString()));
 
   const [{ S3Client, PutObjectCommand }] = await Promise.all([
-    // @ts-expect-error optional peer, only installed when STORAGE_DRIVER=r2
     import(/* webpackIgnore: true */ "@aws-sdk/client-s3"),
   ]);
   const s3 = new S3Client({

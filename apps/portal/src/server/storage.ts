@@ -96,15 +96,14 @@ class R2Storage implements Storage {
   ): Promise<string> {
     const pub = this.publicUrlFor(key);
     if (pub) return pub;
-    // Lazy-import S3 SDK — not a hard dep for local-first setups. The
-    // webpackIgnore directive keeps webpack from trying to bundle the
-    // module (it'd fail the build when the optional dep isn't installed).
+    // Lazy-import the S3 SDK on-demand so local-first setups
+    // (STORAGE_DRIVER=local) never pull it into the hot path. webpackIgnore
+    // keeps webpack from bundling it; it's listed in serverExternalPackages
+    // (next.config.ts) so Next file-tracing still ships it to Vercel.
     const { S3Client, GetObjectCommand } = await import(
-      // @ts-expect-error optional peer
       /* webpackIgnore: true */ "@aws-sdk/client-s3"
     );
     const { getSignedUrl } = await import(
-      // @ts-expect-error optional peer
       /* webpackIgnore: true */ "@aws-sdk/s3-request-presigner"
     );
     const client = new S3Client({
@@ -130,7 +129,6 @@ class R2Storage implements Storage {
     options?: { contentType?: string }
   ): Promise<void> {
     const { S3Client, PutObjectCommand } = await import(
-      // @ts-expect-error optional peer
       /* webpackIgnore: true */ "@aws-sdk/client-s3"
     );
     const client = new S3Client({
@@ -153,7 +151,6 @@ class R2Storage implements Storage {
 
   async remove(key: string): Promise<void> {
     const { S3Client, DeleteObjectCommand } = await import(
-      // @ts-expect-error optional peer
       /* webpackIgnore: true */ "@aws-sdk/client-s3"
     );
     const client = new S3Client({
@@ -174,7 +171,6 @@ class R2Storage implements Storage {
 
   async read(key: string): Promise<Buffer> {
     const { S3Client, GetObjectCommand } = await import(
-      // @ts-expect-error optional peer
       /* webpackIgnore: true */ "@aws-sdk/client-s3"
     );
     const client = new S3Client({
