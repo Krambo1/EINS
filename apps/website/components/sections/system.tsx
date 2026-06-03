@@ -8,18 +8,18 @@ import { ShimmerText } from "@/components/ui/shimmer-text";
 import { AiIcon } from "@/components/ui/lottie-icon";
 import { OFFER_CARDS, type OfferCard } from "@/lib/system-data";
 
-// Per-card visual rendering. The camera card fills its area edge-to-edge
-// (object-cover); icon cards center their visual with breathing room.
+// Per-card visual rendering. Each card centers its visual (a transparent
+// cutout or an icon) with breathing room.
 function CardVisual({ id }: { id: OfferCard["id"] }) {
   if (id === "medienproduktion") {
     return (
       <Image
-        src="/top-view-hands-with-photo-camera.png"
+        src="/top-view-hands-with-photo-camera.webp"
         alt=""
-        width={1080}
-        height={737}
+        width={900}
+        height={608}
         sizes="(max-width: 768px) 144px, 320px"
-        className="absolute inset-0 h-full w-full object-cover"
+        className="h-full w-full object-contain"
         loading="lazy"
       />
     );
@@ -228,7 +228,6 @@ function CardVisual({ id }: { id: OfferCard["id"] }) {
 
 function ExpandableCard({ card, index }: { card: OfferCard; index: number }) {
   const [open, setOpen] = useState(false);
-  const isFullBleed = card.id === "medienproduktion";
 
   return (
     <Reveal delay={0.08 + index * 0.05}>
@@ -260,16 +259,8 @@ function ExpandableCard({ card, index }: { card: OfferCard; index: number }) {
               />
             </button>
           </div>
-          <div
-            className={`order-2 flex w-36 shrink-0 flex-col sm:w-44 md:order-3 md:w-72 lg:w-80 ${
-              isFullBleed ? "" : "pt-5 sm:pt-6 md:pt-0"
-            }`}
-          >
-            <div
-              className={`relative flex h-28 w-full items-center justify-center overflow-hidden sm:h-32 md:h-auto md:flex-1 ${
-                isFullBleed ? "" : "px-1.5 py-2 sm:px-3 sm:py-3 md:px-8 md:py-8"
-              }`}
-            >
+          <div className="order-2 flex w-36 shrink-0 flex-col pt-5 sm:w-44 sm:pt-6 md:order-3 md:w-72 md:pt-0 lg:w-80">
+            <div className="relative flex h-28 w-full items-center justify-center overflow-hidden px-1.5 py-2 sm:h-32 sm:px-3 sm:py-3 md:h-auto md:flex-1 md:px-8 md:py-8">
               <CardVisual id={card.id} />
             </div>
             <div className="flex justify-end px-2 pb-3 pt-5 sm:px-3 sm:pb-4 sm:pt-6 md:hidden">
