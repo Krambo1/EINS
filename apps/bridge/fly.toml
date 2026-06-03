@@ -1,0 +1,52 @@
+# ============================================================
+# Fly.io config — EINS PVS Bridge (cloud side).
+#
+# Fastify server (apps/bridge/src/index.ts):
+#   GET  /healthz                      → liveness check
+#   POST /webhooks/healthhub/:linkId   → HealthHub FHIR Subscription delivery
+#   POST /webhooks/red/:linkId         → RED webhook delivery
+# Plus the Postgres-polling scheduler tick loop (SCHEDULER_TICK_MS), which
+# must keep running even with no inbound HTTP traffic — hence the machine is
+# never auto-stopped.
+#
+# Built from the REPO ROOT so the pnpm workspace + lockfile are in the Docker
+# build context (apps/bridge/Dockerfile copies them).
+#
+#   fly deploy -c apps/bridge/fly.toml            # from D:\Desktop\EINSWebsite
+#
+# Required secrets (NOT stored here — set once via fly secrets):
+#   fly secrets set -a eins-bridge \
+#     BRIDGE_DATABASE_URL="postgres://eins_bridge:...@.../neondb" \
+#     APP_KEY="<same 64-hex value as the portal's ENCRYPTION_KEY>" \
+#     PORTAL_BASE_URL="https://eins-portal.vercel.app"
+# ============================================================
+
+app = "eins-bridge"
+primary_region = "fra"   # Frankfurt — EU data residency for Praxis data
+
+[build]
+  dockerfile = "apps/bridge/Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "7300"
+  BRIDGE_PUBLIC_URL = "https://eins-bridge.fly.dev"
+
+[http_service]
+  internal_port = 7300
+  force_https = true
+  # The scheduler must keep ticking, so the machine stays up regardless of HTTP idle.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/healthz"
+    interval = "15s"
+    timeout = "3s"
+    grace_period = "10s"
+
+[[vm]]
+  size   = "shared-cpu-1x"
+  memory = "512mb"
