@@ -14,10 +14,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "bullmq": "^5.28.0",
     "drizzle-orm": "^0.36.4",
     "fastify": "^5.0.0",
-    "ioredis": "^5.4.1",
     "postgres": "^3.4.5",
     "zod": "^3.23.8"
   },

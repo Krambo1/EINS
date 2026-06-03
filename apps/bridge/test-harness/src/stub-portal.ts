@@ -25,7 +25,7 @@ import {
  *   • No rate-limit / audit / patient-linking — those belong to portal tests
  *
  * The point is to prove the bridge's signing + canonical-encoding logic
- * end-to-end without standing up a Postgres + Redis + Next.js + worker stack.
+ * end-to-end without standing up a Postgres + Next.js + worker stack.
  *
  * Stats are exposed via GET /__stats so drivers can assert what landed.
  */

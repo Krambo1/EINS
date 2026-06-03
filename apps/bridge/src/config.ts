@@ -13,7 +13,6 @@ import { z } from "zod";
 const schema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   BRIDGE_DATABASE_URL: z.string().min(1),
-  REDIS_URL: z.string().default("redis://localhost:6379"),
   PORTAL_BASE_URL: z.string().url().default("http://localhost:3001"),
   BRIDGE_PUBLIC_URL: z.string().url().default("https://bridge.eins.ag"),
   APP_KEY: z

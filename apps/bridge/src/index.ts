@@ -7,7 +7,7 @@ import { startScheduler } from "./sync/scheduler.js";
  * Bridge entry point.
  *
  * Boots both the Fastify inbound server (HealthHub + RED webhooks) and
- * the BullMQ-less scheduler tick loop (Tomedo polling). One process, two
+ * the scheduler tick loop (Tomedo polling). One process, two
  * concurrent loops. Graceful shutdown on SIGTERM/SIGINT.
  */
 

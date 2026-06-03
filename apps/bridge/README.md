@@ -58,8 +58,8 @@ The five paths in production (May 2026):
 ## Layout
 
 - `src/index.ts` — entry point. Boots Fastify on port 7300 + the
-  BullMQ scheduler that polls due `pvs_link` rows every 30s.
-- `src/config.ts` — env vars (`BRIDGE_DATABASE_URL`, `REDIS_URL`,
+  scheduler that polls due `pvs_link` rows every 30s.
+- `src/config.ts` — env vars (`BRIDGE_DATABASE_URL`,
   `PORTAL_BASE_URL`, `BRIDGE_PUBLIC_URL`, `APP_KEY` for shared
   encrypted-secret decryption).
 - `src/portal-client.ts` — `postEvent(event)` and `postBatch(events)`

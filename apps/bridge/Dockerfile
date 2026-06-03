@@ -2,7 +2,7 @@
 
 # ============================================================
 # EINS PVS-Bridge service — Fastify inbound (/healthz, PVS webhooks)
-# + BullMQ scheduler. Long-lived Node process; deploys to Fly.io.
+# + Postgres-polling scheduler. Long-lived Node process; deploys to Fly.io.
 #
 # Unlike the portal worker (which runs TypeScript via tsx), the bridge
 # has a real build step (tsc + tsc-alias -> dist) and starts from the
