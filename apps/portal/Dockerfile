@@ -33,8 +33,15 @@ FROM base AS deps
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/portal/package.json apps/portal/
 COPY packages/ui/package.json packages/ui/
+# --ignore-scripts: with autoInstallPeers on, drizzle-orm's optional native peer
+# better-sqlite3 (really only used by the bridge agent) gets pulled into the
+# graph and tries to node-gyp-compile during install, which fails on Alpine (no
+# Python/toolchain). The portal worker never imports it, `pnpm deploy --prod`
+# drops it from the runtime image, and no portal prod dep needs a build step
+# (@node-rs/argon2 ships prebuilt binaries), so skipping install scripts here is
+# safe and avoids compiling a module we immediately discard.
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm install --frozen-lockfile
+    pnpm install --frozen-lockfile --ignore-scripts
 
 # ----- deploy: flatten portal + prod deps into /deploy --------
 FROM deps AS deploy
