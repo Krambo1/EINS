@@ -24,13 +24,13 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "test:e2e": "pnpm --filter portal test:e2e",
-    "db:up": "docker compose up -d postgres redis",
+    "db:up": "docker compose up -d postgres",
     "db:down": "docker compose down",
-    "db:logs": "docker compose logs -f postgres redis",
+    "db:logs": "docker compose logs -f postgres",
     "db:migrate": "pnpm --filter portal db:migrate",
     "db:seed": "pnpm --filter portal db:seed",
     "db:studio": "pnpm --filter portal db:studio",
-    "db:reset": "docker compose down -v && docker compose up -d postgres redis && sleep 3 && pnpm db:migrate && pnpm db:seed",
+    "db:reset": "docker compose down -v && docker compose up -d postgres && sleep 3 && pnpm db:migrate && pnpm db:seed",
     "clean": "pnpm -r exec rm -rf .next dist .turbo && rm -rf node_modules"
   },
   "devDependencies": {

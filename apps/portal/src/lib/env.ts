@@ -29,7 +29,14 @@ export const env = createEnv({
 
     DATABASE_URL: z.string().min(1),
     DATABASE_URL_APP: z.string().min(1).optional(),
-    REDIS_URL: z.string().min(1).default("redis://localhost:6379"),
+    /**
+     * Direct (unpooled, session-mode) Postgres URL for the pg-boss queue.
+     * pg-boss keeps long-lived workers and runs advisory-lock maintenance, so
+     * it must NOT go through a transaction-mode pooler (e.g. Neon's `-pooler`
+     * endpoint or PgBouncer). Falls back to DATABASE_URL when unset — fine for
+     * local dev where there is no pooler. See `bossConnectionString()`.
+     */
+    DATABASE_URL_DIRECT: z.string().min(1).optional(),
 
     SESSION_SECRET: z
       .string()
@@ -145,7 +152,7 @@ export const env = createEnv({
     CLINIC_LANDING_ORIGIN: process.env.CLINIC_LANDING_ORIGIN,
     DATABASE_URL: process.env.DATABASE_URL,
     DATABASE_URL_APP: process.env.DATABASE_URL_APP,
-    REDIS_URL: process.env.REDIS_URL,
+    DATABASE_URL_DIRECT: process.env.DATABASE_URL_DIRECT,
     SESSION_SECRET: process.env.SESSION_SECRET,
     ENCRYPTION_KEY: process.env.ENCRYPTION_KEY,
     RESEND_API_KEY: process.env.RESEND_API_KEY,
@@ -184,6 +191,16 @@ export const env = createEnv({
   emptyStringAsUndefined: true,
   skipValidation: process.env.SKIP_ENV_VALIDATION === "1",
 });
+
+/**
+ * Connection string for the pg-boss queue (both the producer singleton in
+ * `server/jobs.ts` and the worker boss in `worker/connection.ts`). Prefers the
+ * direct/session-mode endpoint when set so pg-boss's long-lived workers and
+ * advisory-lock maintenance don't run through a transaction-mode pooler.
+ */
+export function bossConnectionString(): string {
+  return env.DATABASE_URL_DIRECT ?? env.DATABASE_URL;
+}
 
 /**
  * Origin for admin-host URLs. Prefer `ADMIN_ORIGIN` if set; otherwise derive

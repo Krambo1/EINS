@@ -130,7 +130,7 @@ export async function processSyncMeta(job: SyncMetaJob): Promise<void> {
       .update(schema.platformCredentials)
       .set({ lastSyncError: message.slice(0, 500) })
       .where(eq(schema.platformCredentials.id, cred.id));
-    throw err; // let BullMQ retry
+    throw err; // let pg-boss retry
   }
 }
 

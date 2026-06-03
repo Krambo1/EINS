@@ -2,7 +2,10 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { CONTACT_EMAIL, CONTACT_PHONE } from "@/lib/constants";
 
-export const metadata = { title: "Impressum · EINS" };
+export const metadata = {
+  title: "Impressum · EINS",
+  alternates: { canonical: "/impressum" },
+};
 
 function Section({
   label,

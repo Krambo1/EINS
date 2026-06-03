@@ -1,7 +1,7 @@
 import "server-only";
 import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { withClinicContext, schema, db } from "@/db/client";
-import { cacheClinicQuery } from "./_cache";
+import { cacheClinicQuery, SHORT_REVALIDATE_S } from "./_cache";
 
 /**
  * Query helpers that produce the numbers shown on the Dashboard,
@@ -93,6 +93,21 @@ export const kpiSummary = cacheClinicQuery(
   { dateArgs: [0, 1] }
 );
 
+/**
+ * Short-TTL cached KPI summary for the dashboard's Trichter-Übersicht, which
+ * owns its own range toggle (rFunnel). Switching a *different* card re-renders
+ * the whole route; without caching, the funnel's current+prior queries would
+ * re-hit Postgres on every unrelated toggle. SHORT_REVALIDATE_S keeps that
+ * from happening while staying fresh within ~30s (and tag-busted by the
+ * kpi-rebuild worker), closer to the funnel's original "within seconds"
+ * intent than the 600s `kpiSummary` above.
+ */
+export const kpiSummaryFresh = cacheClinicQuery(
+  "kpiSummaryFresh",
+  kpiSummaryUncached,
+  { dateArgs: [0, 1], revalidate: SHORT_REVALIDATE_S }
+);
+
 /** Daily rows for charts. Sorted ascending. Uncached implementation. */
 async function kpiDailySeriesUncached(
   clinicId: string,
@@ -178,7 +193,7 @@ export async function campaignLiveSummary(
 }
 
 /** Goals for a period that overlaps `today`. Returns latest matching per metric. */
-export async function currentGoals(clinicId: string, userId: string) {
+async function currentGoalsUncached(clinicId: string, userId: string) {
   const today = new Date().toISOString().slice(0, 10);
   return withClinicContext(clinicId, userId, async (tx) => {
     return await tx
@@ -194,6 +209,20 @@ export async function currentGoals(clinicId: string, userId: string) {
       .orderBy(desc(schema.goals.createdAt));
   });
 }
+
+/**
+ * Cached for SHORT_REVALIDATE_S. Goals are range-independent, so the dashboard
+ * re-running this on every TimeRangeToggle is pure waste; they also change
+ * rarely (set monthly in Einstellungen), so ~30s staleness is invisible.
+ * Date columns on the returned rows are never read as Dates downstream (the
+ * ordering is done in SQL), so the unstable_cache Date→string round-trip is
+ * harmless here.
+ */
+export const currentGoals = cacheClinicQuery(
+  "currentGoals",
+  currentGoalsUncached,
+  { revalidate: SHORT_REVALIDATE_S }
+);
 
 /**
  * Convenience: "current month so far" summary for the dashboard.
@@ -355,6 +384,19 @@ export const kpiDailySeriesWithSparkline = cacheClinicQuery(
   { dateArgs: [0, 1] }
 );
 
+/**
+ * Short-TTL cached sparkline series for the dashboard's Umsatz top-metric card
+ * (revenue window + prior). Same rationale as kpiSummaryFresh: keeps an
+ * unrelated TimeRangeToggle from re-running the revenue sparkline for an
+ * unchanged window. The dashboard consumer reads only `.sparklines`
+ * (string dates + number arrays), so it caches cleanly.
+ */
+export const kpiDailySeriesWithSparklineFresh = cacheClinicQuery(
+  "kpiDailySeriesWithSparklineFresh",
+  kpiDailySeriesWithSparklineUncached,
+  { dateArgs: [0, 1], revalidate: SHORT_REVALIDATE_S }
+);
+
 /** No-show rate daily series — one row per day in range. Missing days = 0. */
 export async function noShowRateSeries(
   clinicId: string,
@@ -406,11 +448,10 @@ export interface NoShowWindow {
 
 /**
  * No-show summary for a dashboard window: an appointment-weighted headline
- * rate plus the daily series for a sparkline. Uncached — the dashboard's
- * freshness contract is "today's numbers within seconds" (same reason
- * `kpiSummaryUncached` is used for the funnel).
+ * rate plus the daily series for a sparkline. The returned series carries only
+ * string dates + numbers (no Date objects), so it caches cleanly.
  */
-export async function noShowWindow(
+async function noShowWindowUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -455,6 +496,18 @@ export async function noShowWindow(
     };
   });
 }
+
+/**
+ * Cached for SHORT_REVALIDATE_S. The No-Show-Quote card owns its own range
+ * toggle (rNoShow); caching per (clinic, window) means switching a *different*
+ * dashboard card no longer re-runs this query, while toggling the No-Show card
+ * itself is a legitimate cache miss (new window). Tag-busted by the kpi worker.
+ */
+export const noShowWindow = cacheClinicQuery(
+  "noShowWindow",
+  noShowWindowUncached,
+  { dateArgs: [0, 1], revalidate: SHORT_REVALIDATE_S }
+);
 
 /**
  * Superuser-scoped helper for worker jobs (SLA, monthly report) that run

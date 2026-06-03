@@ -4,7 +4,7 @@ import type { CurrencyCode } from "@/lib/formatting";
 import {
   currentGoals,
   kpiSummary,
-  kpiSummaryUncached,
+  kpiSummaryFresh,
 } from "@/server/queries/kpis";
 import {
   requestStatusCounts,
@@ -248,17 +248,19 @@ async function DashboardDetailLoader({
   treatmentsRange: DashboardRange;
   noShowRange: DashboardRange;
 }) {
-  // Funnel card now owns its own time window via the rFunnel param. The
-  // dashboard's freshness contract is "today's numbers within seconds", so
-  // we go through kpiSummaryUncached for both current and prior — the prior
-  // is needed for the cost-per-lead delta chip on the funnel footer.
+  // Funnel card owns its own time window via the rFunnel param, with the prior
+  // window driving the cost-per-lead delta chip on the funnel footer. Goes
+  // through kpiSummaryFresh (short-TTL cache) rather than the uncached path so
+  // switching a *different* dashboard card doesn't re-run the funnel's two
+  // queries for an unchanged window; freshness stays within ~30s and is
+  // tag-busted by the kpi worker.
   const win = dashboardRangeWindow(funnelRange);
   const lengthMs = win.to.getTime() - win.from.getTime();
   const priorTo = new Date(win.from.getTime() - 1);
   const priorFrom = new Date(priorTo.getTime() - lengthMs);
   const [summary, priorSummary] = await Promise.all([
-    kpiSummaryUncached(clinicId, userId, win.from, win.to),
-    kpiSummaryUncached(clinicId, userId, priorFrom, priorTo),
+    kpiSummaryFresh(clinicId, userId, win.from, win.to),
+    kpiSummaryFresh(clinicId, userId, priorFrom, priorTo),
   ]);
   return (
     <DashboardDetailBundle

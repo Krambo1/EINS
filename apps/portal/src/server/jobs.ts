@@ -1,20 +1,24 @@
 import "server-only";
-import { Queue, type JobsOptions } from "bullmq";
-import Redis from "ioredis";
-import { env } from "@/lib/env";
-import { QUEUES, type QueueName } from "@/lib/queues";
+import PgBoss from "pg-boss";
+import { bossConnectionString } from "@/lib/env";
+import { QUEUES, type QueueName, DEFAULT_RETRY } from "@/lib/queues";
 
 export { QUEUES, type QueueName };
 
 /**
- * BullMQ producer-side facade.
+ * pg-boss producer-side facade.
  *
  * Worker definitions live under `src/worker/*` (run via `pnpm worker`).
  * Anything that needs to ENQUEUE a job goes through this module so:
- *   - we share a single Redis connection across the app
+ *   - we share a single pg-boss connection across the app
  *   - queue names and default options stay consistent
- *   - a missing/broken Redis never rejects the user's action — we log and
+ *   - a missing/broken queue never rejects the user's action — we log and
  *     return a sentinel so the calling route/server-action can proceed
+ *
+ * Transport: jobs travel through Postgres (pg-boss), not Redis. The web
+ * process is send-only: `migrate`/`supervise`/`schedule` are all off, so it
+ * never creates schema, runs maintenance, or fires cron. The always-on worker
+ * owns all of that (and creates every queue at boot, before producers send).
  *
  * Failure mode: all `enqueue*` helpers swallow errors and return `null`
  * on failure. Callers decide whether that's acceptable (it usually is —
@@ -22,62 +26,67 @@ export { QUEUES, type QueueName };
  */
 
 // ---------------------------------------------------------------
-// Shared connection
+// Shared connection (lazy singleton)
 // ---------------------------------------------------------------
 declare global {
   // eslint-disable-next-line no-var
-  var __einsBullmqConn: Redis | undefined;
+  var __einsPgBoss: PgBoss | undefined;
+  // eslint-disable-next-line no-var
+  var __einsPgBossStart: Promise<PgBoss> | undefined;
 }
 
-function connection(): Redis {
-  if (!globalThis.__einsBullmqConn) {
-    // BullMQ requires maxRetriesPerRequest: null — otherwise long-polling
-    // blocking commands throw after 20 retries.
-    globalThis.__einsBullmqConn = new Redis(env.REDIS_URL, {
-      maxRetriesPerRequest: null,
-      enableReadyCheck: false,
-      lazyConnect: false,
+function getBoss(): PgBoss {
+  if (!globalThis.__einsPgBoss) {
+    const boss = new PgBoss({
+      connectionString: bossConnectionString(),
+      // Send-only: the always-on worker owns schema migration, maintenance,
+      // and cron. The web process must never run any of them.
+      migrate: false,
+      supervise: false,
+      schedule: false,
+      // The web process only inserts jobs — a small pool is plenty.
+      max: 4,
     });
-    globalThis.__einsBullmqConn.on("error", (err) => {
-      console.error("[bullmq] redis error:", err.message);
+    // pg-boss is an EventEmitter; an unhandled 'error' would crash the process.
+    boss.on("error", (err) =>
+      console.error("[jobs][pg-boss]", err instanceof Error ? err.message : err)
+    );
+    globalThis.__einsPgBoss = boss;
+  }
+  return globalThis.__einsPgBoss;
+}
+
+/**
+ * Lazily start the producer boss exactly once. On failure we clear the cached
+ * promise so the next enqueue retries — e.g. on a cold cutover where the
+ * worker hasn't yet created the `pgboss` schema. Importing this module never
+ * connects: the boss is constructed on the first enqueue, which keeps the
+ * facade side-effect-free for unit tests.
+ */
+function ready(): Promise<PgBoss> {
+  const boss = getBoss();
+  if (!globalThis.__einsPgBossStart) {
+    globalThis.__einsPgBossStart = boss.start().catch((err) => {
+      globalThis.__einsPgBossStart = undefined;
+      throw err;
     });
   }
-  return globalThis.__einsBullmqConn;
+  return globalThis.__einsPgBossStart;
 }
 
-// ---------------------------------------------------------------
-// Queue cache (producer side)
-// ---------------------------------------------------------------
-const queueCache = new Map<string, Queue>();
-
-function queue(name: QueueName): Queue {
-  let q = queueCache.get(name);
-  if (!q) {
-    q = new Queue(name, { connection: connection() });
-    queueCache.set(name, q);
-  }
-  return q;
-}
-
-// Sensible defaults: short backoff for scoring, longer for syncs.
-const DEFAULT_JOB_OPTS: JobsOptions = {
-  attempts: 3,
-  backoff: { type: "exponential", delay: 5_000 },
-  removeOnComplete: { age: 3600, count: 1000 },
-  removeOnFail: { age: 24 * 3600 },
-};
-
-async function safeAdd<T>(
+async function safeAdd(
   name: QueueName,
-  jobName: string,
-  data: T,
-  opts?: JobsOptions
+  data: object,
+  opts?: PgBoss.SendOptions
 ): Promise<string | null> {
   try {
-    const job = await queue(name).add(jobName, data, { ...DEFAULT_JOB_OPTS, ...opts });
-    return job.id ?? null;
+    const boss = getBoss();
+    await ready(); // ensure the boss has started (once) before sending
+    // `send` returns null when a `short`-policy job coalesces with one already
+    // queued for the same singletonKey — that's a successful no-op, not a fault.
+    return await boss.send(name, data, { ...DEFAULT_RETRY, ...opts });
   } catch (err) {
-    console.error(`[jobs] enqueue failed for ${name}/${jobName}:`, err);
+    console.error(`[jobs] enqueue failed for ${name}:`, err);
     return null;
   }
 }
@@ -91,7 +100,7 @@ async function safeAdd<T>(
  * Called from /api/leads/intake and the manual "rescore" action.
  */
 export function enqueueAiScore(requestId: string): Promise<string | null> {
-  return safeAdd(QUEUES.aiScore, "score", { requestId });
+  return safeAdd(QUEUES.aiScore, { requestId });
 }
 
 /** Sync campaign snapshots for one clinic+platform. */
@@ -100,7 +109,7 @@ export function enqueueCampaignSync(
   platform: "meta" | "google"
 ): Promise<string | null> {
   const q = platform === "meta" ? QUEUES.syncMeta : QUEUES.syncGoogle;
-  return safeAdd(q, "sync", { clinicId });
+  return safeAdd(q, { clinicId });
 }
 
 /** Recompute kpi_daily rows from raw sources for a date range. */
@@ -109,7 +118,7 @@ export function enqueueKpiRebuild(
   from: string,
   to: string
 ): Promise<string | null> {
-  return safeAdd(QUEUES.kpiRebuild, "rebuild", { clinicId, from, to });
+  return safeAdd(QUEUES.kpiRebuild, { clinicId, from, to });
 }
 
 /** Produce + email the monthly report PDF for one clinic. */
@@ -117,7 +126,7 @@ export function enqueueMonthlyReport(
   clinicId: string,
   periodYyyyMm: string
 ): Promise<string | null> {
-  return safeAdd(QUEUES.monthlyReport, "generate", { clinicId, period: periodYyyyMm });
+  return safeAdd(QUEUES.monthlyReport, { clinicId, period: periodYyyyMm });
 }
 
 /**
@@ -139,7 +148,7 @@ export function enqueueEmail(payload: {
   klass?: "transactional" | "marketing";
   unsubscribeUrl?: string | null;
 }): Promise<string | null> {
-  return safeAdd(QUEUES.emailSend, "send", payload);
+  return safeAdd(QUEUES.emailSend, payload);
 }
 
 // ---------------------------------------------------------------
@@ -150,16 +159,12 @@ export function enqueueEmail(payload: {
  * Replay event-log history for one (clinicId, portalPatientId) tuple and
  * update requests.status, revenue, and patient lifetime_revenue accordingly.
  *
- * BullMQ jobId is `${clinicId}__${patientId}` so concurrent enqueues for the
- * same patient coalesce to one in-flight worker (BullMQ dedupes by jobId).
- * If an event-log row was just inserted for a patient with N in-flight
- * derive jobs, only one runs — the others are dropped because the queue
- * already has a job with that id.
- *
- * Delimiter is `__`, not `:`: BullMQ rejects `:` in custom jobIds (it's
- * reserved as the Redis key namespace separator) and logs "Custom Id cannot
- * contain :" while still letting `add()` succeed with an auto-generated id —
- * which silently breaks the dedupe guarantee above.
+ * The queue uses pg-boss's `short` policy, so passing `singletonKey =
+ * ${clinicId}__${patientId}` coalesces concurrent enqueues for the same
+ * patient: while a derive job for that key is still queued, additional
+ * enqueues are dropped (`send` returns null). The actual idempotency guarantee
+ * comes from the processor's full-replay logic — the singletonKey just avoids
+ * redundant runs.
  */
 export function enqueuePvsStatusDerive(
   clinicId: string,
@@ -167,9 +172,8 @@ export function enqueuePvsStatusDerive(
 ): Promise<string | null> {
   return safeAdd(
     QUEUES.pvsStatusDerive,
-    "derive",
     { clinicId, portalPatientId },
-    { jobId: `${clinicId}__${portalPatientId}` }
+    { singletonKey: `${clinicId}__${portalPatientId}` }
   );
 }
 
@@ -181,7 +185,7 @@ export function enqueuePvsStatusDerive(
 export function enqueuePvsCsvIngest(
   uploadId: string
 ): Promise<string | null> {
-  return safeAdd(QUEUES.pvsCsvIngest, "ingest", { uploadId });
+  return safeAdd(QUEUES.pvsCsvIngest, { uploadId });
 }
 
 /**
@@ -194,7 +198,7 @@ export function enqueuePvsLinkBackfill(
   clinicId: string,
   pvsPatientId: string
 ): Promise<string | null> {
-  return safeAdd(QUEUES.pvsLinkBackfill, "backfill", {
+  return safeAdd(QUEUES.pvsLinkBackfill, {
     clinicId,
     pvsPatientId,
   });
@@ -211,7 +215,7 @@ export function enqueuePvsLinkBackfill(
 export function enqueuePvsLeadTokenWrite(
   requestId: string
 ): Promise<string | null> {
-  return safeAdd(QUEUES.pvsLeadTokenWrite, "write", { requestId });
+  return safeAdd(QUEUES.pvsLeadTokenWrite, { requestId });
 }
 
 // ---------------------------------------------------------------
@@ -219,31 +223,31 @@ export function enqueuePvsLeadTokenWrite(
 // ---------------------------------------------------------------
 
 /**
- * Fire a Meta CAPI Purchase event for one outbox row. JobId is the outbox
- * row id so a manual retry from the admin UI re-enqueues exactly the same
- * job slot (BullMQ then drops duplicates if the previous attempt is still
- * in-flight).
+ * Fire a Meta CAPI Purchase event for one outbox row. The queue uses the
+ * `short` policy and `singletonKey = capi-purchase__${outboxId}` so a manual
+ * retry from the admin UI coalesces with an enqueue already pending for the
+ * same outbox row. The real duplicate-suppression guard is the outbox
+ * `UNIQUE(clinic_id, channel, pvs_event_log_id)` plus the processor's
+ * status check — the singletonKey only trims redundant pending enqueues.
  */
 export function enqueueCapiPurchase(outboxId: string): Promise<string | null> {
   return safeAdd(
     QUEUES.capiPurchase,
-    "purchase",
     { outboxId },
-    { jobId: `capi-purchase__${outboxId}` }
+    { singletonKey: `capi-purchase__${outboxId}` }
   );
 }
 
 /**
- * Upload a Google Ads offline conversion for one outbox row. JobId =
- * outbox row id, same dedup story as the Meta side. Delimiter is `__`
- * not `:` because BullMQ reserves `:` in custom jobIds.
+ * Upload a Google Ads offline conversion for one outbox row. Same dedup story
+ * as the Meta side: `short` policy + `singletonKey = oci-purchase__${outboxId}`,
+ * with the outbox UNIQUE constraint as the real guard.
  */
 export function enqueueOciPurchase(outboxId: string): Promise<string | null> {
   return safeAdd(
     QUEUES.ociPurchase,
-    "purchase",
     { outboxId },
-    { jobId: `oci-purchase__${outboxId}` }
+    { singletonKey: `oci-purchase__${outboxId}` }
   );
 }
 
@@ -255,5 +259,5 @@ export function enqueueOciPurchase(outboxId: string): Promise<string | null> {
 export function enqueueAnomalyScan(
   clinicId?: string
 ): Promise<string | null> {
-  return safeAdd(QUEUES.anomalyScan, "scan", clinicId ? { clinicId } : {});
+  return safeAdd(QUEUES.anomalyScan, clinicId ? { clinicId } : {});
 }

@@ -25,7 +25,6 @@ export const OFFER_CARDS: OfferCard[] = [
       "20 hochwertige Fotos für Website, Anzeigen und soziale Medien: Praxis, Team, Behandlungsräume, Technologie. Professionelle Premium-Nachbearbeitung, sofort einsetzbar.",
       "Eigene Bibliothek an 2D-Animationen, maßgeschneidert auf Ihre Praxis: Faltenunterspritzung, Lippenunterspritzung, Botox, Hyaluron-Filler, Kryolipolyse, HIFU, Laser-Behandlungen, Körperformung.",
       "Reduziert Patientenangst vor dem ersten Kontakt durch visuelle Aufklärung der Behandlungsschritte. Besonders wirksam für erklärungsbedürftige Eingriffe.",
-      "Eine neue Premium-Medienproduktion pro Monat, laufend frisches Material für Anzeigen und soziale Medien.",
     ],
   },
   {

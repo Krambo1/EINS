@@ -30,7 +30,7 @@ export interface EmailSendJob {
 }
 
 /**
- * Async email send. Same shape as `enqueueEmail`. Failures bubble so BullMQ
+ * Async email send. Same shape as `enqueueEmail`. Failures bubble so pg-boss
  * retries (exponential backoff).
  *
  * Order of operations:

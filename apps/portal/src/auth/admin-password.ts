@@ -1,8 +1,7 @@
 import "server-only";
-import Redis from "ioredis";
-import { eq } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import { db, schema } from "../db/client";
-import { env, adminOrigin } from "../lib/env";
+import { adminOrigin } from "../lib/env";
 import { generateToken, sha256Hex } from "../lib/crypto";
 import { MAGIC_LINK_TTL_SECONDS } from "../lib/constants";
 import { sendMagicLinkEmail } from "../server/email";
@@ -16,15 +15,16 @@ import {
  * Admin Password-Reset / Set-Password Flow.
  *
  * Anders als bei clinic_users existiert für admin_users keine magic_links-
- * Tabelle (admin_users hat keinen clinic_id FK). Wir nutzen Redis als Token-
- * Store mit eigenem Prefix, analog zu admin-magic-link.ts.
+ * Tabelle (admin_users hat keinen clinic_id FK). Wir nutzen die `admin_tokens`-
+ * Tabelle als Token-Store mit `purpose = 'password_reset'`, analog zu
+ * admin-magic-link.ts (purpose = 'login').
  *
  * Workflow (post-Härtung):
- *   1. issueAdminPasswordResetLink(email) → Redis-Key `adm:pwd:<hash>` mit
- *      Wert email, TTL 15 min. Mail wird verschickt. URL zeigt auf
+ *   1. issueAdminPasswordResetLink(email) → admin_tokens-Row (purpose
+ *      'password_reset'), TTL 15 min. Mail wird verschickt. URL zeigt auf
  *      /admin/login/callback?token=… (NICHT mehr direkt auf set-password).
  *   2. User klickt Link → /admin/login/callback ruft consumeAdminPasswordSetupToken
- *      auf (GETDEL, atomar). Bei Erfolg: issuePasswordSetupCookie("admin", …)
+ *      auf (DELETE … RETURNING, atomar). Bei Erfolg: issuePasswordSetupCookie("admin", …)
  *      und Redirect auf /admin/set-password — clean URL, kein Token mehr.
  *   3. User submitted Passwort → setAdminPasswordAction liest die Cookie,
  *      ruft writeAdminPasswordHash auf, widerruft alle bestehenden Sessions
@@ -35,35 +35,15 @@ import {
  * leakte er via History, Server-Access-Logs und Referer-Header.
  */
 
-declare global {
-  // eslint-disable-next-line no-var
-  var __einsAdminPwdRedis: Redis | undefined;
-}
-
-function redis(): Redis {
-  if (!globalThis.__einsAdminPwdRedis) {
-    globalThis.__einsAdminPwdRedis = new Redis(env.REDIS_URL, {
-      maxRetriesPerRequest: 2,
-      lazyConnect: false,
-    });
-    globalThis.__einsAdminPwdRedis.on("error", (err) => {
-      console.error("[admin-pwd][redis]", err.message);
-    });
-  }
-  return globalThis.__einsAdminPwdRedis;
-}
-
-export const ADMIN_PASSWORD_TOKEN_PREFIX = "adm:pwd:";
+const TOKEN_PURPOSE = "password_reset";
 
 /**
  * Issue a one-time password-set/reset link. Silent no-op for non-allowlisted
  * emails, so the enumeration surface stays neutral.
  *
- * Der Link führt auf /admin/login/callback — die Route entscheidet anhand
- * der Redis-Key-Prefix (adm:mlk: vs adm:pwd:) ob Login- oder Set-Password-
- * Flow greift. Vorher zeigte der Link direkt auf /admin/set-password?token=…
- * was den Token während der Form-Lifetime im URL liegen ließ (History/
- * Logs/Referer-Leak).
+ * Der Link führt auf /admin/login/callback — die Route probiert erst den
+ * Password-Setup-Pfad (purpose 'password_reset'), dann Login (purpose 'login').
+ * Ein Token matcht durch das purpose-Filter nur genau einen der beiden Deletes.
  */
 export async function issueAdminPasswordResetLink(email: string): Promise<void> {
   const requestedAt = new Date();
@@ -72,12 +52,15 @@ export async function issueAdminPasswordResetLink(email: string): Promise<void> 
 
   const token = generateToken(32);
   const hash = sha256Hex(token);
-  await redis().set(
-    ADMIN_PASSWORD_TOKEN_PREFIX + hash,
-    lower,
-    "EX",
-    MAGIC_LINK_TTL_SECONDS
-  );
+  const expiresAt = new Date(Date.now() + MAGIC_LINK_TTL_SECONDS * 1000);
+
+  await db
+    .insert(schema.adminTokens)
+    .values({ tokenHash: hash, email: lower, purpose: TOKEN_PURPOSE, expiresAt })
+    .onConflictDoUpdate({
+      target: schema.adminTokens.tokenHash,
+      set: { email: lower, purpose: TOKEN_PURPOSE, expiresAt },
+    });
 
   const url = `${adminOrigin()}/admin/login/callback?token=${token}`;
   await sendMagicLinkEmail({
@@ -89,30 +72,37 @@ export async function issueAdminPasswordResetLink(email: string): Promise<void> 
 }
 
 /**
- * Atomically consume an admin password-setup token (GETDEL). Used by the
- * callback to verify a fresh Magic-Link and immediately exchange it for a
- * short-lived setup cookie. Returns the resolved admin id+email, or null on
- * miss.
+ * Atomically consume an admin password-setup token (DELETE … RETURNING on a
+ * non-expired row). Used by the callback to verify a fresh Magic-Link and
+ * immediately exchange it for a short-lived setup cookie. Returns the resolved
+ * admin id+email, or null on miss/expiry.
  *
- * The previous design held the token in the URL until the form submit
- * (`peekAdminPasswordToken` → `consumeAdminPasswordToken`). That leaked the
- * token via browser history, server logs, and Referer headers. We now burn
- * the token at the callback and hand off via a signed httpOnly cookie.
+ * The previous design held the token in the URL until the form submit. That
+ * leaked the token via browser history, server logs, and Referer headers. We
+ * now burn the token at the callback and hand off via a signed httpOnly cookie.
  */
 export async function consumeAdminPasswordSetupToken(
   token: string
 ): Promise<{ id: string; email: string } | null> {
   const hash = sha256Hex(token);
-  const email = (await redis().getdel(
-    ADMIN_PASSWORD_TOKEN_PREFIX + hash
-  )) as string | null;
-  if (!email) return null;
-  if (!isAdminEmail(email)) return null;
+  const [row] = await db
+    .delete(schema.adminTokens)
+    .where(
+      and(
+        eq(schema.adminTokens.tokenHash, hash),
+        eq(schema.adminTokens.purpose, TOKEN_PURPOSE),
+        gt(schema.adminTokens.expiresAt, sql`now()`)
+      )
+    )
+    .returning({ email: schema.adminTokens.email });
+
+  if (!row) return null;
+  if (!isAdminEmail(row.email)) return null;
 
   // ensureAdminUser ist idempotent — auf der ersten Reset-Anforderung legt es
   // die Row an, ab dann gibt es immer dieselbe id.
-  const { id } = await ensureAdminUser(email);
-  return { id, email };
+  const { id } = await ensureAdminUser(row.email);
+  return { id, email: row.email };
 }
 
 /**

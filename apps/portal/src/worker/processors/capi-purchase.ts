@@ -22,7 +22,7 @@ import {
  * Triggered by `enqueueInvoiceConversions` (see ads-conversion-outbox.ts)
  * which inserts one outbox row per (request, InvoicePaid, channel) and
  * enqueues this worker by row id. The worker is idempotent at two levels:
- *   • outbox `status=sent` → return early (BullMQ replay protection).
+ *   • outbox `status=sent` → return early (pg-boss replay protection).
  *   • Meta `event_id = purchase-<requestId>-<pvsEventLogId>` → Meta dedupes
  *     within 7 days even if the outbox row gets reset to pending and we
  *     retry from scratch.
@@ -40,7 +40,7 @@ export interface CapiPurchaseJob {
   outboxId: string;
 }
 
-/** Max attempts before we hard-fail the outbox row. Aligns with the BullMQ default. */
+/** Max attempts before we hard-fail the outbox row. Aligns with the pg-boss retry limit. */
 const MAX_ATTEMPTS = 3;
 
 export async function processCapiPurchase(job: CapiPurchaseJob): Promise<void> {
@@ -151,9 +151,9 @@ export async function processCapiPurchase(job: CapiPurchaseJob): Promise<void> {
   const finalAttempt = nextAttempt >= MAX_ATTEMPTS;
   await markFailed(row.id, result.status, result.body, nextAttempt, finalAttempt);
   if (!finalAttempt) {
-    // Throw so BullMQ retries with the standard exponential backoff
-    // defined in jobs.ts. Final attempt: don't throw — the outbox row is
-    // already `failed`, no point in BullMQ marking the job failed too.
+    // Throw so pg-boss retries with the standard exponential backoff
+    // defined by the queue policy. Final attempt: don't throw — the outbox row
+    // is already `failed`, no point in pg-boss marking the job failed too.
     throw new Error(`capi http ${result.status}`);
   }
 }

@@ -12,7 +12,7 @@ import { db, schema } from "@/db/client";
  *
  * If the clinic hasn't entered a profile URL yet, this is a no-op. If Jameda
  * changes their markup and we can't find the JSON-LD, the job throws and
- * BullMQ retries — surfacing the breakage instead of writing bad data.
+ * pg-boss retries, surfacing the breakage instead of writing bad data.
  */
 
 export interface SyncReviewsJamedaJob {

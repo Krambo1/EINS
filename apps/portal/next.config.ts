@@ -14,6 +14,16 @@ const config: NextConfig = {
     // - lucide-react: 16 import sites in portal pages, ~hundreds of icons total.
     // - date-fns: defensive — server-only utility imports.
     optimizePackageImports: ["lucide-react", "date-fns"],
+    // Client-side Router Cache reuse window for dynamic routes. Next 15
+    // defaults `dynamic` to 0, so every dashboard TimeRangeToggle does a full
+    // server round-trip even when flipping back to a window viewed seconds
+    // ago. 30s makes those revisits instant (served from the client cache,
+    // no fetch). Pairs with SHORT_REVALIDATE_S server-side so first visits to
+    // a new window are cheap too. Mutations still bust the cache via
+    // revalidatePath/revalidateTag, so post-action freshness is unaffected.
+    staleTimes: {
+      dynamic: 30,
+    },
   },
   // Security headers — HSTS is added at edge (Cloudflare), these harden everything else.
   async headers() {

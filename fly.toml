@@ -1,0 +1,23 @@
+# ============================================================
+# Fly.io config — EINS Portal background worker.
+#
+# Runs the pg-boss (Postgres) queue worker + scheduler (apps/portal/src/worker/index.ts).
+# Deployed from the REPO ROOT so the pnpm workspace + lockfile are in
+# the Docker build context (apps/portal/Dockerfile copies them).
+#
+#   fly deploy            # from D:\Desktop\EINSWebsite
+#
+# NOTE: there is deliberately NO [http_service] / [[services]] block.
+# The worker listens on no port. If Fly health-checked a port, it would
+# mark the machine unhealthy and restart-loop it forever.
+# ============================================================
+
+app = "eins-worker"
+primary_region = "fra"   # Frankfurt — EU data residency for Praxis data
+
+[build]
+  dockerfile = "apps/portal/Dockerfile"
+
+[[vm]]
+  size   = "shared-cpu-1x"
+  memory = "512mb"

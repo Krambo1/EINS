@@ -18,7 +18,7 @@ import { eraseClinicDataAction } from "./actions";
 export const metadata = { title: "DSGVO" };
 
 interface PageProps {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 /**
@@ -28,11 +28,12 @@ interface PageProps {
  */
 export default async function ClinicDsgvoPage({ params }: PageProps) {
   await requireAdmin();
+  const { id } = await params;
 
   const [clinic] = await db
     .select()
     .from(schema.clinics)
-    .where(eq(schema.clinics.id, params.id))
+    .where(eq(schema.clinics.id, id))
     .limit(1);
   if (!clinic) notFound();
 

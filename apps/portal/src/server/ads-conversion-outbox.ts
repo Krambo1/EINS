@@ -81,7 +81,7 @@ export async function enqueueInvoiceConversions(
     if (row) {
       inserted.push(channel);
       // Enqueue is best-effort; jobs.ts swallows enqueue errors so a
-      // missing Redis can't roll back the outbox insert. The
+      // broken queue can't roll back the outbox insert. The
       // pvs-reconcile worker re-enqueues stuck pending rows nightly.
       if (channel === "meta") await enqueueCapiPurchase(row.id);
       else await enqueueOciPurchase(row.id);

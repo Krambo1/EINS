@@ -1,38 +1,26 @@
 import "server-only";
-import Redis from "ioredis";
-import { env } from "../lib/env";
+import { sql } from "drizzle-orm";
+import { db } from "../db/client";
 
 /**
- * Sliding-window rate limiter backed by Redis atomic INCR/EXPIRE.
+ * Fixed-window rate limiter backed by Postgres (table `rate_limits`).
  *
  * Used on:
  *   - /login magic-link request         — 5/hour per email, 20/hour per IP
  *   - /api/leads/intake                 — 60/min per clinic (per-form endpoint)
  *   - admin magic-link request          — 5/hour per email
+ *   - several PVS + review-token endpoints (per-IP + per-clinic)
  *
- * Failure mode: if Redis is down, we fail OPEN (log + allow). That's acceptable
- * because the secondary layer (magic-link is single-use) still makes brute-
- * force impractical.
+ * One atomic upsert per call increments the bucket, resetting it once the
+ * window has elapsed (equivalent to the previous Redis INCR + EXPIRE). Uses the
+ * superuser `db` connection (not the RLS app role) — these rows are not
+ * clinic-scoped.
+ *
+ * Failure mode: if Postgres is unreachable, we fail OPEN (log + allow). That's
+ * acceptable because the secondary layer (magic-links are single-use) still
+ * makes brute-force impractical. Expired rows are pruned by the weekly
+ * `purge-audit` job.
  */
-
-declare global {
-  // eslint-disable-next-line no-var
-  var __einsRedis: Redis | undefined;
-}
-
-function redis(): Redis {
-  if (!globalThis.__einsRedis) {
-    globalThis.__einsRedis = new Redis(env.REDIS_URL, {
-      lazyConnect: false,
-      maxRetriesPerRequest: 2,
-      enableReadyCheck: false,
-    });
-    globalThis.__einsRedis.on("error", (err) => {
-      console.error("[redis] connection error:", err.message);
-    });
-  }
-  return globalThis.__einsRedis;
-}
 
 export interface RateLimitResult {
   ok: boolean;
@@ -42,7 +30,7 @@ export interface RateLimitResult {
 
 /**
  * Consume one unit from a bucket. Bucket is keyed `<scope>:<identifier>` and
- * is reset after `windowSeconds`.
+ * resets after `windowSeconds`.
  */
 export async function rateLimit(
   scope: string,
@@ -50,27 +38,42 @@ export async function rateLimit(
   opts: { limit: number; windowSeconds: number }
 ): Promise<RateLimitResult> {
   const key = `rl:${scope}:${identifier}`;
+  const { limit, windowSeconds } = opts;
   try {
-    const r = redis();
-    const [count, ttl] = await r
-      .multi()
-      .incr(key)
-      .ttl(key)
-      .exec()
-      .then((res) => {
-        if (!res) throw new Error("redis multi returned null");
-        return [res[0]?.[1] as number, res[1]?.[1] as number];
-      });
+    // Single round-trip: insert-or-increment, resetting count + window_start
+    // when the existing window has already elapsed. RETURNING gives us the
+    // post-increment count and the seconds left in the current window.
+    const window = sql`(${windowSeconds}::int * interval '1 second')`;
+    const result = await db.execute(sql`
+      INSERT INTO rate_limits (key, count, window_start)
+      VALUES (${key}, 1, now())
+      ON CONFLICT (key) DO UPDATE SET
+        count = CASE
+          WHEN rate_limits.window_start <= now() - ${window}
+          THEN 1 ELSE rate_limits.count + 1 END,
+        window_start = CASE
+          WHEN rate_limits.window_start <= now() - ${window}
+          THEN now() ELSE rate_limits.window_start END
+      RETURNING
+        count,
+        GREATEST(0, CEIL(EXTRACT(EPOCH FROM (rate_limits.window_start + ${window} - now()))))::int AS reset_in
+    `);
 
-    if (ttl < 0) {
-      await r.expire(key, opts.windowSeconds);
-    }
-    const remaining = Math.max(0, opts.limit - count);
-    const ok = count <= opts.limit;
-    const resetInSeconds = ttl < 0 ? opts.windowSeconds : ttl;
-    return { ok, remaining, resetInSeconds };
+    const row = (result as unknown as Array<{ count: number; reset_in: number }>)[0];
+    if (!row) throw new Error("rate_limits upsert returned no row");
+
+    const count = Number(row.count);
+    const resetInSeconds = Number(row.reset_in);
+    return {
+      ok: count <= limit,
+      remaining: Math.max(0, limit - count),
+      resetInSeconds: resetInSeconds > 0 ? resetInSeconds : windowSeconds,
+    };
   } catch (err) {
-    console.error("[rate-limit] redis error — failing open:", (err as Error).message);
-    return { ok: true, remaining: opts.limit, resetInSeconds: opts.windowSeconds };
+    console.error(
+      "[rate-limit] postgres error — failing open:",
+      (err as Error).message
+    );
+    return { ok: true, remaining: limit, resetInSeconds: windowSeconds };
   }
 }

@@ -109,11 +109,10 @@ vi.mock("@/db/client", () => ({
   },
 }));
 
-// @/lib/env is pulled in transitively (jobs.ts reads env.REDIS_URL at module
-// load). Stub it so the import graph resolves without real env vars.
+// @/lib/env is pulled in transitively by the import graph. Stub it so imports
+// resolve without real env vars.
 vi.mock("@/lib/env", () => ({
   env: {
-    REDIS_URL: "redis://localhost:6379",
     APP_KEY: "00".repeat(32),
   },
 }));

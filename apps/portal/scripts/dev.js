@@ -4,7 +4,7 @@
  * Next's "Local:" line in the startup banner. The Admin host is what we
  * actually log into for /admin, so making it clickable saves a copy-paste.
  *
- * Also spawns the BullMQ worker alongside Next so a single `pnpm dev`
+ * Also spawns the queue worker alongside Next so a single `pnpm dev`
  * (root or portal) boots the full local stack. Worker output is prefixed
  * with `[worker]` so it's distinguishable in the interleaved stream.
  * Set DISABLE_WORKER=1 to skip it (e.g. when running the worker yourself

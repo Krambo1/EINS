@@ -19,7 +19,7 @@ import { hashEmail, hashPhone } from "@/server/meta-capi";
  *
  * Triggered by `enqueueInvoiceConversions` (see ads-conversion-outbox.ts).
  * Idempotency at two levels:
- *   • outbox `status=sent` → return early (BullMQ replay protection).
+ *   • outbox `status=sent` → return early (pg-boss replay protection).
  *   • Google `order_id = pvs_event_log_id` → Google dedupes within 24h
  *     even on retry-from-scratch, AND if a user revisits the outbox
  *     dashboard and clicks "retry" weeks later, the conversion is still

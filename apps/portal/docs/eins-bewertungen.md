@@ -63,7 +63,7 @@ from the DOM. Patients self-select. That's what the BGH and Google want.
 |---|---|
 | Schema | `src/db/schema.ts` (clinic columns, requestRecalls extensions, patient_feedback, email_suppression), `src/db/migrations/0013_eins_stimme.sql`, `src/db/migrations/0015_feedback_public_redirect.sql` (adds `patient_feedback.source` + `public_platform`) |
 | Inbound (PMS → portal) | `src/app/api/patients/events/route.ts`, `src/server/patient-events.ts`, `src/server/clinic-signature.ts` (HMAC shared with /api/leads/intake) |
-| Scheduler | `src/lib/queues.ts` (`reviewRequestTick`), `src/worker/cron.ts` (15-min schedule), `src/worker/processors/review-request.ts` |
+| Scheduler | `src/lib/queues.ts` (`reviewRequestTick`), `src/worker/schedules.ts` (15-min pg-boss schedule), `src/worker/processors/review-request.ts` |
 | Outbound mail | `src/server/email/templates/review-request.ts`, `src/server/email/templates/feedback-alert.ts` |
 | Patient-facing | `apps/clinic-landing/app/r/[token]/page.tsx` (compliant funnel), `feedback-form.tsx`, `go/route.ts` (public click redirect), `feedback/route.ts` (form proxy), `apps/clinic-landing/app/r/unsubscribe/page.tsx` |
 | Token APIs | `src/app/api/review-tokens/[token]/{route,click,feedback,unsubscribe}.ts`, `src/server/review-tokens.ts` |

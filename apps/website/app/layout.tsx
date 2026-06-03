@@ -35,13 +35,13 @@ export const metadata: Metadata = {
     siteName: "EINS",
     locale: "de_DE",
     type: "website",
-    images: [{ url: "/eins-logo.png", width: 1200, height: 630, alt: "EINS" }],
+    // og:image is supplied by app/opengraph-image.tsx (dynamic 1200x630 card).
   },
   twitter: {
     card: "summary_large_image",
     title: "EINS | Wachstumssystem für Ästhetik-Praxen",
     description: "Mehr Selbstzahler für Ihre Ästhetik-Praxis. Video, bezahlte Anzeigen, KI-Anfrage-System.",
-    images: ["/eins-logo.png"],
+    // twitter:image falls back to the og:image from app/opengraph-image.tsx.
   },
   robots: {
     index: true,

@@ -30,35 +30,60 @@ export function Offer() {
             </Reveal>
 
             {/* EINS Portal showcase. Sits inside the Wachstumssystem block so the
-                portal reads as a pillar of the offer, not a separate upsell. Tabs
+                portal reads as a pillar of the offer, not a separate upsell. The
+                whole block is now framed in one card (grey surface so the white
+                screenshot mockup pops) with a soft mint wash + lit top edge.
+                Opacity modifiers on the var-tokens (bg-accent/NN) don't render on
+                this site, so the mint accents use literal rgba inline styles. Tabs
                 swap between live screenshots so clinics see what they get rather
                 than reading another bullet list. */}
             <Reveal delay={0.1}>
-              <div className="relative mx-auto mt-28 max-w-5xl md:mt-44">
-                <div className="relative mx-auto max-w-3xl text-center">
-                  <div className="flex flex-wrap items-center justify-center gap-3">
-                    <span className="eyebrow">Enthalten</span>
-                    <span className="inline-flex items-center gap-1.5 font-mono text-xs text-fg-secondary">
-                      <Lock className="h-3 w-3" aria-hidden />
-                      Privater Praxis-Zugang
-                    </span>
-                  </div>
-                  <p className="mt-5 font-mono text-lg font-medium text-fg-primary md:text-2xl">
-                    Ihre EINS Praxis-Software
-                  </p>
-                  <h4 className="mt-2 font-display text-3xl font-semibold tracking-tight md:text-6xl">
-                    Anfragen in Echtzeit. <span className="text-accent">Umsatz täglich.</span>
-                  </h4>
-                  <p className="mt-5 text-lg leading-relaxed text-fg-primary md:text-xl">
-                    Anfragen, Werbebudget und Umsatz auf einen Blick. In 30 Sekunden
-                    sehen Sie, wo Ihre Praxis steht: zwischen zwei Eingriffen oder von
-                    unterwegs. Klarheit jeden Morgen, nicht erst in der monatlichen
-                    Auswertung.
-                  </p>
-                </div>
+              <div className="card-glow relative mx-auto mt-28 max-w-5xl overflow-hidden rounded-[2rem] border border-border bg-transparent md:mt-44">
+                {/* Lit mint top edge, echoing the portal showcase's glow. */}
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-x-0 top-0 h-px"
+                  style={{
+                    background:
+                      "linear-gradient(90deg, transparent, #58BAB5, transparent)",
+                  }}
+                />
+                {/* Soft mint wash bleeding down from the top. */}
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-x-0 top-0 h-48"
+                  style={{
+                    background:
+                      "linear-gradient(to bottom, rgba(88,186,181,0.10), transparent)",
+                  }}
+                />
 
-                <div className="relative mt-10 md:mt-14">
-                  <PortalTabShowcase />
+                <div className="relative px-5 py-12 sm:px-8 md:px-14 md:py-16">
+                  <div className="relative mx-auto max-w-3xl text-center">
+                    <div className="flex flex-wrap items-center justify-center gap-3">
+                      <span className="eyebrow">Enthalten</span>
+                      <span className="inline-flex items-center gap-1.5 font-mono text-xs text-fg-secondary">
+                        <Lock className="h-3 w-3" aria-hidden />
+                        Privater Praxis-Zugang
+                      </span>
+                    </div>
+                    <p className="mt-5 font-mono text-lg font-medium text-fg-primary md:text-2xl">
+                      Ihre EINS Praxis-Software
+                    </p>
+                    <h4 className="mt-2 font-display text-3xl font-semibold tracking-tight md:text-6xl">
+                      Anfragen in Echtzeit. <span className="text-accent">Umsatz täglich.</span>
+                    </h4>
+                    <p className="mt-5 text-lg leading-relaxed text-fg-primary md:text-xl">
+                      Anfragen, Werbebudget und Umsatz auf einen Blick. In 30 Sekunden
+                      sehen Sie, wo Ihre Praxis steht: zwischen zwei Eingriffen oder von
+                      unterwegs. Klarheit jeden Morgen, nicht erst in der monatlichen
+                      Auswertung.
+                    </p>
+                  </div>
+
+                  <div className="relative mt-10 md:mt-14">
+                    <PortalTabShowcase />
+                  </div>
                 </div>
               </div>
             </Reveal>

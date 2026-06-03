@@ -288,7 +288,7 @@ svg.text-accent,
   font-size: clamp(2.75rem, 8.5vw, 7.5rem);
   line-height: 0.95;
   letter-spacing: 0em;
-  font-weight: 600;
+  font-weight: 700;
   text-wrap: pretty;
 }
 .display-l {

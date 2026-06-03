@@ -39,6 +39,18 @@ import { unstable_cache } from "next/cache";
 
 const DEFAULT_REVALIDATE_S = 600;
 
+/**
+ * Short TTL for the dashboard's per-card "fresh-ish" reads. The dashboard
+ * re-renders its whole route on every TimeRangeToggle change, which would
+ * otherwise re-hit Postgres for every card on every toggle. Caching these
+ * per (clinic, window) means switching one card only misses that card's key;
+ * every other card serves from cache. Kept short so the dashboard's "today's
+ * numbers within seconds" contract is relaxed by at most this window, and
+ * these entries are still tag-busted by the kpi-rebuild worker so the
+ * normal-case freshness is unchanged.
+ */
+export const SHORT_REVALIDATE_S = 30;
+
 interface CacheOpts {
   /** Indices in `args` that hold Date objects to normalize for the key. */
   dateArgs?: number[];
