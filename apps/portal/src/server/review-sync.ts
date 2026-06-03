@@ -20,7 +20,7 @@ export interface PlatformSyncOutcome {
  * button on /einstellungen so the inhaber gets immediate feedback instead of
  * waiting for tomorrow's 04:00 UTC cron.
  *
- * Same processor code runs from BullMQ in production — manual + scheduled
+ * Same processor code runs from the worker in production — manual + scheduled
  * paths produce identical snapshots.
  */
 export async function syncAllReviewsForClinic(

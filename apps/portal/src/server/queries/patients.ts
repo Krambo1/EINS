@@ -1,7 +1,7 @@
 import "server-only";
 import { and, desc, eq, gte, isNotNull, ne, sql } from "drizzle-orm";
 import { withClinicContext, schema } from "@/db/client";
-import { cacheClinicQuery } from "./_cache";
+import { cacheClinicQuery, SHORT_REVALIDATE_S } from "./_cache";
 
 /**
  * Patient + recall helpers — Detail-mode panels: Top LTV, LTV by channel,
@@ -135,7 +135,7 @@ export const ltvByChannel = cacheClinicQuery(
  * way `ltvByChannel` does. Deliberately *not* window-scoped: LTV is a lifetime
  * metric, so it aggregates every patient regardless of the dashboard period.
  */
-export async function ltvBySource(
+async function ltvBySourceUncached(
   clinicId: string,
   userId: string
 ): Promise<Map<string, number>> {
@@ -160,6 +160,30 @@ export async function ltvBySource(
     }
     return out;
   });
+}
+
+/**
+ * Cached for SHORT_REVALIDATE_S. Range-independent (LTV is a lifetime metric),
+ * so the dashboard re-running it on every TimeRangeToggle is pure waste.
+ * unstable_cache JSON-serializes its result and a Map round-trips to `{}`, so
+ * we cache the entries array and rehydrate to a Map outside the cache (same
+ * pattern as getClinicRelationshipStart's Date). Public signature unchanged.
+ */
+const ltvBySourceEntries = cacheClinicQuery(
+  "ltvBySource",
+  async (
+    clinicId: string,
+    userId: string
+  ): Promise<Array<[string, number]>> =>
+    Array.from((await ltvBySourceUncached(clinicId, userId)).entries()),
+  { revalidate: SHORT_REVALIDATE_S }
+);
+
+export async function ltvBySource(
+  clinicId: string,
+  userId: string
+): Promise<Map<string, number>> {
+  return new Map(await ltvBySourceEntries(clinicId, userId));
 }
 
 /** Other requests for the same patient_id, excluding the given request. */

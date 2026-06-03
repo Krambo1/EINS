@@ -258,9 +258,9 @@ export async function POST(request: NextRequest) {
       requestMeta,
     });
 
-    // Note: BullMQ worker picks up AI-scoring jobs via a polling tick;
-    // the enqueue is best-effort from a route on the portal so a missing
-    // Redis doesn't reject the lead. Skipped on dedupe — re-scoring an
+    // Note: the worker picks up AI-scoring jobs via a polling tick;
+    // the enqueue is best-effort from a route on the portal so a broken
+    // queue doesn't reject the lead. Skipped on dedupe — re-scoring an
     // existing lead is wasted work.
     if (result.status === "inserted") {
       try {

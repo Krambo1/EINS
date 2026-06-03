@@ -21,7 +21,7 @@ const ev = (payload: Record<string, unknown>, occurredAt: string, id: string) =>
  * P2-3 cascade-attribution alarm — predicate tests.
  *
  * The full applyToRequest / fanoutInvoiceConversions paths require a
- * live database (foreign keys, partition heal, BullMQ enqueue). They
+ * live database (foreign keys, partition heal, pg-boss enqueue). They
  * are covered by integration tests in the staging soak environment.
  * Here we lock down the predicate behaviour so a future refactor can't
  * change the threshold logic without flipping these expectations.

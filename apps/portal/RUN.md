@@ -14,7 +14,7 @@ terminal", open another PowerShell window the same way.
 
 ## 1. Start Docker Desktop
 
-## 2. Bring up Postgres + Redis + Dev-Server
+## 2. Bring up Postgres + Dev-Server
 
 ```powershell
 pnpm db:up
@@ -68,7 +68,8 @@ Magic-Links laufen nach **15 Minuten** ab und sind single-use.
 ---
 
 ## Optional: background worker
-For BullMQ jobs / cron (in a second terminal):
+Queues + cron run inside the pg-boss worker (Postgres-backed, no Redis). The
+worker creates its own `pgboss` schema on first boot. In a second terminal:
 ```powershell
 pnpm dev:worker
 ```

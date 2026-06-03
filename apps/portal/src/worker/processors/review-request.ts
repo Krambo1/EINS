@@ -6,7 +6,7 @@ import { env } from "@/lib/env";
 /**
  * EINS Bewertungen — review-request scanner.
  *
- * Runs every 15 min (BullMQ repeat). Selects all due review-request rows
+ * Runs every 15 min (pg-boss schedule). Selects all due review-request rows
  * from review_email_schedule that are still pending, looks up the patient +
  * clinic context, and enqueues an emailSend job. The worker uses the
  * existing email-send processor which already routes through the configured
@@ -14,7 +14,7 @@ import { env } from "@/lib/env";
  *
  * Idempotency: every schedule row is flipped from 'pending' → 'sent' inside
  * the SAME tick, BEFORE the email-send job is enqueued. If we enqueue first
- * and the worker crashes between enqueue and update, BullMQ replays the job
+ * and the worker crashes between enqueue and update, pg-boss replays the job
  * and the patient gets a duplicate email. Updating first means at-most-once
  * delivery; the tradeoff is acceptable for review requests (a patient
  * missing a single review email is fine; receiving two looks broken).

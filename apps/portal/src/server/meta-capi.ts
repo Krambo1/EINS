@@ -107,7 +107,7 @@ export async function sendCapi(args: SendCapiArgs): Promise<SendCapiResult> {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
-      // Don't let a hanging Meta request stall a worker — BullMQ will
+      // Don't let a hanging Meta request stall a worker — pg-boss will
       // retry on throw. 5s is more generous than the lead-intake path
       // (3.5s) because the worker isn't on a user-facing request.
       signal: AbortSignal.timeout(5000),

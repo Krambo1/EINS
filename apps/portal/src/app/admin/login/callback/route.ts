@@ -10,19 +10,20 @@ import { adminOrigin } from "@/lib/env";
  *
  *   GET /admin/login/callback?token=<url-safe-token>
  *
- * Two flavors share this endpoint, distinguished by which Redis key the token
- * lives under:
+ * Two flavors share this endpoint, distinguished by the token's `purpose`
+ * column in the `admin_tokens` table:
  *
- *   - adm:mlk: → standard admin login. Exchanges the token cookie for an
+ *   - purpose 'login' → standard admin login. Exchanges the token for an
  *     admin session and lands on /admin.
- *   - adm:pwd: → password-setup. Burns the token (GETDEL), stashes the admin
- *     id in a short-lived httpOnly cookie via `issuePasswordSetupCookie`,
- *     and lands on /admin/set-password — clean URL, NO query string. The
- *     set-password form reads the cookie and writes the new password.
+ *   - purpose 'password_reset' → password-setup. Burns the token (atomic
+ *     DELETE ... RETURNING), stashes the admin id in a short-lived httpOnly
+ *     cookie via `issuePasswordSetupCookie`, and lands on /admin/set-password
+ *     — clean URL, NO query string. The set-password form reads the cookie
+ *     and writes the new password.
  *
  * Order matters: we try the password-setup path first. A given token only
- * matches one Redis key (32-byte random preimage), so the "wrong" GETDEL is
- * a no-op for the other prefix.
+ * matches one purpose (32-byte random preimage), so the "wrong" consume is
+ * a no-op for the other purpose.
  */
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);

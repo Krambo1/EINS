@@ -13,9 +13,11 @@ import type { PvsEvent } from "@/server/pvs-events";
  * `pvsAppointmentId`, and computes the canonical request status + revenue
  * from the events seen.
  *
- * BullMQ jobId is `${clinicId}__${portalPatientId}` so concurrent enqueues
- * coalesce. Worst case the worker runs once per patient per ~second of
- * event burst — acceptable for a Praxis with thousands of patients.
+ * The producer enqueues with pg-boss `singletonKey =
+ * ${clinicId}__${portalPatientId}` on a `short`-policy queue, so concurrent
+ * enqueues coalesce while one is still queued. Worst case the worker runs once
+ * per patient per ~second of event burst, acceptable for a Praxis with
+ * thousands of patients.
  *
  * Algorithm per appointment cluster:
  *   has(InvoicePaid) OR has(EncounterCompleted) → 'gewonnen'
@@ -830,7 +832,7 @@ async function applyToRequest(
  *
  * Best-effort: failure to insert/enqueue MUST NOT roll back the request
  * update above. Practical reason: pvs-status-derive is the source of truth
- * for "gewonnen" status in the UI; if Redis is down, we still want the
+ * for "gewonnen" status in the UI; if the enqueue fails, we still want the
  * praxis to see the correct status. The nightly pvs-reconcile job will
  * re-emit any missing outbox rows.
  */

@@ -373,8 +373,8 @@ export async function consumeMagicLinkForPasswordSetup(
 }
 
 /**
- * Housekeeping — called from cron.ts. Drops expired + long-consumed magic-link
- * rows so the table doesn't grow unbounded.
+ * Housekeeping — called from the weekly purge-audit worker job. Drops expired +
+ * long-consumed magic-link rows so the table doesn't grow unbounded.
  */
 export async function purgeExpiredMagicLinks(): Promise<number> {
   const result = await db
@@ -383,10 +383,11 @@ export async function purgeExpiredMagicLinks(): Promise<number> {
       dsql`${schema.magicLinks.expiresAt} < now() - interval '7 days'
         OR ${schema.magicLinks.consumedAt} < now() - interval '7 days'`
     );
-  // postgres-js / drizzle doesn't report affected rows on delete — return count via a follow-up select if needed.
-  // We swallow here; cron just wants the side-effect.
-  void result;
-  return 0;
+  return (
+    (result as unknown as { count?: number }).count ??
+    (result as unknown as { rowCount?: number }).rowCount ??
+    0
+  );
 }
 
 function parseRequestIp(xff: string | null, xri: string | null): string | null {

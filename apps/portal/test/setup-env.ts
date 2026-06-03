@@ -11,5 +11,4 @@ process.env.ENCRYPTION_KEY =
 process.env.APP_ORIGIN = process.env.APP_ORIGIN ?? "http://localhost:3001";
 process.env.CLINIC_LANDING_ORIGIN =
   process.env.CLINIC_LANDING_ORIGIN ?? "http://localhost:3002";
-process.env.REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
 process.env.SKIP_ENV_VALIDATION = "1";

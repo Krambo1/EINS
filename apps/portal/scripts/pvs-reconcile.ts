@@ -15,7 +15,7 @@
  *   recompute-lifetime --clinic-id X [--apply]
  *     For every patient in the clinic, re-enqueue pvs-status-derive so
  *     lifetime_revenue_eur is recomputed from the canonical event log.
- *     Idempotent — derive's BullMQ jobId coalesces concurrent enqueues.
+ *     Idempotent — derive's singletonKey coalesces concurrent enqueues.
  *
  *   replay-events --clinic-id X --from YYYY-MM-DD --to YYYY-MM-DD \
  *                 [--include-applied] [--apply]

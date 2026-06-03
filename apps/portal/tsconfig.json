@@ -36,9 +36,10 @@
     }
   },
   "include": [
-    ".next/types/**/*.ts",
     ".next-3005/types/**/*.ts",
     ".next-3006/types/**/*.ts",
+    ".next-prod/types/**/*.ts",
+    ".next/types/**/*.ts",
     "drizzle.config.ts",
     "next-env.d.ts",
     "playwright.config.ts",

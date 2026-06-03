@@ -6,7 +6,7 @@
 --      'intake' secret used by clinic-landing form submissions).
 --   2. The handler upserts a patients row and schedules a request_recalls
 --      row with kind='review_request' and a 32-byte review_token.
---   3. A 15-minute BullMQ cron tick scans pending review_request rows whose
+--   3. A 15-minute cron tick scans pending review_request rows whose
 --      scheduled_for has arrived and enqueues an emailSend job each.
 --   4. The patient's mail carries five 1..5★ buttons that all point at
 --      /r/<token>?rating=N on the clinic's landing host. The landing page

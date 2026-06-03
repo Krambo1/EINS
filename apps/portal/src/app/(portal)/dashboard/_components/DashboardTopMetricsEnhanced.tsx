@@ -15,7 +15,7 @@ import {
   type MetricTileTone,
 } from "@eins/ui";
 import {
-  kpiDailySeriesWithSparklineUncached,
+  kpiDailySeriesWithSparklineFresh,
   currentGoals,
 } from "@/server/queries/kpis";
 import {
@@ -129,9 +129,11 @@ export async function DashboardTopMetricsEnhanced({
   const revenuePriorWin = priorWindow(revenueWin);
   const openPriorWin = priorWindow(openWin);
 
-  // Uncached path — the dashboard's freshness contract (same reason
-  // `currentMonthSummary` is uncached). When the user picks a range, they
-  // expect "right now" numbers, not last-worker-rebuild numbers.
+  // Short-TTL cached path (SHORT_REVALIDATE_S). These series feed the leads /
+  // revenue / open sparklines, each scoped to its own card's window. Caching
+  // per (clinic, window) means toggling one card doesn't re-run the others'
+  // series queries on the route re-render; freshness stays within ~30s and is
+  // tag-busted by the kpi worker.
   const [
     leadsDaily,
     leadsPriorDaily,
@@ -162,13 +164,13 @@ export async function DashboardTopMetricsEnhanced({
       openWin.from,
       openWin.to
     ),
-    kpiDailySeriesWithSparklineUncached(
+    kpiDailySeriesWithSparklineFresh(
       clinicId,
       userId,
       revenueWin.from,
       revenueWin.to
     ),
-    kpiDailySeriesWithSparklineUncached(
+    kpiDailySeriesWithSparklineFresh(
       clinicId,
       userId,
       revenuePriorWin.from,

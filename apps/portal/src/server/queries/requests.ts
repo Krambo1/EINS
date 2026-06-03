@@ -17,6 +17,7 @@ import { withClinicContext, schema } from "@/db/client";
 import type { RequestStatus, RequestSort } from "@/lib/constants";
 import { avatarUrlForKey } from "@/server/avatars";
 import { invalidateNavBadges } from "./navBadgesCache";
+import { cacheClinicQuery, SHORT_REVALIDATE_S } from "./_cache";
 
 /**
  * Read helpers for the Anfragen inbox and detail views.
@@ -425,7 +426,7 @@ export interface OpenLeadForDashboard {
  * AI score, no full contact details. Anything richer is one click away on
  * /anfragen/{id}.
  */
-export async function openLeadsForDashboard(
+async function openLeadsForDashboardUncached(
   clinicId: string,
   userId: string,
   limit = 5,
@@ -473,6 +474,19 @@ export async function openLeadsForDashboard(
     }));
   });
 }
+
+/**
+ * Cached for SHORT_REVALIDATE_S. Range-independent (the Offene-Anfragen list is
+ * always "current open queue, top N"), so re-running it on every unrelated
+ * TimeRangeToggle is waste. `createdAt` round-trips through unstable_cache as an
+ * ISO string, which `formatRelative` (the only consumer) accepts; `slaBreached`
+ * is precomputed in the body so it caches as a plain boolean.
+ */
+export const openLeadsForDashboard = cacheClinicQuery(
+  "openLeadsForDashboard",
+  openLeadsForDashboardUncached,
+  { revalidate: SHORT_REVALIDATE_S }
+);
 
 /** Inbound request count series for the last N days — Detail-mode sparkline. */
 export async function inboundCountSeries(
@@ -581,7 +595,7 @@ export async function getRequestWithActivities(
 }
 
 /** Count of requests bucketed by status — used on the dashboard's inbox hint. */
-export async function requestStatusCounts(clinicId: string, userId: string) {
+async function requestStatusCountsUncached(clinicId: string, userId: string) {
   return withClinicContext(clinicId, userId, async (tx) => {
     const rows = await tx
       .select({
@@ -596,6 +610,18 @@ export async function requestStatusCounts(clinicId: string, userId: string) {
     return map;
   });
 }
+
+/**
+ * Cached for SHORT_REVALIDATE_S. Range-independent, so the dashboard re-running
+ * it on every TimeRangeToggle is pure waste. Read only by the dashboard's
+ * Offene-Anfragen tile; /anfragen reads live counts elsewhere, so a ~30s lag on
+ * the dashboard headline (where you don't action requests) is acceptable.
+ */
+export const requestStatusCounts = cacheClinicQuery(
+  "requestStatusCounts",
+  requestStatusCountsUncached,
+  { revalidate: SHORT_REVALIDATE_S }
+);
 
 /**
  * Count of requests bucketed by KI category (hot/warm/cold) — drives the
@@ -621,7 +647,7 @@ export async function aiCategoryCounts(clinicId: string, userId: string) {
 }
 
 /** Requests where SLA is breached (not yet responded AND sla_respond_by < now()). */
-export async function slaBreachedCount(clinicId: string, userId: string) {
+async function slaBreachedCountUncached(clinicId: string, userId: string) {
   return withClinicContext(clinicId, userId, async (tx) => {
     const rows = await tx
       .select({ count: sql<number>`count(*)::int` })
@@ -637,6 +663,17 @@ export async function slaBreachedCount(clinicId: string, userId: string) {
     return Number(rows[0]?.count ?? 0);
   });
 }
+
+/**
+ * Cached for SHORT_REVALIDATE_S. Range-independent — same reasoning as
+ * requestStatusCounts. The `< now()` breach cutoff being up to ~30s stale on
+ * the dashboard tile is immaterial against the 3h SLA window.
+ */
+export const slaBreachedCount = cacheClinicQuery(
+  "slaBreachedCount",
+  slaBreachedCountUncached,
+  { revalidate: SHORT_REVALIDATE_S }
+);
 
 /** Requests created in the last N days — for "Neue Anfragen heute". */
 export async function recentRequestsCount(
@@ -787,7 +824,7 @@ export async function totalRequestsDailyInRange(
  * Seit Migration 0046 ist jede Anfrage im Portal per Definition qualifiziert
  * — die alte Qualifizierungs-Stage ist weg.
  */
-export async function leadsInRangeWithComparison(
+async function leadsInRangeWithComparisonUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -844,11 +881,24 @@ export async function leadsInRangeWithComparison(
 }
 
 /**
+ * Cached for SHORT_REVALIDATE_S, keyed by (clinic, from, to). The Anfragen
+ * top-metric card owns the rLeads toggle: switching it is a legitimate cache
+ * miss (new window), but switching any *other* card re-renders the route and
+ * would otherwise re-run this query for the unchanged leads window. Returns
+ * only numbers, so it caches cleanly.
+ */
+export const leadsInRangeWithComparison = cacheClinicQuery(
+  "leadsInRangeWithComparison",
+  leadsInRangeWithComparisonUncached,
+  { dateArgs: [0, 1], revalidate: SHORT_REVALIDATE_S }
+);
+
+/**
  * Daily count of leads (status <> 'spam') across [from, to]. Dense series,
  * zero-filled. Live equivalent of the per-day `leads` column on `kpi_daily`
  * — sparkline-friendly for the leads top-metric card.
  */
-export async function leadsDailyInRange(
+async function leadsDailyInRangeUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -889,6 +939,18 @@ export async function leadsDailyInRange(
 }
 
 /**
+ * Cached for SHORT_REVALIDATE_S, keyed by (clinic, from, to). Leads sparkline
+ * for the Anfragen top-metric card; switching a *different* card would
+ * otherwise re-run it for the unchanged leads window. Returns only string
+ * dates + numbers, so it caches cleanly.
+ */
+export const leadsDailyInRange = cacheClinicQuery(
+  "leadsDailyInRange",
+  leadsDailyInRangeUncached,
+  { dateArgs: [0, 1], revalidate: SHORT_REVALIDATE_S }
+);
+
+/**
  * Open queue size at end-of-day for each day in [from, to], plus a delta
  * comparing the queue at the end of the window vs. just before the window
  * started ("did the open queue grow or shrink across this period?").
@@ -909,7 +971,7 @@ export async function leadsDailyInRange(
  * earlier wiring where the chart/delta showed *leads* under the
  * "open queue" headline.
  */
-export async function openQueueDailyInRangeWithComparison(
+async function openQueueDailyInRangeWithComparisonUncached(
   clinicId: string,
   userId: string,
   from: Date,
@@ -991,3 +1053,16 @@ export async function openQueueDailyInRangeWithComparison(
     return { dates, counts, current, prior, deltaPct };
   });
 }
+
+/**
+ * Cached for SHORT_REVALIDATE_S, keyed by (clinic, from, to). The open-queue
+ * sparkline + delta is the heaviest dashboard query (per-day correlated
+ * status-history subquery over a cross join); caching it per window means an
+ * unrelated TimeRangeToggle no longer pays for it. Returns only string dates
+ * + numbers.
+ */
+export const openQueueDailyInRangeWithComparison = cacheClinicQuery(
+  "openQueueDailyInRangeWithComparison",
+  openQueueDailyInRangeWithComparisonUncached,
+  { dateArgs: [0, 1], revalidate: SHORT_REVALIDATE_S }
+);

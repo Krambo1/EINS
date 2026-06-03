@@ -10,7 +10,7 @@ import { db } from "@/db/client";
  * ensures the next ~6 months exist. It also drops partitions older than
  * the retention window if configured.
  *
- * Why 6 months runway: the cron itself can stop (failed deploy, Redis
+ * Why 6 months runway: the cron itself can stop (failed deploy, worker
  * outage, mistakenly disabled). A 2-month buffer makes that outage
  * invisible until events from the future fail to ingest — and PVS events
  * routinely carry occurredAt dates 30–90 days out (scheduled appointments,

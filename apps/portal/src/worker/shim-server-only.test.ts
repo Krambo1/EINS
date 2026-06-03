@@ -16,7 +16,7 @@ import "./shim-server-only";
  *
  * `server-only`'s package body is `throw new Error(...)`; Next.js swaps it for
  * an empty module via the `react-server` export condition at build time, but
- * plain Node/tsx (how `pnpm worker` / `pnpm cron` run) does not set that
+ * plain Node/tsx (how `pnpm worker` runs) does not set that
  * condition, so the throw fires. The worker neutralizes it with a require-cache
  * shim loaded as the very first import.
  *
@@ -53,7 +53,7 @@ describe("server-only worker shim", () => {
     expect(req("server-only")).toEqual({});
   });
 
-  it.each(["index.ts", "cron.ts"])(
+  it.each(["index.ts"])(
     "worker entry %s imports the shim before any other statement",
     (entry) => {
       const dir = path.dirname(fileURLToPath(import.meta.url));

@@ -1591,3 +1591,45 @@ export const userNavSectionViews = pgTable(
     pk: primaryKey({ columns: [t.userId, t.section] }),
   })
 );
+
+// ---------------------------------------------------------------
+// ADMIN TOKENS — single-use admin login + password-reset tokens.
+// Replaces the former Redis token store (adm:mlk: / adm:pwd:). Sensitive
+// (token hashes + admin emails), so migration 0059 REVOKEs all access from
+// the eins_app role — only the superuser `db` connection touches it.
+// ---------------------------------------------------------------
+export const adminTokens = pgTable(
+  "admin_tokens",
+  {
+    /** sha256 hex of the URL token; only the hash is stored. */
+    tokenHash: text("token_hash").primaryKey(),
+    email: text("email").notNull(),
+    /** 'login' (magic-link) or 'password_reset'. */
+    purpose: text("purpose").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    expiresIdx: index("admin_tokens_expires_idx").on(t.expiresAt),
+  })
+);
+
+// ---------------------------------------------------------------
+// RATE LIMITS — fixed-window counters for the Postgres rate limiter.
+// Replaces the former Redis INCR/EXPIRE buckets. Accessed via the superuser
+// `db` connection; not clinic-scoped. Expired rows are pruned by purge-audit.
+// ---------------------------------------------------------------
+export const rateLimits = pgTable(
+  "rate_limits",
+  {
+    /** `rl:<scope>:<identifier>`. */
+    key: text("key").primaryKey(),
+    count: integer("count").notNull(),
+    windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+  },
+  (t) => ({
+    windowIdx: index("rate_limits_window_idx").on(t.windowStart),
+  })
+);

@@ -43,7 +43,7 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 // pvs-events.canonical.test.ts. Exported as the portal-side source of truth;
 // other server modules that need the value set keep their own local copy when
 // importing this module would pull heavy deps (e.g. the heartbeat route avoids
-// the BullMQ/Redis chain). The last 7 are the Phase 7 per-Praxis DB-read
+// the pg-boss job chain). The last 7 are the Phase 7 per-Praxis DB-read
 // engines (underscores; CGM-M1 Postgres + Oracle both collapse to cgm_m1pro).
 export const BridgeSource = z.enum([
   "tomedo",

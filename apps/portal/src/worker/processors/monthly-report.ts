@@ -105,7 +105,7 @@ export async function processMonthlyReport(job: MonthlyReportJob): Promise<void>
     // Suppression — check per-recipient. A single dead inhaber address
     // shouldn't break the whole batch. Try/catch so one Resend 5xx also
     // doesn't blow up subsequent sends (the original code threw on the
-    // first failure and BullMQ replayed → duplicate PDFs).
+    // first failure and pg-boss replayed → duplicate PDFs).
     try {
       const reason = await isEmailSuppressed(clinicId, u.email, "transactional");
       if (reason) {
@@ -145,7 +145,7 @@ export async function processMonthlyReport(job: MonthlyReportJob): Promise<void>
         err
       );
       // continue — the document is already in storage; partial-batch
-      // failure shouldn't bounce the whole job to BullMQ and re-render
+      // failure shouldn't bounce the whole job to pg-boss and re-render
       // the PDF on retry.
     }
   }

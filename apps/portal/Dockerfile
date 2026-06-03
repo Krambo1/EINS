@@ -1,13 +1,12 @@
 # syntax=docker/dockerfile:1.7
 
 # ============================================================
-# EINS Portal worker — BullMQ queues + cron scheduler.
+# EINS Portal worker — pg-boss (Postgres) queues, scheduler, and
+# maintenance in one always-on process.
 #
-# One image, two entry points. Default CMD runs the long-running
-# worker (apps/portal/src/worker/index.ts). To run the cron
-# scheduler instead (one-shot, exits when done), override the
-# command at run time:
-#   docker run --rm --env-file .env eins-portal-worker tsx src/worker/cron.ts
+# Single entry point: the long-running worker (src/worker/index.ts) creates the
+# pgboss schema, registers every queue, runs the cron schedules (folded in from
+# the old standalone cron.ts), and drains in-flight jobs on SIGTERM. No Redis.
 #
 # Build from the repo root so the pnpm workspace context is available:
 #   docker build -f apps/portal/Dockerfile -t eins-portal-worker .
@@ -58,10 +57,10 @@ ARG TSX_VERSION
 ENV NODE_ENV=production
 WORKDIR /app
 
-# tini forwards SIGTERM cleanly so BullMQ's shutdown handler in
-# worker/index.ts gets to drain in-flight jobs before the container
-# exits. Without it, Docker sends SIGKILL after the grace period
-# and jobs hang in the "stalled" state.
+# tini forwards SIGTERM cleanly so the worker's shutdown handler in
+# worker/index.ts gets to drain in-flight jobs (boss.stop graceful)
+# before the container exits. Without it, Docker sends SIGKILL after
+# the grace period and in-flight jobs are left to expire + retry.
 RUN apk add --no-cache tini \
  && npm install -g tsx@${TSX_VERSION} \
  && npm cache clean --force

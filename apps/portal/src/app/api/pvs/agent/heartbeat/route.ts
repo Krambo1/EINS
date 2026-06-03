@@ -28,7 +28,7 @@ import { db, schema } from "@/db/client";
  * Bridge-source enum, kept in lock-step with the canonical BRIDGE_SOURCES
  * (apps/bridge/src/canonical/schema-source.ts) and the portal Zod copies in
  * pvs-events.ts / pvs-health.ts. Local copy rather than an import because
- * pvs-events.ts pulls the BullMQ/Redis job module at load; this route only
+ * pvs-events.ts pulls the pg-boss job module at load; this route only
  * needs the value set. The last 7 are the Phase 7 per-Praxis DB-read engines.
  */
 const BridgeSourceEnum = z.enum([

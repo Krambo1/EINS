@@ -12,15 +12,41 @@ declare global {
   var __einsPgApp: ReturnType<typeof postgres> | undefined;
 }
 
+/**
+ * Neon's pooled endpoint (host contains "-pooler") runs PgBouncer in
+ * transaction mode, which does NOT support prepared statements. postgres.js
+ * defaults to prepared statements, so against the pooler it must run with
+ * `prepare: false` or queries intermittently fail with "prepared statement
+ * ... does not exist". Direct endpoints keep prepared statements (a small win
+ * on repeated queries). Auto-detected from the URL so moving the serverless
+ * app onto the pooler is a pure env change: point DATABASE_URL[_APP] at the
+ * `-pooler` host in Vercel and this flips automatically.
+ *
+ * Why it matters: on Vercel + Neon free tier the dashboard's ~15 queries open
+ * up to 10 fresh Neon connections per cold/idle invocation; direct-endpoint
+ * connect cost dominates the slow render. The pooler keeps warm Postgres
+ * connections behind PgBouncer, so the app's connect is cheap.
+ */
+function usesPgBouncer(url: string): boolean {
+  return /-pooler\./.test(url) || /[?&]pgbouncer=true\b/.test(url);
+}
+
+function clientOptions(url: string) {
+  return {
+    max: 10,
+    idle_timeout: 20,
+    connect_timeout: 10,
+    // Default postgres.js behaviour (prepared statements) on direct endpoints;
+    // disabled automatically when pointed at a PgBouncer/Neon pooler host.
+    prepare: !usesPgBouncer(url),
+    connection: { statement_timeout: 15000 },
+    onnotice: () => void 0,
+  } as const;
+}
+
 function superClient() {
   if (!globalThis.__einsPgSuper) {
-    globalThis.__einsPgSuper = postgres(env.DATABASE_URL, {
-      max: 10,
-      idle_timeout: 20,
-      connect_timeout: 10,
-      connection: { statement_timeout: 15000 },
-      onnotice: () => void 0,
-    });
+    globalThis.__einsPgSuper = postgres(env.DATABASE_URL, clientOptions(env.DATABASE_URL));
   }
   return globalThis.__einsPgSuper;
 }
@@ -28,13 +54,7 @@ function superClient() {
 function appClient() {
   const url = env.DATABASE_URL_APP ?? env.DATABASE_URL;
   if (!globalThis.__einsPgApp) {
-    globalThis.__einsPgApp = postgres(url, {
-      max: 10,
-      idle_timeout: 20,
-      connect_timeout: 10,
-      connection: { statement_timeout: 15000 },
-      onnotice: () => void 0,
-    });
+    globalThis.__einsPgApp = postgres(url, clientOptions(url));
   }
   return globalThis.__einsPgApp;
 }
