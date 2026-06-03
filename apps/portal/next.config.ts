@@ -9,6 +9,12 @@ const config: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR || ".next",
   // Share the @eins/ui source package across apps without a build step.
   transpilePackages: ["@eins/ui"],
+  // The R2 storage driver + db-backup worker load these via dynamic
+  // `import(/* webpackIgnore */ ...)`, so webpack never bundles them. Marking
+  // them server-external makes Next's output file-tracing ship them into the
+  // serverless function bundle; without this the import resolves fine locally
+  // but throws "Cannot find module" on Vercel once STORAGE_DRIVER=r2.
+  serverExternalPackages: ["@aws-sdk/client-s3", "@aws-sdk/s3-request-presigner"],
   experimental: {
     // Tree-shake barrel imports from these packages.
     // - lucide-react: 16 import sites in portal pages, ~hundreds of icons total.
