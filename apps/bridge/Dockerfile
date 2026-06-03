@@ -27,8 +27,12 @@ WORKDIR /workspace
 FROM base AS build
 COPY pnpm-lock.yaml pnpm-workspace.yaml package.json ./
 COPY apps/bridge/package.json apps/bridge/
+# --ignore-scripts: the bridge's deps (drizzle/fastify/postgres/zod) are pure JS
+# and need no build step. It also stops the workspace's native modules (e.g. the
+# agent's better-sqlite3) from trying to compile here — there's no toolchain in
+# this Alpine image, and the bridge never imports them anyway.
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
-    pnpm install --frozen-lockfile --filter bridge...
+    pnpm install --frozen-lockfile --filter bridge... --ignore-scripts
 COPY apps/bridge/ apps/bridge/
 RUN pnpm --filter bridge build
 
@@ -36,7 +40,10 @@ RUN pnpm --filter bridge build
 FROM build AS deploy
 # `--legacy` keeps pnpm v10 from demanding inject-workspace-packages.
 # dist/ was produced in the build stage and travels with the package.
-RUN pnpm deploy --filter=bridge --prod --legacy /deploy
+# --ignore-scripts here too: same reason as the install above. The bundle's real
+# deps (drizzle/fastify/postgres/zod) are script-free; this stops a stray native
+# module from trying (and failing) to compile while assembling /deploy.
+RUN pnpm deploy --filter=bridge --prod --legacy --ignore-scripts /deploy
 
 # ----- runtime: minimal image, non-root, tini for PID 1 -------
 FROM node:${NODE_VERSION} AS runtime

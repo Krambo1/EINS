@@ -12,7 +12,7 @@
 # Built from the REPO ROOT so the pnpm workspace + lockfile are in the Docker
 # build context (apps/bridge/Dockerfile copies them).
 #
-#   fly deploy -c apps/bridge/fly.toml            # from D:\Desktop\EINSWebsite
+#   fly deploy . -c apps/bridge/fly.toml          # from repo root (. = build context)
 #
 # Required secrets (NOT stored here — set once via fly secrets):
 #   fly secrets set -a eins-bridge \
@@ -25,7 +25,10 @@ app = "eins-bridge"
 primary_region = "fra"   # Frankfurt — EU data residency for Praxis data
 
 [build]
-  dockerfile = "apps/bridge/Dockerfile"
+  # Relative to THIS file's dir (apps/bridge). Build context is the repo root,
+  # passed as the `.` positional to `fly deploy` (see header), so the Dockerfile's
+  # COPY of the pnpm workspace lockfile resolves.
+  dockerfile = "Dockerfile"
 
 [env]
   NODE_ENV = "production"
