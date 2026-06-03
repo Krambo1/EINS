@@ -80,7 +80,12 @@ function wrap<T>(
     const job = jobs[0];
     const started = Date.now();
     try {
-      await fn(job.data as T);
+      // pg-boss delivers scheduled (cron) jobs with `data: null`. Processors
+      // default their payload to `{}` (e.g. `job: SlaCheckJob = {}`), but a JS
+      // default only applies to `undefined`, not `null` — so a raw null would
+      // crash any processor that reads an optional field (job.clinicId, etc.).
+      // Coalesce here so every processor sees `{}` when no payload was sent.
+      await fn((job.data ?? {}) as T);
       console.log(`[${name}] done id=${job.id} in ${Date.now() - started}ms`);
     } catch (err) {
       console.error(`[${name}] failed id=${job.id}:`, err);
