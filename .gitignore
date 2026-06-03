@@ -53,3 +53,7 @@ Landingpage Icon.html
 *.aep
 apps/portal/review-preview*.html
 uploads/pasted-*.png
+
+# Vercel pulled production env (contains live secrets, never commit)
+apps/portal/.vercel.prod.env
+.vercel.prod.env

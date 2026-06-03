@@ -15,7 +15,7 @@
 ARG NODE_VERSION=20-alpine
 ARG PNPM_VERSION=10.33.2
 # Pin tsx to the version that lives in apps/portal devDependencies so the
-# image matches `pnpm worker` / `pnpm cron` behaviour 1:1.
+# image matches `pnpm worker` behaviour 1:1 (cron is folded into the worker).
 ARG TSX_VERSION=4.19.2
 
 # ----- base: pinned Node + pnpm via corepack -----------------
