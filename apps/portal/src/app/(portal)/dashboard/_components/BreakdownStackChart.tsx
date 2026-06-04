@@ -179,8 +179,15 @@ export function BreakdownStackChart({
 
       {/* Meta logo override: the brand lockup defaults to 2em tall (wide
           wordmark + Instagram glyph). Render it at 1.9em here so it reads as
-          the dominant source brand, centred on its row. */}
-      <table className="w-full border-collapse text-sm [&_.brand-meta-light]:!h-[1.9em] [&_.brand-meta-light]:!align-middle [&_.brand-meta-light]:!my-[-0.5em] [&_.brand-meta-dark]:!h-[1.9em] [&_.brand-meta-dark]:!align-middle [&_.brand-meta-dark]:!my-[-0.5em]">
+          the dominant source brand, centred on its row.
+
+          overflow-x-auto: the 6-column funnel table has a min-content wider
+          than a single dashboard card on a phone. Without this wrapper the
+          table's intrinsic width blew out the top-metrics grid's shared
+          auto-track, dragging every sibling card past the viewport edge.
+          Same pattern as the Behandlungen/Standorte tables. */}
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-sm [&_.brand-meta-light]:!h-[1.9em] [&_.brand-meta-light]:!align-middle [&_.brand-meta-light]:!my-[-0.5em] [&_.brand-meta-dark]:!h-[1.9em] [&_.brand-meta-dark]:!align-middle [&_.brand-meta-dark]:!my-[-0.5em]">
         <thead>
           <tr className="text-[10px] font-medium uppercase tracking-wide text-fg-tertiary">
             <th className="py-2 text-left font-medium">
@@ -278,7 +285,8 @@ export function BreakdownStackChart({
             </tr>
           )}
         </tbody>
-      </table>
+        </table>
+      </div>
     </div>
   );
 }

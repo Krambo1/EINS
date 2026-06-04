@@ -108,6 +108,7 @@ export async function adminPasswordLoginAction(
     return { ok: false, error: ERR_INVALID_INPUT };
   }
   const email = parsed.data.email.toLowerCase();
+  const rememberMe = formData.get("remember") === "on";
 
   const rl = await checkRateLimits(email, "admin-login");
   if (!rl.ok) return rl;
@@ -127,13 +128,13 @@ export async function adminPasswordLoginAction(
     return { ok: false, error: ERR_INVALID_CREDS };
   }
 
-  await createAdminSession(match.id);
+  await createAdminSession(match.id, { rememberMe });
 
   await writeAudit({
     actorEmail: email,
     action: "login",
     entityKind: "admin_login",
-    diff: { method: "password", ok: true },
+    diff: { method: "password", ok: true, rememberMe },
   });
 
   return { ok: true, redirectTo: "/admin" };

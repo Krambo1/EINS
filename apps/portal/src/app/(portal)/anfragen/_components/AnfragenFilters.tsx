@@ -6,6 +6,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowDownWideNarrow,
   CheckCircle2,
+  ChevronDown,
   Flame,
   Loader2,
   Radio,
@@ -132,6 +133,9 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
   const isSetMember = (key: string, value: string) =>
     (params.get(key) ?? "").split(",").filter(Boolean).includes(value);
 
+  const countSet = (key: string) =>
+    (params.get(key) ?? "").split(",").filter(Boolean).length;
+
   const isFlag = (key: string) => params.get(key) === "1";
 
   const hasAnyFilter = Boolean(
@@ -195,7 +199,11 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
       </div>
 
       <div className="divide-y divide-border/60 border-t border-border/60">
-        <FilterGroup icon={ArrowDownWideNarrow} label="Sortierung">
+        <FilterGroup
+          icon={ArrowDownWideNarrow}
+          label="Sortierung"
+          summaryText={REQUEST_SORT_LABELS[currentSort]}
+        >
           {REQUEST_SORTS.map((s) => (
             <Chip
               key={s}
@@ -207,7 +215,11 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
           ))}
         </FilterGroup>
 
-        <FilterGroup icon={CheckCircle2} label="Status">
+        <FilterGroup
+          icon={CheckCircle2}
+          label="Status"
+          activeCount={countSet("status") + (isFlag("stale") ? 1 : 0)}
+        >
           {STATUSES.map((s) => (
             <Chip
               key={s}
@@ -226,7 +238,7 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
           </Chip>
         </FilterGroup>
 
-        <FilterGroup icon={Radio} label="Quelle">
+        <FilterGroup icon={Radio} label="Quelle" activeCount={countSet("source")}>
           {REQUEST_SOURCES.map((s) => (
             <Chip
               key={s}
@@ -238,7 +250,11 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
           ))}
         </FilterGroup>
 
-        <FilterGroup icon={Sparkles} label="KI-Bewertung">
+        <FilterGroup
+          icon={Sparkles}
+          label="KI-Bewertung"
+          activeCount={countSet("aiCategory")}
+        >
           {AI_CATEGORIES.map((c) => {
             const tone: ChipTone =
               c === "hot" ? "bad" : c === "warm" ? "warn" : "accent";
@@ -264,7 +280,11 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
         </FilterGroup>
 
         {treatments.length > 0 && (
-          <FilterGroup icon={Tag} label="Behandlung">
+          <FilterGroup
+            icon={Tag}
+            label="Behandlung"
+            activeCount={countSet("treatment")}
+          >
             {treatments.slice(0, 8).map((t) => (
               <Chip
                 key={t.id}
@@ -284,19 +304,55 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
 function FilterGroup({
   icon: Icon,
   label,
+  activeCount = 0,
+  summaryText,
   children,
 }: {
   icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
   label: string;
+  /** Number of active selections, shown as a badge in the collapsed mobile header. */
+  activeCount?: number;
+  /** Free-text shown in the collapsed mobile header (used for single-select sort). */
+  summaryText?: string;
   children: React.ReactNode;
 }) {
+  // Collapsed by default on mobile so the filter rail doesn't fill the screen.
+  // On md+ the chips are always visible (CSS), so this state is mobile-only.
+  const [open, setOpen] = useState(false);
+
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 py-3 md:flex-nowrap">
-      <div className="flex w-full shrink-0 items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-fg-tertiary md:w-32">
-        <Icon className="h-3.5 w-3.5" aria-hidden />
+    <div className="py-3 md:flex md:flex-nowrap md:items-center md:gap-x-3">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-expanded={open}
+        className="flex w-full shrink-0 items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-fg-tertiary md:w-32 md:cursor-default"
+      >
+        <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
         <span>{label}</span>
+        <span className="ml-auto flex items-center gap-2 md:hidden">
+          {summaryText ? (
+            <span className="normal-case text-fg-secondary">{summaryText}</span>
+          ) : activeCount > 0 ? (
+            <span className="rounded-full bg-fg-primary/10 px-1.5 py-px text-[11px] font-semibold leading-none tabular-nums text-fg-primary">
+              {activeCount}
+            </span>
+          ) : null}
+          <ChevronDown
+            className={cn("h-4 w-4 transition-transform", open && "rotate-180")}
+            aria-hidden
+          />
+        </span>
+      </button>
+      <div
+        className={cn(
+          "flex-1 flex-wrap gap-1.5",
+          open ? "mt-2 flex" : "hidden",
+          "md:mt-0 md:flex"
+        )}
+      >
+        {children}
       </div>
-      <div className="flex flex-1 flex-wrap gap-1.5">{children}</div>
     </div>
   );
 }

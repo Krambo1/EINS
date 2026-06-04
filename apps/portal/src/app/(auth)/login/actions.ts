@@ -98,6 +98,7 @@ export async function passwordLoginAction(
     };
   }
   const email = parsed.data.email.toLowerCase();
+  const rememberMe = formData.get("remember") === "on";
 
   const rl = await checkLoginRateLimits(email);
   if (rl) return rl;
@@ -140,14 +141,14 @@ export async function passwordLoginAction(
     return { ok: false, error: "E-Mail oder Passwort stimmt nicht." };
   }
 
-  await createSession(user.id);
+  await createSession(user.id, { rememberMe });
   await writeAudit({
     clinicId: user.clinicId,
     actorId: user.id,
     actorEmail: email,
     action: "login",
     entityKind: "login",
-    diff: { method: "password", ok: true },
+    diff: { method: "password", ok: true, rememberMe },
   });
 
   redirect(defaultLandingPath(user.role as Role | null));

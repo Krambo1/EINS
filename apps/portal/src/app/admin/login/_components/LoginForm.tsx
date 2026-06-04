@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import { Input, Label, Button } from "@eins/ui";
+import { GoogleSignInButton } from "@/app/_components/GoogleSignInButton";
 import {
   adminPasswordLoginAction,
   requestAdminMagicLinkAction,
@@ -31,7 +32,11 @@ function SubmitButton({ label, pendingLabel }: { label: string; pendingLabel: st
   );
 }
 
-export function LoginForm() {
+export function LoginForm({
+  googleEnabled = false,
+}: {
+  googleEnabled?: boolean;
+}) {
   const [mode, setMode] = useState<"password" | "magic">("password");
 
   const [magicState, magicAction] = useActionState<AdminMailActionState, FormData>(
@@ -148,6 +153,15 @@ export function LoginForm() {
           required
         />
       </div>
+      <label className="flex cursor-pointer select-none items-start gap-2.5 text-xs text-fg-primary">
+        <input
+          type="checkbox"
+          name="remember"
+          value="on"
+          className="mt-0.5 h-4 w-4 rounded border-border accent-[var(--accent)]"
+        />
+        <span>Angemeldet bleiben</span>
+      </label>
       {loginState && !loginState.ok && (
         <div
           role="alert"
@@ -172,6 +186,12 @@ export function LoginForm() {
         <span>oder</span>
         <span className="h-px flex-1 bg-border" />
       </div>
+      {googleEnabled && (
+        <GoogleSignInButton
+          href="/admin/login/google/start"
+          className="gap-2 rounded-md bg-bg-secondary px-3 py-2 text-xs"
+        />
+      )}
       <button
         type="button"
         onClick={() => setMode("magic")}

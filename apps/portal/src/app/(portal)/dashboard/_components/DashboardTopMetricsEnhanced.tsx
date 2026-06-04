@@ -239,7 +239,7 @@ export async function DashboardTopMetricsEnhanced({
   return (
     <section
       aria-label="Kennzahlen"
-      className="grid gap-5 md:grid-cols-2 md:gap-6"
+      className="grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-6"
     >
       <MetricTile
         size="large"
@@ -258,7 +258,13 @@ export async function DashboardTopMetricsEnhanced({
                 Zeitraum.
               </p>
             </ExplainerPopover>
-            <div className="ml-auto">
+            {/* On narrow cards the toggle would otherwise wrap below the
+                headline while staying pinned right (ml-auto), which reads
+                awkwardly. Below xl we lift it onto its own line *above* the
+                headline, left-aligned (order-first + basis-full forces a
+                full-width first line); at xl+ it returns inline, right-aligned
+                via xl:ml-auto. */}
+            <div className="order-first basis-full xl:order-none xl:basis-auto xl:ml-auto">
               <TimeRangeToggle
                 value={leadsRange}
                 paramKey={DASHBOARD_RANGE_KEYS.leads}
@@ -323,7 +329,7 @@ export async function DashboardTopMetricsEnhanced({
                 Zeitraum.
               </p>
             </ExplainerPopover>
-            <div className="ml-auto">
+            <div className="order-first basis-full xl:order-none xl:basis-auto xl:ml-auto">
               <TimeRangeToggle
                 value={revenueRange}
                 paramKey={DASHBOARD_RANGE_KEYS.revenue}
@@ -390,7 +396,7 @@ export async function DashboardTopMetricsEnhanced({
                 ändern.
               </p>
             </ExplainerPopover>
-            <div className="ml-auto">
+            <div className="order-first basis-full xl:order-none xl:basis-auto xl:ml-auto">
               <TimeRangeToggle
                 value={openRange}
                 paramKey={DASHBOARD_RANGE_KEYS.open}
@@ -434,7 +440,7 @@ export async function DashboardTopMetricsEnhanced({
           boxShadow: "var(--shadow-card)",
         }}
       >
-        <CardHeader className="flex-row items-center justify-between gap-4 space-y-0">
+        <CardHeader className="flex-row flex-wrap items-center justify-between gap-4 space-y-0">
           <div className="flex items-center gap-1.5">
             <CardTitle className="!text-xl !font-medium md:!text-2xl">
               Quellen-Aufschlüsselung
@@ -451,11 +457,15 @@ export async function DashboardTopMetricsEnhanced({
               </p>
             </ExplainerPopover>
           </div>
-          <TimeRangeToggle
-            value={sourcesRange}
-            paramKey={DASHBOARD_RANGE_KEYS.sources}
-            ariaLabel="Zeitraum für Quellen-Aufschlüsselung"
-          />
+          {/* Below xl: lift onto its own line above the title, left-aligned.
+              At xl+ the header's justify-between pins it inline-right. */}
+          <div className="order-first basis-full xl:order-none xl:basis-auto">
+            <TimeRangeToggle
+              value={sourcesRange}
+              paramKey={DASHBOARD_RANGE_KEYS.sources}
+              ariaLabel="Zeitraum für Quellen-Aufschlüsselung"
+            />
+          </div>
         </CardHeader>
         <CardContent>
           <BreakdownStackChart

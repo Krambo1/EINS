@@ -155,7 +155,7 @@ export async function DashboardDetailBundle({
 
   return (
     <>
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <FunnelOverviewCard
           summary={summary}
           priorSummary={priorSummary}
@@ -168,7 +168,7 @@ export async function DashboardDetailBundle({
         />
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card
           className="print:break-inside-avoid"
           style={{
@@ -311,7 +311,7 @@ function NoShowQuoteCard({
         boxShadow: "var(--shadow-card)",
       }}
     >
-      <CardHeader className="flex-row items-start justify-between gap-4">
+      <CardHeader className="flex-row flex-wrap items-start justify-between gap-4">
         <div className="flex items-center gap-1.5">
           <CardTitle className="!text-xl !font-medium md:!text-2xl">
             No-Show-Quote
@@ -327,11 +327,16 @@ function NoShowQuoteCard({
             </p>
           </ExplainerPopover>
         </div>
-        <TimeRangeToggle
-          value={range}
-          paramKey={DASHBOARD_RANGE_KEYS.noShow}
-          ariaLabel="Zeitraum für No-Show-Quote"
-        />
+        {/* Below xl: lift onto its own line above the title, left-aligned
+            (order-first + basis-full forces a full-width first line). At xl+
+            the header's justify-between pins it inline-right. */}
+        <div className="order-first basis-full xl:order-none xl:basis-auto">
+          <TimeRangeToggle
+            value={range}
+            paramKey={DASHBOARD_RANGE_KEYS.noShow}
+            ariaLabel="Zeitraum für No-Show-Quote"
+          />
+        </div>
       </CardHeader>
       <CardContent className="space-y-3">
         {!hasData ? (
@@ -438,15 +443,17 @@ function MultiLocationCard({
         boxShadow: "var(--shadow-card)",
       }}
     >
-      <CardHeader className="flex-row items-center justify-between gap-4 md:justify-start md:gap-6">
+      <CardHeader className="flex-row flex-wrap items-center justify-between gap-4 md:justify-start md:gap-6">
         <CardTitle className="!text-xl !font-medium md:!text-2xl">
           Standorte
         </CardTitle>
-        <TimeRangeToggle
-          value={range}
-          paramKey={DASHBOARD_RANGE_KEYS.locations}
-          ariaLabel="Zeitraum für Standorte"
-        />
+        <div className="order-first basis-full xl:order-none xl:basis-auto">
+          <TimeRangeToggle
+            value={range}
+            paramKey={DASHBOARD_RANGE_KEYS.locations}
+            ariaLabel="Zeitraum für Standorte"
+          />
+        </div>
       </CardHeader>
       <CardContent>
         <DataTable
@@ -584,17 +591,19 @@ function FunnelOverviewCard({
         boxShadow: "var(--shadow-card)",
       }}
     >
-      <CardHeader className="flex-row items-start justify-between gap-4">
+      <CardHeader className="flex-row flex-wrap items-start justify-between gap-4">
         <div className="flex flex-col gap-2">
           <CardTitle className="!text-xl !font-medium md:!text-2xl">
             Trichter-Übersicht
           </CardTitle>
         </div>
-        <TimeRangeToggle
-          value={range}
-          paramKey={DASHBOARD_RANGE_KEYS.funnel}
-          ariaLabel="Zeitraum für Trichter-Übersicht"
-        />
+        <div className="order-first basis-full xl:order-none xl:basis-auto">
+          <TimeRangeToggle
+            value={range}
+            paramKey={DASHBOARD_RANGE_KEYS.funnel}
+            ariaLabel="Zeitraum für Trichter-Übersicht"
+          />
+        </div>
       </CardHeader>
       <CardContent>
         {empty ? (
@@ -695,15 +704,17 @@ function TreatmentBreakdownCard({
         boxShadow: "var(--shadow-card)",
       }}
     >
-      <CardHeader className="flex-row items-start justify-between gap-4">
+      <CardHeader className="flex-row flex-wrap items-start justify-between gap-4">
         <CardTitle className="!text-xl !font-medium md:!text-2xl">
           Behandlungs-Aufschlüsselung
         </CardTitle>
-        <TimeRangeToggle
-          value={range}
-          paramKey={DASHBOARD_RANGE_KEYS.treatments}
-          ariaLabel="Zeitraum für Behandlungs-Aufschlüsselung"
-        />
+        <div className="order-first basis-full xl:order-none xl:basis-auto">
+          <TimeRangeToggle
+            value={range}
+            paramKey={DASHBOARD_RANGE_KEYS.treatments}
+            ariaLabel="Zeitraum für Behandlungs-Aufschlüsselung"
+          />
+        </div>
       </CardHeader>
       <CardContent>
         {rows.length === 0 ? (

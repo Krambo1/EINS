@@ -107,6 +107,17 @@ export const env = createEnv({
     GOOGLE_ADS_LOGIN_CUSTOMER_ID: z.string().optional(),
     /** Server-side API key for Places API (New) — review rating + count sync. */
     GOOGLE_PLACES_API_KEY: z.string().optional(),
+    /**
+     * "Sign in with Google" OAuth client — DELIBERATELY separate from the
+     * GOOGLE_ADS_* credentials above. This client only requests
+     * `openid email profile` to authenticate clinic users + admins on the
+     * login screens. When either value is missing, the "Mit Google anmelden"
+     * button stays hidden (see `hasGoogleLogin()`), so an unconfigured env
+     * never shows a broken button. Redirect URIs are derived from APP_ORIGIN /
+     * adminOrigin() in `@/auth/google-login`, so no extra env var is needed.
+     */
+    GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
+    GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
 
     // Sentry
     SENTRY_DSN: z.string().optional(),
@@ -181,6 +192,8 @@ export const env = createEnv({
     GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
     GOOGLE_ADS_LOGIN_CUSTOMER_ID: process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID,
     GOOGLE_PLACES_API_KEY: process.env.GOOGLE_PLACES_API_KEY,
+    GOOGLE_OAUTH_CLIENT_ID: process.env.GOOGLE_OAUTH_CLIENT_ID,
+    GOOGLE_OAUTH_CLIENT_SECRET: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
     SENTRY_DSN: process.env.SENTRY_DSN,
     ADMIN_EMAILS: process.env.ADMIN_EMAILS,
     ADMIN_IP_ALLOWLIST: process.env.ADMIN_IP_ALLOWLIST,
@@ -266,6 +279,17 @@ export function hasGoogle(): boolean {
 }
 export function hasGooglePlaces(): boolean {
   return Boolean(env.GOOGLE_PLACES_API_KEY);
+}
+/**
+ * Whether "Sign in with Google" is configured. Gates the login-screen button
+ * (clinic + admin) so an unconfigured environment never renders a button that
+ * would dead-end at Google with an `invalid_client` error.
+ */
+export function hasGoogleLogin(): boolean {
+  return (
+    Boolean(env.GOOGLE_OAUTH_CLIENT_ID) &&
+    Boolean(env.GOOGLE_OAUTH_CLIENT_SECRET)
+  );
 }
 
 /**

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/auth/session";
+import { hasGoogleLogin } from "@/lib/env";
 import { defaultLandingPath } from "@/lib/roles";
 import { LoginForm } from "./LoginForm";
 
@@ -17,6 +18,13 @@ const ERROR_MESSAGES: Record<string, string> = {
   missing_token: "Der Link enthielt kein Token.",
   session_expired:
     "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
+  google_no_account:
+    "Zu dieser Google-Adresse gibt es kein Konto. Bitte melden Sie sich mit Ihrer hinterlegten geschäftlichen E-Mail-Adresse an.",
+  google_unverified:
+    "Diese Google-Adresse ist nicht bestätigt. Bitte melden Sie sich per E-Mail an.",
+  google_error:
+    "Die Google-Anmeldung ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
+  google_unavailable: "Die Google-Anmeldung ist derzeit nicht verfügbar.",
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
@@ -54,7 +62,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         </div>
       )}
       <div className="mt-8">
-        <LoginForm initialError={error} />
+        <LoginForm initialError={error} googleEnabled={hasGoogleLogin()} />
       </div>
     </div>
   );

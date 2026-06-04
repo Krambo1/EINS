@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@eins/ui";
 import { EinsLogo } from "@/app/_components/EinsLogo";
 import { getAdminSession } from "@/auth/admin";
+import { hasGoogleLogin } from "@/lib/env";
 import { LoginForm } from "./_components/LoginForm";
 
 export const metadata = { title: "Admin-Anmeldung" };
@@ -21,6 +22,13 @@ const CALLBACK_ERROR_MESSAGES: Record<string, string> = {
   missing: "Der Link enthielt kein Token. Bitte fordern Sie einen neuen an.",
   invalid_or_expired:
     "Der Link ist abgelaufen oder wurde bereits verwendet. Bitte fordern Sie einen neuen an.",
+  google_denied:
+    "Diese Google-Adresse ist nicht für den Admin-Bereich freigeschaltet.",
+  google_unverified:
+    "Diese Google-Adresse ist nicht bestätigt. Bitte melden Sie sich per E-Mail an.",
+  google_error:
+    "Die Google-Anmeldung ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
+  google_unavailable: "Die Google-Anmeldung ist derzeit nicht verfügbar.",
 };
 
 export default async function AdminLoginPage({ searchParams }: PageProps) {
@@ -50,7 +58,7 @@ export default async function AdminLoginPage({ searchParams }: PageProps) {
               {callbackError}
             </div>
           )}
-          <LoginForm />
+          <LoginForm googleEnabled={hasGoogleLogin()} />
         </CardContent>
       </Card>
     </div>

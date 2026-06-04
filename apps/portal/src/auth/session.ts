@@ -9,6 +9,7 @@ import { type CurrencyCode } from "../lib/formatting";
 import {
   SESSION_COOKIE,
   SESSION_MAX_AGE_SECONDS,
+  SESSION_REMEMBER_MAX_AGE_SECONDS,
   type Role,
 } from "../lib/constants";
 import { generateToken, sha256Hex } from "../lib/crypto";
@@ -34,11 +35,14 @@ interface SessionCookiePayload {
   tok: string; // opaque random token — we store its hash in DB
 }
 
-async function signCookie(payload: SessionCookiePayload): Promise<string> {
+async function signCookie(
+  payload: SessionCookiePayload,
+  maxAgeSeconds: number
+): Promise<string> {
   return await new SignJWT({ ...payload })
     .setProtectedHeader({ alg: ALG, kid: "session-v1" })
     .setIssuedAt()
-    .setExpirationTime(`${SESSION_MAX_AGE_SECONDS}s`)
+    .setExpirationTime(`${maxAgeSeconds}s`)
     .sign(SECRET);
 }
 
@@ -79,14 +83,24 @@ export interface ResolvedSession {
  * @param opts.impersonatedByAdminId set when an admin "View as user" flow
  *                                   opened this session; triggers the
  *                                   in-portal banner.
+ * @param opts.rememberMe set from the "Angemeldet bleiben"-Häkchen on the login
+ *                        form; extends the session from 8h to 30 days across the
+ *                        JWT, cookie and sessions.expires_at in one shot.
  */
 export async function createSession(
   userId: string,
-  opts: { impersonatedByAdminId?: string } = {}
+  opts: { impersonatedByAdminId?: string; rememberMe?: boolean } = {}
 ): Promise<void> {
+  // "Angemeldet bleiben" verlängert auf 30 Tage. Impersonation bleibt bewusst
+  // kurzlebig: ein Admin, der sich als User einloggt, soll keine 30-Tage-Session
+  // im Namen des Users öffnen, deshalb gewinnt impersonatedByAdminId immer.
+  const maxAgeSeconds =
+    opts.rememberMe && !opts.impersonatedByAdminId
+      ? SESSION_REMEMBER_MAX_AGE_SECONDS
+      : SESSION_MAX_AGE_SECONDS;
   const token = generateToken(32);
   const tokenHash = sha256Hex(token);
-  const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000);
+  const expiresAt = new Date(Date.now() + maxAgeSeconds * 1000);
 
   const hdrs = await headers();
   const ua = hdrs.get("user-agent") ?? null;
@@ -104,14 +118,14 @@ export async function createSession(
     })
     .returning({ id: schema.sessions.id });
 
-  const cookie = await signCookie({ sid: row.id, tok: token });
+  const cookie = await signCookie({ sid: row.id, tok: token }, maxAgeSeconds);
   const jar = await cookies();
   jar.set(SESSION_COOKIE, cookie, {
     httpOnly: true,
     sameSite: "lax",
     secure: env.NODE_ENV === "production",
     path: "/",
-    maxAge: SESSION_MAX_AGE_SECONDS,
+    maxAge: maxAgeSeconds,
   });
 
   // Bump last-login stamp — but NOT for impersonation (the real user didn't

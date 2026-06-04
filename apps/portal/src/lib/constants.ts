@@ -260,6 +260,13 @@ export const PATIENT_FEEDBACK_STATUS_LABELS: Record<
 /** Session cookie */
 export const SESSION_COOKIE = "eins_session";
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8; // 8h idle timeout
+/**
+ * "Angemeldet bleiben": Häkchen beim Login verlängert die Session von 8 Stunden
+ * auf 30 Tage. Der Wert steuert ALLE drei Lebenszeiten gleichzeitig (JWT-Exp,
+ * Cookie-maxAge und sessions.expires_at); driften sie auseinander, stirbt die
+ * Session am kürzesten der drei Werte.
+ */
+export const SESSION_REMEMBER_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 Tage
 
 /** Magic-link TTL */
 export const MAGIC_LINK_TTL_SECONDS = 60 * 15; // 15 minutes

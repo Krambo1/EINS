@@ -23,7 +23,13 @@ import { generateToken, sha256Hex } from "../lib/crypto";
  */
 
 export const ADMIN_SESSION_COOKIE = "eins_admin_session";
-export const ADMIN_SESSION_MAX_AGE_SECONDS = 60 * 60 * 4; // 4h — stricter than clinic sessions
+export const ADMIN_SESSION_MAX_AGE_SECONDS = 60 * 60 * 4; // 4h, stricter than clinic sessions
+/**
+ * "Angemeldet bleiben" für Admins: 7 Tage statt 4 Stunden. Bewusst deutlich
+ * kürzer als die 30 Tage auf Clinic-Seite, weil der Admin-Track sicherheits-
+ * kritischer ist (kein TOTP; Allowlist + IP-Gate sind der zweite Faktor).
+ */
+export const ADMIN_SESSION_REMEMBER_MAX_AGE_SECONDS = 60 * 60 * 24 * 7; // 7 Tage
 
 const SECRET = new TextEncoder().encode(env.SESSION_SECRET);
 const ALG = "HS256";
@@ -33,11 +39,14 @@ interface AdminCookiePayload {
   tok: string;
 }
 
-async function signAdminCookie(payload: AdminCookiePayload): Promise<string> {
+async function signAdminCookie(
+  payload: AdminCookiePayload,
+  maxAgeSeconds: number
+): Promise<string> {
   return await new SignJWT({ ...payload })
     .setProtectedHeader({ alg: ALG, kid: "admin-session-v1" })
     .setIssuedAt()
-    .setExpirationTime(`${ADMIN_SESSION_MAX_AGE_SECONDS}s`)
+    .setExpirationTime(`${maxAgeSeconds}s`)
     .sign(SECRET);
 }
 
@@ -74,11 +83,21 @@ export function isAllowedAdminIp(ip: string | null): boolean {
 /**
  * Create an admin session row + cookie. Called from consumeAdminMagicLink()
  * and from the password-login action after a successful argon2 verify.
+ *
+ * @param opts.rememberMe set from the "Angemeldet bleiben"-Häkchen on the admin
+ *                        login form; extends the session from 4h to 7 days across
+ *                        the JWT, cookie and admin_sessions.expires_at at once.
  */
-export async function createAdminSession(adminId: string): Promise<void> {
+export async function createAdminSession(
+  adminId: string,
+  opts: { rememberMe?: boolean } = {}
+): Promise<void> {
+  const maxAgeSeconds = opts.rememberMe
+    ? ADMIN_SESSION_REMEMBER_MAX_AGE_SECONDS
+    : ADMIN_SESSION_MAX_AGE_SECONDS;
   const token = generateToken(32);
   const tokenHash = sha256Hex(token);
-  const expiresAt = new Date(Date.now() + ADMIN_SESSION_MAX_AGE_SECONDS * 1000);
+  const expiresAt = new Date(Date.now() + maxAgeSeconds * 1000);
 
   const hdrs = await headers();
   const ua = hdrs.get("user-agent") ?? null;
@@ -95,14 +114,14 @@ export async function createAdminSession(adminId: string): Promise<void> {
     })
     .returning({ id: schema.adminSessions.id });
 
-  const cookie = await signAdminCookie({ sid: row.id, tok: token });
+  const cookie = await signAdminCookie({ sid: row.id, tok: token }, maxAgeSeconds);
   const jar = await cookies();
   jar.set(ADMIN_SESSION_COOKIE, cookie, {
     httpOnly: true,
     sameSite: "lax",
     secure: env.NODE_ENV === "production",
     path: "/",
-    maxAge: ADMIN_SESSION_MAX_AGE_SECONDS,
+    maxAge: maxAgeSeconds,
   });
 
   await db

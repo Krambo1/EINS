@@ -6,6 +6,7 @@ import {
   Badge,
 } from "@eins/ui";
 import { requirePermissionOrRedirect } from "@/auth/guards";
+import { KindFilterSelect } from "./_components/KindFilterSelect";
 import { listDocuments } from "@/server/queries/documents";
 import { getStorage } from "@/server/storage";
 import { formatDate } from "@/lib/formatting";
@@ -61,8 +62,11 @@ export default async function DokumentePage({
         </p>
       </header>
 
-      {/* Kind filter */}
-      <nav className="flex flex-wrap gap-2">
+      {/* Kind filter — dropdown on mobile, pill row on sm+ */}
+      <div className="sm:hidden">
+        <KindFilterSelect kind={kind} />
+      </div>
+      <nav className="hidden flex-wrap gap-2 sm:flex">
         <Link
           href="/dokumente"
           className={`rounded-full border px-3 py-1.5 text-sm transition ${
@@ -101,19 +105,19 @@ export default async function DokumentePage({
               {withUrls.map((d) => (
                 <li
                   key={d.id}
-                  className="flex flex-wrap items-center justify-between gap-3 p-4 transition hover:bg-bg-secondary md:p-5"
+                  className="flex flex-col gap-3 p-4 transition hover:bg-bg-secondary sm:flex-row sm:flex-wrap sm:items-center sm:justify-between md:p-5"
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <FileText className="h-4 w-4 text-fg-secondary" />
-                      <span className="truncate text-base font-medium text-fg-primary md:text-lg">
+                  <div className="min-w-0 sm:flex-1">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <FileText className="h-4 w-4 shrink-0 text-fg-secondary" />
+                      <span className="min-w-0 break-words text-base font-medium text-fg-primary md:text-lg">
                         {d.title}
                       </span>
-                      <Badge tone="neutral">
+                      <Badge tone="neutral" className="shrink-0">
                         {DOCUMENT_KIND_LABELS[d.kind as DocumentKind] ?? d.kind}
                       </Badge>
                       {d.version > 1 && (
-                        <span className="text-xs text-fg-secondary">
+                        <span className="shrink-0 text-xs text-fg-secondary">
                           v{d.version}
                         </span>
                       )}
@@ -128,19 +132,19 @@ export default async function DokumentePage({
                       )}
                     </div>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex shrink-0 gap-2">
                     <a
                       href={d.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-bg-secondary"
+                      className="flex-1 rounded-md border border-border px-3 py-2 text-center text-sm font-medium hover:bg-bg-secondary sm:flex-none"
                     >
                       Öffnen
                     </a>
                     <a
                       href={d.url}
                       download
-                      className="opa-btn-primary opa-focus-ring inline-flex items-center gap-1 rounded-md px-3 py-2 text-sm font-medium"
+                      className="opa-btn-primary opa-focus-ring inline-flex flex-1 items-center justify-center gap-1 rounded-md px-3 py-2 text-sm font-medium sm:flex-none"
                     >
                       <Download className="h-4 w-4" />
                       Herunterladen
