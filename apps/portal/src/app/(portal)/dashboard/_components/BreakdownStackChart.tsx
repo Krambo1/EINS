@@ -3,7 +3,7 @@
 import * as React from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { ExplainerPopover } from "@eins/ui";
-import { withBrandLogos } from "@/app/_components/Brand";
+import { withBrandLogos, brandIconsOnly } from "@/app/_components/Brand";
 import { SegmentedShareBar } from "@/app/_components/SegmentedShareBar";
 
 // Tone vocabulary mirrors `./detail-helpers` but is inlined so this client
@@ -187,7 +187,7 @@ export function BreakdownStackChart({
           auto-track, dragging every sibling card past the viewport edge.
           Same pattern as the Behandlungen/Standorte tables. */}
       <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-sm [&_.brand-meta-light]:!h-[1.9em] [&_.brand-meta-light]:!align-middle [&_.brand-meta-light]:!my-[-0.5em] [&_.brand-meta-dark]:!h-[1.9em] [&_.brand-meta-dark]:!align-middle [&_.brand-meta-dark]:!my-[-0.5em]">
+        <table className="w-full border-collapse text-sm [&_.brand-meta-light]:!h-[1.9em] [&_.brand-meta-light]:!align-middle [&_.brand-meta-light]:!my-[-0.5em] [&_.brand-meta-light]:!ml-[-0.65em] [&_.brand-meta-light]:!mr-[-0.15em] [&_.brand-meta-dark]:!h-[1.9em] [&_.brand-meta-dark]:!align-middle [&_.brand-meta-dark]:!my-[-0.5em] [&_.brand-meta-dark]:!ml-[-0.65em] [&_.brand-meta-dark]:!mr-[-0.15em]">
         <thead>
           <tr className="text-[10px] font-medium uppercase tracking-wide text-fg-tertiary">
             <th className="py-2 text-left font-medium">
@@ -222,14 +222,20 @@ export function BreakdownStackChart({
                     isOpen ? "bg-bg-secondary" : ""
                   }`}
                 >
-                  <td className="py-2.5 pr-2">
-                    <span className="inline-flex items-center gap-2.5">
+                  <td className="py-2.5 pr-1 md:pr-2">
+                    <span className="inline-flex items-center gap-2 md:gap-2.5">
                       <span
                         aria-hidden
                         className="inline-block h-2 w-2 shrink-0 rounded-full"
                         style={{ backgroundColor: toneVar[r.tone ?? "accent"] }}
                       />
-                      <span className="text-fg-primary">
+                      {/* Mobile: logo/icon only, so the funnel columns reclaim
+                          the width the text labels would otherwise eat. Desktop
+                          keeps the full brand-decorated label. */}
+                      <span className="text-fg-primary md:hidden">
+                        {brandIconsOnly(r.labelText)}
+                      </span>
+                      <span className="hidden text-fg-primary md:inline">
                         {withBrandLogos(r.labelText)}
                       </span>
                     </span>
@@ -320,19 +326,56 @@ function EconRow({
       className={hidden ? "invisible" : "bg-bg-secondary"}
       aria-hidden={hidden || undefined}
     >
-      <td className="pb-3 pt-1 pr-2 align-bottom">
+      {/* Mobile: the four metrics packed left in one full-width cell. The
+          "Wirtschaftlichkeit" caption and the column alignment are dropped
+          here — on a phone the funnel columns are too narrow to hang CPL/CAC/
+          LTV/ROAS under, so right-aligning them stranded CPL far from the left
+          edge behind a wide empty caption. Left-packed reads cleaner. */}
+      <td className="pb-3 pt-1 md:hidden" colSpan={6}>
+        <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
+          <EconStat label="CPL" value={row.cpl} info={ECON_INFO.cpl} />
+          <EconStat label="CAC" value={row.cac} info={ECON_INFO.cac} />
+          <EconStat label="LTV" value={row.ltv} info={ECON_INFO.ltv} />
+          <EconStat
+            label="ROAS"
+            value={row.roas}
+            tone={row.roasTone ?? "good"}
+            info={ECON_INFO.roas}
+          />
+        </div>
+      </td>
+
+      {/* Desktop: each metric column-aligned under its funnel number above,
+          captioned with "Wirtschaftlichkeit" in the Quelle column. */}
+      <td className="hidden pb-3 pt-1 pr-2 align-bottom md:table-cell">
         <span className="text-xs text-fg-tertiary">Wirtschaftlichkeit</span>
       </td>
-      <EconCell label="CPL" value={row.cpl} info={ECON_INFO.cpl} />
-      <EconCell label="CAC" value={row.cac} info={ECON_INFO.cac} />
-      <EconCell label="LTV" value={row.ltv} info={ECON_INFO.ltv} />
       <EconCell
+        className="hidden md:table-cell"
+        label="CPL"
+        value={row.cpl}
+        info={ECON_INFO.cpl}
+      />
+      <EconCell
+        className="hidden md:table-cell"
+        label="CAC"
+        value={row.cac}
+        info={ECON_INFO.cac}
+      />
+      <EconCell
+        className="hidden md:table-cell"
+        label="LTV"
+        value={row.ltv}
+        info={ECON_INFO.ltv}
+      />
+      <EconCell
+        className="hidden md:table-cell"
         label="ROAS"
         value={row.roas}
         tone={row.roasTone ?? "good"}
         info={ECON_INFO.roas}
       />
-      <td className="w-9 pb-3 pt-1" aria-hidden />
+      <td className="hidden w-9 pb-3 pt-1 md:table-cell" aria-hidden />
     </tr>
   );
 }
@@ -367,15 +410,17 @@ function EconCell({
   value,
   tone,
   info,
+  className,
 }: {
   label: string;
   value: string | null;
   tone?: BreakdownTone | null;
   info?: { term: string; text: string };
+  className?: string;
 }) {
   const hasValue = value != null;
   return (
-    <td className="pb-3 pt-1 pl-2 align-bottom text-right">
+    <td className={`pb-3 pt-1 pl-2 align-bottom text-right ${className ?? ""}`}>
       <span className="flex items-center justify-end gap-0.5 text-[10px] uppercase tracking-wide text-fg-tertiary">
         {label}
         {info && (
@@ -396,6 +441,46 @@ function EconCell({
         {hasValue ? value : "–"}
       </span>
     </td>
+  );
+}
+
+/** Mobile variant of {@link EconCell}: the same micro-label-over-value stack,
+ *  but left-aligned and standalone (not a table cell) so the four metrics pack
+ *  tight against the left edge inside the drawer's full-width mobile cell. */
+function EconStat({
+  label,
+  value,
+  tone,
+  info,
+}: {
+  label: string;
+  value: string | null;
+  tone?: BreakdownTone | null;
+  info?: { term: string; text: string };
+}) {
+  const hasValue = value != null;
+  return (
+    <div className="text-left">
+      <span className="flex items-center gap-0.5 text-[10px] uppercase tracking-wide text-fg-tertiary">
+        {label}
+        {info && (
+          <ExplainerPopover term={info.term} className="h-4 w-4">
+            {info.text}
+          </ExplainerPopover>
+        )}
+      </span>
+      <span
+        className={`mt-0.5 block font-display text-sm font-semibold tabular-nums ${
+          !hasValue
+            ? "text-fg-tertiary"
+            : tone
+              ? statToneClass[tone]
+              : "text-fg-primary"
+        }`}
+      >
+        {hasValue ? value : "–"}
+      </span>
+    </div>
   );
 }
 

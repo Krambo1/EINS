@@ -704,11 +704,18 @@ function TreatmentBreakdownCard({
         boxShadow: "var(--shadow-card)",
       }}
     >
-      <CardHeader className="flex-row flex-wrap items-start justify-between gap-4">
-        <CardTitle className="!text-xl !font-medium md:!text-2xl">
+      {/* xl:flex-nowrap + xl:gap-2 keep der lange Titel und der Toggle in der
+          xl-Zweispaltung (Karte nur ~555px breit) auf einer Zeile: ohne sie
+          überläuft "Behandlungs-Aufschlüsselung" + Toggle die Kartenbreite um
+          wenige Pixel und der Toggle bricht unter die Überschrift. min-w-0 am
+          Titel + shrink-0 am Toggle lassen im Ernstfall den Titel umbrechen,
+          statt den Toggle nach unten zu schieben. Unter xl bleibt es beim
+          gestapelten Layout (Toggle in eigener Zeile über dem Titel). */}
+      <CardHeader className="flex-row flex-wrap items-start justify-between gap-4 xl:flex-nowrap xl:gap-2">
+        <CardTitle className="min-w-0 !text-xl !font-medium md:!text-2xl">
           Behandlungs-Aufschlüsselung
         </CardTitle>
-        <div className="order-first basis-full xl:order-none xl:basis-auto">
+        <div className="order-first basis-full xl:order-none xl:basis-auto xl:shrink-0">
           <TimeRangeToggle
             value={range}
             paramKey={DASHBOARD_RANGE_KEYS.treatments}

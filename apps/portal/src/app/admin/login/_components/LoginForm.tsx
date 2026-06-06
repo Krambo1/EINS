@@ -51,11 +51,12 @@ export function LoginForm({
 
   // Login-Success: harte Browser-Navigation auf /admin statt router.replace +
   // router.refresh. Hintergrund: /admin/login und /admin teilen sich das
-  // Admin-Shell-Layout (apps/portal/src/app/admin/layout.tsx), das je nach Pfad
-  // zwischen "bare" und "chrome" (mit Top-Nav) entscheidet. Eine Soft-Nav
-  // konserviert das pre-Login bare-Rendering des geteilten Layouts; die Top-Nav
-  // erscheint erst nach Hard-Reload. window.location.assign erzwingt einen
-  // frischen Document-Request, das Layout rendert mit Session korrekt durch.
+  // Admin-Shell-Layout (apps/portal/src/app/admin/layout.tsx), das anhand der
+  // Session zwischen "bare" und "chrome" (mit Top-Nav) entscheidet. Eine
+  // Soft-Nav würde das pre-Login bare-Rendering des geteilten Layouts
+  // konservieren; die Top-Nav erschiene erst nach Hard-Reload.
+  // window.location.assign erzwingt einen frischen Document-Request, das Layout
+  // rendert serverseitig mit Session durch und die Top-Nav erscheint sofort.
   // Der Next.js #65893-Bug greift nur bei Server-Action-redirect(), nicht bei
   // einer reinen Browser-Navigation.
   useEffect(() => {

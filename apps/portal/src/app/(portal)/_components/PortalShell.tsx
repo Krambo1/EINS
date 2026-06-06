@@ -25,6 +25,7 @@ import {
   MessageSquare,
   Star,
   Menu,
+  Search,
 } from "lucide-react";
 import { CONTACT_CARD_COOKIE, type Role } from "@/lib/constants";
 import { can } from "@/lib/roles";
@@ -398,85 +399,6 @@ export function PortalShell({
     };
   }, [mobileNavOpen]);
 
-  // Pull-down-from-top gesture: when the page is scrolled to the top on
-  // mobile, a deliberate downward swipe opens the global search palette —
-  // the iOS-Spotlight analogue.
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 767px)");
-    const THRESHOLD = 80;
-    const DEADZONE = 8;
-    let startX = 0;
-    let startY = 0;
-    let tracking = false;
-
-    const onStart = (e: TouchEvent) => {
-      if (!mq.matches) return;
-      if (mobileNavOpen) return;
-      if (window.scrollY > 0) return;
-      const t = e.touches[0];
-      if (!t) return;
-      startX = t.clientX;
-      startY = t.clientY;
-      tracking = true;
-    };
-    const onMove = (e: TouchEvent) => {
-      if (!tracking) return;
-      const t = e.touches[0];
-      if (!t) return;
-      const dy = t.clientY - startY;
-      const dx = t.clientX - startX;
-      // Wait for the gesture to leave the deadzone before judging direction.
-      if (Math.abs(dy) < DEADZONE && Math.abs(dx) < DEADZONE) return;
-      // Bail on upward motion (user is scrolling) or horizontal-dominant
-      // motion (the edge-swipe handler can take it).
-      if (dy < 0 || Math.abs(dx) > dy) {
-        tracking = false;
-        return;
-      }
-      // Bail if the page scrolled away from the top mid-gesture.
-      if (window.scrollY > 0) {
-        tracking = false;
-        return;
-      }
-      if (dy > THRESHOLD) {
-        tracking = false;
-        try {
-          navigator.vibrate?.(8);
-        } catch {
-          // vibration API may be disabled or unavailable; ignore.
-        }
-        setSearchLoaded(true);
-        setSearchOpen(true);
-      }
-    };
-    const onEnd = () => {
-      tracking = false;
-    };
-
-    window.addEventListener("touchstart", onStart, { passive: true });
-    window.addEventListener("touchmove", onMove, { passive: true });
-    window.addEventListener("touchend", onEnd, { passive: true });
-    window.addEventListener("touchcancel", onEnd, { passive: true });
-    return () => {
-      window.removeEventListener("touchstart", onStart);
-      window.removeEventListener("touchmove", onMove);
-      window.removeEventListener("touchend", onEnd);
-      window.removeEventListener("touchcancel", onEnd);
-    };
-  }, [mobileNavOpen]);
-
-  // Prevent Chrome Android's pull-to-refresh so the swipe-down-to-search
-  // gesture isn't doubled with a page reload. iOS Safari's rubber-band is
-  // unaffected and harmless.
-  useEffect(() => {
-    const root = document.documentElement;
-    const previous = root.style.overscrollBehaviorY;
-    root.style.overscrollBehaviorY = "contain";
-    return () => {
-      root.style.overscrollBehaviorY = previous;
-    };
-  }, []);
-
   // Desktop sidenav: measure the active item and observe all items so the
   // pill follows font-load / role-change / hover-induced size shifts.
   useEffect(() => {
@@ -541,6 +463,15 @@ export function PortalShell({
           </Link>
 
           <div className="flex-1" />
+
+          <button
+            type="button"
+            onClick={openSearchPalette}
+            aria-label="Suchen"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-fg-primary hover:bg-bg-secondary md:hidden"
+          >
+            <Search className="h-5 w-5" />
+          </button>
 
           <ThemeToggle />
 

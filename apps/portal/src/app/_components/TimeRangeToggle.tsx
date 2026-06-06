@@ -1,7 +1,13 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, useTransition } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { cn } from "@eins/ui";
 import {
   DASHBOARD_RANGES,
@@ -9,7 +15,24 @@ import {
   type DashboardRange,
 } from "@/lib/dashboard-range";
 
+// useLayoutEffect warns during SSR; fall back to useEffect on the server. The
+// scroll restore below is client-only anyway, so the no-op server pass is fine.
+const useIsomorphicLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
 type PillGeom = { left: number; top: number; width: number; height: number };
+
+// Module-level scroll position captured at toggle time, keyed by `paramKey`.
+//
+// In a production build the App Router resets `window.scrollY` to the top when
+// the RSC navigation triggered by `router.replace` commits — even with
+// `{ scroll: false }` — which on mobile yanks the user from the card they were
+// reading back to the page top. (Dev mode happens to preserve scroll, so this
+// only reproduces against `next build`/`next start`.) We snapshot the scroll
+// offset before navigating and restore it once the new window's content
+// commits. Module-level so it survives the toggle being torn down and
+// remounted by its Suspense boundary mid-navigation.
+const scrollRestoreByKey = new Map<string, number>();
 
 // Module-level cache of the last-known pill geometry per `paramKey`. The
 // toggle lives inside the page's <Suspense> boundary, which re-suspends
@@ -51,6 +74,9 @@ export function TimeRangeToggle({ value, paramKey, ariaLabel }: Props) {
 
   const select = (next: DashboardRange) => {
     if (next === value) return;
+    // Snapshot scroll before navigating so the restore effect can undo the
+    // App Router's commit-time scroll-to-top (see scrollRestoreByKey above).
+    scrollRestoreByKey.set(paramKey, window.scrollY);
     const nextParams = new URLSearchParams(params.toString());
     nextParams.set(paramKey, next);
     const qs = nextParams.toString();
@@ -58,6 +84,19 @@ export function TimeRangeToggle({ value, paramKey, ariaLabel }: Props) {
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     });
   };
+
+  // Restore scroll once the navigation commits (`value` now reflects the new
+  // window). A layout effect restores before the browser paints to avoid a
+  // flash to the top; a follow-up rAF re-applies it in case the router's own
+  // scroll reset lands after this effect in the commit phase.
+  useIsomorphicLayoutEffect(() => {
+    const y = scrollRestoreByKey.get(paramKey);
+    if (y == null) return;
+    scrollRestoreByKey.delete(paramKey);
+    window.scrollTo(0, y);
+    const raf = requestAnimationFrame(() => window.scrollTo(0, y));
+    return () => cancelAnimationFrame(raf);
+  }, [value, paramKey]);
 
   // Sliding pill — measure the active button (and all siblings via
   // ResizeObserver) so the pill follows font-load / locale changes that

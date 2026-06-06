@@ -178,3 +178,31 @@ export function withBrandLogos(text: string): ReactNode {
     );
   });
 }
+
+/**
+ * Icon-only variant of {@link withBrandLogos}: renders just the brand logo(s)
+ * for any recognised token in `text` and drops the surrounding words. Used in
+ * tight layouts (e.g. the mobile Quellen-Aufschlüsselung) where the source is
+ * conveyed by its logo alone and the text label would steal column width.
+ *
+ * Falls back to the plain text when no brand matches (e.g. "WhatsApp"), so an
+ * unbranded source never collapses to nothing.
+ */
+export function brandIconsOnly(text: string): ReactNode {
+  const parts = text.split(BRAND_PATTERN);
+  const logos: ReactNode[] = [];
+  parts.forEach((part, i) => {
+    if (i % 2 === 0) return; // even indices are the non-brand text, dropped
+    const brand: BrandKey = part.startsWith("Google")
+      ? "google"
+      : part === "Jameda"
+        ? "jameda"
+        : part === "Zielseiten-Formular"
+          ? "formular"
+          : part === "Manueller Eintrag"
+            ? "manuell"
+            : "meta";
+    logos.push(<BrandLogo key={i} brand={brand} />);
+  });
+  return logos.length > 0 ? logos : text;
+}
