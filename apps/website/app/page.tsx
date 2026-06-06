@@ -11,7 +11,6 @@ import { Timeline } from "@/components/sections/timeline";
 import { FitCheck } from "@/components/sections/fit-check";
 import { Objections } from "@/components/sections/objections";
 import { FinalCta } from "@/components/sections/final-cta";
-import { MidCta } from "@/components/sections/mid-cta";
 import { OBJECTIONS } from "@/lib/objections-data";
 
 // Pains is the second section but its 3D carousel pulls framer-motion +
@@ -95,7 +94,6 @@ export default function Page() {
         <System />
         <Offer />
         <Guarantee />
-        <MidCta />
         <StatsShowcase />
         <Timeline />
         <FitCheck />
