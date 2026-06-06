@@ -148,7 +148,7 @@ export function TimeRangeToggle({ value, paramKey, ariaLabel }: Props) {
       role="tablist"
       aria-label={ariaLabel}
       className={cn(
-        "relative inline-flex items-center gap-0.5 rounded-full border border-border bg-bg-secondary p-0.5 backdrop-blur-sm transition-opacity sm:p-1",
+        "relative inline-flex items-center gap-1 rounded-full border border-border bg-bg-secondary p-1 backdrop-blur-sm transition-opacity sm:gap-0.5",
         isPending && "opacity-70"
       )}
       aria-busy={isPending}
@@ -177,7 +177,7 @@ export function TimeRangeToggle({ value, paramKey, ariaLabel }: Props) {
             aria-selected={active}
             onClick={() => select(r)}
             className={cn(
-              "relative z-10 whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium tabular-nums transition-colors duration-300 sm:px-2.5 sm:py-1.5 sm:text-sm",
+              "relative z-10 whitespace-nowrap rounded-full px-3 py-2.5 text-sm font-medium tabular-nums transition-colors duration-300 sm:px-2.5 sm:py-1.5 sm:text-sm",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-bg-primary",
               active
                 ? "text-bg-primary"

@@ -87,6 +87,23 @@ export interface BreakdownRow {
   roasTone?: BreakdownTone | null;
 }
 
+/**
+ * Short, readable Quelle names for the mobile economics-drawer caption. On a
+ * phone the funnel row shows each source as a logo alone (see `brandIconsOnly`),
+ * so when a row is expanded the drawer prefixes its economics with the name
+ * ("Meta:") to identify which Quelle is open. Keyed by the row's source `key`;
+ * the full SOURCE_LABELS values ("Meta / Instagram") are too long for the narrow
+ * Quelle column, so these are deliberately terse.
+ */
+const SOURCE_SHORT_LABEL: Record<string, string> = {
+  meta: "Meta",
+  google: "Google",
+  formular: "Formular",
+  manuell: "Manuell",
+  whatsapp: "WhatsApp",
+  jameda: "Jameda",
+};
+
 /** Totals row pinned to the bottom of the table. Not expandable. */
 export interface BreakdownTotals {
   /** Row label, e.g. "Gesamt". */
@@ -305,11 +322,14 @@ export function BreakdownStackChart({
  * shown only in the hover card, not here.)
  *
  * The four metrics are laid out as real table cells in the Budget · Anfragen ·
- * Termine · Gewonnen columns (not a free grid), so each economics value lines
- * up right-aligned and tabular directly beneath the funnel number above it. A
- * faint caption fills the otherwise-empty Quelle column so the drawer reads as
- * a labelled sub-section rather than four floating numbers. It shares the open
- * row's `bg-bg-secondary` so the row and its drawer form one highlighted block.
+ * Termine · Gewonnen columns (not a free grid) on every breakpoint, so each
+ * economics value lines up right-aligned and tabular directly beneath the
+ * funnel number above it. The Quelle column carries a caption that flips by
+ * breakpoint: the source name ("Meta:") on mobile, where the funnel row shows
+ * the source as a logo only and the name would otherwise be invisible once
+ * expanded; the generic "Wirtschaftlichkeit" on desktop, where the row already
+ * names the source. It shares the open row's `bg-bg-secondary` so the row and
+ * its drawer form one highlighted block.
  */
 function EconRow({
   row,
@@ -320,62 +340,42 @@ function EconRow({
   panelId?: string;
   hidden?: boolean;
 }) {
+  // Mobile-only Quelle name for the caption cell. The funnel row above shows
+  // this source as a logo alone on mobile, so naming it here tells the owner
+  // which Quelle they expanded. Falls back to the full label for any source
+  // without a registered short name.
+  const sourceShort = SOURCE_SHORT_LABEL[row.key] ?? row.labelText;
   return (
     <tr
       id={hidden ? undefined : panelId}
       className={hidden ? "invisible" : "bg-bg-secondary"}
       aria-hidden={hidden || undefined}
     >
-      {/* Mobile: the four metrics packed left in one full-width cell. The
-          "Wirtschaftlichkeit" caption and the column alignment are dropped
-          here — on a phone the funnel columns are too narrow to hang CPL/CAC/
-          LTV/ROAS under, so right-aligning them stranded CPL far from the left
-          edge behind a wide empty caption. Left-packed reads cleaner. */}
-      <td className="pb-3 pt-1 md:hidden" colSpan={6}>
-        <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
-          <EconStat label="CPL" value={row.cpl} info={ECON_INFO.cpl} />
-          <EconStat label="CAC" value={row.cac} info={ECON_INFO.cac} />
-          <EconStat label="LTV" value={row.ltv} info={ECON_INFO.ltv} />
-          <EconStat
-            label="ROAS"
-            value={row.roas}
-            tone={row.roasTone ?? "good"}
-            info={ECON_INFO.roas}
-          />
-        </div>
+      {/* Quelle column caption. Mobile: the source name ("Meta:") so the
+          logo-only funnel row is identifiable once expanded. Desktop: the
+          generic "Wirtschaftlichkeit", since the row there already names the
+          source. align-bottom seats the caption on the value line of the
+          economics cells to its right. */}
+      <td className="pb-3 pt-1 pr-1 align-bottom md:pr-2">
+        <span className="text-xs font-medium text-fg-secondary md:hidden">
+          {sourceShort}:
+        </span>
+        <span className="hidden text-xs text-fg-tertiary md:inline">
+          Wirtschaftlichkeit
+        </span>
       </td>
-
-      {/* Desktop: each metric column-aligned under its funnel number above,
-          captioned with "Wirtschaftlichkeit" in the Quelle column. */}
-      <td className="hidden pb-3 pt-1 pr-2 align-bottom md:table-cell">
-        <span className="text-xs text-fg-tertiary">Wirtschaftlichkeit</span>
-      </td>
+      {/* Economics column-aligned under their funnel number above (Budget ·
+          Anfragen · Termine · Gewonnen) on mobile and desktop alike. */}
+      <EconCell label="CPL" value={row.cpl} info={ECON_INFO.cpl} />
+      <EconCell label="CAC" value={row.cac} info={ECON_INFO.cac} />
+      <EconCell label="LTV" value={row.ltv} info={ECON_INFO.ltv} />
       <EconCell
-        className="hidden md:table-cell"
-        label="CPL"
-        value={row.cpl}
-        info={ECON_INFO.cpl}
-      />
-      <EconCell
-        className="hidden md:table-cell"
-        label="CAC"
-        value={row.cac}
-        info={ECON_INFO.cac}
-      />
-      <EconCell
-        className="hidden md:table-cell"
-        label="LTV"
-        value={row.ltv}
-        info={ECON_INFO.ltv}
-      />
-      <EconCell
-        className="hidden md:table-cell"
         label="ROAS"
         value={row.roas}
         tone={row.roasTone ?? "good"}
         info={ECON_INFO.roas}
       />
-      <td className="hidden w-9 pb-3 pt-1 md:table-cell" aria-hidden />
+      <td className="w-9 pb-3 pt-1" aria-hidden />
     </tr>
   );
 }
@@ -410,17 +410,15 @@ function EconCell({
   value,
   tone,
   info,
-  className,
 }: {
   label: string;
   value: string | null;
   tone?: BreakdownTone | null;
   info?: { term: string; text: string };
-  className?: string;
 }) {
   const hasValue = value != null;
   return (
-    <td className={`pb-3 pt-1 pl-2 align-bottom text-right ${className ?? ""}`}>
+    <td className="pb-3 pt-1 pl-2 align-bottom text-right">
       <span className="flex items-center justify-end gap-0.5 text-[10px] uppercase tracking-wide text-fg-tertiary">
         {label}
         {info && (
@@ -441,46 +439,6 @@ function EconCell({
         {hasValue ? value : "–"}
       </span>
     </td>
-  );
-}
-
-/** Mobile variant of {@link EconCell}: the same micro-label-over-value stack,
- *  but left-aligned and standalone (not a table cell) so the four metrics pack
- *  tight against the left edge inside the drawer's full-width mobile cell. */
-function EconStat({
-  label,
-  value,
-  tone,
-  info,
-}: {
-  label: string;
-  value: string | null;
-  tone?: BreakdownTone | null;
-  info?: { term: string; text: string };
-}) {
-  const hasValue = value != null;
-  return (
-    <div className="text-left">
-      <span className="flex items-center gap-0.5 text-[10px] uppercase tracking-wide text-fg-tertiary">
-        {label}
-        {info && (
-          <ExplainerPopover term={info.term} className="h-4 w-4">
-            {info.text}
-          </ExplainerPopover>
-        )}
-      </span>
-      <span
-        className={`mt-0.5 block font-display text-sm font-semibold tabular-nums ${
-          !hasValue
-            ? "text-fg-tertiary"
-            : tone
-              ? statToneClass[tone]
-              : "text-fg-primary"
-        }`}
-      >
-        {hasValue ? value : "–"}
-      </span>
-    </div>
   );
 }
 

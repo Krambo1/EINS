@@ -650,6 +650,8 @@ interface TreatmentDisplayRow {
   casesWon: number | null;
   revenueEur: number | null;
   avgCaseValueEur: number | null;
+  /** Werbeertrag (ROAS) im Fenster; null wenn kein Budget zuzuordnen ist. */
+  roas: number | null;
 }
 
 /**
@@ -674,8 +676,19 @@ function mergeTreatmentRows(
       casesWon: w ? w.casesWon : null,
       revenueEur: w ? w.revenueEur : null,
       avgCaseValueEur: w ? w.avgCaseValueEur : null,
+      roas: w ? w.roas : null,
     };
   });
+}
+
+/** Werbeertrag (ROAS) → Text-Ton für die Behandlungs-Tabelle, gleiche
+ *  Break-even-Bänder wie die Quellen-Aufschlüsselung (≥2× gut, ≥1× neutral,
+ *  <1× Warnung). null (kein zuordenbares Budget) bleibt gedämpft. */
+function treatmentRoasToneClass(roas: number | null): string {
+  if (roas == null) return "text-fg-tertiary";
+  if (roas >= 2) return "text-tone-good";
+  if (roas >= 1) return "text-fg-primary";
+  return "text-tone-warn";
 }
 
 /**
@@ -740,7 +753,9 @@ function TreatmentBreakdownCard({
                   <th scope="col" className="rounded-l-xl border-l text-left">
                     Behandlung
                   </th>
-                  <th scope="col" className="text-right">
+                  {/* Anfragen entfällt auf dem Handy, damit die schmale Karte
+                      nicht überläuft; auf dem Desktop bleibt sie sichtbar. */}
+                  <th scope="col" className="hidden text-right md:table-cell">
                     Anfragen
                   </th>
                   <th scope="col" className="text-right">
@@ -749,12 +764,38 @@ function TreatmentBreakdownCard({
                   <th scope="col" className="text-right">
                     Umsatz
                   </th>
-                  <th scope="col" className="rounded-r-xl border-r text-right">
+                  {/* Rechte Endkappe der Kopf-Pille: auf dem Handy schließt Ø
+                      Fall den Balken ab, auf dem Desktop übernimmt die
+                      ROAS-Spalte. */}
+                  <th
+                    scope="col"
+                    className="rounded-r-xl border-r text-right md:rounded-r-none md:border-r-0"
+                  >
                     Ø Fall
+                  </th>
+                  <th
+                    scope="col"
+                    className="hidden text-right md:table-cell md:rounded-r-xl md:border-r"
+                  >
+                    <span className="inline-flex items-center gap-0.5">
+                      ROAS
+                      <ExplainerPopover term="ROAS">
+                        <p>
+                          ROAS (Werbeertrag): wie viel Umsatz je 1 € Werbebudget
+                          bei dieser Behandlung zurückkommt. 3,0× heißt 3 €
+                          Umsatz je 1 € Budget.
+                        </p>
+                        <p className="mt-2">
+                          Das Werbebudget wird den Behandlungen nach ihrem
+                          Anteil an den bezahlten Anfragen zugeordnet, da es
+                          nicht je Behandlung erfasst wird.
+                        </p>
+                      </ExplainerPopover>
+                    </span>
                   </th>
                 </tr>
                 <tr aria-hidden>
-                  <td className="h-2" colSpan={5} />
+                  <td className="h-2" colSpan={6} />
                 </tr>
               </thead>
               <tbody className="[&>tr>td]:border-border [&>tr:not(:last-child)>td]:border-b">
@@ -766,7 +807,7 @@ function TreatmentBreakdownCard({
                     <td className="px-4 py-2.5 text-fg-primary">
                       {r.treatmentName}
                     </td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">
+                    <td className="hidden px-4 py-2.5 text-right tabular-nums md:table-cell">
                       {r.leads != null ? formatNumber(r.leads) : "–"}
                     </td>
                     <td className="px-4 py-2.5 text-right tabular-nums">
@@ -780,6 +821,16 @@ function TreatmentBreakdownCard({
                     <td className="px-4 py-2.5 text-right tabular-nums">
                       {r.avgCaseValueEur != null
                         ? formatMoney(r.avgCaseValueEur, currency)
+                        : "–"}
+                    </td>
+                    <td
+                      className={cn(
+                        "hidden px-4 py-2.5 text-right tabular-nums md:table-cell",
+                        treatmentRoasToneClass(r.roas)
+                      )}
+                    >
+                      {r.roas != null
+                        ? `${r.roas.toFixed(1).replace(".", ",")}×`
                         : "–"}
                     </td>
                   </tr>

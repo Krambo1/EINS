@@ -256,6 +256,14 @@ export interface TreatmentBreakdownRow {
   revenueEur: number;
   /** Average revenue per won case. */
   avgCaseValueEur: number | null;
+  /**
+   * Werbeertrag (ROAS) for this treatment: revenue ÷ ad budget *allocated* to
+   * the treatment. Spend isn't tracked per Behandlung, so the window's total ad
+   * spend is split across treatments by their share of paid (meta/google)
+   * Anfragen — organic/referral leads consumed no budget. null when there is no
+   * spend, or no paid leads to attribute it to.
+   */
+  roas: number | null;
 }
 
 /** Per-treatment-category breakdown. NULL treatment_id rolls up to "Sonstige". */
@@ -271,6 +279,9 @@ async function byTreatmentUncached(
         treatmentId: schema.requests.treatmentId,
         treatmentName: sql<string>`coalesce(${schema.treatments.name}, 'Sonstige')`,
         leads: sql<number>`count(*)::int`,
+        // Paid Anfragen only (sources that map to a billed ad platform) — the
+        // basis for splitting ad spend across treatments below.
+        paidLeads: sql<number>`count(*) FILTER (WHERE ${schema.requests.source} IN ('meta','meta_lead_form','google','google_form'))::int`,
         casesWon: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} = 'gewonnen')::int`,
         revenueEur: sql<number>`coalesce(sum(${schema.requests.convertedRevenueEur}) FILTER (WHERE ${schema.requests.status} = 'gewonnen'), 0)`,
       })
@@ -289,9 +300,35 @@ async function byTreatmentUncached(
       .groupBy(schema.requests.treatmentId, schema.treatments.name)
       .orderBy(sql`count(*) desc`);
 
+    // Total ad spend in the window (same campaign-snapshot source as bySource).
+    // There's no per-Behandlung spend column, so we allocate this pot across
+    // treatments by paid-lead share to derive a per-treatment Werbeertrag.
+    const spendRows = await tx
+      .select({
+        spend: sql<number>`coalesce(sum(${schema.campaignSnapshots.spendEur}), 0)`,
+      })
+      .from(schema.campaignSnapshots)
+      .where(
+        and(
+          eq(schema.campaignSnapshots.clinicId, clinicId),
+          gte(schema.campaignSnapshots.snapshotDate, dateStr(from)),
+          lte(schema.campaignSnapshots.snapshotDate, dateStr(to))
+        )
+      );
+    const totalSpend = Number(spendRows[0]?.spend ?? 0);
+    const totalPaidLeads = rows.reduce((s, r) => s + Number(r.paidLeads), 0);
+
     return rows.map((r) => {
       const won = Number(r.casesWon);
       const revenue = Number(r.revenueEur);
+      const paidLeads = Number(r.paidLeads);
+      // Split the window's ad spend by this treatment's share of paid Anfragen;
+      // organic/referral leads cost no ad budget and so don't dilute it.
+      // Werbeertrag = Umsatz ÷ zugeordnetes Budget.
+      const allocatedSpend =
+        totalSpend > 0 && totalPaidLeads > 0
+          ? totalSpend * (paidLeads / totalPaidLeads)
+          : 0;
       return {
         treatmentId: r.treatmentId,
         treatmentName: r.treatmentName,
@@ -299,6 +336,10 @@ async function byTreatmentUncached(
         casesWon: won,
         revenueEur: revenue,
         avgCaseValueEur: won > 0 ? Number((revenue / won).toFixed(2)) : null,
+        roas:
+          allocatedSpend > 0
+            ? Number((revenue / allocatedSpend).toFixed(2))
+            : null,
       };
     });
   });
