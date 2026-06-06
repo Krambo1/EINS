@@ -208,6 +208,112 @@ svg.text-accent,
   }
 }
 
+/* ──────────────────────────────────────────────────────────────────────────
+   Shiny animated border for the portal showcase card. The same rotating
+   conic-gradient sweep as the ShinyButton CTA (.shiny-cta in
+   ui/shiny-button.tsx), scaled up from a button to a whole card. The card
+   stays fully transparent: a ::before fills it with the conic gradient and
+   then masks out everything but the 2px edge (mask-composite: exclude), so
+   only the ring animates and anything behind the card (incl. the portal-glow
+   band above the screenshot) shows straight through. An opaque fill here
+   would paint over that -z-10 glow. The four @property regs let the hover
+   state cross-fade (band widens, shifts, brightens) instead of snapping,
+   exactly like the button; reduced-motion freezes it. NOTE: card-specific
+   --shine-* names, NOT the button's --gradient-*. Two @property regs for one
+   name collide (the parser then rejects every value and falls back to the
+   initial), which silently broke both the card and the button's shine.
+   ────────────────────────────────────────────────────────────────────────── */
+@property --shine-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+@property --shine-offset {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+@property --shine-percent {
+  syntax: "<percentage>";
+  initial-value: 12%;
+  inherits: false;
+}
+@property --shine-color {
+  syntax: "<color>";
+  initial-value: #e9fdfb;
+  inherits: false;
+}
+
+.shiny-card {
+  position: relative;
+}
+
+/* The animated ring lives on a ::before so the card interior stays fully
+   transparent. inset:0 + padding sets the ring thickness; the two stacked
+   masks (one clipped to the content-box, one to the whole box) cancel
+   everywhere except that padding band, so only the border is painted. */
+.shiny-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  pointer-events: none;
+
+  --shiny-card-highlight: #58bab5;
+  --duration: 6s;
+  --transition: 800ms cubic-bezier(0.25, 1, 0.5, 1);
+  --shine-percent: 12%;
+  --shine-offset: 0deg;
+  --shine-color: #e9fdfb;
+
+  background: conic-gradient(
+    from calc(var(--shine-angle) - var(--shine-offset)),
+    transparent,
+    var(--shiny-card-highlight) var(--shine-percent),
+    var(--shine-color) calc(var(--shine-percent) * 2),
+    var(--shiny-card-highlight) calc(var(--shine-percent) * 3),
+    transparent calc(var(--shine-percent) * 4)
+  );
+
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+
+  transition:
+    --shine-offset var(--transition),
+    --shine-percent var(--transition),
+    --shine-color var(--transition);
+  animation:
+    shiny-card-spin var(--duration) linear infinite,
+    shiny-card-spin calc(var(--duration) / 0.4) linear infinite reverse paused;
+  animation-composition: add;
+}
+
+.shiny-card:hover::before {
+  --shine-percent: 20%;
+  --shine-offset: 95deg;
+  --shine-color: #64cec9;
+  animation-play-state: running, running;
+}
+
+@keyframes shiny-card-spin {
+  to {
+    --shine-angle: 360deg;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shiny-card::before {
+    animation: none;
+  }
+}
+
 /* Shine sweep for primary buttons */
 .btn-shine {
   position: relative;

@@ -38,7 +38,7 @@ export function Offer() {
                 swap between live screenshots so clinics see what they get rather
                 than reading another bullet list. */}
             <Reveal delay={0.1}>
-              <div className="card-glow relative mx-auto mt-28 max-w-5xl overflow-hidden rounded-[2rem] border border-border bg-transparent md:mt-44">
+              <div className="shiny-card card-glow relative mx-auto mt-28 max-w-5xl overflow-hidden rounded-[2rem] bg-transparent md:mt-44">
                 {/* Lit mint top edge, echoing the portal showcase's glow. */}
                 <div
                   aria-hidden

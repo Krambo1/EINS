@@ -13,9 +13,9 @@ import Image from "next/image";
 import {
   LayoutDashboard,
   Inbox,
-  BarChart3,
-  FileText,
-  BookOpen,
+  Megaphone,
+  Star,
+  Milestone,
   X,
   Plus,
   Minus,
@@ -40,45 +40,45 @@ const TABS: PortalTab[] = [
     label: "Übersicht",
     icon: LayoutDashboard,
     src: "/uebersicht.png",
-    alt: "EINS Portal Übersicht: KPIs zu Anfragen, Umsatz und Tagesverlauf",
-    width: 1528,
-    height: 759,
+    alt: "EINS Portal Übersicht: qualifizierte Anfragen, Umsatz und offene Anfragen auf einen Blick",
+    width: 1543,
+    height: 1306,
   },
   {
     id: "anfragen",
     label: "Anfragen",
     icon: Inbox,
     src: "/Anfragen.png",
-    alt: "EINS Portal Anfragen: Pipeline und Status jeder Patientenanfrage",
-    width: 1552,
-    height: 853,
+    alt: "EINS Portal Anfragen: Status und Verlauf jeder Patientenanfrage",
+    width: 1572,
+    height: 1310,
   },
   {
-    id: "auswertung",
-    label: "Auswertung",
-    icon: BarChart3,
-    src: "/Auswertung.png",
-    alt: "EINS Portal Auswertung: Conversion, ROI und Kanalvergleich",
-    width: 1570,
-    height: 982,
+    id: "werbebudget",
+    label: "Werbebudget",
+    icon: Megaphone,
+    src: "/Werbebudget.png",
+    alt: "EINS Portal Werbebudget: Ausgaben und Werbeertrag je Kanal",
+    width: 1538,
+    height: 1309,
   },
   {
-    id: "dokumente",
-    label: "Dokumente",
-    icon: FileText,
-    src: "/Dokumente.png",
-    alt: "EINS Portal Dokumente: Verträge, HWG-Checks und Reports an einem Ort",
-    width: 1535,
-    height: 623,
+    id: "bewertungen",
+    label: "Bewertungen",
+    icon: Star,
+    src: "/Bewertungen.png",
+    alt: "EINS Portal Bewertungen: Patientenstimmen und Bewertungen Ihrer Praxis",
+    width: 1529,
+    height: 1304,
   },
   {
-    id: "leitfaden",
-    label: "Leitfaden",
-    icon: BookOpen,
-    src: "/leitfaden.png",
-    alt: "EINS Portal Vertriebsleitfaden: Gesprächsskripte für Ihr Team",
-    width: 1534,
-    height: 1146,
+    id: "fortschritt",
+    label: "Fortschritt",
+    icon: Milestone,
+    src: "/Fortschritt.png",
+    alt: "EINS Portal Fortschritt: Ihre Ziele und Meilensteine über die Zeit",
+    width: 1561,
+    height: 1309,
   },
 ];
 
@@ -183,6 +183,10 @@ export function PortalTabShowcase() {
         </div>
       </Tabs>
 
+      {/* Full card width on every breakpoint: the showcase is the centerpiece
+          of this section, so it should read large. The new screenshots are
+          near-square (~0.85 ratio), so at full width the frame runs ~775px tall
+          on desktop, which still fits a normal viewport with the heading above. */}
       <div className="relative mt-8 md:mt-12">
         {/* Hot mint band hugging the top edge: a strong, near-white-cored glow
             that sits just above the image's top edge and fades upward (only the

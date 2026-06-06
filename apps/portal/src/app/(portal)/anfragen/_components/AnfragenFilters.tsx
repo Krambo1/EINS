@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowDownWideNarrow,
+  Check,
   CheckCircle2,
   ChevronDown,
   Flame,
@@ -17,7 +18,17 @@ import {
   Tag,
   X,
 } from "lucide-react";
-import { Button, Input, cn } from "@eins/ui";
+import {
+  Button,
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  Input,
+  cn,
+} from "@eins/ui";
 import { withBrandLogos } from "@/app/_components/Brand";
 import {
   AI_CATEGORIES,
@@ -150,46 +161,154 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
 
   return (
     <div
-      className={cn(
-        "transition-opacity",
-        isPending && "opacity-70"
-      )}
+      className={cn("transition-opacity", isPending && "opacity-70")}
       aria-busy={isPending}
     >
-      <div className="flex flex-wrap items-center gap-2 pb-3">
-        <div className="relative max-w-md flex-1">
-          <Search
-            className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-tertiary"
-            aria-hidden
-          />
-          <Input
-            type="text"
-            inputMode="search"
-            enterKeyHint="search"
-            autoComplete="off"
-            value={searchText}
-            onChange={(e) => setSearchText(e.target.value)}
-            placeholder="Suchen: Name, E-Mail, Telefon, Wunschbehandlung …"
-            className="h-11 pl-10 pr-10"
-            aria-label="Anfragen durchsuchen"
-          />
-          <div className="absolute right-2.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center">
-            {isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin text-fg-tertiary" aria-hidden />
-            ) : searchText ? (
-              <button
-                type="button"
-                aria-label="Suche zurücksetzen"
-                onClick={() => setSearchText("")}
-                className="rounded-full p-0.5 text-fg-tertiary transition hover:bg-bg-secondary hover:text-fg-primary"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            ) : null}
-          </div>
+      <div className="relative mb-3 max-w-md">
+        <Search
+          className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-tertiary"
+          aria-hidden
+        />
+        <Input
+          type="text"
+          inputMode="search"
+          enterKeyHint="search"
+          autoComplete="off"
+          value={searchText}
+          onChange={(e) => setSearchText(e.target.value)}
+          placeholder="Suchen: Name, E-Mail, Telefon, Wunschbehandlung …"
+          className="h-11 pl-10 pr-10"
+          aria-label="Anfragen durchsuchen"
+        />
+        <div className="absolute right-2.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center">
+          {isPending ? (
+            <Loader2 className="h-4 w-4 animate-spin text-fg-tertiary" aria-hidden />
+          ) : searchText ? (
+            <button
+              type="button"
+              aria-label="Suche zurücksetzen"
+              onClick={() => setSearchText("")}
+              className="rounded-full p-0.5 text-fg-tertiary transition hover:bg-bg-secondary hover:text-fg-primary"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <FilterDropdown
+          icon={ArrowDownWideNarrow}
+          label="Sortierung"
+          summaryText={REQUEST_SORT_LABELS[currentSort]}
+          active={currentSort !== "neueste"}
+        >
+          {REQUEST_SORTS.map((s) => (
+            <DropdownMenuItem
+              key={s}
+              onSelect={() => setSort(s)}
+              className="justify-between gap-6"
+            >
+              {REQUEST_SORT_LABELS[s]}
+              {currentSort === s && (
+                <Check className="h-4 w-4 shrink-0 text-accent" aria-hidden />
+              )}
+            </DropdownMenuItem>
+          ))}
+        </FilterDropdown>
+
+        <FilterDropdown
+          icon={CheckCircle2}
+          label="Status"
+          activeCount={countSet("status") + (isFlag("stale") ? 1 : 0)}
+        >
+          {STATUSES.map((s) => (
+            <DropdownMenuCheckboxItem
+              key={s}
+              checked={isSetMember("status", s)}
+              onCheckedChange={() => toggleMulti("status", s)}
+              onSelect={(e) => e.preventDefault()}
+            >
+              {REQUEST_STATUS_LABELS[s]}
+            </DropdownMenuCheckboxItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuCheckboxItem
+            checked={isFlag("stale")}
+            onCheckedChange={() => toggleBoolean("stale")}
+            onSelect={(e) => e.preventDefault()}
+          >
+            Stagniert (14+ Tage)
+          </DropdownMenuCheckboxItem>
+        </FilterDropdown>
+
+        <FilterDropdown icon={Radio} label="Quelle" activeCount={countSet("source")}>
+          {REQUEST_SOURCES.map((s) => (
+            <DropdownMenuCheckboxItem
+              key={s}
+              checked={isSetMember("source", s)}
+              onCheckedChange={() => toggleMulti("source", s)}
+              onSelect={(e) => e.preventDefault()}
+            >
+              {withBrandLogos(SOURCE_LABELS[s as RequestSource] ?? s)}
+            </DropdownMenuCheckboxItem>
+          ))}
+        </FilterDropdown>
+
+        <FilterDropdown
+          icon={Sparkles}
+          label="KI-Bewertung"
+          activeCount={countSet("aiCategory")}
+        >
+          {AI_CATEGORIES.map((c) => {
+            const Icon = c === "hot" ? Flame : c === "warm" ? Sun : Snowflake;
+            const tone =
+              c === "hot"
+                ? "text-tone-bad"
+                : c === "warm"
+                  ? "text-tone-warn"
+                  : "text-accent";
+            return (
+              <DropdownMenuCheckboxItem
+                key={c}
+                checked={isSetMember("aiCategory", c)}
+                onCheckedChange={() => toggleMulti("aiCategory", c)}
+                onSelect={(e) => e.preventDefault()}
+              >
+                <Icon className={cn("mr-2 h-3.5 w-3.5 shrink-0", tone)} aria-hidden />
+                <span>{AI_CATEGORY_LABELS[c as AiCategory]}</span>
+                <span
+                  className="ml-auto rounded-full bg-fg-primary/10 px-1.5 py-px text-[11px] font-semibold leading-none tabular-nums"
+                  aria-label={`${aiCounts[c] ?? 0} Anfragen`}
+                >
+                  {aiCounts[c] ?? 0}
+                </span>
+              </DropdownMenuCheckboxItem>
+            );
+          })}
+        </FilterDropdown>
+
+        {treatments.length > 0 && (
+          <FilterDropdown
+            icon={Tag}
+            label="Behandlung"
+            activeCount={countSet("treatment")}
+          >
+            {treatments.slice(0, 8).map((t) => (
+              <DropdownMenuCheckboxItem
+                key={t.id}
+                checked={isSetMember("treatment", t.id)}
+                onCheckedChange={() => toggleMulti("treatment", t.id)}
+                onSelect={(e) => e.preventDefault()}
+              >
+                {t.name}
+              </DropdownMenuCheckboxItem>
+            ))}
+          </FilterDropdown>
+        )}
+
         {hasAnyFilter && (
-          <Button asChild type="button" variant="ghost" className="h-11">
+          <Button asChild type="button" variant="ghost" className="h-10">
             <Link href="/anfragen">
               <X className="mr-1 h-4 w-4" />
               Filter zurücksetzen
@@ -197,204 +316,71 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
           </Button>
         )}
       </div>
-
-      <div className="divide-y divide-border/60 border-t border-border/60">
-        <FilterGroup
-          icon={ArrowDownWideNarrow}
-          label="Sortierung"
-          summaryText={REQUEST_SORT_LABELS[currentSort]}
-        >
-          {REQUEST_SORTS.map((s) => (
-            <Chip
-              key={s}
-              active={currentSort === s}
-              onClick={() => setSort(s)}
-            >
-              {REQUEST_SORT_LABELS[s]}
-            </Chip>
-          ))}
-        </FilterGroup>
-
-        <FilterGroup
-          icon={CheckCircle2}
-          label="Status"
-          activeCount={countSet("status") + (isFlag("stale") ? 1 : 0)}
-        >
-          {STATUSES.map((s) => (
-            <Chip
-              key={s}
-              active={isSetMember("status", s)}
-              onClick={() => toggleMulti("status", s)}
-            >
-              {REQUEST_STATUS_LABELS[s]}
-            </Chip>
-          ))}
-          <Chip
-            tone="warn"
-            active={isFlag("stale")}
-            onClick={() => toggleBoolean("stale")}
-          >
-            Stagniert (14+ Tage)
-          </Chip>
-        </FilterGroup>
-
-        <FilterGroup icon={Radio} label="Quelle" activeCount={countSet("source")}>
-          {REQUEST_SOURCES.map((s) => (
-            <Chip
-              key={s}
-              active={isSetMember("source", s)}
-              onClick={() => toggleMulti("source", s)}
-            >
-              {withBrandLogos(SOURCE_LABELS[s as RequestSource] ?? s)}
-            </Chip>
-          ))}
-        </FilterGroup>
-
-        <FilterGroup
-          icon={Sparkles}
-          label="KI-Bewertung"
-          activeCount={countSet("aiCategory")}
-        >
-          {AI_CATEGORIES.map((c) => {
-            const tone: ChipTone =
-              c === "hot" ? "bad" : c === "warm" ? "warn" : "accent";
-            const Icon = c === "hot" ? Flame : c === "warm" ? Sun : Snowflake;
-            return (
-              <Chip
-                key={c}
-                tone={tone}
-                active={isSetMember("aiCategory", c)}
-                onClick={() => toggleMulti("aiCategory", c)}
-              >
-                <Icon className="h-3 w-3" aria-hidden />
-                {AI_CATEGORY_LABELS[c as AiCategory]}
-                <span
-                  className="-mr-1 ml-0.5 rounded-full bg-fg-primary/10 px-1.5 py-px text-[11px] font-semibold leading-none tabular-nums"
-                  aria-label={`${aiCounts[c] ?? 0} Anfragen`}
-                >
-                  {aiCounts[c] ?? 0}
-                </span>
-              </Chip>
-            );
-          })}
-        </FilterGroup>
-
-        {treatments.length > 0 && (
-          <FilterGroup
-            icon={Tag}
-            label="Behandlung"
-            activeCount={countSet("treatment")}
-          >
-            {treatments.slice(0, 8).map((t) => (
-              <Chip
-                key={t.id}
-                active={isSetMember("treatment", t.id)}
-                onClick={() => toggleMulti("treatment", t.id)}
-              >
-                {t.name}
-              </Chip>
-            ))}
-          </FilterGroup>
-        )}
-      </div>
     </div>
   );
 }
 
-function FilterGroup({
+/**
+ * One filter category rendered as a dropdown-menu pill. All five sit in a
+ * single wrapping row (was five stacked chip rows). The trigger shows the
+ * category label plus a `· N` suffix for active multi-selects, or `· value`
+ * for the single-select sort. Mirrors the admin-side AdminUrlMultiSelect.
+ */
+function FilterDropdown({
   icon: Icon,
   label,
   activeCount = 0,
   summaryText,
+  active,
   children,
 }: {
   icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
   label: string;
-  /** Number of active selections, shown as a badge in the collapsed mobile header. */
+  /** Number of active selections, shown as a `· N` suffix on the trigger. */
   activeCount?: number;
-  /** Free-text shown in the collapsed mobile header (used for single-select sort). */
+  /** Free-text suffix shown on the trigger (used for single-select sort). */
   summaryText?: string;
+  /** Force the active/highlighted trigger style (sort uses this; multi derives it). */
+  active?: boolean;
   children: React.ReactNode;
 }) {
-  // Collapsed by default on mobile so the filter rail doesn't fill the screen.
-  // On md+ the chips are always visible (CSS), so this state is mobile-only.
-  const [open, setOpen] = useState(false);
+  const isActive = active ?? activeCount > 0;
 
   return (
-    <div className="py-3 md:flex md:flex-nowrap md:items-center md:gap-x-3">
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        aria-expanded={open}
-        className="flex w-full shrink-0 items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-fg-tertiary md:w-32 md:cursor-default"
-      >
-        <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
-        <span>{label}</span>
-        <span className="ml-auto flex items-center gap-2 md:hidden">
-          {summaryText ? (
-            <span className="normal-case text-fg-secondary">{summaryText}</span>
-          ) : activeCount > 0 ? (
-            <span className="rounded-full bg-fg-primary/10 px-1.5 py-px text-[11px] font-semibold leading-none tabular-nums text-fg-primary">
-              {activeCount}
-            </span>
-          ) : null}
-          <ChevronDown
-            className={cn("h-4 w-4 transition-transform", open && "rotate-180")}
-            aria-hidden
-          />
-        </span>
-      </button>
-      <div
+    <DropdownMenu>
+      {/*
+        No `asChild` + inner <button>: DropdownMenuTrigger already renders its
+        own <button> (incl. a hydration-safe SSR placeholder). Nesting a button
+        inside it produces invalid <button><button> markup that the HTML parser
+        splits into siblings, leaving a detached, unclickable trigger. Style the
+        Trigger directly instead.
+      */}
+      <DropdownMenuTrigger
         className={cn(
-          "flex-1 flex-wrap gap-1.5",
-          open ? "mt-2 flex" : "hidden",
-          "md:mt-0 md:flex"
+          "inline-flex h-10 items-center gap-1.5 rounded-full border px-3.5 text-sm font-medium transition-colors",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+          isActive
+            ? "border-accent bg-bg-secondary text-fg-primary"
+            : "border-border text-fg-secondary hover:border-accent hover:text-fg-primary"
         )}
       >
+        <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+        <span className="whitespace-nowrap">
+          {label}
+          {summaryText
+            ? ` · ${summaryText}`
+            : activeCount > 0
+              ? ` · ${activeCount}`
+              : ""}
+        </span>
+        <ChevronDown className="h-4 w-4 shrink-0 opacity-60" aria-hidden />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="max-h-72 min-w-[13rem] overflow-auto"
+      >
         {children}
-      </div>
-    </div>
-  );
-}
-
-type ChipTone = "neutral" | "accent" | "warn" | "bad" | "good";
-
-function Chip({
-  children,
-  active,
-  tone = "neutral",
-  onClick,
-}: {
-  children: React.ReactNode;
-  active: boolean;
-  tone?: ChipTone;
-  onClick: () => void;
-}) {
-  const activeClasses =
-    tone === "bad"
-      ? "border-tone-bad/45 bg-tone-bad/10 text-tone-bad"
-      : tone === "warn"
-        ? "border-tone-warn/45 bg-tone-warn/12 text-tone-warn"
-        : tone === "good"
-          ? "border-tone-good/45 bg-tone-good/10 text-tone-good"
-          : tone === "accent"
-            ? "border-accent bg-accent/15 text-fg-primary"
-            : "border-fg-primary/35 bg-bg-secondary text-fg-primary";
-
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-bg-primary",
-        active
-          ? activeClasses
-          : "border-border text-fg-secondary hover:border-border-hover hover:bg-bg-secondary"
-      )}
-    >
-      {children}
-    </button>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
