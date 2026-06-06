@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, Menu, X } from "lucide-react";
 import { ShinyButton } from "@/components/ui/shiny-button";
-import { CALENDLY_URL } from "@/lib/constants";
+import { CALENDLY_URL, PORTAL_URL } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
 const LINKS = [
@@ -13,6 +13,7 @@ const LINKS = [
   { href: "/#ergebnisse", label: "Ergebnisse" },
   { href: "/#faq", label: "FAQ" },
   { href: "/kontakt", label: "Kontakt" },
+  { href: PORTAL_URL, label: "Portal" },
 ];
 
 export function Nav() {
