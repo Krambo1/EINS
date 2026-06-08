@@ -30,6 +30,9 @@ storage/
 # claude local state
 .claude
 
+# outreach runtime state (send-ledger, warmup) — never commit, contains PII
+.state/
+
 # next generated
 next-env.d.ts
 
