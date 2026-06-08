@@ -58,3 +58,7 @@ uploads/pasted-*.png
 apps/portal/.vercel.prod.env
 .vercel.prod.env
 .vercel
+
+# pentest playbook + change-ledger (untracked deliverables, never commit)
+PENTEST-PLAN-*.md
+.pentest-ledger-*.md

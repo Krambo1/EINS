@@ -38,6 +38,16 @@ export function ExplainerPopover({
   size = "sm",
 }: ExplainerPopoverProps) {
   const [open, setOpen] = React.useState(false);
+  // Defer the Radix popover to client-only mount. Radix derives the trigger's
+  // `aria-controls` from an internal `useId()`, whose base drifts between the
+  // server and the client when this popover sits inside a <Suspense> boundary
+  // that suspends during SSR and streams in a later flush (the EINS dashboard
+  // layout) — a hydration-mismatch source. Rendering a visually-identical
+  // static (i) button on the server + first client render (no useId) sidesteps
+  // it entirely; the interactive popover attaches one tick after hydration,
+  // with the icon already in place so there is no pop-in or layout shift.
+  const [mounted, setMounted] = React.useState(false);
+  React.useEffect(() => setMounted(true), []);
   const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cancelClose = React.useCallback(() => {
@@ -58,15 +68,30 @@ export function ExplainerPopover({
     size === "md" ? "h-8 w-8" : "h-6 w-6";
   const iconClass = size === "md" ? "h-5 w-5" : "h-3.5 w-3.5";
 
+  const triggerClassName = cn(
+    "opa-focus-ring inline-grid shrink-0 place-items-center rounded-full text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
+    sizeClass,
+    className
+  );
+  const triggerAriaLabel =
+    ariaLabel ?? (term ? `Erklärung für ${term}` : "Erklärung");
+
+  // Pre-mount (server + first client render): static, useId-free trigger so
+  // hydration has nothing to mismatch. Same tag/classes/icon as the live
+  // trigger below, so the swap on mount is invisible.
+  if (!mounted) {
+    return (
+      <button type="button" aria-label={triggerAriaLabel} className={triggerClassName}>
+        <Info className={iconClass} />
+      </button>
+    );
+  }
+
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        aria-label={ariaLabel ?? (term ? `Erklärung für ${term}` : "Erklärung")}
-        className={cn(
-          "opa-focus-ring inline-grid shrink-0 place-items-center rounded-full text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
-          sizeClass,
-          className
-        )}
+        aria-label={triggerAriaLabel}
+        className={triggerClassName}
         onMouseEnter={() => {
           cancelClose();
           setOpen(true);

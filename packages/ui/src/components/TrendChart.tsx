@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { cn } from "../lib/cn";
+import { stableId } from "../lib/stableId";
 
 export type TrendChartTone = "neutral" | "good" | "warn" | "bad" | "accent";
 
@@ -284,8 +285,6 @@ function SingleSeriesTrendChart({
   locale = "de-DE",
   ariaLabel,
 }: TrendChartProps) {
-  const reactId = React.useId();
-  const gradId = `trend-grad-${reactId.replace(/:/g, "")}`;
   const [activeIdx, setActiveIdx] = React.useState<number | null>(null);
 
   const fmtValue = React.useMemo(
@@ -398,6 +397,10 @@ function SingleSeriesTrendChart({
       />
     );
   }
+
+  // SSR-stable gradient id (see stableId). Derived from tone + geometry, never
+  // from useId, so it can't drift under streaming-Suspense hydration.
+  const gradId = stableId(`trend-grad-${tone}`, geom.areaPath);
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     // Pointer handler lives on the plot-area div (the flex-1 child), so the
@@ -701,8 +704,6 @@ function MultiSeriesTrendChart({
   locale = "de-DE",
   ariaLabel,
 }: TrendChartProps & { series: TrendChartSeries[] }) {
-  const reactId = React.useId();
-  const gradPrefix = `trend-mgrad-${reactId.replace(/:/g, "")}`;
   const [activeIdx, setActiveIdx] = React.useState<number | null>(null);
 
   const fmtValue = React.useMemo(
@@ -773,6 +774,14 @@ function MultiSeriesTrendChart({
       />
     );
   }
+
+  // SSR-stable gradient-id prefix (see stableId). Derived from the resolved
+  // tones + geometry, never from useId, so it can't drift under
+  // streaming-Suspense hydration. Each series appends its index below.
+  const gradPrefix = stableId(
+    "trend-mgrad",
+    geom.resolved.map((r) => `${r.s.tone}:${r.areaPath}`).join("|")
+  );
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();

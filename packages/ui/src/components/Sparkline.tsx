@@ -1,5 +1,5 @@
-import * as React from "react";
 import { cn } from "../lib/cn";
+import { stableId } from "../lib/stableId";
 
 export type SparklineTone = "neutral" | "good" | "warn" | "bad" | "accent";
 
@@ -89,9 +89,6 @@ export function Sparkline({
   className,
   filled = true,
 }: SparklineProps) {
-  const reactId = React.useId();
-  const gradId = `spark-grad-${reactId.replace(/:/g, "")}`;
-
   if (!values || values.length === 0) {
     return (
       <div
@@ -118,6 +115,9 @@ export function Sparkline({
   const first = points[0];
   const last = points[points.length - 1];
   const areaPath = `M0,${height.toFixed(2)} L${first.x.toFixed(2)},${first.y.toFixed(2)}${segments} L${last.x.toFixed(2)},${height.toFixed(2)} Z`;
+  // SSR-stable gradient id (see stableId). Derived from tone + geometry, never
+  // from useId, so it can't drift under streaming-Suspense hydration.
+  const gradId = stableId(`spark-grad-${tone}`, areaPath);
 
   return (
     <svg

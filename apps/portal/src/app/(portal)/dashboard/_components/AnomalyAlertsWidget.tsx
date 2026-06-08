@@ -54,9 +54,12 @@ export async function AnomalyAlertsWidget({
         {alerts.length === 0 ? (
           <EmptyAlertsState />
         ) : (
-          <ul className="divide-y divide-border">
+          <ul className="grid grid-cols-1 gap-4 md:grid-cols-2">
             {alerts.map((a) => (
-              <li key={a.id} className="py-4 first:pt-0 last:pb-0">
+              <li
+                key={a.id}
+                className="rounded-xl border border-border bg-bg-primary p-4 shadow-sm"
+              >
                 <AlertRow alert={a} />
               </li>
             ))}
