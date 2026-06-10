@@ -60,14 +60,7 @@ export function Offer() {
 
                 <div className="relative px-5 py-12 sm:px-8 md:px-14 md:py-16">
                   <div className="relative mx-auto max-w-3xl text-center">
-                    <div className="flex flex-wrap items-center justify-center gap-3">
-                      <span className="eyebrow">Enthalten</span>
-                      <span className="inline-flex items-center gap-1.5 font-mono text-xs text-fg-secondary">
-                        <Lock className="h-3 w-3" aria-hidden />
-                        Privater Praxis-Zugang
-                      </span>
-                    </div>
-                    <p className="mt-5 font-mono text-lg font-medium text-fg-primary md:text-2xl">
+                    <p className="font-mono text-lg font-medium text-fg-primary md:text-2xl">
                       Ihre EINS Praxis-Software
                     </p>
                     <h4 className="mt-2 font-display text-3xl font-semibold tracking-tight md:text-6xl">
@@ -75,8 +68,19 @@ export function Offer() {
                     </h4>
                   </div>
 
-                  <div className="relative mt-10 md:mt-14">
+                  {/* Negative margins cancel the card padding so the video gets
+                      the full card width on mobile and keeps only a small
+                      gutter on desktop. */}
+                  <div className="relative -mx-5 mt-10 sm:-mx-8 md:-mx-10 md:mt-14">
                     <PortalVideoShowcase />
+                  </div>
+
+                  <div className="mt-8 flex flex-wrap items-center justify-center gap-3 md:mt-10">
+                    <span className="eyebrow">Enthalten</span>
+                    <span className="inline-flex items-center gap-1.5 font-mono text-xs text-fg-secondary">
+                      <Lock className="h-3 w-3" aria-hidden />
+                      Privater Praxis-Zugang
+                    </span>
                   </div>
                 </div>
               </div>

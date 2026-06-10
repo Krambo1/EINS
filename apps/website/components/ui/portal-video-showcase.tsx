@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Maximize2 } from "lucide-react";
 
 // Intrinsic dimensions of the encoded clip. Drives the aspect-ratio box so the
 // frame reserves the right height before the video streams in (no layout
@@ -21,6 +22,9 @@ export function PortalVideoShowcase() {
   // Once true the <source>s mount and we never tear them down again — toggling
   // them would re-fetch the file on every scroll in/out.
   const [activated, setActivated] = useState(false);
+  // Tracks native fullscreen so the video can switch object-cover → contain
+  // (cover would crop the UI capture once the element fills the screen).
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   // Activate (start fetching + playing) when the frame enters the viewport;
   // pause when it fully leaves. A 200px rootMargin gives the file a head start
@@ -68,6 +72,41 @@ export function PortalVideoShowcase() {
     }
   }, [activated]);
 
+  // Keep isFullscreen in sync with the browser. iOS Safari never fires
+  // fullscreenchange for videos; it uses its own webkitbegin/endfullscreen
+  // events on the element instead.
+  useEffect(() => {
+    const v = videoRef.current;
+    const onChange = () =>
+      setIsFullscreen(document.fullscreenElement === videoRef.current);
+    const onBegin = () => setIsFullscreen(true);
+    const onEnd = () => setIsFullscreen(false);
+    document.addEventListener("fullscreenchange", onChange);
+    v?.addEventListener("webkitbeginfullscreen", onBegin);
+    v?.addEventListener("webkitendfullscreen", onEnd);
+    return () => {
+      document.removeEventListener("fullscreenchange", onChange);
+      v?.removeEventListener("webkitbeginfullscreen", onBegin);
+      v?.removeEventListener("webkitendfullscreen", onEnd);
+    };
+  }, []);
+
+  const enterFullscreen = () => {
+    setActivated(true);
+    const v = videoRef.current as
+      | (HTMLVideoElement & { webkitEnterFullscreen?: () => void })
+      | null;
+    if (!v) return;
+    if (v.requestFullscreen) {
+      v.requestFullscreen().catch(() => {});
+    } else if (v.webkitEnterFullscreen) {
+      // iOS Safari: only the video element itself can go fullscreen, via the
+      // native player.
+      v.webkitEnterFullscreen();
+    }
+    v.play().catch(() => {});
+  };
+
   return (
     <div ref={containerRef} className="relative mt-8 md:mt-12">
       {/* Hot mint band hugging the top edge, matching the old screenshot frame
@@ -80,8 +119,11 @@ export function PortalVideoShowcase() {
         aria-hidden
         className="pointer-events-none absolute -inset-6 -z-10 rounded-[2rem] bg-gradient-to-b from-accent/20 via-accent/5 to-transparent blur-2xl md:-inset-10"
       />
+      {/* Below md the frame runs edge-to-edge inside the offer card (the
+          wrapper in offer.tsx pulls it out of the card padding), so side
+          borders and rounding only exist from md up where a gutter remains. */}
       <div
-        className="relative w-full overflow-hidden rounded-2xl border border-border bg-bg-primary shadow-[0_2px_4px_rgba(16,16,26,0.06),0_18px_40px_-12px_rgba(16,16,26,0.18),0_40px_80px_-24px_rgba(88,186,181,0.18)]"
+        className="relative w-full overflow-hidden border-y border-border bg-bg-primary shadow-[0_2px_4px_rgba(16,16,26,0.06),0_18px_40px_-12px_rgba(16,16,26,0.18),0_40px_80px_-24px_rgba(88,186,181,0.18)] md:rounded-2xl md:border-x"
         style={{ aspectRatio: `${VIDEO_WIDTH} / ${VIDEO_HEIGHT}` }}
       >
         <video
@@ -94,10 +136,20 @@ export function PortalVideoShowcase() {
           playsInline
           preload="none"
           aria-label="EINS Portal in Bewegung: Anfragen, Werbebudget und Umsatz auf einen Blick"
-          className="block h-full w-full object-cover object-top"
+          className={`block h-full w-full ${isFullscreen ? "object-contain" : "object-cover object-top"}`}
         >
           {activated && <source src="/portal-showcase.mp4" type="video/mp4" />}
         </video>
+        <button
+          type="button"
+          onClick={enterFullscreen}
+          aria-label="Video im Vollbild ansehen"
+          className="absolute bottom-2.5 right-2.5 z-10 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 font-mono text-xs text-white backdrop-blur-sm transition-colors md:bottom-4 md:right-4"
+          style={{ background: "rgba(16,16,26,0.55)", border: "1px solid rgba(255,255,255,0.18)" }}
+        >
+          <Maximize2 className="h-3.5 w-3.5" aria-hidden />
+          Vollbild
+        </button>
       </div>
     </div>
   );
