@@ -1,6 +1,6 @@
 import { Lock } from "lucide-react";
 import { Reveal } from "@/components/ui/reveal";
-import { PortalTabShowcase } from "@/components/ui/portal-tab-showcase";
+import { PortalVideoShowcase } from "@/components/ui/portal-video-showcase";
 
 export function Offer() {
   return (
@@ -71,18 +71,12 @@ export function Offer() {
                       Ihre EINS Praxis-Software
                     </p>
                     <h4 className="mt-2 font-display text-3xl font-semibold tracking-tight md:text-6xl">
-                      Anfragen in Echtzeit. <span className="text-accent">Umsatz täglich.</span>
+                      Sie sehen jeden Tag, <span className="text-accent">was Ihre Werbung bringt.</span>
                     </h4>
-                    <p className="mt-4 text-base leading-relaxed text-fg-primary md:mt-5 md:text-lg">
-                      Anfragen, Werbebudget und Umsatz auf einen Blick. In 30 Sekunden
-                      sehen Sie, wo Ihre Praxis steht: zwischen zwei Eingriffen oder von
-                      unterwegs. Klarheit jeden Morgen, nicht erst in der monatlichen
-                      Auswertung.
-                    </p>
                   </div>
 
                   <div className="relative mt-10 md:mt-14">
-                    <PortalTabShowcase />
+                    <PortalVideoShowcase />
                   </div>
                 </div>
               </div>

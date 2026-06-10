@@ -26,6 +26,7 @@ import {
   Star,
   Menu,
   Search,
+  HelpCircle,
 } from "lucide-react";
 import { CONTACT_CARD_COOKIE, type Role } from "@/lib/constants";
 import { can } from "@/lib/roles";
@@ -113,6 +114,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "System",
     items: [
+      { href: "/faq", label: "Häufige Fragen", icon: HelpCircle },
       { href: "/feedback", label: "Feedback", icon: MessageSquare, permission: "feedback.submit" },
       { href: "/einstellungen", label: "Einstellungen", icon: Settings, permission: "settings.team" },
     ],

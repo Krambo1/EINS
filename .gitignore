@@ -65,3 +65,4 @@ apps/portal/.vercel.prod.env
 # pentest playbook + change-ledger (untracked deliverables, never commit)
 PENTEST-PLAN-*.md
 .pentest-ledger-*.md
+Pentest/

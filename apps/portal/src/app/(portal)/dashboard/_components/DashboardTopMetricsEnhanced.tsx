@@ -443,7 +443,7 @@ export async function DashboardTopMetricsEnhanced({
         <CardHeader className="flex-row flex-wrap items-center justify-between gap-4 space-y-0">
           <div className="flex items-center gap-1.5">
             <CardTitle className="!text-xl !font-medium md:!text-2xl">
-              Quellen-Aufschlüsselung
+              Quellen
             </CardTitle>
             <ExplainerPopover term="Quellen-Aufschlüsselung">
               <p>
