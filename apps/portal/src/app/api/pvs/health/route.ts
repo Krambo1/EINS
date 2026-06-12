@@ -34,6 +34,28 @@ export async function POST(request: NextRequest) {
     ua: request.headers.get("user-agent") ?? null,
   };
 
+  // Per-IP-first gate (pentest M6 / admin-pvs-05): the lone PVS route that was
+  // missing the per-IP brake its 5 siblings have. A known clinicId must not be
+  // sprayable to starve a clinic's health bucket with unsigned requests.
+  if (requestMeta.ip) {
+    const ipRl = await rateLimit("pvs-health-ip", requestMeta.ip, {
+      limit: 600,
+      windowSeconds: 60,
+    });
+    if (!ipRl.ok) {
+      return NextResponse.json(
+        { error: { code: "rate_limited" } },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(ipRl.resetInSeconds),
+            "X-PVS-RateLimit-Reason": "ip",
+          },
+        }
+      );
+    }
+  }
+
   let parsedJson: unknown;
   try {
     parsedJson = JSON.parse(raw);

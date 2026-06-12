@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { trustedIpFromHeaders } from "@/lib/client-ip";
 import { rateLimit } from "@/server/rate-limit";
 import { writeAudit } from "@/server/audit";
 import {
@@ -32,9 +33,10 @@ async function handle(
   }
 
   const ip =
-    (request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-      request.headers.get("x-real-ip") ??
-      "anon") || "anon";
+    trustedIpFromHeaders(
+      request.headers.get("x-forwarded-for"),
+      request.headers.get("x-real-ip")
+    ) ?? "anon";
   const rl = await rateLimit("review-tokens-unsubscribe", ip, {
     limit: 20,
     windowSeconds: 600,

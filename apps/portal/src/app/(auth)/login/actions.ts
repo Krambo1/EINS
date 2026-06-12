@@ -1,6 +1,5 @@
 "use server";
 
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -8,6 +7,7 @@ import { db, schema } from "@/db/client";
 import { issueMagicLink } from "@/auth/magic-link";
 import { verifyPassword } from "@/auth/password";
 import { createSession } from "@/auth/session";
+import { getTrustedClientIp } from "@/lib/client-ip";
 import { rateLimit } from "@/server/rate-limit";
 import { writeAudit } from "@/server/audit";
 import { defaultLandingPath } from "@/lib/roles";
@@ -43,16 +43,8 @@ export type LoginActionState =
   | { ok: true }
   | undefined;
 
-function ipFromHeaders(xff: string | null, xri: string | null): string {
-  return (xff ?? xri ?? "").split(",")[0]?.trim() || "unknown";
-}
-
 async function checkLoginRateLimits(email: string): Promise<LoginActionState> {
-  const hdrs = await headers();
-  const ip = ipFromHeaders(
-    hdrs.get("x-forwarded-for"),
-    hdrs.get("x-real-ip")
-  );
+  const ip = (await getTrustedClientIp()) ?? "unknown";
   const perEmail = await rateLimit("login:email", email, {
     limit: 10,
     windowSeconds: 60 * 60,

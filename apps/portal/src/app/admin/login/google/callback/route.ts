@@ -8,6 +8,7 @@ import {
   clearLoginStateCookie,
   googleAdminRedirectUri,
 } from "@/auth/google-login";
+import { trustedIpFromHeaders } from "@/lib/client-ip";
 import { rateLimit } from "@/server/rate-limit";
 import { writeAudit } from "@/server/audit";
 
@@ -36,9 +37,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   const ip =
-    (req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? "")
-      .split(",")[0]
-      ?.trim() || "unknown";
+    trustedIpFromHeaders(
+      req.headers.get("x-forwarded-for"),
+      req.headers.get("x-real-ip")
+    ) ?? "unknown";
   const rl = await rateLimit("admin-login:google:ip", ip, {
     limit: 30,
     windowSeconds: 60 * 60,
@@ -94,7 +96,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   const { id } = await ensureAdminUser(identity.email);
-  await createAdminSession(id);
+  try {
+    // Throws when the requesting IP is outside ADMIN_IP_ALLOWLIST — the gate
+    // runs at session mint (authn-02b).
+    await createAdminSession(id);
+  } catch {
+    await writeAudit({
+      actorEmail: identity.email,
+      action: "login",
+      entityKind: "admin_login",
+      diff: { method: "google", ok: false, reason: "ip_blocked" },
+    });
+    return adminLoginError("google_denied");
+  }
   await writeAudit({
     actorEmail: identity.email,
     action: "login",

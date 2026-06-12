@@ -16,10 +16,9 @@ import { db } from "../db/client";
  * superuser `db` connection (not the RLS app role) — these rows are not
  * clinic-scoped.
  *
- * Failure mode: if Postgres is unreachable, we fail OPEN (log + allow). That's
- * acceptable because the secondary layer (magic-links are single-use) still
- * makes brute-force impractical. Expired rows are pruned by the weekly
- * `purge-audit` job.
+ * Failure mode: if Postgres is unreachable we fail CLOSED in production
+ * (deny) and OPEN in dev (log + allow). Expired rows are pruned by the
+ * weekly `purge-audit` job.
  */
 
 export interface RateLimitResult {
@@ -70,8 +69,20 @@ export async function rateLimit(
       resetInSeconds: resetInSeconds > 0 ? resetInSeconds : windowSeconds,
     };
   } catch (err) {
+    // Production fails CLOSED: a DB outage must not remove the only
+    // brute-force / mail-flood / Argon2-amplification throttle exactly when
+    // the system is degraded (pentest authn-04). Auth is DB-backed anyway,
+    // so a dead DB already means nobody can log in. Dev fails open so a
+    // missing rate_limits table never blocks local work.
+    if (process.env.NODE_ENV === "production") {
+      console.error(
+        "[rate-limit] postgres error — failing CLOSED:",
+        (err as Error).message
+      );
+      return { ok: false, remaining: 0, resetInSeconds: windowSeconds };
+    }
     console.error(
-      "[rate-limit] postgres error — failing open:",
+      "[rate-limit] postgres error — failing open (dev only):",
       (err as Error).message
     );
     return { ok: true, remaining: limit, resetInSeconds: windowSeconds };

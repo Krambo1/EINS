@@ -10,6 +10,7 @@ import {
   googleClinicRedirectUri,
 } from "@/auth/google-login";
 import { hasGoogleLogin } from "@/lib/env";
+import { trustedIpFromHeaders } from "@/lib/client-ip";
 import { rateLimit } from "@/server/rate-limit";
 import { writeAudit } from "@/server/audit";
 import { defaultLandingPath } from "@/lib/roles";
@@ -41,9 +42,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // Per-IP throttle. Each attempt already requires a full Google auth, but cap
   // it anyway. rateLimit fails open if Postgres is unreachable.
   const ip =
-    (req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? "")
-      .split(",")[0]
-      ?.trim() || "unknown";
+    trustedIpFromHeaders(
+      req.headers.get("x-forwarded-for"),
+      req.headers.get("x-real-ip")
+    ) ?? "unknown";
   const rl = await rateLimit("login:google:ip", ip, {
     limit: 30,
     windowSeconds: 60 * 60,

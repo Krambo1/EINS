@@ -119,6 +119,11 @@ export class PostgresDriver implements DbDriver {
     });
 
     await client.connect();
+    // Read-only brake: the agent only ever SELECTs from the Praxis DB. Force
+    // the session read-only so a malformed or hostile YAML-config query can
+    // never mutate the practice's database — independent of (and in addition
+    // to) the provisioned account's grants (pentest M10).
+    await client.query("SET default_transaction_read_only = on", []);
     this.client = client;
     this.healthy = true;
   }

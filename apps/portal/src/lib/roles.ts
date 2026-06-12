@@ -13,8 +13,6 @@ export const PERMISSIONS = {
   // Anfragen
   "requests.view": ["inhaber", "marketing", "frontdesk"],
   "requests.update": ["inhaber", "marketing", "frontdesk"],
-  "requests.bulk_assign": ["inhaber", "marketing", "frontdesk"],
-  "requests.create_manual": ["inhaber", "marketing", "frontdesk"],
   // Medien
   "assets.view": ["inhaber", "marketing", "frontdesk"],
   "assets.download": ["inhaber", "marketing", "frontdesk"],

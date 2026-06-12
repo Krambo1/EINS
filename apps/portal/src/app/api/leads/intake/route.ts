@@ -154,6 +154,27 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Per-IP-first gate (pentest M6): a known clinicId must not be sprayable to
+  // exhaust a clinic's bucket with unsigned junk before signature check.
+  const ipForGate =
+    (request.headers.get("x-forwarded-for") ??
+      request.headers.get("x-real-ip") ??
+      "")
+      .split(",")[0]
+      ?.trim() || null;
+  if (ipForGate) {
+    const ipRl = await rateLimit("leads-intake-ip", ipForGate, {
+      limit: 600,
+      windowSeconds: 600,
+    });
+    if (!ipRl.ok) {
+      return NextResponse.json(
+        { error: { code: "rate_limited" } },
+        { status: 429, headers: { "Retry-After": String(ipRl.resetInSeconds) } }
+      );
+    }
+  }
+
   // Rate-limit by clinic — we must be careful not to leak timing here, but
   // symmetrically dropping counts as "slow down".
   const rl = await rateLimit("leads-intake", parsed.clinicId, {

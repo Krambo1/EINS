@@ -257,8 +257,21 @@ export const PATIENT_FEEDBACK_STATUS_LABELS: Record<
   geschlossen: "Geschlossen",
 };
 
+/**
+ * Apply the `__Host-` cookie-name prefix in production. The prefix is a
+ * browser-enforced lock: the cookie MUST be Secure, Path=/ and carry no
+ * Domain attribute, which stops a sibling subdomain (or a network attacker
+ * on a cleartext sibling) from clobbering it (pentest authn-08). It cannot
+ * be used over plain-http localhost (Secure is unsettable there), so dev
+ * keeps the bare name. Set + read + delete all go through this helper, so
+ * the name stays consistent within an environment.
+ */
+export function hostCookieName(base: string): string {
+  return process.env.NODE_ENV === "production" ? `__Host-${base}` : base;
+}
+
 /** Session cookie */
-export const SESSION_COOKIE = "eins_session";
+export const SESSION_COOKIE = hostCookieName("eins_session");
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8; // 8h idle timeout
 /**
  * "Angemeldet bleiben": Häkchen beim Login verlängert die Session von 8 Stunden

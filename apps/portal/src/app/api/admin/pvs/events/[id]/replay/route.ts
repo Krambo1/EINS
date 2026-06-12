@@ -4,6 +4,7 @@ import { requireAdminForApi } from "@/auth/admin-guards";
 import { applyPvsEvent, PvsEventSchema } from "@/server/pvs-events";
 import { writeAudit } from "@/server/audit";
 import { getEventDetail } from "@/server/queries/admin-pvs-events";
+import { verifyPvsEventIntegrityTag } from "@/server/pvs-event-integrity";
 
 /**
  * Replay a stored pvs_event_log row through the live ingest pipeline.
@@ -45,6 +46,31 @@ export async function POST(
     );
   }
 
+  // H3: re-verify the stored payload's server-side integrity tag before
+  // re-applying it. The original wire HMAC can't be re-checked (the per-clinic
+  // agent secret rotates on re-enrollment), so this server-keyed tag is the
+  // only thing standing between an at-rest-tampered row and a trusted re-ingest.
+  // A NULL tag means the row predates migration 0060 (legacy) — we allow the
+  // replay but flag it so the operator knows it wasn't integrity-checked.
+  const integrityChecked = detail.payloadSig !== null;
+  if (
+    detail.payloadSig !== null &&
+    !verifyPvsEventIntegrityTag(detail.payload, detail.payloadSig)
+  ) {
+    await writeAudit({
+      clinicId: detail.clinicId,
+      actorEmail: admin.email,
+      action: "replay_rejected",
+      entityKind: "pvs_event_log",
+      entityId: detail.id,
+      diff: { reason: "integrity_failed" },
+    });
+    return NextResponse.json(
+      { error: { code: "integrity_failed" } },
+      { status: 409 }
+    );
+  }
+
   const replaySuffix = `:replay:${Date.now()}`;
   const replayedExternalId = `${detail.pvsExternalEventId}${replaySuffix}`;
 
@@ -76,6 +102,7 @@ export async function POST(
     entityId: detail.id,
     diff: {
       replayedExternalEventId: replayedExternalId,
+      integrityChecked,
       result,
     },
   });

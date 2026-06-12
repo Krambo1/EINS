@@ -61,6 +61,19 @@ export async function POST(request: NextRequest) {
       { status: 401 }
     );
   }
+  // Replay window: the timestamp is part of the signed string, so a captured
+  // request stays valid forever without a freshness check. Svix's own
+  // reference verifier uses a 5-minute tolerance; mirror that here.
+  const timestampSec = Number(svixTimestamp);
+  if (
+    !Number.isFinite(timestampSec) ||
+    Math.abs(Date.now() / 1000 - timestampSec) > 300
+  ) {
+    return NextResponse.json(
+      { error: { code: "stale_timestamp" } },
+      { status: 401 }
+    );
+  }
   if (
     !verifySvixSignature({
       id: svixId,

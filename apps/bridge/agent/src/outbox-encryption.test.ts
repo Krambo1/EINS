@@ -372,3 +372,56 @@ describe("legacy plaintext migration (P3-4)", () => {
     expect(siblings.some((n) => n.includes(".migrating"))).toBe(false);
   });
 });
+
+describe("legacy plaintext backup retention (M15)", () => {
+  it("shreds an aged .legacy backup on a clean keyed open but keeps a fresh one", () => {
+    const path = join(tempDir, "outbox.sqlite");
+    seedLegacyOutbox(path);
+
+    // First open migrates → creates a fresh `.legacy-<now>` backup + encrypted file.
+    outbox.setOutboxKey(TEST_KEY_HEX);
+    expect(outbox.dueRows(10)).toHaveLength(1);
+    outbox._closeForTests();
+
+    // Plant an AGED backup (older than the 7-day retention window) alongside it.
+    const agedTs = Date.now() - 8 * 24 * 60 * 60 * 1000;
+    const agedName = `outbox.sqlite.legacy-${agedTs}`;
+    writeFileSync(join(tempDir, agedName), "pre-P3-4 plaintext patient rows");
+
+    const before = readdirSync(tempDir).filter((n) => /\.legacy-\d+$/.test(n));
+    expect(before).toContain(agedName);
+    const freshName = before.find((n) => n !== agedName);
+    expect(freshName).toBeTruthy();
+
+    // Re-open: encrypted file opens clean → prune fires. (_closeForTests also
+    // drops the in-process key, so re-arm it.)
+    outbox.setOutboxKey(TEST_KEY_HEX);
+    expect(outbox.dueRows(10)).toHaveLength(1);
+
+    const after = readdirSync(tempDir).filter((n) => /\.legacy-\d+$/.test(n));
+    // Aged plaintext backup is gone; the fresh post-migration one is preserved
+    // (still inside the operator verify-replay window).
+    expect(after).not.toContain(agedName);
+    expect(after).toContain(freshName);
+  });
+
+  it("keeps a recent .legacy backup (inside the retention window)", () => {
+    const path = join(tempDir, "outbox.sqlite");
+    seedLegacyOutbox(path);
+
+    outbox.setOutboxKey(TEST_KEY_HEX);
+    expect(outbox.dueRows(10)).toHaveLength(1);
+    outbox._closeForTests();
+
+    // A 1-day-old backup is well within the 7-day window.
+    const recentTs = Date.now() - 24 * 60 * 60 * 1000;
+    const recentName = `outbox.sqlite.legacy-${recentTs}`;
+    writeFileSync(join(tempDir, recentName), "still within verify window");
+
+    outbox.setOutboxKey(TEST_KEY_HEX);
+    expect(outbox.dueRows(10)).toHaveLength(1);
+
+    const after = readdirSync(tempDir).filter((n) => /\.legacy-\d+$/.test(n));
+    expect(after).toContain(recentName);
+  });
+});

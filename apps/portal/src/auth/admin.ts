@@ -5,7 +5,9 @@ import { SignJWT, jwtVerify } from "jose";
 import { and, eq, isNull, ne, sql as dsql } from "drizzle-orm";
 import { db, schema } from "../db/client";
 import { env } from "../lib/env";
-import { generateToken, sha256Hex } from "../lib/crypto";
+import { deriveSigningKey, generateToken, sha256Hex } from "../lib/crypto";
+import { trustedIpFromHeaders } from "../lib/client-ip";
+import { hostCookieName } from "../lib/constants";
 
 /**
  * Admin auth — Karam's super-admin identity, entirely SEPARATE from the
@@ -22,7 +24,7 @@ import { generateToken, sha256Hex } from "../lib/crypto";
  * names and DIFFERENT session tables, so the two contexts cannot overlap.
  */
 
-export const ADMIN_SESSION_COOKIE = "eins_admin_session";
+export const ADMIN_SESSION_COOKIE = hostCookieName("eins_admin_session");
 export const ADMIN_SESSION_MAX_AGE_SECONDS = 60 * 60 * 4; // 4h, stricter than clinic sessions
 /**
  * "Angemeldet bleiben" für Admins: 7 Tage statt 4 Stunden. Bewusst deutlich
@@ -31,7 +33,7 @@ export const ADMIN_SESSION_MAX_AGE_SECONDS = 60 * 60 * 4; // 4h, stricter than c
  */
 export const ADMIN_SESSION_REMEMBER_MAX_AGE_SECONDS = 60 * 60 * 24 * 7; // 7 Tage
 
-const SECRET = new TextEncoder().encode(env.SESSION_SECRET);
+const SECRET = deriveSigningKey("admin-session-v1");
 const ALG = "HS256";
 
 interface AdminCookiePayload {
@@ -72,10 +74,21 @@ export function isAdminEmail(email: string): boolean {
   return env.ADMIN_EMAILS.includes(email.trim().toLowerCase());
 }
 
-/** Allowlist check for the requesting IP. Empty list = no restriction. */
+/**
+ * Allowlist check for the requesting IP.
+ *
+ * Empty list: allow in non-prod (frictionless dev), but FAIL CLOSED in
+ * production — an unset allowlist there silently drops the documented admin
+ * second factor (pentest H1 / admin-04). A dynamic-IP operator who cannot
+ * maintain an allowlist can consciously opt out with
+ * `ADMIN_IP_ALLOWLIST_DISABLED=1`.
+ */
 export function isAllowedAdminIp(ip: string | null): boolean {
   const list = env.ADMIN_IP_ALLOWLIST;
-  if (!list.length) return true;
+  if (!list.length) {
+    if (env.NODE_ENV === "production") return env.ADMIN_IP_ALLOWLIST_DISABLED;
+    return true;
+  }
   if (!ip) return false;
   return list.includes(ip);
 }
@@ -92,16 +105,25 @@ export async function createAdminSession(
   adminId: string,
   opts: { rememberMe?: boolean } = {}
 ): Promise<void> {
+  const hdrs = await headers();
+  const ua = hdrs.get("user-agent") ?? null;
+  const ip = trustedIpFromHeaders(hdrs.get("x-forwarded-for"), hdrs.get("x-real-ip"));
+
+  // IP gate at MINT time, not only at read time. Without this a disallowed
+  // origin could still create a live admin_sessions row + cookie that
+  // "activates" later from an allowlisted IP (pentest authn-02b/03).
+  if (!isAllowedAdminIp(ip)) {
+    throw new Error(
+      "Admin-Anmeldung abgelehnt: IP-Adresse nicht in der Allowlist."
+    );
+  }
+
   const maxAgeSeconds = opts.rememberMe
     ? ADMIN_SESSION_REMEMBER_MAX_AGE_SECONDS
     : ADMIN_SESSION_MAX_AGE_SECONDS;
   const token = generateToken(32);
   const tokenHash = sha256Hex(token);
   const expiresAt = new Date(Date.now() + maxAgeSeconds * 1000);
-
-  const hdrs = await headers();
-  const ua = hdrs.get("user-agent") ?? null;
-  const ip = (hdrs.get("x-forwarded-for") ?? hdrs.get("x-real-ip") ?? "").split(",")[0]?.trim() || null;
 
   const [row] = await db
     .insert(schema.adminSessions)
@@ -139,7 +161,7 @@ export async function createAdminSession(
  */
 async function getAdminSessionImpl(): Promise<ResolvedAdmin | null> {
   const hdrs = await headers();
-  const ip = (hdrs.get("x-forwarded-for") ?? hdrs.get("x-real-ip") ?? "").split(",")[0]?.trim() || null;
+  const ip = trustedIpFromHeaders(hdrs.get("x-forwarded-for"), hdrs.get("x-real-ip"));
   if (!isAllowedAdminIp(ip)) return null;
 
   const jar = await cookies();

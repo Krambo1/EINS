@@ -39,6 +39,25 @@ function renderBlock(block: string, key: number): ReactNode {
   );
 }
 
+/**
+ * Scheme allowlist for markdown link hrefs. Content is operator-authored
+ * today, but a raw href would render `javascript:` / `data:` if any field ever
+ * becomes user-influenced (pentest L6). Allows http(s)/mailto/tel + relative
+ * links; everything else collapses to "#".
+ */
+function safeHref(href: string): string {
+  const trimmed = href.trim();
+  const m = /^([a-z][a-z0-9+.-]*):/i.exec(trimmed);
+  if (!m) return trimmed; // relative URL or fragment — safe
+  const scheme = m[1].toLowerCase();
+  return scheme === "http" ||
+    scheme === "https" ||
+    scheme === "mailto" ||
+    scheme === "tel"
+    ? trimmed
+    : "#";
+}
+
 function renderInline(text: string): ReactNode {
   // Order matters: links first, then bold.
   const linkSplit = text.split(/(\[[^\]]+\]\([^)]+\))/g);
@@ -48,7 +67,7 @@ function renderInline(text: string): ReactNode {
       return (
         <a
           key={i}
-          href={linkMatch[2]}
+          href={safeHref(linkMatch[2])}
           target="_blank"
           rel="noopener noreferrer"
           className="underline underline-offset-4 hover:text-brand-primary"

@@ -123,7 +123,15 @@ export function withApiTx<T>(
         });
       }
 
-      return NextResponse.json(result);
+      const response = NextResponse.json(result);
+      if (options.cacheControl) {
+        // Force `private` so a shared cache (proxy / CDN) never stores it.
+        const cc = options.cacheControl.includes("private")
+          ? options.cacheControl
+          : `private, ${options.cacheControl}`;
+        response.headers.set("Cache-Control", cc);
+      }
+      return response;
     } catch (err) {
       return mapError(err);
     }

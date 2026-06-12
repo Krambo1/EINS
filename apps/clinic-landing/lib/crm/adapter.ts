@@ -1,3 +1,4 @@
+import { isAllowedWebhookUrl } from "./webhook-guard";
 import type { CRMAdapterResult, QuizSubmissionPayload } from "../types";
 
 export interface CRMAdapter {
@@ -65,6 +66,9 @@ export async function postMarketingConfirmed(
   webhookUrl: string,
   event: MarketingConfirmedEvent,
 ): Promise<{ ok: boolean; message?: string }> {
+  if (!isAllowedWebhookUrl(webhookUrl)) {
+    return { ok: false, message: "webhook_url_blocked" };
+  }
   try {
     const res = await fetch(webhookUrl, {
       method: "POST",

@@ -96,9 +96,23 @@ function noBanned<T extends z.ZodType<string, z.ZodTypeDef, string>>(
 /* ── Brand ─────────────────────────────────────────────────────────────── */
 
 const brandFontFaceSchema = z.object({
-  family: z.string().min(1),
-  filename: z.string().min(1),
-  weight: z.union([z.number(), z.string()]),
+  // family / filename / weight are interpolated RAW into a <style> @font-face
+  // block (layout.tsx buildFontFaceCss), so constrain them to safe characters
+  // — a config value must not be able to inject CSS or markup (pentest L6).
+  family: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^[A-Za-z0-9 ,_-]+$/),
+  filename: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^[A-Za-z0-9._-]+\.woff2$/),
+  weight: z.union([
+    z.number().int().min(1).max(1000),
+    z.string().regex(/^(?:[0-9]{1,4}(?: [0-9]{1,4})?|normal|bold|bolder|lighter)$/),
+  ]),
   style: z.enum(["normal", "italic"]).optional(),
   display: z.enum(["swap", "block", "fallback", "optional"]).optional(),
 });

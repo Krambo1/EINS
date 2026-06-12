@@ -10,6 +10,25 @@ import { env, hasR2 } from "@/lib/env";
  *
  * Relies on `pg_dump` being present in PATH. Fails loudly if it isn't.
  */
+
+/**
+ * libpq connection env vars parsed from a Postgres DSN, so the credentials
+ * never land on the `pg_dump` argv — a DSN on the command line exposes the
+ * password in `ps` / `/proc/<pid>/cmdline` to any co-resident process
+ * (pentest H10).
+ */
+function pgEnvFromDsn(dsn: string): Record<string, string> {
+  const u = new URL(dsn);
+  return {
+    PGHOST: u.hostname,
+    PGPORT: u.port || "5432",
+    PGUSER: decodeURIComponent(u.username),
+    PGPASSWORD: decodeURIComponent(u.password),
+    PGDATABASE: u.pathname.replace(/^\//, "") || "postgres",
+    PGSSLMODE: u.searchParams.get("sslmode") ?? "require",
+  };
+}
+
 export async function processDbBackup(): Promise<void> {
   if (!hasR2()) {
     console.log("[db-backup] R2 not configured — skipping backup");
@@ -18,8 +37,11 @@ export async function processDbBackup(): Promise<void> {
 
   const key = `backups/portal-${new Date().toISOString().slice(0, 10)}.sql.gz`;
 
-  const dump = spawn("pg_dump", [env.DATABASE_URL, "--no-owner", "--no-privileges"], {
+  // Credentials via libpq env, not argv (pentest H10). Only non-secret flags
+  // stay on the command line.
+  const dump = spawn("pg_dump", ["--no-owner", "--no-privileges"], {
     stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, ...pgEnvFromDsn(env.DATABASE_URL) },
   });
   const gzip = spawn("gzip", ["-9"], { stdio: ["pipe", "pipe", "pipe"] });
 
@@ -57,6 +79,11 @@ export async function processDbBackup(): Promise<void> {
       Key: key,
       Body: Buffer.concat(chunks),
       ContentType: "application/gzip",
+      // Explicit server-side encryption at rest (pentest H10). NOTE: this is a
+      // full-DB PHI dump — set a retention lifecycle on the `backups/` prefix
+      // in the R2 console, and consider client-side encryption since SSE does
+      // not protect against leaked R2 credentials.
+      ServerSideEncryption: "AES256",
     })
   );
   console.log(`[db-backup] wrote ${key}`);

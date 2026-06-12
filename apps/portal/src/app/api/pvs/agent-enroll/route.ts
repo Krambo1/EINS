@@ -142,6 +142,13 @@ export async function POST(request: NextRequest) {
     },
   });
 
+  // The response body carries the per-clinic HMAC secret in cleartext (the
+  // symmetric scheme requires the agent to receive it once to sign events).
+  // Forbid any caching along the path (CDN, proxy, browser) so the one-time
+  // secret is never persisted outside the agent's DPAPI/Keychain store
+  // (pentest H9). Transport is HTTPS in prod; this closes the at-rest-in-cache
+  // gap. A future asymmetric-enrollment redesign would remove the cleartext
+  // return entirely, but that is a larger change to the (undeployed) bridge.
   return NextResponse.json(
     {
       ok: true,
@@ -149,6 +156,12 @@ export async function POST(request: NextRequest) {
       vendor: result.vendor,
       endpoint: "/api/pvs/events",
     },
-    { status: 200 }
+    {
+      status: 200,
+      headers: {
+        "Cache-Control": "no-store, no-cache, must-revalidate, private",
+        Pragma: "no-cache",
+      },
+    }
   );
 }

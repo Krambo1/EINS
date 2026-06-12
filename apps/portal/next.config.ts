@@ -31,7 +31,7 @@ const config: NextConfig = {
       dynamic: 30,
     },
   },
-  // Security headers — HSTS is added at edge (Cloudflare), these harden everything else.
+  // Security headers (pentest L5).
   async headers() {
     return [
       {
@@ -43,6 +43,29 @@ const config: NextConfig = {
           {
             key: "Permissions-Policy",
             value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
+          },
+          // App-level HSTS in addition to the Cloudflare edge header, so a
+          // request that reaches the Vercel origin directly (e.g. the raw
+          // *.vercel.app host, bypassing the edge) still gets the policy.
+          {
+            key: "Strict-Transport-Security",
+            value: "max-age=63072000; includeSubDomains",
+          },
+          // Content-Security-Policy — deliberately scoped to the directives
+          // that are safe to enforce app-wide without a nonce pipeline:
+          //   • frame-ancestors 'none' — clickjacking lock (modern equivalent
+          //     of X-Frame-Options, which is kept for older browsers).
+          //   • base-uri 'self' — blocks <base> tag injection from re-pointing
+          //     relative URLs.
+          //   • object-src 'none' — no Flash/plugin embedding.
+          // We intentionally do NOT restrict script-src/style-src (Next.js
+          // injects inline bootstrap/hydration scripts; a strict policy needs
+          // per-request nonces threaded through middleware — a separate, larger
+          // change) and do NOT set form-action (the admin "view as user"
+          // hand-off POSTs cross-origin from the admin host to the clinic host).
+          {
+            key: "Content-Security-Policy",
+            value: "base-uri 'self'; object-src 'none'; frame-ancestors 'none'",
           },
         ],
       },

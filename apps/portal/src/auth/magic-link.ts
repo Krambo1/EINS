@@ -5,6 +5,7 @@ import { db, schema } from "../db/client";
 import { env } from "../lib/env";
 import { MAGIC_LINK_TTL_SECONDS } from "../lib/constants";
 import { generateToken, sha256Hex } from "../lib/crypto";
+import { trustedIpFromHeaders } from "../lib/client-ip";
 import { sendMagicLinkEmail } from "../server/email";
 import { isEmailSuppressed } from "../server/email-suppression";
 import { writeAudit } from "../server/audit";
@@ -124,7 +125,7 @@ export async function issueMagicLink(opts: IssueMagicLinkOpts): Promise<void> {
   const expiresAt = new Date(Date.now() + MAGIC_LINK_TTL_SECONDS * 1000);
 
   const hdrs = await headers();
-  const ip = parseRequestIp(hdrs.get("x-forwarded-for"), hdrs.get("x-real-ip"));
+  const ip = trustedIpFromHeaders(hdrs.get("x-forwarded-for"), hdrs.get("x-real-ip"));
 
   await db.insert(schema.magicLinks).values({
     email,
@@ -388,9 +389,4 @@ export async function purgeExpiredMagicLinks(): Promise<number> {
     (result as unknown as { rowCount?: number }).rowCount ??
     0
   );
-}
-
-function parseRequestIp(xff: string | null, xri: string | null): string | null {
-  const first = (xff ?? xri ?? "").split(",")[0]?.trim();
-  return first || null;
 }

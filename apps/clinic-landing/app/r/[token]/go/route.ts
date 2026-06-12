@@ -6,6 +6,39 @@ import {
 } from "@/lib/portal-review-tokens";
 
 /**
+ * Host allowlist for the public review redirect target. The Praxis sets
+ * `googleReviewUrl` / `jamedaReviewUrl` in the portal; without this an inhaber
+ * (or a compromised portal) could 302 patients to an arbitrary phishing host
+ * under the EINS-branded link (pentest M9 / az-04). https-only + known
+ * review-provider hosts.
+ */
+function isAllowedReviewTarget(
+  platform: "google" | "jameda",
+  url: string
+): boolean {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== "https:") return false;
+  const host = u.hostname.toLowerCase();
+  if (platform === "jameda") {
+    return host === "jameda.de" || host.endsWith(".jameda.de");
+  }
+  // google
+  return (
+    host === "google.com" ||
+    host.endsWith(".google.com") ||
+    host === "g.page" ||
+    host.endsWith(".g.page") ||
+    host === "maps.app.goo.gl" ||
+    host === "goo.gl"
+  );
+}
+
+/**
  * EINS Bewertungen — public-click redirector.
  *
  * Records the platform click on the portal, then 302s the patient to the
@@ -46,6 +79,15 @@ export async function GET(
     // query param the page can render a friendly inline notice from.
     const back = new URL(`/r/${token}`, request.nextUrl.origin);
     back.searchParams.set("err", "platform_not_configured");
+    back.searchParams.set("p", platform);
+    return NextResponse.redirect(back, { status: 302 });
+  }
+
+  if (!isAllowedReviewTarget(platform, target)) {
+    // Configured URL is not a recognised review-provider host — refuse the
+    // open redirect and bounce back to the rating page (pentest M9).
+    const back = new URL(`/r/${token}`, request.nextUrl.origin);
+    back.searchParams.set("err", "invalid_review_url");
     back.searchParams.set("p", platform);
     return NextResponse.redirect(back, { status: 302 });
   }

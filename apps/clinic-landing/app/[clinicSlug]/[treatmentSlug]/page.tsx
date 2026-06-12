@@ -67,8 +67,11 @@ export default function TreatmentPage({ params }: PageProps) {
         <script
           key={i}
           type="application/ld+json"
+          // Escape `<` so a clinic/treatment field containing `</script>`
+          // can't break out of the JSON-LD block (pentest L6). JSON.stringify
+          // does not escape it on its own.
           // eslint-disable-next-line react/no-danger
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(doc) }}
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(doc).replace(/</g, "\\u003c") }}
         />
       ))}
 

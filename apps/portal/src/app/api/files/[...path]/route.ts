@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createReadStream } from "node:fs";
-import { stat } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { realpath, stat } from "node:fs/promises";
+import { join, resolve, sep } from "node:path";
 import { getSession } from "@/auth/session";
 
 /**
@@ -42,13 +42,24 @@ export async function GET(
 
   const full = join(STORAGE_ROOT, key);
   try {
-    const stats = await stat(full);
+    // Symlink containment (pentest L10): resolve the real path and refuse
+    // anything that escapes STORAGE_ROOT. The `..`/leading-`/` filter above
+    // blocks lexical traversal, but a symlink planted under storage/ could
+    // still point at an arbitrary host file; realpath collapses it so we can
+    // re-check the boundary before opening a stream.
+    const real = await realpath(full);
+    const rootReal = await realpath(STORAGE_ROOT);
+    if (real !== rootReal && !real.startsWith(rootReal + sep)) {
+      return new NextResponse("Forbidden", { status: 403 });
+    }
+
+    const stats = await stat(real);
     if (!stats.isFile()) {
       return new NextResponse("Not Found", { status: 404 });
     }
     // Guess a content type from extension — good enough for the dev path.
-    const ct = contentTypeFor(full);
-    const stream = createReadStream(full);
+    const ct = contentTypeFor(real);
+    const stream = createReadStream(real);
     return new NextResponse(stream as unknown as ReadableStream, {
       status: 200,
       headers: {

@@ -1,6 +1,5 @@
 "use server";
 
-import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db/client";
@@ -14,16 +13,14 @@ import {
   clearPasswordSetupCookie,
   readPasswordSetupCookie,
 } from "@/auth/password-setup-cookie";
+import { isAdminEmail } from "@/auth/admin";
+import { getTrustedClientIp } from "@/lib/client-ip";
 import { rateLimit } from "@/server/rate-limit";
 import { writeAudit } from "@/server/audit";
 
 const Schema = z.object({
   password: z.string(),
 });
-
-function ipFromHeaders(xff: string | null, xri: string | null): string {
-  return (xff ?? xri ?? "").split(",")[0]?.trim() || "unknown";
-}
 
 /**
  * State shape:
@@ -75,11 +72,7 @@ export async function setAdminPasswordAction(
     return { error: ERR_POLICY };
   }
 
-  const hdrs = await headers();
-  const ip = ipFromHeaders(
-    hdrs.get("x-forwarded-for"),
-    hdrs.get("x-real-ip")
-  );
+  const ip = (await getTrustedClientIp()) ?? "unknown";
   const rl = await rateLimit("admin-set-pwd:ip", ip, {
     limit: 20,
     windowSeconds: 60 * 60,
@@ -107,6 +100,14 @@ export async function setAdminPasswordAction(
     return { error: ERR_EXPIRED, expired: true };
   }
 
+  // Re-check the allowlist at write time: the setup cookie only proves a
+  // valid handoff for SOME admin_users row. A de-allowlisted admin must not
+  // be able to overwrite a password hash (pentest Phase-2 residual #1).
+  if (!isAdminEmail(adminRow.email)) {
+    await clearPasswordSetupCookie("admin");
+    return { error: ERR_EXPIRED, expired: true };
+  }
+
   await writeAdminPasswordHash(adminRow.id, parsed.data.password);
 
   await revokeAllAdminSessionsForAdmin(adminRow.id);
@@ -119,7 +120,15 @@ export async function setAdminPasswordAction(
     diff: { via: "cookie", revoked: "all_admin_sessions" },
   });
 
-  await createAdminSession(adminRow.id);
+  try {
+    // Throws when the requesting IP is outside ADMIN_IP_ALLOWLIST (authn-02b).
+    // The password is already set + old sessions revoked, so on a blocked IP
+    // we send the admin to the login screen to sign in from an allowed
+    // network rather than 500.
+    await createAdminSession(adminRow.id);
+  } catch {
+    return { ok: true, redirectTo: "/admin/login?password=set" };
+  }
 
   return { ok: true, redirectTo: "/admin?password=set" };
 }

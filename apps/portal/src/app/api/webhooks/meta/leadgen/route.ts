@@ -4,6 +4,7 @@ import { env, hasMeta } from "@/lib/env";
 import { writeAudit } from "@/server/audit";
 import { persistLead } from "@/server/leads";
 import { findCredentialByMetaPageId } from "@/server/meta-pages";
+import { rateLimit } from "@/server/rate-limit";
 
 /**
  * Meta Lead-Ads — leadgen webhook ingestion.
@@ -77,11 +78,20 @@ export async function GET(request: NextRequest) {
   const token = url.searchParams.get("hub.verify_token");
   const challenge = url.searchParams.get("hub.challenge");
 
-  if (!env.META_LEADGEN_VERIFY_TOKEN) {
+  const expectedToken = env.META_LEADGEN_VERIFY_TOKEN;
+  if (!expectedToken) {
     return new NextResponse("not configured", { status: 503 });
   }
 
-  if (mode === "subscribe" && token === env.META_LEADGEN_VERIFY_TOKEN && challenge) {
+  // Constant-time compare so the verify-token can't be recovered byte-by-byte
+  // via timing (pentest I2). timingSafeEqual throws on a length mismatch, so
+  // length-gate first.
+  const tokenOk =
+    typeof token === "string" &&
+    token.length === expectedToken.length &&
+    timingSafeEqual(Buffer.from(token), Buffer.from(expectedToken));
+
+  if (mode === "subscribe" && tokenOk && challenge) {
     return new NextResponse(challenge, {
       status: 200,
       headers: { "Content-Type": "text/plain; charset=utf-8" },
@@ -158,7 +168,7 @@ export async function POST(request: NextRequest) {
 async function ingestOne(
   pageId: string,
   value: LeadgenChange["value"]
-): Promise<"inserted" | "deduped" | "unbound_page" | "missing_lead"> {
+): Promise<"inserted" | "deduped" | "unbound_page" | "missing_lead" | "rate_limited"> {
   const cred = await findCredentialByMetaPageId(pageId);
   if (!cred) {
     // Webhook from a Page no clinic owns — happens when a Praxis disconnects
@@ -166,6 +176,19 @@ async function ingestOne(
     // subscription on Meta's side, but acknowledge.
     console.warn(`[meta-leadgen] no clinic bound to page=${pageId}`);
     return "unbound_page";
+  }
+
+  // Bound the paid Graph egress: a replayed/duplicated webhook (no timestamp in
+  // the X-Hub scheme) must not drive unbounded fetchLeadFromGraph calls
+  // (pentest M7 / BR-04-meta). 100/min per clinic is far above any real lead
+  // rate; we ack 200 so Meta does not retry the whole batch.
+  const rl = await rateLimit("meta-leadgen", cred.clinicId, {
+    limit: 100,
+    windowSeconds: 60,
+  });
+  if (!rl.ok) {
+    console.warn(`[meta-leadgen] rate-limited clinic=${cred.clinicId}`);
+    return "rate_limited";
   }
 
   const lead = await fetchLeadFromGraph(value.leadgen_id, cred.pageAccessToken);

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { sql } from "drizzle-orm";
-import { db } from "@/db/client";
+import { assertAppRoleIsRlsSubject, db } from "@/db/client";
 
 /**
  * Health / readiness probe — used by Vercel deploy gates and uptime
@@ -24,15 +24,9 @@ import { db } from "@/db/client";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const VERSION =
-  process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ??
-  process.env.GIT_SHA?.slice(0, 7) ??
-  "dev";
-
 interface HealthResult {
   ok: boolean;
   checks: Record<string, "ok" | string>;
-  version: string;
   latencyMs: number;
 }
 
@@ -55,11 +49,26 @@ export async function GET() {
     checks.db = err instanceof Error ? err.message.slice(0, 80) : "error";
   }
 
+  // 2) RLS-subject assertion (prod only): fail the gate if the app DB role
+  //    can bypass row-level security (authn-07). Dev intentionally allows the
+  //    superuser fallback, so we only enforce in production. Memoized in the
+  //    client, so this is a cached boolean after the first probe.
+  if (process.env.NODE_ENV === "production") {
+    try {
+      await assertAppRoleIsRlsSubject();
+      checks.rls = "ok";
+    } catch (err) {
+      checks.rls = err instanceof Error ? err.message.slice(0, 80) : "error";
+    }
+  }
+
   const ok = Object.values(checks).every((v) => v === "ok");
+  // Deliberately no version/git-SHA here: this endpoint is public and the
+  // deployed commit fingerprint is a free recon signal. Deploy identity
+  // lives in Vercel's own dashboard, not in the probe body.
   const body: HealthResult = {
     ok,
     checks,
-    version: VERSION,
     latencyMs: Date.now() - t0,
   };
 

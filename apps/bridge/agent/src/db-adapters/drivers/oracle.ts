@@ -24,10 +24,14 @@ import type {
  * placeholder convention. No SQL translation is required; we pass binds
  * straight through as a values object.
  *
- * Read-only safety: a single connection per vendor (no pool), and we
- * leave the session at the database's default isolation level. The
- * Praxis IT person provisions a read-only user with SELECT-only grants
- * per the AVV; see apps/bridge/docs/onboarding-per-vendor/cgm-m1pro.md.
+ * Read-only safety: a single connection per vendor (no pool) run with
+ * autoCommit:false, plus a `SET TRANSACTION READ ONLY` issued at connect
+ * (pentest M10). Because the connection never commits, that one statement
+ * governs every subsequent SELECT in the same long-lived transaction; a write
+ * attempt raises ORA-01456 ("may not perform insert/delete/update inside a
+ * READ ONLY transaction"). This is defense in depth over the read-only user
+ * the Praxis IT person provisions per the AVV; see
+ * apps/bridge/docs/onboarding-per-vendor/cgm-m1pro.md.
  */
 
 type OracleConnection = {
@@ -122,6 +126,15 @@ export class OracleDriver implements DbDriver {
       connectString: buildConnectString(params),
     });
     this.conn = conn;
+    // Read-only brake (pentest M10). autoCommit:false means this connection
+    // holds one long-lived transaction; SET TRANSACTION READ ONLY as its first
+    // statement makes every later SELECT read-only and turns any write into
+    // ORA-01456. outFormat is required by the typed signature but irrelevant
+    // for a statement that returns no rows.
+    await conn.execute("SET TRANSACTION READ ONLY", {}, {
+      outFormat: mod.OUT_FORMAT_OBJECT,
+      autoCommit: false,
+    });
     this.healthy = true;
   }
 

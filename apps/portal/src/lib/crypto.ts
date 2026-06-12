@@ -3,6 +3,7 @@ import {
   createHash,
   createCipheriv,
   createDecipheriv,
+  hkdfSync,
   randomBytes,
   timingSafeEqual,
 } from "node:crypto";
@@ -21,6 +22,26 @@ import { env } from "./env";
  *  - For passwords use argon2id via `@node-rs/argon2` (see auth/password.ts),
  *    not SHA-256.
  */
+
+/**
+ * Per-context HS256 signing key, derived from SESSION_SECRET via
+ * HKDF-SHA256 with the context string as `info`.
+ *
+ * Background (pentest authn-01): five independent trust contexts (clinic
+ * session, admin session, Google-login state, password-setup handoff,
+ * integrations OAuth state) all signed with the RAW SESSION_SECRET; the
+ * `kid` headers were cosmetic, so one leaked secret forged all five. With
+ * HKDF derivation a token signed for one context can never verify in
+ * another, and a partial leak of one derived key does not expose the rest.
+ *
+ * Deploying this rotates every signing key once (all live sessions /
+ * pending state cookies are invalidated — users simply log in again).
+ */
+export function deriveSigningKey(context: string): Uint8Array {
+  return new Uint8Array(
+    hkdfSync("sha256", env.SESSION_SECRET, "eins-portal-v1", context, 32)
+  );
+}
 
 /** Generate a URL-safe random token of ~43 chars (32 bytes base64url). */
 export function generateToken(byteLength = 32): string {

@@ -18,9 +18,11 @@ import type {
  * positional and `:name` via its `namedPlaceholders` option; we enable
  * named placeholders so YAML configs do not need translation.
  *
- * Read-only safety: we set `transaction_isolation` to READ COMMITTED on
- * connection and route each request through a single shared connection
- * (not a pool) so the vendor DB sees the lowest possible read load.
+ * Read-only safety: we pin the session to a READ ONLY transaction access
+ * mode on connect (pentest M10) and route each request through a single
+ * shared connection (not a pool) so the vendor DB sees the lowest possible
+ * read load. A write attempt then fails with
+ * ER_CANT_EXECUTE_IN_READ_ONLY_TRANSACTION regardless of the provisioned grant.
  */
 
 type Mysql2Conn = {
@@ -104,6 +106,13 @@ export class MysqlDriver implements DbDriver {
       connectTimeout: 10_000,
     });
     this.conn = conn;
+    // Read-only brake (pentest M10): with autocommit on, every statement runs
+    // in its own transaction, so pinning the session's default transaction
+    // access mode to READ ONLY makes a hostile/malformed YAML query unable to
+    // mutate the Praxis DB. SELECTs are unaffected.
+    await (conn.query({
+      sql: "SET SESSION TRANSACTION READ ONLY",
+    }) as Promise<unknown>);
     this.healthy = true;
   }
 

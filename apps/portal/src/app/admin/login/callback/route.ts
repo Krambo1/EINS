@@ -50,8 +50,19 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Otherwise it's a login magic-link.
-  const email = await consumeAdminMagicLink(token);
+  // Otherwise it's a login magic-link. consumeAdminMagicLink mints the
+  // session via createAdminSession, which now THROWS when the requesting IP
+  // is outside ADMIN_IP_ALLOWLIST (authn-02b/03). Catch it so a blocked IP
+  // gets the same generic error instead of a 500 that confirms the link was
+  // valid.
+  let email: string | null;
+  try {
+    email = await consumeAdminMagicLink(token);
+  } catch {
+    return NextResponse.redirect(
+      new URL("/admin/login?error=invalid_or_expired", adminOrigin())
+    );
+  }
   if (!email) {
     return NextResponse.redirect(
       new URL("/admin/login?error=invalid_or_expired", adminOrigin())

@@ -227,3 +227,38 @@ describe("PVS · static grep against unsafe SQL patterns (P0-5)", () => {
     ).toBeNull();
   });
 });
+
+// ---- sql.raw review gate for the non-hot-path PVS modules (L12) -------------
+
+/**
+ * The two PVS maintenance modules below legitimately need `sql.raw`: a DDL
+ * partition name and partition bounds (not bindable), and a Postgres INTERVAL
+ * literal (also not bindable). They are NOT on the ingest hot path, so they
+ * are excluded from GUARDED_FILES' blanket "no sql.raw" ban — but pentest L12
+ * flagged that they then sat outside ANY injection gate. This block closes
+ * that: every `sql.raw` / `sql.identifier` in these files MUST carry an
+ * `injection-reviewed` marker comment. A new raw call added without first
+ * reasoning about (and annotating) its input safety fails the suite.
+ */
+const RAW_REVIEWED_FILES = [
+  "src/worker/processors/pvs-partition-rotate.ts",
+  "src/worker/processors/pvs-reconcile.ts",
+] as const;
+
+describe("PVS · sql.raw review-marker gate for maintenance modules (L12)", () => {
+  it.each(RAW_REVIEWED_FILES)(
+    "%s annotates every sql.raw / sql.identifier with an injection-reviewed marker",
+    (relPath) => {
+      const src = readGuardedFile(relPath);
+      const rawCalls = src.match(/\bsql\s*\.\s*(raw|identifier)\s*\(/g) ?? [];
+      const markers = src.match(/injection-reviewed/g) ?? [];
+      expect(
+        markers.length,
+        `${relPath}: found ${rawCalls.length} sql.raw/sql.identifier call(s) but ` +
+          `${markers.length} injection-reviewed marker(s) — every raw SQL call in a ` +
+          `non-hot-path PVS module must be individually reviewed and annotated ` +
+          `\`// injection-reviewed: <why the interpolation is not user-controlled>\``
+      ).toBeGreaterThanOrEqual(rawCalls.length);
+    }
+  );
+});

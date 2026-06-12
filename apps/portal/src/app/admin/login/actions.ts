@@ -1,5 +1,4 @@
 "use server";
-import { headers } from "next/headers";
 import { z } from "zod";
 import { createAdminSession } from "@/auth/admin";
 import { issueAdminMagicLink } from "@/auth/admin-magic-link";
@@ -7,6 +6,7 @@ import {
   issueAdminPasswordResetLink,
   verifyAdminPassword,
 } from "@/auth/admin-password";
+import { getTrustedClientIp } from "@/lib/client-ip";
 import { rateLimit } from "@/server/rate-limit";
 import { writeAudit } from "@/server/audit";
 
@@ -65,19 +65,11 @@ const ERR_INVALID_INPUT = "Bitte E-Mail und Passwort angeben.";
 const ERR_INVALID_CREDS = "E-Mail oder Passwort stimmt nicht.";
 const ERR_RATE_LIMITED = "Zu viele Anmelde-Versuche. Bitte einen Moment warten.";
 
-function ipFromHeaders(xff: string | null, xri: string | null): string {
-  return (xff ?? xri ?? "").split(",")[0]?.trim() || "unknown";
-}
-
 async function checkRateLimits(
   email: string,
   label: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const hdrs = await headers();
-  const ip = ipFromHeaders(
-    hdrs.get("x-forwarded-for"),
-    hdrs.get("x-real-ip")
-  );
+  const ip = (await getTrustedClientIp()) ?? "unknown";
   const rl = await rateLimit(`${label}:email`, email, {
     limit: 10,
     windowSeconds: 60 * 60,
@@ -128,7 +120,19 @@ export async function adminPasswordLoginAction(
     return { ok: false, error: ERR_INVALID_CREDS };
   }
 
-  await createAdminSession(match.id, { rememberMe });
+  try {
+    // Throws when the requesting IP is outside ADMIN_IP_ALLOWLIST — the gate
+    // runs at session MINT, not only at read (pentest authn-02b).
+    await createAdminSession(match.id, { rememberMe });
+  } catch {
+    await writeAudit({
+      actorEmail: email,
+      action: "login",
+      entityKind: "admin_login",
+      diff: { method: "password", ok: false, reason: "ip_blocked" },
+    });
+    return { ok: false, error: ERR_INVALID_CREDS };
+  }
 
   await writeAudit({
     actorEmail: email,

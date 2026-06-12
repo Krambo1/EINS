@@ -64,14 +64,18 @@ export function Offer() {
                       Ihre EINS Praxis-Software
                     </p>
                     <h4 className="mt-2 font-display text-3xl font-semibold tracking-tight md:text-6xl">
-                      Sie sehen jeden Tag, <span className="text-accent">was Ihre Werbung bringt.</span>
+                      <span className="whitespace-nowrap">Sie sehen jeden Tag,</span>
+                      <br />
+                      <span className="text-accent">was Ihre Werbung bringt.</span>
                     </h4>
                   </div>
 
-                  {/* Negative margins cancel the card padding so the video gets
-                      the full card width on mobile and keeps only a small
-                      gutter on desktop. */}
-                  <div className="relative -mx-5 mt-10 sm:-mx-8 md:-mx-10 md:mt-14">
+                  {/* Negative margins pull the video out of the card padding so
+                      it nearly fills the card width on mobile, but stop a few
+                      px short of the edge so the card's animated border stays
+                      clear of the video even at the tightest widths; desktop
+                      keeps a larger gutter. */}
+                  <div className="relative -mx-[17.5px] mt-10 sm:-mx-6 md:-mx-10 md:mt-14">
                     <PortalVideoShowcase />
                   </div>
 

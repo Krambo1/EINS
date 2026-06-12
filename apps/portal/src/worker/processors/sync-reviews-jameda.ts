@@ -79,6 +79,16 @@ export async function processSyncReviewsJameda(
 }
 
 async function fetchProfileHtml(url: string): Promise<string> {
+  // Defense in depth against SSRF: the URL is clinic-supplied (settings
+  // form). The form schema already restricts it, but old rows and direct DB
+  // writes bypass that, so re-check the host here before fetching.
+  const parsed = new URL(url);
+  if (
+    parsed.protocol !== "https:" ||
+    (parsed.hostname !== "jameda.de" && !parsed.hostname.endsWith(".jameda.de"))
+  ) {
+    throw new Error(`jameda: refusing non-jameda.de profile URL ${url}`);
+  }
   const res = await fetch(url, {
     method: "GET",
     redirect: "follow",

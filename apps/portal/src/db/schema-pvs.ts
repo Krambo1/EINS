@@ -140,6 +140,15 @@ export const pvsEventLog = pgTable(
     kind: text("kind").notNull(),
     occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
     payload: jsonb("payload").notNull(),
+    /**
+     * Pentest H3: server-side integrity tag over the canonical payload,
+     * keyed by `deriveSigningKey("pvs-event-integrity-v1")` (derived from
+     * SESSION_SECRET, never stored in the DB). Written at ingest and
+     * re-verified before an admin replay re-applies the row, so a payload
+     * tampered with at rest is detected. NULL for rows ingested before
+     * migration 0060 (treated as legacy: replay allowed + audit-noted).
+     */
+    payloadSig: text("payload_sig"),
     receivedAt: timestamp("received_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

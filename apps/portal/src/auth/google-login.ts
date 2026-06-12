@@ -2,7 +2,8 @@ import "server-only";
 import { cookies } from "next/headers";
 import { SignJWT, jwtVerify, createRemoteJWKSet } from "jose";
 import { env, adminOrigin } from "@/lib/env";
-import { generateToken } from "@/lib/crypto";
+import { deriveSigningKey, generateToken } from "@/lib/crypto";
+import { hostCookieName } from "@/lib/constants";
 
 /**
  * "Mit Google anmelden" — OAuth 2.0 Authorization Code flow shared by the
@@ -26,11 +27,11 @@ import { generateToken } from "@/lib/crypto";
 
 export type LoginTrack = "clinic" | "admin";
 
-const SECRET = new TextEncoder().encode(env.SESSION_SECRET);
+const SECRET = deriveSigningKey("glogin-state-v1");
 const STATE_ALG = "HS256";
 const STATE_TTL_SECONDS = 600; // 10 min — generous for the Google consent round-trip
 
-export const GOOGLE_LOGIN_STATE_COOKIE = "eins_glogin_state";
+export const GOOGLE_LOGIN_STATE_COOKIE = hostCookieName("eins_glogin_state");
 
 const GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth";
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
@@ -51,7 +52,7 @@ interface LoginStatePayload {
 // ---------------------------------------------------------------------------
 
 export async function signLoginState(track: LoginTrack): Promise<string> {
-  return await new SignJWT({ track, nonce: generateToken(16) })
+  return await new SignJWT({ track, nonce: generateToken(32) })
     .setProtectedHeader({ alg: STATE_ALG, kid: "glogin-state-v1" })
     .setIssuedAt()
     .setExpirationTime(`${STATE_TTL_SECONDS}s`)

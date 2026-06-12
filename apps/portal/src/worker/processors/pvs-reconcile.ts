@@ -138,6 +138,10 @@ export async function processPvsReconcile(
       WHERE clinic_id = ${link.clinicId}
         AND action = 'pvs_bridge_stale'
         AND created_at > now() - INTERVAL '${sql.raw(
+          // injection-reviewed (pentest L12): STALE_BRIDGE_THRESHOLD_HOURS is a
+          // numeric module constant, so String() of it is digits only. A
+          // Postgres INTERVAL literal cannot take a bind parameter inside the
+          // quoted string, hence sql.raw on a non-user value.
           String(STALE_BRIDGE_THRESHOLD_HOURS)
         )} hours'
     `);

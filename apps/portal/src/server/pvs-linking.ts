@@ -540,6 +540,8 @@ export async function backfillLinkFromHistory(
 
 export async function manuallyResolveLinkingFailure(input: {
   failureId: string;
+  /** Tenant scope — runs on the superuser `db`, so the WHERE predicate is the only tenancy guard. */
+  clinicId: string;
   resolverUserId: string;
   pickedPatientId: string;
   method: "candidate_pick" | "manual_search" | "new_patient";
@@ -554,12 +556,32 @@ export async function manuallyResolveLinkingFailure(input: {
     .where(
       and(
         eq(schema.linkingFailures.id, input.failureId),
+        eq(schema.linkingFailures.clinicId, input.clinicId),
         eq(schema.linkingFailures.status, "open"),
         isNull(schema.linkingFailures.resolvedAt)
       )
     )
     .limit(1);
   if (!failure) return;
+
+  // Cross-tenant linkage guard (pentest H5): `pickedPatientId` is client-
+  // supplied for every method (the "new_patient" path also hands us an id
+  // rather than creating one server-side). This runs on the superuser `db`
+  // with no RLS, so the failure's clinic scope above does NOT constrain the
+  // target patient. Prove the picked patient belongs to the SAME clinic
+  // before writing the link, else a settings user in clinic A could point
+  // their PVS patient at clinic B's portal patient. Fail closed (no-op).
+  const [patient] = await db
+    .select({ id: schema.patients.id })
+    .from(schema.patients)
+    .where(
+      and(
+        eq(schema.patients.id, input.pickedPatientId),
+        eq(schema.patients.clinicId, failure.clinicId)
+      )
+    )
+    .limit(1);
+  if (!patient) return;
 
   await db
     .insert(schema.pvsPatientMap)
@@ -593,11 +615,17 @@ export async function manuallyResolveLinkingFailure(input: {
       resolvedToPatientId: input.pickedPatientId,
       resolutionMethod: input.method,
     })
-    .where(eq(schema.linkingFailures.id, input.failureId));
+    .where(
+      and(
+        eq(schema.linkingFailures.id, input.failureId),
+        eq(schema.linkingFailures.clinicId, input.clinicId)
+      )
+    );
 }
 
 export async function ignoreLinkingFailure(
   failureId: string,
+  clinicId: string,
   resolverUserId: string
 ): Promise<void> {
   await db
@@ -608,5 +636,10 @@ export async function ignoreLinkingFailure(
       resolvedBy: resolverUserId,
       resolutionMethod: "ignored",
     })
-    .where(eq(schema.linkingFailures.id, failureId));
+    .where(
+      and(
+        eq(schema.linkingFailures.id, failureId),
+        eq(schema.linkingFailures.clinicId, clinicId)
+      )
+    );
 }

@@ -1,6 +1,7 @@
 import "server-only";
 import { eq, sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { rateLimit } from "@/server/rate-limit";
 import type { LatLng } from "./haversine";
 
 /**
@@ -25,7 +26,16 @@ import type { LatLng } from "./haversine";
 const POSITIVE_TTL_DAYS = 30;
 const NEGATIVE_TTL_DAYS = 7;
 
-const USER_AGENT = "EINS/1.0 (team@eins.ag)";
+// Per-clinic ceiling on LIVE Nominatim lookups per 24h (pentest M13). Cache
+// hits never count against this, so a normal Praxis (whose lead cities repeat
+// and cache) never approaches it; the cap only bites a flood of unique,
+// cache-busting city strings that would otherwise hammer Nominatim toward a
+// ToS / IP ban. Generous so it can't clip legitimate volume.
+const GEOCODE_LIVE_DAILY_CAP = 300;
+
+// Stable, identifying UA per Nominatim's ToS, WITHOUT leaking a contact
+// email into every third-party request log (pentest L9 / phi-05-nominatim).
+const USER_AGENT = "EINS-Praxisportal/1.0";
 
 interface NominatimItem {
   lat: string;
@@ -53,7 +63,10 @@ export function normalizeQuery(q: string): string {
  * Cache-first against geocode_cache; falls back to Nominatim, persists either
  * positive or negative result.
  */
-export async function geocode(query: string): Promise<LatLng | null> {
+export async function geocode(
+  query: string,
+  clinicId?: string
+): Promise<LatLng | null> {
   const normalized = normalizeQuery(query);
   if (normalized.length < 2) return null;
 
@@ -68,13 +81,38 @@ export async function geocode(query: string): Promise<LatLng | null> {
     .where(eq(schema.geocodeCache.normalizedQuery, normalized))
     .limit(1);
 
+  let staleCoords: LatLng | null = null;
   if (hit) {
     const fresh = hit.expiresAt.getTime() > Date.now();
     if (fresh) {
       if (hit.lat === null || hit.lng === null) return null;
       return { lat: Number(hit.lat), lng: Number(hit.lng) };
     }
-    // Expired — fall through and re-query Nominatim, then upsert.
+    // Expired — remember any coords so we can fall back to them if the live
+    // re-query is capped or fails, then fall through to re-query + upsert.
+    if (hit.lat !== null && hit.lng !== null) {
+      staleCoords = { lat: Number(hit.lat), lng: Number(hit.lng) };
+    }
+  }
+
+  // ── 1b. Per-clinic live-lookup cap (pentest M13) ──
+  // We only reach here on a cache miss / expiry, i.e. an actual Nominatim
+  // call is about to happen. Bound how many a single clinic can trigger per
+  // day so a cache-busting flood of unique city strings can't hammer the
+  // third party. On exhaustion degrade gracefully: stale coords if we have
+  // them, else null (the scorer treats null as "unknown distance" → 0 points).
+  if (clinicId) {
+    const cap = await rateLimit("geocode-live", clinicId, {
+      limit: GEOCODE_LIVE_DAILY_CAP,
+      windowSeconds: 24 * 60 * 60,
+    });
+    if (!cap.ok) {
+      console.warn(
+        `[nominatim] per-clinic live-lookup cap reached (clinic=${clinicId}); ` +
+          `skipping live geocode for "${normalized}"`
+      );
+      return staleCoords;
+    }
   }
 
   // ── 2. Live lookup ──

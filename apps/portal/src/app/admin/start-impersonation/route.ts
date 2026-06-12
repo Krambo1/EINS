@@ -111,10 +111,44 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   // `admin.` would point at eins.ag (the marketing apex) and 404. APP_ORIGIN is
   // the single source of truth and is correct in dev (localhost:3001) and prod.
   const origin = env.APP_ORIGIN.replace(/\/$/, "");
+  const action = `${origin}/api/auth/start-impersonation`;
 
-  const url = `${origin}/api/auth/start-impersonation?token=${encodeURIComponent(token)}`;
+  // M1: hand the token off via an auto-submitting POST form, NOT a GET
+  // redirect with `?token=` in the URL. A query-string token lands in the
+  // clinic host's access logs / browser history; a POST body does not. This
+  // page renders in the new tab (the admin form is target="_blank"), submits
+  // itself, and the consumer 303s onward to the user's landing page.
+  const html = `<!doctype html>
+<html lang="de"><head><meta charset="utf-8">
+<meta name="robots" content="noindex,nofollow">
+<title>Sitzung wird geöffnet…</title></head>
+<body style="font-family:system-ui,sans-serif;padding:2rem;color:#10101a">
+<form id="f" method="POST" action="${escapeHtmlAttr(action)}">
+<input type="hidden" name="token" value="${escapeHtmlAttr(token)}">
+<noscript><button type="submit">Weiter zur Praxis-Ansicht</button></noscript>
+</form>
+<p>Sitzung wird geöffnet…</p>
+<script>document.getElementById('f').submit();</script>
+</body></html>`;
 
-  // 303 See Other — the browser switches to GET when following, which is
-  // what the consumer endpoint expects.
-  return NextResponse.redirect(url, { status: 303 });
+  return new NextResponse(html, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      // The body carries the one-time token — never cache it.
+      "Cache-Control": "no-store, no-cache, must-revalidate, private",
+      "Referrer-Policy": "no-referrer",
+    },
+  });
+}
+
+/** Minimal attribute escaper for the interstitial (token is base64url-safe,
+ *  but escape defensively so a future value change can't break out). */
+function escapeHtmlAttr(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }

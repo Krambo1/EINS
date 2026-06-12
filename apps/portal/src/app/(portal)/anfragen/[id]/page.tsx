@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import { after } from "next/server";
 import { and, desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import {
@@ -17,6 +18,7 @@ import {
 } from "@eins/ui";
 import { requireSession } from "@/auth/guards";
 import { db, schema } from "@/db/client";
+import { writeAudit } from "@/server/audit";
 import { getRequestWithActivities, markRequestViewed } from "@/server/queries/requests";
 import { listFollowupsForRequest } from "@/server/queries/followups";
 import { leadTokenForRequestId } from "@/server/pvs-token";
@@ -73,6 +75,20 @@ export default async function AnfrageDetailPage({
   const data = await getRequestWithActivities(session.clinicId, session.userId, id);
   if (!data) notFound();
   const { request, activities, treatmentName, locationName } = data;
+
+  // Durable PHI-read access trace (DSGVO Art. 30/32) — record who opened which
+  // patient record (pentest L2). Deferred so it never blocks the render;
+  // requestMeta:{} keeps writeAudit from re-entering headers() after flush.
+  after(() =>
+    writeAudit({
+      clinicId: session.clinicId,
+      actorId: session.userId,
+      action: "view",
+      entityKind: "request",
+      entityId: id,
+      requestMeta: {},
+    })
+  );
 
   // Clear the sidebar "neu" badge the first time anyone opens this lead.
   // markRequestViewed is idempotent (no-op once firstViewedAt is set) and

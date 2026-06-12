@@ -9,27 +9,42 @@ import type { Role } from "@/lib/constants";
 /**
  * Clinic-host landing endpoint for the admin "View as user" flow.
  *
- *   GET /api/auth/start-impersonation?token=<one-time-token>
+ *   POST /api/auth/start-impersonation   (body: token=<one-time-token>)
  *
- * The admin host issues the token, hands the URL to the browser, and
- * the browser hits this on `localhost`. We consume the token, mint an
- * impersonation session, audit it, and drop the user on /dashboard.
+ * The admin host issues the token and hands the browser an auto-submitting
+ * POST form (NOT a GET redirect) so the cleartext token never lands in a URL
+ * or an access log (pentest M1). The browser POSTs here on the clinic host;
+ * we consume the token, mint an impersonation session, audit it, and 303 the
+ * user to their role landing page.
  *
- * Failure path: redirect to /login with an error query — no session is
- * created, the cleartext token in the URL is now useless either way.
+ * The token IS the capability (256-bit, single-use, 60s, IP-stamped at issue),
+ * so authorization is by token possession — this cross-origin POST needs no
+ * pre-existing cookie. A GET handler is intentionally absent: there is no
+ * token-in-query code path to leak.
+ *
+ * Failure path: 303 to /login with an error query — no session is created.
  */
-export async function GET(req: NextRequest): Promise<NextResponse> {
-  const token = req.nextUrl.searchParams.get("token");
+export async function POST(req: NextRequest): Promise<NextResponse> {
+  let token: string | null = null;
+  try {
+    const form = await req.formData();
+    const raw = form.get("token");
+    token = typeof raw === "string" && raw.length > 0 ? raw : null;
+  } catch {
+    token = null;
+  }
   if (!token) {
     return NextResponse.redirect(
-      new URL("/login?error=impersonation_missing_token", req.nextUrl.origin)
+      new URL("/login?error=impersonation_missing_token", req.nextUrl.origin),
+      { status: 303 }
     );
   }
 
   const result = await consumeImpersonationToken(token);
   if (!result.ok) {
     return NextResponse.redirect(
-      new URL(`/login?error=impersonation_${result.reason}`, req.nextUrl.origin)
+      new URL(`/login?error=impersonation_${result.reason}`, req.nextUrl.origin),
+      { status: 303 }
     );
   }
 
@@ -70,6 +85,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     new URL(
       defaultLandingPath(target?.role as Role | null | undefined),
       req.nextUrl.origin
-    )
+    ),
+    { status: 303 }
   );
 }

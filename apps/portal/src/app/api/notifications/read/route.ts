@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import { withApi } from "@/server/api";
-import { db, schema } from "@/db/client";
+import { withApiTx } from "@/server/api";
+import { schema } from "@/db/client";
 
 /**
  * POST /api/notifications/read
@@ -11,15 +11,21 @@ import { db, schema } from "@/db/client";
  *   { all: true }          → mark every unread row for the user
  *
  * Cross-user rows are silently ignored (eq userId predicate in WHERE).
+ *
+ * Runs through `withApiTx` so the UPDATE executes on the RLS-scoped `dbApp`
+ * connection (clinic context set) rather than the BYPASSRLS superuser pool
+ * (pentest I4). The `userId` predicate already scopes to the caller; the RLS
+ * `clinic_id = app_current_clinic()` WITH CHECK is the defense-in-depth layer
+ * so a future predicate bug can never touch another tenant's rows.
  */
 const Body = z.union([
   z.object({ ids: z.array(z.string().uuid()).min(1).max(200) }),
   z.object({ all: z.literal(true) }),
 ]);
 
-export const POST = withApi(
+export const POST = withApiTx(
   { audit: { action: "update", entityKind: "notification" } },
-  async ({ session, request }) => {
+  async ({ session, request, tx }) => {
     const body = await request.json().catch(() => ({}));
     const parsed = Body.parse(body);
     const now = new Date();
@@ -32,7 +38,7 @@ export const POST = withApi(
       predicates.push(inArray(schema.notifications.id, parsed.ids));
     }
 
-    const result = await db
+    const result = await tx
       .update(schema.notifications)
       .set({ readAt: now })
       .where(and(...predicates))

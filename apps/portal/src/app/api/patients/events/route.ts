@@ -62,6 +62,29 @@ export async function POST(request: NextRequest) {
     ua: request.headers.get("user-agent") ?? null,
   };
 
+  // Per-IP-first gate (pentest M6): a known clinicId (these are in every
+  // webhook URL) must not be sprayable to exhaust a clinic's bucket with
+  // unsigned junk. Runs before JSON-parse + the per-clinic limit, like
+  // /api/pvs/events.
+  if (requestMeta.ip) {
+    const ipRl = await rateLimit("patients-events-ip", requestMeta.ip, {
+      limit: 2400,
+      windowSeconds: 600,
+    });
+    if (!ipRl.ok) {
+      return NextResponse.json(
+        { error: { code: "rate_limited" } },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(ipRl.resetInSeconds),
+            "X-PVS-RateLimit-Reason": "ip",
+          },
+        }
+      );
+    }
+  }
+
   let parsed: z.infer<typeof Body>;
   try {
     parsed = Body.parse(JSON.parse(raw));

@@ -1,6 +1,5 @@
 "use server";
 
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { eq, isNull, and } from "drizzle-orm";
 import { z } from "zod";
@@ -15,6 +14,7 @@ import {
   getSession,
   revokeAllSessionsForUser,
 } from "@/auth/session";
+import { getTrustedClientIp } from "@/lib/client-ip";
 import { rateLimit } from "@/server/rate-limit";
 import { writeAudit } from "@/server/audit";
 import { defaultLandingPath } from "@/lib/roles";
@@ -43,10 +43,6 @@ export type SetPasswordState =
   | { ok: true }
   | undefined;
 
-function ipFromHeaders(xff: string | null, xri: string | null): string {
-  return (xff ?? xri ?? "").split(",")[0]?.trim() || "unknown";
-}
-
 export async function setPasswordFromCookieAction(
   _prev: SetPasswordState,
   formData: FormData
@@ -63,11 +59,7 @@ export async function setPasswordFromCookieAction(
     return { ok: false, error: policy.message ?? "Passwort zu schwach." };
   }
 
-  const hdrs = await headers();
-  const ip = ipFromHeaders(
-    hdrs.get("x-forwarded-for"),
-    hdrs.get("x-real-ip")
-  );
+  const ip = (await getTrustedClientIp()) ?? "unknown";
   const rl = await rateLimit("set-password:ip", ip, {
     limit: 20,
     windowSeconds: 60 * 60,

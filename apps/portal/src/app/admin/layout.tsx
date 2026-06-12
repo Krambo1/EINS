@@ -1,6 +1,6 @@
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getAdminSession, isAllowedAdminIp } from "@/auth/admin";
+import { getTrustedClientIp } from "@/lib/client-ip";
 import { pendingOperationCounts } from "@/server/queries/admin";
 import { AdminShell } from "./_components/AdminShell";
 
@@ -41,11 +41,7 @@ export default async function AdminLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const hdrs = await headers();
-  const ip =
-    (hdrs.get("x-forwarded-for") ?? hdrs.get("x-real-ip") ?? "")
-      .split(",")[0]
-      ?.trim() || null;
+  const ip = await getTrustedClientIp();
   if (!isAllowedAdminIp(ip)) redirect("/");
 
   const session = await getAdminSession();

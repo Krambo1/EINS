@@ -8,6 +8,7 @@ import {
   recordLinkingFailure,
   upsertPatientFromPvs,
 } from "@/server/pvs-linking";
+import { computePvsEventIntegrityTag } from "@/server/pvs-event-integrity";
 import { ensurePartitionForMonth } from "@/worker/processors/pvs-partition-rotate";
 
 /**
@@ -179,7 +180,14 @@ const InvoicePaidSchema = z.object({
   pvsInvoiceId: z.string().min(1).max(200),
   pvsAppointmentId: z.string().min(1).max(200).optional(),
   pvsEncounterId: z.string().min(1).max(200).optional(),
-  amountCents: z.number().int().nonnegative(),
+  // Plausibility ceiling: €1,000,000.00 per single invoice. No single
+  // aesthetic-medicine encounter bills this much, so a value above it is an
+  // adapter bug or an injection (Chain B used €10M to triple a clinic's
+  // revenue). Rejecting it here keeps a fabricated amount out of
+  // lifetimeRevenueEur / kpi_daily / the ads-conversion outbox (pentest H4 /
+  // BR-03 / apvs-04). The DB column is numeric(10,2) (~€100M) — this is the
+  // tighter business ceiling.
+  amountCents: z.number().int().nonnegative().max(100_000_000),
   currency: z.enum(["EUR", "CHF"]).default("EUR"),
   paidAt: isoDatetime,
 });
@@ -200,7 +208,9 @@ const InvoiceRefundedSchema = z.object({
   pvsPatientId: z.string().min(1).max(200),
   pvsInvoiceId: z.string().min(1).max(200),
   pvsAppointmentId: z.string().min(1).max(200).optional(),
-  refundedAmountCents: z.number().int().nonnegative(),
+  // Same €1,000,000.00 plausibility ceiling as InvoicePaid.amountCents — a
+  // refund cannot exceed an invoice we would have accepted (pentest H4).
+  refundedAmountCents: z.number().int().nonnegative().max(100_000_000),
   currency: z.enum(["EUR", "CHF"]).default("EUR"),
   refundedAt: isoDatetime,
   reason: z.string().max(200).optional(),
@@ -552,6 +562,10 @@ async function insertEventLogWithPartitionHeal(
         kind: input.kind,
         occurredAt: new Date(input.occurredAt),
         payload: input as unknown as Record<string, unknown>,
+        // H3: server-side integrity tag over the canonical payload, computed
+        // before the JSONB round-trip. Re-checked at admin replay so a row
+        // edited at rest can't be re-ingested as trusted.
+        payloadSig: computePvsEventIntegrityTag(input),
         // P1-2: persisted snapshot. Replay uses link_status_at_ingest
         // = 'pending' AND applied_at IS NULL.
         linkStatusAtIngest,

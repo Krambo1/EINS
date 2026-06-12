@@ -1,4 +1,5 @@
 import { normalizedLead, type CRMAdapter } from "./adapter";
+import { isAllowedWebhookUrl } from "./webhook-guard";
 import type { QuizSubmissionPayload, CRMAdapterResult } from "../types";
 
 /**
@@ -15,6 +16,9 @@ import type { QuizSubmissionPayload, CRMAdapterResult } from "../types";
 export const hubspotAdapter: CRMAdapter = {
   id: "hubspot",
   async send(payload: QuizSubmissionPayload, formsUrl: string): Promise<CRMAdapterResult> {
+    if (!isAllowedWebhookUrl(formsUrl)) {
+      return { ok: false, message: "webhook_url_blocked" };
+    }
     const lead = normalizedLead(payload);
     const fields: { objectTypeId: string; name: string; value: string }[] = [
       { objectTypeId: "0-1", name: "email", value: lead.patient.email },

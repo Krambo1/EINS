@@ -109,16 +109,6 @@ export function PortalVideoShowcase() {
 
   return (
     <div ref={containerRef} className="relative mt-8 md:mt-12">
-      {/* Hot mint band hugging the top edge, matching the old screenshot frame
-          (.portal-glow in globals.css). */}
-      <div
-        aria-hidden
-        className="portal-glow pointer-events-none absolute -top-24 left-1/2 -z-10 h-24 w-[78%] blur-xl md:-top-28 md:h-28 md:w-[72%] md:blur-2xl"
-      />
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -inset-6 -z-10 rounded-[2rem] bg-gradient-to-b from-accent/20 via-accent/5 to-transparent blur-2xl md:-inset-10"
-      />
       {/* Below md the frame runs edge-to-edge inside the offer card (the
           wrapper in offer.tsx pulls it out of the card padding), so side
           borders and rounding only exist from md up where a gutter remains. */}

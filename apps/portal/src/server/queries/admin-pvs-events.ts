@@ -123,6 +123,8 @@ export interface EventDetail {
   receivedAt: Date;
   ingestedAt: Date;
   payload: Record<string, unknown>;
+  /** H3 integrity tag; NULL for rows ingested before migration 0060. */
+  payloadSig: string | null;
 }
 
 export async function getEventDetail(
@@ -140,6 +142,7 @@ export async function getEventDetail(
       receivedAt: schema.pvsEventLog.receivedAt,
       ingestedAt: schema.pvsEventLog.ingestedAt,
       payload: schema.pvsEventLog.payload,
+      payloadSig: schema.pvsEventLog.payloadSig,
     })
     .from(schema.pvsEventLog)
     .leftJoin(

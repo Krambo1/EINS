@@ -12,7 +12,8 @@ import {
   SESSION_REMEMBER_MAX_AGE_SECONDS,
   type Role,
 } from "../lib/constants";
-import { generateToken, sha256Hex } from "../lib/crypto";
+import { deriveSigningKey, generateToken, sha256Hex } from "../lib/crypto";
+import { trustedIpFromHeaders } from "../lib/client-ip";
 import { avatarUrlForKey } from "../server/avatars";
 
 /**
@@ -27,7 +28,7 @@ import { avatarUrlForKey } from "../server/avatars";
  * `getSession()` is called by every server component that needs auth.
  */
 
-const SECRET = new TextEncoder().encode(env.SESSION_SECRET);
+const SECRET = deriveSigningKey("session-v1");
 const ALG = "HS256";
 
 interface SessionCookiePayload {
@@ -104,7 +105,7 @@ export async function createSession(
 
   const hdrs = await headers();
   const ua = hdrs.get("user-agent") ?? null;
-  const ip = parseRequestIp(hdrs.get("x-forwarded-for"), hdrs.get("x-real-ip"));
+  const ip = trustedIpFromHeaders(hdrs.get("x-forwarded-for"), hdrs.get("x-real-ip"));
 
   const [row] = await db
     .insert(schema.sessions)
@@ -269,9 +270,4 @@ export async function revokeOtherSessionsForUser(
         dsql`${schema.sessions.expiresAt} > now()`
       )
     );
-}
-
-function parseRequestIp(xff: string | null, xri: string | null): string | null {
-  const first = (xff ?? xri ?? "").split(",")[0]?.trim();
-  return first || null;
 }

@@ -139,6 +139,15 @@ export class FirebirdDriver implements DbDriver {
       this.healthy = false;
     });
 
+    // Read-only safety (pentest M10): in Firebird read-only is a property of
+    // the TRANSACTION (TPB isc_tpb_read), not the attachment, so there is no
+    // connect-time session directive. The `conn.query(...)` path below runs in
+    // node-firebird's implicit read-write transaction; pinning it read-only
+    // would mean routing every query through an explicit
+    // `conn.transaction(ISOLATION_READ_COMMITTED_READ_ONLY, ...)` — a hot-path
+    // refactor deferred on this long-tail, undeployed engine. Today the
+    // read-only guarantee rests on the SELECT-only Firebird user provisioned
+    // per the AVV plus the author-controlled YAML SQL (never user input).
     this.conn = conn;
     this.healthy = true;
   }

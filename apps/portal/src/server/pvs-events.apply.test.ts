@@ -110,10 +110,12 @@ vi.mock("@/db/client", () => ({
 }));
 
 // @/lib/env is pulled in transitively by the import graph. Stub it so imports
-// resolve without real env vars.
+// resolve without real env vars. SESSION_SECRET is needed by the H3 payload
+// integrity tag computed at event_log insert (deriveSigningKey).
 vi.mock("@/lib/env", () => ({
   env: {
     APP_KEY: "00".repeat(32),
+    SESSION_SECRET: "0".repeat(64),
   },
 }));
 

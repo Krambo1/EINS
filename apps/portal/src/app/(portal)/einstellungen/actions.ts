@@ -40,6 +40,13 @@ export async function inviteTeamMemberAction(formData: FormData) {
         role: formData.get("role"),
       });
 
+    // Role ceiling: only an Inhaber may grant the Inhaber role. Without this
+    // any settings.team holder could mint a second owner account
+    // (pentest authn-05-massassign).
+    if (input.role === "inhaber" && session.role !== "inhaber") {
+      throw new ForbiddenError("settings.team");
+    }
+
     // Block inviting an existing active member.
     const [existing] = await db
       .select({ id: schema.clinicUsers.id, archivedAt: schema.clinicUsers.archivedAt })
@@ -57,7 +64,9 @@ export async function inviteTeamMemberAction(formData: FormData) {
       if (!existing.archivedAt) {
         throw new Error("Diese E-Mail-Adresse ist bereits eingetragen.");
       }
-      // Reactivate.
+      // Reactivate. The old passwordHash is dropped so a re-activated
+      // account cannot log in with its stale pre-archive credential — the
+      // member sets a fresh password via the invite link.
       await db
         .update(schema.clinicUsers)
         .set({
@@ -65,6 +74,7 @@ export async function inviteTeamMemberAction(formData: FormData) {
           role: input.role,
           fullName: input.fullName,
           invitedAt: new Date(),
+          passwordHash: null,
         })
         .where(eq(schema.clinicUsers.id, existing.id));
       userId = existing.id;
@@ -116,6 +126,36 @@ export async function removeTeamMemberAction(formData: FormData) {
     const targetId = z.string().uuid().parse(formData.get("userId"));
     if (targetId === session.userId) {
       throw new Error("Sie können sich nicht selbst entfernen.");
+    }
+
+    // Last-Inhaber guard: archiving the final active Inhaber would leave the
+    // Praxis without anyone who can manage the team (lockout).
+    const [target] = await db
+      .select({ role: schema.clinicUsers.role })
+      .from(schema.clinicUsers)
+      .where(
+        and(
+          eq(schema.clinicUsers.id, targetId),
+          eq(schema.clinicUsers.clinicId, session.clinicId)
+        )
+      )
+      .limit(1);
+    if (target?.role === "inhaber") {
+      const activeInhaber = await db
+        .select({ id: schema.clinicUsers.id })
+        .from(schema.clinicUsers)
+        .where(
+          and(
+            eq(schema.clinicUsers.clinicId, session.clinicId),
+            eq(schema.clinicUsers.role, "inhaber"),
+            isNull(schema.clinicUsers.archivedAt)
+          )
+        );
+      if (activeInhaber.length <= 1) {
+        throw new Error(
+          "Der letzte aktive Inhaber-Zugang kann nicht entfernt werden."
+        );
+      }
     }
 
     await db
@@ -443,6 +483,25 @@ const ReviewUrlSchema = z
   .url("Bitte eine vollständige URL angeben (https://…).")
   .max(500);
 
+/**
+ * The Jameda profile URL is fetched server-side by the review-sync worker,
+ * so it must not become an SSRF vector: https only, jameda.de hosts only.
+ */
+const JamedaProfileUrlSchema = ReviewUrlSchema.refine(
+  (value) => {
+    try {
+      const url = new URL(value);
+      return (
+        url.protocol === "https:" &&
+        (url.hostname === "jameda.de" || url.hostname.endsWith(".jameda.de"))
+      );
+    } catch {
+      return false;
+    }
+  },
+  { message: "Bitte eine https://www.jameda.de-Profil-URL angeben." }
+);
+
 /** Google Place IDs start with a known prefix and are otherwise opaque tokens. */
 const GooglePlaceIdSchema = z
   .string()
@@ -482,7 +541,7 @@ export async function updateReviewSettingsAction(formData: FormData) {
           .or(z.literal("")),
         reviewRequestDelayDays: z.coerce.number().int().min(0).max(30),
         googlePlaceId: GooglePlaceIdSchema.optional().or(z.literal("")),
-        jamedaProfileUrl: ReviewUrlSchema.optional().or(z.literal("")),
+        jamedaProfileUrl: JamedaProfileUrlSchema.optional().or(z.literal("")),
       })
       .parse({
         reviewRequestEnabled: formData.get("reviewRequestEnabled") ?? "false",
@@ -541,6 +600,13 @@ export async function updateReviewSettingsAction(formData: FormData) {
         hasGooglePlaceId: Boolean(input.googlePlaceId),
         hasJamedaProfileUrl: Boolean(input.jamedaProfileUrl),
         delayDays: input.reviewRequestDelayDays,
+        // Record the notification-target inbox + landing origin verbatim
+        // (pentest L11): these are operator-controlled routing fields. A
+        // settings.team user who repoints reviewInboxEmail to an external
+        // address would otherwise exfiltrate negative-feedback alerts with no
+        // trace; capturing the value makes the repoint tamper-evident.
+        reviewInboxEmail: input.reviewInboxEmail || null,
+        reviewLandingOrigin: input.reviewLandingOrigin || null,
       },
     });
 

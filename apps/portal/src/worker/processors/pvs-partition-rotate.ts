@@ -51,6 +51,11 @@ export async function ensurePartitionForMonth(target: Date): Promise<void> {
   const start = monthStart(target);
   const end = monthStart(addMonths(target, 1));
   const partitionName = `pvs_event_log_${formatYm(start)}`;
+  // injection-reviewed (pentest L12): every interpolation here is internally
+  // derived from a Date — partitionName is `pvs_event_log_${formatYm(start)}`
+  // (→ YYYY_MM) and the FROM/TO bounds are ISO-date slices of computed month
+  // starts. No caller-controlled value reaches this DDL, which cannot be
+  // parameterised (a table identifier and partition bounds are not bindable).
   await db.execute(sql.raw(`
     CREATE TABLE IF NOT EXISTS ${partitionName}
     PARTITION OF pvs_event_log

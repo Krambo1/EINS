@@ -120,6 +120,13 @@ export class MssqlDriver implements DbDriver {
     });
 
     await pool.connect();
+    // Read-only safety (pentest M10): SQL Server has no session-level
+    // read-only access mode (`ApplicationIntent=ReadOnly` only routes to an
+    // Availability-Group read replica, which a Praxis-local install does not
+    // have). The read-only guarantee therefore rests on the SELECT-only login
+    // the Praxis IT person provisions per the AVV, plus the fact that every
+    // statement is author-controlled YAML in our own repo (never user input).
+    // No safe session directive to add here.
     this.pool = pool;
     this.healthy = true;
   }

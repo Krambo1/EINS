@@ -47,12 +47,29 @@ describe("rateLimit (Postgres-backed)", () => {
     expect(r.resetInSeconds).toBe(900);
   });
 
-  it("fails OPEN when Postgres errors", async () => {
+  it("fails OPEN when Postgres errors in dev", async () => {
     executeMock.mockRejectedValueOnce(new Error("db down"));
     const r = await rateLimit("leads-intake", "clinic-1", {
       limit: 60,
       windowSeconds: 60,
     });
     expect(r).toEqual({ ok: true, remaining: 60, resetInSeconds: 60 });
+  });
+
+  it("fails CLOSED when Postgres errors in production", async () => {
+    const prev = process.env.NODE_ENV;
+    // NODE_ENV is read-only in @types/node; assign through a cast for the test.
+    (process.env as Record<string, string>).NODE_ENV = "production";
+    try {
+      executeMock.mockRejectedValueOnce(new Error("db down"));
+      const r = await rateLimit("login:email", "a@b.de", {
+        limit: 5,
+        windowSeconds: 3600,
+      });
+      expect(r.ok).toBe(false);
+      expect(r.remaining).toBe(0);
+    } finally {
+      (process.env as Record<string, string>).NODE_ENV = prev ?? "test";
+    }
   });
 });

@@ -1,6 +1,7 @@
 import "server-only";
 import { headers } from "next/headers";
 import { db, schema } from "../db/client";
+import { trustedIpFromHeaders } from "../lib/client-ip";
 
 /**
  * Append-only audit log writer. Every mutating API/server-action SHOULD call
@@ -41,8 +42,10 @@ export async function writeAudit(input: AuditInput): Promise<void> {
     if (!input.requestMeta) {
       const hdrs = await headers();
       ua = hdrs.get("user-agent") ?? null;
-      const ipRaw = hdrs.get("x-forwarded-for") ?? hdrs.get("x-real-ip") ?? "";
-      ip = ipRaw.split(",")[0]?.trim() || null;
+      ip = trustedIpFromHeaders(
+        hdrs.get("x-forwarded-for"),
+        hdrs.get("x-real-ip")
+      );
     }
 
     await db.insert(schema.auditLog).values({

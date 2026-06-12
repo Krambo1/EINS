@@ -5,31 +5,60 @@
  * Unlike src/db/seed.ts this NEVER truncates and writes exactly one
  * clinic_users row, so it is safe to run against production.
  *
+ * DEMO_LOGIN_PASSWORD is REQUIRED (no default) — the script fails closed if it
+ * is unset. Production runs additionally require DEMO_LOGIN_ALLOW_PROD=1 as an
+ * explicit opt-in, since the default behaviour must never be to provision an
+ * owner login against prod.
+ *
  * Usage (prod, secrets injected by Infisical):
- *   infisical run --env=prod -- pnpm --filter portal exec tsx scripts/add-demo-login.ts
+ *   infisical run --env=prod -- env DEMO_LOGIN_ALLOW_PROD=1 \
+ *     pnpm --filter portal exec tsx scripts/add-demo-login.ts
  *
  * Override target via env: DEMO_LOGIN_EMAIL, DEMO_LOGIN_NAME,
- * DEMO_LOGIN_ROLE (inhaber|marketing|frontdesk), DEMO_LOGIN_PASSWORD.
+ * DEMO_LOGIN_ROLE (inhaber|marketing|frontdesk). DEMO_LOGIN_PASSWORD is required.
  */
 import "../src/lib/load-env";
 import postgres from "postgres";
 import { randomUUID } from "node:crypto";
 import { hash as argon2Hash } from "@node-rs/argon2";
 
-const EMAIL = (process.env.DEMO_LOGIN_EMAIL ?? "jheidenreich2204@outlook.com")
-  .trim()
-  .toLowerCase();
+// EMAIL and ROLE are REQUIRED — no privileged defaults. A default
+// `inhaber` + a default personal email meant the bare invocation provisioned
+// an owner-level login (and leaked PII into git history); both are now
+// explicit (pentest H2/CS-02).
+const EMAIL = process.env.DEMO_LOGIN_EMAIL?.trim().toLowerCase();
 const FULL_NAME = process.env.DEMO_LOGIN_NAME ?? "Gast (Demo)";
-const ROLE = process.env.DEMO_LOGIN_ROLE ?? "inhaber";
-// Matches the seed's DEMO_PASSWORD so it lines up with the other demo accounts.
-const PASSWORD = process.env.DEMO_LOGIN_PASSWORD ?? "DemoPasswort123!";
+const ROLE = process.env.DEMO_LOGIN_ROLE;
+// Required, no default: a hardcoded fallback would ship a known credential for
+// an owner (inhaber) account. Unset → fail closed in main().
+const PASSWORD = process.env.DEMO_LOGIN_PASSWORD;
 
 // The demo clinic's fixed id (src/db/seed.ts → DEMO_CLINIC_ID).
 const DEMO_CLINIC_ID = "c7d88b71-72da-4920-b939-5158b13d3449";
 
 async function main() {
-  if (!["inhaber", "marketing", "frontdesk"].includes(ROLE)) {
-    console.error(`✗ invalid DEMO_LOGIN_ROLE="${ROLE}"`);
+  // Prod guard: provisioning an owner (inhaber) login against production must be
+  // an explicit, deliberate act — never the default. Mirrors src/db/seed.ts.
+  if (process.env.NODE_ENV === "production" && process.env.DEMO_LOGIN_ALLOW_PROD !== "1") {
+    console.error(
+      "✗ add-demo-login.ts läuft in Produktion nur mit DEMO_LOGIN_ALLOW_PROD=1 (expliziter Opt-in). Abbruch."
+    );
+    process.exit(1);
+  }
+
+  if (!EMAIL) {
+    console.error("✗ DEMO_LOGIN_EMAIL is not set (required, no default)");
+    process.exit(1);
+  }
+  if (!ROLE || !["inhaber", "marketing", "frontdesk"].includes(ROLE)) {
+    console.error(
+      `✗ DEMO_LOGIN_ROLE must be one of inhaber|marketing|frontdesk (got "${ROLE ?? ""}")`
+    );
+    process.exit(1);
+  }
+
+  if (!PASSWORD) {
+    console.error("✗ DEMO_LOGIN_PASSWORD is not set (required, no default — fail closed)");
     process.exit(1);
   }
 
@@ -79,18 +108,29 @@ async function main() {
         full_name     = EXCLUDED.full_name,
         role          = EXCLUDED.role,
         password_hash = EXCLUDED.password_hash,
-        password_set_at = now(),
-        archived_at   = NULL
+        password_set_at = now()
       RETURNING id, (xmax = 0) AS created
     `;
     const row = rows[0]!;
+
+    // Audit trail: this script mints/updates a clinic login on the superuser
+    // DSN; without a row the action is invisible to the Praxis (pentest
+    // H2/CS-02). entity_id is the affected clinic_users row.
+    await sql`
+      INSERT INTO audit_log (clinic_id, actor_email, action, entity_kind, entity_id, diff)
+      VALUES (
+        ${clinic.id}, ${EMAIL}, ${row.created ? "create" : "update"},
+        'clinic_user', ${row.id},
+        ${sql.json({ via: "scripts/add-demo-login.ts", role: ROLE })}
+      )
+    `;
     console.log(
       `✓ ${row.created ? "created" : "updated"} clinic_users row ${row.id}`
     );
     console.log("");
     console.log("  Login at: https://portal.eins.ag/login");
     console.log(`  E-Mail:   ${EMAIL}`);
-    console.log(`  Passwort: ${PASSWORD}`);
+    console.log("  Passwort: (gesetzt über DEMO_LOGIN_PASSWORD)");
     console.log(`  Rolle:    ${ROLE}  → Praxis Dr. Demo`);
   } finally {
     await sql.end();

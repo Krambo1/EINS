@@ -5,10 +5,22 @@ import {
   existsSync,
   fsyncSync,
   openSync,
+  readdirSync,
   renameSync,
+  statSync,
   unlinkSync,
+  writeFileSync,
 } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { outboxPath } from "./config.js";
+
+/**
+ * Retention window for the `<outbox>.legacy-<ts>` plaintext forensic copies
+ * the SQLCipher migration leaves behind (pentest M15). After this, on the next
+ * clean keyed open, the backup is shredded so pre-P3-4 patient-event rows do
+ * not sit unencrypted on disk indefinitely.
+ */
+const LEGACY_BACKUP_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 /**
  * SQLite-backed retry outbox.
@@ -157,6 +169,10 @@ function openWithMigration(
     // Already encrypted with this key. Ensure schema is current (idempotent
     // CREATE IF NOT EXISTS handles upgrades).
     conn.exec(SCHEMA_DDL);
+    // The encrypted file has just proven it opens with the key, so any
+    // post-migration plaintext backup older than the retention window has
+    // served its verify-replay purpose — shred it (pentest M15).
+    pruneStaleLegacyBackups(path);
     return conn;
   }
 
@@ -249,9 +265,11 @@ function looksLikeLegacyPlaintext(path: string): boolean {
  * silently promoted a partial encrypted file.
  *
  * The `.legacy-<ts>` backup is a COPY (not a rename) so the atomic swap can
- * target the original path. It is kept indefinitely; disk is cheap and it is
- * the only on-host record of pre-P3-4 ingest. An operator reclaiming space can
- * `rm outbox.sqlite.legacy-*` after verifying the encrypted file replays.
+ * target the original path. It is preserved as the only on-host record of
+ * pre-P3-4 ingest so an operator can verify the encrypted file replays — but
+ * NOT indefinitely: leaving plaintext patient-event rows on disk defeats the
+ * at-rest encryption (pentest M15). `pruneStaleLegacyBackups` shreds it on the
+ * next clean keyed open once it is older than LEGACY_BACKUP_RETENTION_MS.
  */
 function migrateLegacyToEncrypted(
   path: string,
@@ -341,6 +359,52 @@ function fsyncFile(p: string): void {
   } finally {
     closeSync(fd);
   }
+}
+
+/**
+ * Shred `<outbox>.legacy-<ts>` plaintext backups older than the retention
+ * window (pentest M15). Runs only on a clean keyed open (the encrypted file
+ * has just proven itself), so the freshly-migrated backup is kept for the
+ * operator's verify-replay window and only an aged one is removed. Best-effort
+ * overwrite-then-unlink: the overwrite is not guaranteed on copy-on-write/SSD
+ * media but is strictly better than a bare unlink for a casual disk scrape.
+ */
+function pruneStaleLegacyBackups(path: string): void {
+  const dir = dirname(path);
+  const re = new RegExp(`^${escapeRegExp(basename(path))}\\.legacy-(\\d+)$`);
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch {
+    return; // dir vanished / unreadable — nothing to prune
+  }
+  const now = Date.now();
+  for (const name of entries) {
+    const m = re.exec(name);
+    if (!m) continue;
+    const ts = Number(m[1]);
+    if (!Number.isFinite(ts) || now - ts < LEGACY_BACKUP_RETENTION_MS) continue;
+    const full = join(dir, name);
+    try {
+      const size = statSync(full).size;
+      if (size > 0) writeFileSync(full, Buffer.alloc(size, 0));
+    } catch {
+      // overwrite is best-effort; still try to unlink below
+    }
+    try {
+      unlinkSync(full);
+      console.warn(
+        `[outbox] shredded stale legacy plaintext backup ${name} ` +
+          `(older than ${LEGACY_BACKUP_RETENTION_MS / 86_400_000}d)`
+      );
+    } catch {
+      // non-fatal: a locked/again-missing file just gets retried next boot
+    }
+  }
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**

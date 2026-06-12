@@ -40,7 +40,16 @@ export const env = createEnv({
 
     SESSION_SECRET: z
       .string()
-      .min(32, "SESSION_SECRET must be at least 32 characters"),
+      .min(32, "SESSION_SECRET must be at least 32 characters")
+      // The .env.example placeholder is exactly 32 chars and would pass the
+      // length check — a PROD deploy that ships it hands every signing context
+      // a publicly-known key (pentest authn-01). Reject it in production; dev
+      // may keep the placeholder so first-run onboarding stays frictionless.
+      .refine(
+        (v) =>
+          process.env.NODE_ENV !== "production" || !/^change_me/i.test(v),
+        "SESSION_SECRET is still the .env.example placeholder — generate a real secret (openssl rand -hex 32)"
+      ),
     ENCRYPTION_KEY: z
       .string()
       .regex(/^[0-9a-fA-F]{64}$/, "ENCRYPTION_KEY must be 32 bytes hex (64 chars)"),
@@ -123,9 +132,12 @@ export const env = createEnv({
     SENTRY_DSN: z.string().optional(),
 
     // Admin
+    // No default: a forgotten ADMIN_EMAILS must mean "no admin can log in"
+    // (fail closed), not "silently trust a hardcoded address as admin
+    // identity" (pentest Phase-2 residual #2). Empty list = admin login off.
     ADMIN_EMAILS: z
       .string()
-      .default("team@eins.ag")
+      .default("")
       .transform((v) =>
         v
           .split(",")
@@ -141,6 +153,18 @@ export const env = createEnv({
           .map((s) => s.trim())
           .filter(Boolean)
       ),
+    /**
+     * Explicit opt-out of the production admin-IP-allowlist requirement. When
+     * `ADMIN_IP_ALLOWLIST` is empty, admin login fails CLOSED in production
+     * (pentest H1 / admin-04) UNLESS this is set to "1" — a documented, conscious
+     * acceptance that the admin second factor is then email-allowlist + DB
+     * session + password only (e.g. a dynamic-IP operator who cannot maintain an
+     * allowlist). Do NOT set this without understanding the tradeoff.
+     */
+    ADMIN_IP_ALLOWLIST_DISABLED: z
+      .enum(["0", "1"])
+      .default("0")
+      .transform((v) => v === "1"),
 
     FEATURES: z
       .string()
@@ -197,6 +221,7 @@ export const env = createEnv({
     SENTRY_DSN: process.env.SENTRY_DSN,
     ADMIN_EMAILS: process.env.ADMIN_EMAILS,
     ADMIN_IP_ALLOWLIST: process.env.ADMIN_IP_ALLOWLIST,
+    ADMIN_IP_ALLOWLIST_DISABLED: process.env.ADMIN_IP_ALLOWLIST_DISABLED,
     FEATURES: process.env.FEATURES,
     NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
@@ -334,6 +359,33 @@ function warnSuspiciousEnv(): void {
           " is the Resend sandbox sender — no DKIM/SPF for your domain " +
           "and shared deliverability with every other Resend sandbox " +
           "tenant. Configure a verified sending domain before going live."
+      );
+    }
+    // Admin-bootstrap surface checks (pentest authn-02 / residual #2):
+    // an empty allowlist means the documented "second factor" for the
+    // TOTP-less admin track is absent; an empty ADMIN_EMAILS means admin
+    // login is dead (fail closed, but probably a forgotten env var).
+    if (env.NODE_ENV === "production" && env.ADMIN_IP_ALLOWLIST.length === 0) {
+      if (env.ADMIN_IP_ALLOWLIST_DISABLED) {
+        console.warn(
+          "[env] ADMIN_IP_ALLOWLIST is empty and ADMIN_IP_ALLOWLIST_DISABLED=1 " +
+            "in production — admin login runs WITHOUT its IP second factor " +
+            "(email allowlist + DB session + password only). Set the allowlist " +
+            "to office/VPN IPs to restore it."
+        );
+      } else {
+        console.warn(
+          "[env] ADMIN_IP_ALLOWLIST is empty in production — admin login will " +
+            "FAIL CLOSED (nobody can log in). Set ADMIN_IP_ALLOWLIST to the " +
+            "office/VPN IPs, or ADMIN_IP_ALLOWLIST_DISABLED=1 to consciously " +
+            "accept the weaker factor."
+        );
+      }
+    }
+    if (env.ADMIN_EMAILS.length === 0) {
+      console.warn(
+        "[env] ADMIN_EMAILS is empty — no admin login is possible. Set it " +
+          "explicitly (there is deliberately no default)."
       );
     }
   } catch {

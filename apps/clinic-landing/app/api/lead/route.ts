@@ -99,6 +99,15 @@ function clientIp(req: NextRequest): string {
  *
  * Window is sliding 10 min, capped at 20 submits per IP. Matches the
  * portal intake's `leads-intake` Redis rate limit shape.
+ *
+ * Pentest M16 — KNOWN LIMITATION: on Vercel each lambda instance has its own
+ * Map, so this bucket (and `SEEN_KEYS` dedup below) only bind a single warm
+ * instance. Under fan-out they do NOT enforce a global cap. The durable
+ * backstops are: (a) the portal `/api/leads/intake` endpoint, which the
+ * system-of-record `sendToPortal` call hits — it has the per-IP + per-clinic
+ * Postgres rate limiter (pentest M6); and (b) the CDN/WAF rule the comment
+ * above references. A truly global in-app limit needs a shared KV (Vercel
+ * KV / Upstash) — an infra provisioning decision tracked as an owner action.
  */
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT_MAX = 20;

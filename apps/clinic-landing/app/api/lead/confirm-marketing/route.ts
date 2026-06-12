@@ -37,10 +37,15 @@ export async function GET(req: NextRequest) {
   }
 
   // Idempotency on the original eventId so a double-click doesn't double-fire.
+  // markConfirmedOnce is best-effort in-memory (per-lambda); the token itself
+  // is HMAC + 48h-expiry bound, and postMarketingConfirmed validates the
+  // webhook host (no SSRF) — but a cross-instance replay within the TTL can
+  // re-fire the webhook. A durable consumed-token store (Vercel KV / portal
+  // endpoint) would close that fully (pentest M14 residual).
   if (markConfirmedOnce(claims.id)) {
     const webhookUrl = webhookUrlForClinic(clinic.slug, clinic.connectors.webhookUrl);
     if (webhookUrl) {
-      await postMarketingConfirmed(webhookUrl, {
+      const res = await postMarketingConfirmed(webhookUrl, {
         type: "marketing-confirmed",
         source: "clinic-landing",
         receivedAt: new Date().toISOString(),
@@ -49,7 +54,11 @@ export async function GET(req: NextRequest) {
         patient: { email: claims.e },
         eventId: claims.id,
         marketingConfirmedAt: new Date().toISOString(),
-      }).catch(() => undefined);
+      });
+      if (!res.ok) {
+        // Don't block the patient's success page, but don't swallow it either.
+        console.error("[confirm-marketing] webhook POST failed:", res.message);
+      }
     }
   }
 

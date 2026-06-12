@@ -17,6 +17,10 @@ const Query = z.object({
 export const GET = withApi(
   // Polled by the shell every few seconds. A short browser-private cache
   // collapses bursts without hiding fresh notifications for long.
+  // Intentionally on the pooled `db`, not a per-poll RLS transaction: this is
+  // a hot poll path on a latency-sensitive Neon no-pooler link, and the read
+  // is already scoped to `session.userId` (a user only ever sees their own
+  // rows). I4's RLS hardening targets the WRITE path (see ./read/route.ts).
   { cacheControl: "max-age=10, stale-while-revalidate=60" },
   async ({ session, request }) => {
   const url = new URL(request.url);

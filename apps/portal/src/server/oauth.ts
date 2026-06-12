@@ -2,6 +2,8 @@ import "server-only";
 import { cookies } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
 import { env } from "@/lib/env";
+import { deriveSigningKey } from "@/lib/crypto";
+import { hostCookieName } from "@/lib/constants";
 
 /**
  * OAuth CSRF-state helpers shared by /api/integrations/{meta,google}.
@@ -18,10 +20,10 @@ import { env } from "@/lib/env";
  * side is leaked.
  */
 
-const SECRET = new TextEncoder().encode(env.SESSION_SECRET);
+const SECRET = deriveSigningKey("oauth-state-v1");
 const STATE_TTL_SECONDS = 600; // 10 min — user shouldn't take longer
 
-export const OAUTH_STATE_COOKIE = "eins_oauth_state";
+export const OAUTH_STATE_COOKIE = hostCookieName("eins_oauth_state");
 
 export interface OAuthState {
   clinicId: string;

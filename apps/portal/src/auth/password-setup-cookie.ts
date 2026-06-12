@@ -2,6 +2,8 @@ import "server-only";
 import { cookies } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
 import { env } from "../lib/env";
+import { deriveSigningKey } from "../lib/crypto";
+import { hostCookieName } from "../lib/constants";
 
 /**
  * Kurzlebige Hand-Off-Cookie für den Set-/Reset-Password-Flow.
@@ -25,11 +27,11 @@ import { env } from "../lib/env";
  * laufen lassen kann ohne Kollision.
  */
 
-export const PWD_SETUP_COOKIE_CLINIC = "eins_pwd_setup";
-export const PWD_SETUP_COOKIE_ADMIN = "eins_admin_pwd_setup";
+export const PWD_SETUP_COOKIE_CLINIC = hostCookieName("eins_pwd_setup");
+export const PWD_SETUP_COOKIE_ADMIN = hostCookieName("eins_admin_pwd_setup");
 export const PWD_SETUP_TTL_SECONDS = 10 * 60;
 
-const SECRET = new TextEncoder().encode(env.SESSION_SECRET);
+const SECRET = deriveSigningKey("pwd-setup-v1");
 const ALG = "HS256";
 
 export type PasswordSetupKind = "clinic" | "admin";

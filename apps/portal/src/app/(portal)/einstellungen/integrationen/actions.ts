@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { requireSession } from "@/auth/guards";
+import { can } from "@/lib/roles";
 import { writeAudit } from "@/server/audit";
 import { encryptString } from "@/lib/crypto";
 import {
@@ -69,6 +70,9 @@ export async function issueAgentEnrollmentAction(input: {
 
 export async function listOpenAgentEnrollmentsAction() {
   const session = await requireSession();
+  if (!can(session.role, "settings.integrations")) {
+    return [];
+  }
   return await listOpenEnrollments(session.clinicId);
 }
 
@@ -136,8 +140,12 @@ export async function resolveLinkingFailureAction(input: {
   method: "candidate_pick" | "manual_search" | "new_patient";
 }): Promise<{ ok: boolean; error?: string }> {
   const session = await requireSession();
+  if (!can(session.role, "settings.integrations")) {
+    return { ok: false, error: "forbidden" };
+  }
   await manuallyResolveLinkingFailure({
     failureId: input.failureId,
+    clinicId: session.clinicId,
     resolverUserId: session.userId,
     pickedPatientId: input.pickedPatientId,
     method: input.method,
@@ -155,7 +163,12 @@ export async function resolveLinkingFailureAction(input: {
   const [failure] = await db
     .select({ pvsPatientId: schema.linkingFailures.pvsPatientId })
     .from(schema.linkingFailures)
-    .where(eq(schema.linkingFailures.id, input.failureId))
+    .where(
+      and(
+        eq(schema.linkingFailures.id, input.failureId),
+        eq(schema.linkingFailures.clinicId, session.clinicId)
+      )
+    )
     .limit(1);
   if (failure) {
     await enqueuePvsLinkBackfill(session.clinicId, failure.pvsPatientId);
@@ -168,7 +181,10 @@ export async function ignoreLinkingFailureAction(input: {
   failureId: string;
 }): Promise<{ ok: boolean }> {
   const session = await requireSession();
-  await ignoreLinkingFailure(input.failureId, session.userId);
+  if (!can(session.role, "settings.integrations")) {
+    return { ok: false };
+  }
+  await ignoreLinkingFailure(input.failureId, session.clinicId, session.userId);
   await writeAudit({
     clinicId: session.clinicId,
     actorId: session.userId,
@@ -190,6 +206,9 @@ export async function mapTreatmentAction(input: {
   setStatus: "mapped" | "ignored" | "unmapped";
 }): Promise<{ ok: boolean }> {
   const session = await requireSession();
+  if (!can(session.role, "settings.integrations")) {
+    return { ok: false };
+  }
   await db
     .update(schema.pvsTreatmentMapping)
     .set({
@@ -223,6 +242,9 @@ export async function mapLocationAction(input: {
   setStatus: "mapped" | "ignored" | "unmapped";
 }): Promise<{ ok: boolean }> {
   const session = await requireSession();
+  if (!can(session.role, "settings.integrations")) {
+    return { ok: false };
+  }
   await db
     .update(schema.pvsLocationMapping)
     .set({

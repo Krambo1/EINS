@@ -31,6 +31,13 @@ export interface DsgvoExport {
   notifications: unknown[];
   hwgChecks: unknown[];
   platformCredentials: unknown[];
+  patients: unknown[];
+  patientFeedback: unknown[];
+  reviews: unknown[];
+  reviewEmailSchedule: unknown[];
+  linkingFailures: unknown[];
+  pvsEventLog: unknown[];
+  pvsPatientMap: unknown[];
   auditLog: unknown[];
 }
 
@@ -59,10 +66,14 @@ export async function exportClinicData(clinicId: string): Promise<DsgvoExport> {
     .from(schema.clinicUsers)
     .where(eq(schema.clinicUsers.clinicId, clinicId));
 
-  const requests = await db
+  const requestsRaw = await db
     .select()
     .from(schema.requests)
     .where(eq(schema.requests.clinicId, clinicId));
+  // Redact raw_payload (the full pre-Zod intake blob, which may carry fields
+  // dropped from the typed columns) — the Art.15 export returns the typed
+  // model, not the unminimised at-rest copy (pentest L1 / data-minimisation).
+  const requests = requestsRaw.map((r) => ({ ...r, rawPayload: null }));
 
   const activities = requests.length
     ? await db
@@ -86,6 +97,13 @@ export async function exportClinicData(clinicId: string): Promise<DsgvoExport> {
     notifications,
     hwgChecks,
     platformCredentials,
+    patients,
+    patientFeedback,
+    reviews,
+    reviewEmailSchedule,
+    linkingFailures,
+    pvsEventLog,
+    pvsPatientMap,
     auditLog,
   ] = await Promise.all([
     db.select().from(schema.assets).where(eq(schema.assets.clinicId, clinicId)),
@@ -129,6 +147,29 @@ export async function exportClinicData(clinicId: string): Promise<DsgvoExport> {
       })
       .from(schema.platformCredentials)
       .where(eq(schema.platformCredentials.clinicId, clinicId)),
+    // PHI tables omitted from the original export (pentest H11 / Art.15).
+    db.select().from(schema.patients).where(eq(schema.patients.clinicId, clinicId)),
+    db
+      .select()
+      .from(schema.patientFeedback)
+      .where(eq(schema.patientFeedback.clinicId, clinicId)),
+    db.select().from(schema.reviews).where(eq(schema.reviews.clinicId, clinicId)),
+    db
+      .select()
+      .from(schema.reviewEmailSchedule)
+      .where(eq(schema.reviewEmailSchedule.clinicId, clinicId)),
+    db
+      .select()
+      .from(schema.linkingFailures)
+      .where(eq(schema.linkingFailures.clinicId, clinicId)),
+    db
+      .select()
+      .from(schema.pvsEventLog)
+      .where(eq(schema.pvsEventLog.clinicId, clinicId)),
+    db
+      .select()
+      .from(schema.pvsPatientMap)
+      .where(eq(schema.pvsPatientMap.clinicId, clinicId)),
     db
       .select()
       .from(schema.auditLog)
@@ -150,6 +191,13 @@ export async function exportClinicData(clinicId: string): Promise<DsgvoExport> {
     notifications,
     hwgChecks,
     platformCredentials,
+    patients,
+    patientFeedback,
+    reviews,
+    reviewEmailSchedule,
+    linkingFailures,
+    pvsEventLog,
+    pvsPatientMap,
     auditLog,
   };
 }
@@ -162,67 +210,75 @@ export async function exportClinicData(clinicId: string): Promise<DsgvoExport> {
  * this function.
  */
 export async function eraseClinicData(clinicId: string): Promise<void> {
-  // 1) dependents of requests
-  const reqIds = (
-    await db
-      .select({ id: schema.requests.id })
-      .from(schema.requests)
-      .where(eq(schema.requests.clinicId, clinicId))
-  ).map((r) => r.id);
+  // Wrapped in a single transaction so a mid-sequence failure rolls back
+  // wholesale — a partial erasure must never coexist with a "claims erased"
+  // audit row (pentest L13). Deletes run sequentially (one tx connection).
+  await db.transaction(async (tx) => {
+    // 1) dependents of requests
+    const reqIds = (
+      await tx
+        .select({ id: schema.requests.id })
+        .from(schema.requests)
+        .where(eq(schema.requests.clinicId, clinicId))
+    ).map((r) => r.id);
 
-  if (reqIds.length) {
-    await db
-      .delete(schema.requestActivities)
-      .where(inArray(schema.requestActivities.requestId, reqIds));
-  }
+    if (reqIds.length) {
+      await tx
+        .delete(schema.requestActivities)
+        .where(inArray(schema.requestActivities.requestId, reqIds));
+    }
 
-  // 2) clinic-scoped rows (no inter-dependencies between these)
-  await Promise.all([
-    db.delete(schema.requests).where(eq(schema.requests.clinicId, clinicId)),
-    db.delete(schema.assets).where(eq(schema.assets.clinicId, clinicId)),
-    db
+    // 2) clinic-scoped rows. Includes pvs_event_log, which has NO clinic FK
+    //    and is therefore NOT removed by the final clinic delete's cascade —
+    //    without this explicit delete its PHI payload survives Art.17 erasure
+    //    indefinitely (pentest H11 / phi-erasure-pvs-event-log).
+    await tx.delete(schema.requests).where(eq(schema.requests.clinicId, clinicId));
+    await tx.delete(schema.assets).where(eq(schema.assets.clinicId, clinicId));
+    await tx
       .delete(schema.animationInstances)
-      .where(eq(schema.animationInstances.clinicId, clinicId)),
-    db
-      .delete(schema.documents)
-      .where(eq(schema.documents.clinicId, clinicId)),
-    db
+      .where(eq(schema.animationInstances.clinicId, clinicId));
+    await tx.delete(schema.documents).where(eq(schema.documents.clinicId, clinicId));
+    await tx
       .delete(schema.campaignSnapshots)
-      .where(eq(schema.campaignSnapshots.clinicId, clinicId)),
-    db
-      .delete(schema.kpiDaily)
-      .where(eq(schema.kpiDaily.clinicId, clinicId)),
-    db.delete(schema.goals).where(eq(schema.goals.clinicId, clinicId)),
-    db
+      .where(eq(schema.campaignSnapshots.clinicId, clinicId));
+    await tx.delete(schema.kpiDaily).where(eq(schema.kpiDaily.clinicId, clinicId));
+    await tx.delete(schema.goals).where(eq(schema.goals.clinicId, clinicId));
+    await tx
       .delete(schema.notifications)
-      .where(eq(schema.notifications.clinicId, clinicId)),
-    db.delete(schema.hwgChecks).where(eq(schema.hwgChecks.clinicId, clinicId)),
-    db
+      .where(eq(schema.notifications.clinicId, clinicId));
+    await tx.delete(schema.hwgChecks).where(eq(schema.hwgChecks.clinicId, clinicId));
+    await tx
       .delete(schema.platformCredentials)
-      .where(eq(schema.platformCredentials.clinicId, clinicId)),
-  ]);
+      .where(eq(schema.platformCredentials.clinicId, clinicId));
+    await tx
+      .delete(schema.pvsEventLog)
+      .where(eq(schema.pvsEventLog.clinicId, clinicId));
 
-  // 3) users + sessions via magic_links FK — delete magic_links first
-  const userIds = (
-    await db
-      .select({ id: schema.clinicUsers.id })
-      .from(schema.clinicUsers)
-      .where(eq(schema.clinicUsers.clinicId, clinicId))
-  ).map((u) => u.id);
+    // 3) users + sessions via magic_links FK — delete magic_links first
+    const userIds = (
+      await tx
+        .select({ id: schema.clinicUsers.id })
+        .from(schema.clinicUsers)
+        .where(eq(schema.clinicUsers.clinicId, clinicId))
+    ).map((u) => u.id);
 
-  if (userIds.length) {
-    await db
-      .delete(schema.magicLinks)
-      .where(inArray(schema.magicLinks.userId, userIds));
-    await db
-      .delete(schema.sessions)
-      .where(inArray(schema.sessions.userId, userIds));
-  }
-  await db
-    .delete(schema.clinicUsers)
-    .where(eq(schema.clinicUsers.clinicId, clinicId));
+    if (userIds.length) {
+      await tx
+        .delete(schema.magicLinks)
+        .where(inArray(schema.magicLinks.userId, userIds));
+      await tx
+        .delete(schema.sessions)
+        .where(inArray(schema.sessions.userId, userIds));
+    }
+    await tx
+      .delete(schema.clinicUsers)
+      .where(eq(schema.clinicUsers.clinicId, clinicId));
 
-  // 4) finally the clinic row itself. auditLog.clinicId is intentionally
-  // nullable and has no FK, so the audit trail survives.
-  await db.delete(schema.clinics).where(eq(schema.clinics.id, clinicId));
+    // 4) finally the clinic row itself. Remaining clinic-scoped PHI tables
+    //    (patients, patient_feedback, reviews, review_email_schedule,
+    //    pvs_patient_map, linking_failures) carry ON DELETE CASCADE to clinics
+    //    and are removed here. auditLog.clinicId is intentionally nullable with
+    //    no FK, so the audit trail survives.
+    await tx.delete(schema.clinics).where(eq(schema.clinics.id, clinicId));
+  });
 }

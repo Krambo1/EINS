@@ -3,6 +3,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { headers } from "next/headers";
 import { db, schema } from "../db/client";
 import { generateToken, sha256Hex } from "../lib/crypto";
+import { trustedIpFromHeaders } from "../lib/client-ip";
 import { createSession } from "./session";
 
 /**
@@ -32,7 +33,7 @@ export async function issueImpersonationToken(opts: IssueOpts): Promise<string> 
   const expiresAt = new Date(Date.now() + IMPERSONATION_TOKEN_TTL_SECONDS * 1000);
 
   const hdrs = await headers();
-  const ip = parseIp(hdrs.get("x-forwarded-for"), hdrs.get("x-real-ip"));
+  const ip = trustedIpFromHeaders(hdrs.get("x-forwarded-for"), hdrs.get("x-real-ip"));
 
   await db.insert(schema.impersonationTokens).values({
     tokenHash,
@@ -128,9 +129,4 @@ export async function consumeImpersonationToken(token: string): Promise<ConsumeR
   });
 
   return outcome;
-}
-
-function parseIp(xff: string | null, xri: string | null): string | null {
-  const first = (xff ?? xri ?? "").split(",")[0]?.trim();
-  return first || null;
 }

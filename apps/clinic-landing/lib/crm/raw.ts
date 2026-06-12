@@ -1,4 +1,5 @@
 import { normalizedLead, type CRMAdapter } from "./adapter";
+import { isAllowedWebhookUrl } from "./webhook-guard";
 import type { QuizSubmissionPayload, CRMAdapterResult } from "../types";
 
 /**
@@ -9,6 +10,9 @@ import type { QuizSubmissionPayload, CRMAdapterResult } from "../types";
 export const rawAdapter: CRMAdapter = {
   id: "raw",
   async send(payload: QuizSubmissionPayload, webhookUrl: string): Promise<CRMAdapterResult> {
+    if (!isAllowedWebhookUrl(webhookUrl)) {
+      return { ok: false, message: "webhook_url_blocked" };
+    }
     try {
       const res = await fetch(webhookUrl, {
         method: "POST",
