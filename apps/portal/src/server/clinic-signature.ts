@@ -16,7 +16,7 @@ import { decryptString } from "@/lib/crypto";
  * actions.ts) so a rotation doesn't strand callers using the new secret.
  *
  * Cache key is `(clinicId, platform)` — purpose is collapsed to platform
- * because patients + leads share the same 'intake' row.
+ * because every non-PVS purpose resolves to the same 'intake' row.
  */
 const SECRET_CACHE_TTL_MS = 30_000;
 const SECRET_CACHE_MAX = 256;
@@ -61,8 +61,8 @@ export function invalidateSignatureSecretCache(
  * Two partitioned secrets per clinic, stored encrypted in
  * `platform_credentials`:
  *
- *   • `platform='intake'` — shared by /api/leads/intake (clinic-landing)
- *                           and /api/patients/events (EINS Bewertungen).
+ *   • `platform='intake'` — used by /api/leads/intake (clinic-landing
+ *                           lead forms).
  *   • `platform='pvs'`    — used exclusively by /api/pvs/events,
  *                           /api/pvs/events/batch, and the GDT-Agent's
  *                           direct POST. Partitioned so a leak of the
@@ -76,7 +76,7 @@ export function invalidateSignatureSecretCache(
  * twice in one request; under normal load this hot-path runs once per
  * request and decrypt cost is negligible.
  */
-export type SignaturePurpose = "leads" | "patients" | "pvs";
+export type SignaturePurpose = "leads" | "pvs";
 
 /** Map purpose → platform_credentials row key. */
 function platformForPurpose(p: SignaturePurpose): "intake" | "pvs" {

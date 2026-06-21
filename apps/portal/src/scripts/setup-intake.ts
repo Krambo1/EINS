@@ -97,6 +97,32 @@ async function main() {
       console.log(`→ Found existing portal clinic "${slug}" (${clinicId})`);
     }
 
+    // 3b. Seed the default Fortschritt-Journey from the central template so the
+    // Praxis opens the Fortschritt tab to a clear plan, not an empty tab.
+    // Idempotent via NOT EXISTS: skipped if the clinic already has entries, so
+    // re-running setup:intake never duplicates. Inlined here (not the
+    // server-only applyDefaultJourney helper) because tsx refuses server-only.
+    const seeded = await sql<{ id: string }[]>`
+      INSERT INTO clinic_timeline_entries (
+        clinic_id, title, description, phase_label, sort_order, status, created_by_email
+      )
+      SELECT
+        ${clinicId}, title, description, phase_label, sort_order, default_status,
+        'team@eins.ag'
+      FROM timeline_default_steps
+      WHERE is_active = true
+        AND NOT EXISTS (
+          SELECT 1 FROM clinic_timeline_entries WHERE clinic_id = ${clinicId}
+        )
+      ORDER BY sort_order
+      RETURNING id
+    `;
+    if (seeded.length > 0) {
+      console.log(`→ Seeded Standard-Journey (${seeded.length} Schritte) into Fortschritt`);
+    } else {
+      console.log(`· Fortschritt already has entries — Standard-Journey left as-is`);
+    }
+
     // 4. Generate + encrypt + upsert HMAC secret
     const plaintext = randomBytes(32).toString("hex");
     const ciphertext = encryptString(plaintext);

@@ -1,9 +1,16 @@
 import type { ReactNode } from "react";
 import { cookies, headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { requireSession } from "@/auth/guards";
 import { PortalShell } from "./_components/PortalShell";
 import { ActionFlashToast } from "./_components/ActionFlashToast";
+import { ChecklistReminderBanner } from "./_components/ChecklistReminderBanner";
+import { TourProvider } from "./_components/tour/TourProvider";
 import { getClinicHeader } from "@/server/queries/clinic";
+import {
+  getOnboardingGateStatus,
+  isGateAllowedPath,
+} from "@/server/queries/onboardingGate";
 import {
   markSectionSeen,
   type NavSection,
@@ -40,7 +47,23 @@ export default async function PortalLayout({ children }: { children: ReactNode }
   // calls invalidateNavBadges internally so the bundle refetch below sees
   // the updated last-seen timestamp.
   const h = await headers();
-  const section = currentSection(h.get("x-portal-pathname"));
+  const pathname = h.get("x-portal-pathname");
+
+  // Onboarding access gate. A real Inhaber (not an impersonating admin) must
+  // submit the Fragebogen and deliver the Blocker checklist items before the
+  // data tabs unlock. Until then every non-allowed path bounces to the
+  // onboarding hub. Team roles and impersonating admins skip the gate (they
+  // can't complete onboarding / shouldn't be forced through it). Computed once
+  // here so the rest of the layout can reuse it for the banner + tour timing.
+  const gate =
+    session.role === "inhaber" && session.impersonatedByAdminId === null
+      ? await getOnboardingGateStatus(session.clinicId)
+      : null;
+  if (gate && !gate.gateComplete && !isGateAllowedPath(pathname)) {
+    redirect("/onboarding");
+  }
+
+  const section = currentSection(pathname);
   if (section) {
     await markSectionSeen(session.clinicId, session.userId, section);
   }
@@ -64,8 +87,42 @@ export default async function PortalLayout({ children }: { children: ReactNode }
     hasPassedLeitfaden,
   } = badges;
 
+  // First-login tour prompt: Inhaber only, both tour flags still null, not
+  // impersonating — AND only once onboarding is complete, so the prompt never
+  // pops while the owner is still being walked through the gated onboarding.
+  const tourEligible =
+    session.role === "inhaber" &&
+    session.impersonatedByAdminId === null;
+  const autoPromptTour =
+    tourEligible &&
+    !session.onboardingTourCompletedAt &&
+    !session.onboardingTourDismissedAt &&
+    gate?.gateComplete === true;
+
+  // Left-nav tour card. Eligible = Inhaber, not impersonating, hasn't X'd it.
+  // It shows once the first-login prompt was skipped or the tour abandoned
+  // (dismissed flag set, never completed). TourProvider also flips it live on
+  // those events; this is the cross-session/initial-paint state.
+  const navCardEligible =
+    tourEligible && !session.onboardingTourNavCardDismissedAt;
+  const navCardInitiallyVisible =
+    navCardEligible &&
+    !!session.onboardingTourDismissedAt &&
+    !session.onboardingTourCompletedAt;
+
+  // Soft nudge on the data tabs while the gate is open but the full mandatory
+  // checklist still has open items. Never on the onboarding hub itself.
+  const showChecklistBanner =
+    gate?.gateComplete === true &&
+    !gate.checklistComplete &&
+    !(pathname ?? "").startsWith("/onboarding");
+
   return (
-    <>
+    <TourProvider
+      autoPrompt={autoPromptTour}
+      navCardEligible={navCardEligible}
+      navCardInitiallyVisible={navCardInitiallyVisible}
+    >
       <PortalShell
         user={{
           email: session.email,
@@ -92,9 +149,14 @@ export default async function PortalLayout({ children }: { children: ReactNode }
           "/dokumente": section !== "dokumente" && dokumenteHasUpdate ? "Neu" : 0,
         }}
       >
+        {showChecklistBanner && gate && (
+          <ChecklistReminderBanner
+            remaining={gate.requiredTotal - gate.requiredDelivered}
+          />
+        )}
         {children}
       </PortalShell>
       <ActionFlashToast flash={actionFlash} />
-    </>
+    </TourProvider>
   );
 }

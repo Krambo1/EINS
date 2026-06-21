@@ -72,7 +72,9 @@ export async function getTimelineEntries(
   // ISO strings on a cache hit. Revive them so the TimelineEntry contract holds.
   return rows.map((r) => ({
     ...r,
-    eventDate: new Date(r.eventDate),
+    // Nullable since 0063 (relative-phase steps carry phase_label, no date).
+    // Guard the revival so a null date stays null instead of becoming epoch.
+    eventDate: r.eventDate ? new Date(r.eventDate) : null,
     createdAt: new Date(r.createdAt),
     updatedAt: new Date(r.updatedAt),
   }));

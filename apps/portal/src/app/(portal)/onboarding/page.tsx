@@ -15,10 +15,19 @@ import {
   Link as LinkIcon,
   Users,
   Camera,
+  ClipboardList,
+  ClipboardCheck,
   FileText,
   CheckCircle2,
   Circle,
+  Lock,
 } from "lucide-react";
+import {
+  REQUIRED_CHECKLIST_IDS,
+  BLOCKER_CHECKLIST_IDS,
+  isDelivered,
+  type ChecklistStatus,
+} from "./checkliste/content";
 
 export const metadata = { title: "Erste Schritte" };
 
@@ -66,7 +75,66 @@ export default async function OnboardingPage() {
     .where(eq(schema.goals.clinicId, session.clinicId))
     .limit(1);
 
+  const [discoveryRow] = await db
+    .select({ status: schema.discoveryFragebogen.status })
+    .from(schema.discoveryFragebogen)
+    .where(eq(schema.discoveryFragebogen.clinicId, session.clinicId))
+    .limit(1);
+  const discoverySubmitted = discoveryRow?.status === "eingereicht";
+
+  const checklistRows = await db
+    .select({
+      itemId: schema.checklistItems.itemId,
+      status: schema.checklistItems.status,
+    })
+    .from(schema.checklistItems)
+    .where(eq(schema.checklistItems.clinicId, session.clinicId));
+  const checklistStatus = new Map(
+    checklistRows.map((r) => [r.itemId, r.status as ChecklistStatus])
+  );
+  const checklistTotal = REQUIRED_CHECKLIST_IDS.length;
+  const checklistDelivered = REQUIRED_CHECKLIST_IDS.filter((id) =>
+    isDelivered(checklistStatus.get(id))
+  ).length;
+  const checklistDone = checklistDelivered >= checklistTotal;
+
+  // Access gate (keep in lockstep with getOnboardingGateStatus): the data tabs
+  // unlock once the Fragebogen is submitted AND the Blocker checklist items are
+  // delivered. Until then the portal redirected the Inhaber here.
+  const blockersTotal = BLOCKER_CHECKLIST_IDS.length;
+  const blockersDelivered = BLOCKER_CHECKLIST_IDS.filter((id) =>
+    isDelivered(checklistStatus.get(id))
+  ).length;
+  const gateComplete =
+    discoverySubmitted && blockersDelivered >= blockersTotal;
+
   const steps: Step[] = [
+    {
+      key: "fragebogen",
+      title: "Fragebogen zum Start ausfüllen",
+      description:
+        "Etwa 15 bis 20 Minuten zu Behandlungen, Zielen und Ihrer heutigen Patientengewinnung. Darauf bauen Kampagnen, Zielseite und Video auf.",
+      done: discoverySubmitted,
+      hint: discoveryRow && !discoverySubmitted
+        ? "Entwurf gespeichert. Sie können jederzeit weitermachen."
+        : undefined,
+      action: { label: "Fragebogen öffnen", href: "/onboarding/fragebogen" },
+      icon: <ClipboardList className="h-5 w-5" />,
+    },
+    {
+      key: "checkliste",
+      title: "Checkliste zum Start liefern",
+      description:
+        "Zugänge, Logo, Fotos, Einwilligungen und ein paar Angaben, alles direkt im Portal. Daraus bauen wir Anzeigen, Zielseiten und Videos.",
+      done: checklistDone,
+      hint: checklistDone
+        ? "Alle Pflichtpunkte geliefert."
+        : checklistDelivered > 0
+          ? `${checklistDelivered} von ${checklistTotal} Pflichtpunkten geliefert.`
+          : undefined,
+      action: { label: "Checkliste öffnen", href: "/onboarding/checkliste" },
+      icon: <ClipboardCheck className="h-5 w-5" />,
+    },
     {
       key: "profile",
       title: "Praxis-Angaben hinterlegen",
@@ -146,20 +214,77 @@ export default async function OnboardingPage() {
           Willkommen bei EINS.
         </h1>
         <p className="mt-2 text-base text-fg-primary md:text-lg">
-          Mit diesen Schritten ist Ihr Portal einsatzbereit. Sie können alles
-          auch später erledigen — die Reihenfolge ist nur ein Vorschlag.
+          Mit diesen Schritten ist Ihr Portal einsatzbereit. Die Reihenfolge ist
+          nur ein Vorschlag.
         </p>
       </header>
 
+      {/* Access-gate status: until Fragebogen + Start-Basics are in, the data
+          tabs stay locked and the Inhaber is kept here. */}
+      {gateComplete ? (
+        <Card className="border-[var(--tone-good-border)] p-5 md:p-6">
+          <CardContent className="flex items-start gap-3">
+            <CheckCircle2 className="mt-0.5 h-6 w-6 shrink-0 text-tone-good" />
+            <div>
+              <p className="font-semibold text-fg-primary">
+                Ihr Portal ist freigeschaltet.
+              </p>
+              <p className="mt-1 text-sm text-fg-secondary">
+                Sie können jetzt alle Bereiche nutzen. Die übrigen Schritte
+                unten helfen, das Beste aus EINS herauszuholen.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="border-accent/40 p-5 md:p-6">
+          <CardContent className="flex items-start gap-3">
+            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-accent/40 text-accent">
+              <Lock className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <p className="font-semibold text-fg-primary">
+                Nur noch wenig bis zur Freischaltung
+              </p>
+              <p className="mt-1 text-sm text-fg-secondary">
+                Sobald Ihr Fragebogen und die wichtigsten Start-Basics vorliegen,
+                schalten wir Übersicht, Anfragen und alle weiteren Bereiche frei.
+              </p>
+              <ul className="mt-3 space-y-1.5 text-sm">
+                <li
+                  className={
+                    discoverySubmitted ? "text-tone-good" : "text-fg-primary"
+                  }
+                >
+                  {discoverySubmitted ? "Erledigt: " : "Offen: "}
+                  Fragebogen einreichen
+                </li>
+                <li
+                  className={
+                    blockersDelivered >= blockersTotal
+                      ? "text-tone-good"
+                      : "text-fg-primary"
+                  }
+                >
+                  {blockersDelivered >= blockersTotal ? "Erledigt: " : "Offen: "}
+                  {blockersDelivered} von {blockersTotal} Start-Basics in der
+                  Checkliste liefern
+                </li>
+              </ul>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Progress */}
-      <Card>
-        <CardContent className="p-6">
+      <Card className="p-5 md:p-6">
+        <CardContent>
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <div>
               <div className="text-sm text-fg-secondary">
                 Ihr Einrichtungsstand
               </div>
-              <div className="mt-1 font-display text-3xl font-semibold tabular-nums">
+              <div className="mt-1 font-display text-2xl font-semibold tabular-nums md:text-3xl">
                 {completed} / {total} Schritte
               </div>
             </div>
@@ -178,8 +303,8 @@ export default async function OnboardingPage() {
       <ol className="space-y-4">
         {steps.map((s, i) => (
           <li key={s.key}>
-            <Card>
-              <CardContent className="flex flex-wrap items-start gap-4 p-5">
+            <Card className="p-5 md:p-6">
+              <CardContent className="flex flex-wrap items-start gap-4">
                 <div
                   className={`grid h-12 w-12 shrink-0 place-items-center rounded-full border ${
                     s.done
@@ -211,7 +336,7 @@ export default async function OnboardingPage() {
                   )}
                 </div>
                 {!s.done && s.action && (
-                  <Button asChild>
+                  <Button asChild className="w-full md:w-auto">
                     <Link href={s.action.href}>{s.action.label}</Link>
                   </Button>
                 )}
@@ -222,7 +347,7 @@ export default async function OnboardingPage() {
       </ol>
 
       {pct === 100 && (
-        <Card>
+        <Card className="p-5 md:p-6">
           <CardHeader>
             <CardTitle>Herzlichen Glückwunsch – alles eingerichtet.</CardTitle>
           </CardHeader>

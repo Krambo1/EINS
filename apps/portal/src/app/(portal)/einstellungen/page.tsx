@@ -32,7 +32,6 @@ import {
   syncReviewsNowAction,
   consumeReviewSyncFlash,
 } from "./actions";
-import { env } from "@/lib/env";
 import {
   UserPlus,
   Trash2,
@@ -41,10 +40,14 @@ import {
   Plus,
   MapPin,
   RefreshCw,
+  ListChecks,
+  ClipboardList,
+  ClipboardCheck,
 } from "lucide-react";
 import { listTreatments } from "@/server/queries/treatments";
 import { listLocations } from "@/server/queries/locations";
 import { Brand } from "@/app/_components/Brand";
+import { TourRelaunchCard } from "@/app/(portal)/_components/tour/TourRelaunchCard";
 import { AvatarUploader } from "./_components/AvatarUploader";
 import { Avatar } from "@eins/ui";
 import { avatarUrlForKey } from "@/server/avatars";
@@ -188,6 +191,64 @@ export default async function EinstellungenPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Portal-Rundgang re-launch — Inhaber only (matches the tour audience) */}
+      {isInhaber && <TourRelaunchCard />}
+
+      {/* Onboarding entry points — Inhaber only. Lets the owner reach the
+          Fragebogen + Checkliste again after the initial setup, e.g. to adjust
+          answers or deliver remaining assets. */}
+      {isInhaber && (
+        <Card id="onboarding" className="scroll-mt-24">
+          <CardHeader>
+            <CardTitle>Onboarding</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-fg-secondary">
+              Ihre Start-Unterlagen. Sie können Angaben jederzeit ergänzen oder
+              anpassen.
+            </p>
+            <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border">
+              {[
+                {
+                  href: "/onboarding",
+                  icon: <ListChecks className="h-4 w-4" />,
+                  label: "Erste Schritte",
+                  desc: "Ihr Einrichtungsstand auf einen Blick.",
+                },
+                {
+                  href: "/onboarding/fragebogen",
+                  icon: <ClipboardList className="h-4 w-4" />,
+                  label: "Fragebogen zum Start",
+                  desc: "Ziele, Behandlungen und Ihre Zahlen-Baseline.",
+                },
+                {
+                  href: "/onboarding/checkliste",
+                  icon: <ClipboardCheck className="h-4 w-4" />,
+                  label: "Checkliste zum Start",
+                  desc: "Zugänge, Logo, Fotos und Einwilligungen.",
+                },
+              ].map((row) => (
+                <li
+                  key={row.href}
+                  className="flex flex-wrap items-center gap-3 bg-bg-secondary p-4"
+                >
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border text-fg-primary">
+                    {row.icon}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-medium text-fg-primary">{row.label}</div>
+                    <div className="text-sm text-fg-secondary">{row.desc}</div>
+                  </div>
+                  <Button asChild variant="outline" size="sm" className="shrink-0">
+                    <Link href={row.href}>Öffnen</Link>
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Clinic settings — Inhaber only */}
       {isInhaber && clinic && (
@@ -502,24 +563,17 @@ export default async function EinstellungenPage() {
 
             <Separator />
 
-            {/* Make.com webhook info */}
+            {/* Zielseiten lead-intake signing secret */}
             <div className="space-y-3">
               <div>
                 <h3 className="text-sm font-semibold text-fg-primary">
-                  Make.com-Anbindung
+                  Zielseiten-Anbindung
                 </h3>
                 <p className="mt-1 text-sm text-fg-secondary">
-                  Konfigurieren Sie ein Make-Szenario pro
-                  Praxis-Verwaltungssystem (Doctolib, Charly, ivoris, Z1,
-                  Dampsoft). Jeder „Termin abgeschlossen"-Trigger schickt
-                  einen signierten Webhook an folgende Adresse:
+                  Ihre Zielseiten-Formulare senden neue Anfragen signiert an
+                  das Portal. Dafür werden die folgende Praxis-ID und das
+                  Geheimnis verwendet.
                 </p>
-              </div>
-              <div className="rounded-xl border border-border bg-bg-secondary p-3 font-mono text-xs">
-                <div className="text-fg-secondary">Webhook-URL</div>
-                <div className="mt-1 break-all text-fg-primary">
-                  {env.APP_ORIGIN}/api/patients/events
-                </div>
               </div>
               <div className="rounded-xl border border-border bg-bg-secondary p-3 font-mono text-xs">
                 <div className="text-fg-secondary">Praxis-ID (clinicId)</div>
@@ -532,10 +586,10 @@ export default async function EinstellungenPage() {
                       HMAC-Geheimnis (X-EINS-Signature)
                     </div>
                     <p className="mt-1 text-xs text-fg-secondary">
-                      Wird beim Rotieren einmalig angezeigt. Speichern Sie ihn
-                      sofort in Make. Bei Rotation ist Ihr bisheriger
-                      Webhook bis zur Aktualisierung in Make ungültig &mdash;
-                      auch für Ihre Landingpage-Formulare.
+                      Wird beim Rotieren einmalig angezeigt. Nach einer Rotation
+                      müssen Ihre Zielseiten-Formulare mit dem neuen Geheimnis
+                      aktualisiert werden, sonst werden Anfragen bis dahin
+                      abgelehnt.
                     </p>
                   </div>
                   <form action={rotateIntakeSecretAction}>

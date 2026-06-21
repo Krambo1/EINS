@@ -937,7 +937,7 @@ async function fanoutInvoiceConversions(
  * Called from applyAppointmentBuckets after a bucket carrying `completedAt`
  * has been applied to its request.
  *
- * Three PVS-specific concerns the Make.com webhook path does not have:
+ * Three PVS-specific concerns:
  *   1. Email — PVS canonical events are pseudonymized and carry no address.
  *      We resolve it from the EINS lead linkage: the request's contactEmail
  *      (captured at lead intake), falling back to the linked patient row. A

@@ -125,7 +125,7 @@ export default async function MedienPage({
 
   return (
     <div className="space-y-8">
-      <header>
+      <header data-tour="medien-header">
         <h1 className="text-3xl font-semibold md:text-4xl">Medien.</h1>
         <p className="mt-2 text-base text-fg-primary md:text-lg">
           Ihre Video- und Fotoproduktionen sowie Erklär-Animationen an einem

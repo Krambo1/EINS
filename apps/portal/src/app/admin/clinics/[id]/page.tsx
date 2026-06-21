@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { Badge } from "@eins/ui";
 import { requireAdmin } from "@/auth/admin-guards";
 import { db, schema } from "@/db/client";
@@ -31,6 +31,20 @@ import { StammdatenTab } from "./_components/StammdatenTab";
 import { IntegrationenTab } from "./_components/IntegrationenTab";
 import { VerwaltungTab } from "./_components/VerwaltungTab";
 import { FortschrittTab } from "./_components/FortschrittTab";
+import {
+  FragebogenTab,
+  type FragebogenTabData,
+} from "./_components/FragebogenTab";
+import {
+  ChecklisteTab,
+  type ChecklisteTabData,
+} from "./_components/ChecklisteTab";
+import type { DiscoveryAnswers } from "@/app/(portal)/onboarding/fragebogen/content";
+import {
+  ALL_CHECKLIST_ITEMS,
+  type ChecklistAnswer,
+  type ChecklistStatus,
+} from "@/app/(portal)/onboarding/checkliste/content";
 
 export const metadata = { title: "Praxis-Details" };
 
@@ -40,6 +54,8 @@ const TABS = [
   { key: "leads", label: "Leads" },
   { key: "aktivitaet", label: "Aktivität" },
   { key: "fortschritt", label: "Fortschritt" },
+  { key: "fragebogen", label: "Fragebogen" },
+  { key: "checkliste", label: "Checkliste" },
   { key: "team", label: "Team" },
   { key: "stammdaten", label: "Stammdaten" },
   { key: "integrationen", label: "Integrationen" },
@@ -141,6 +157,84 @@ export default async function AdminClinicDetailPage({
       .where(eq(schema.clinicTimelineEntries.clinicId, clinic.id))
       .orderBy(desc(schema.clinicTimelineEntries.eventDate));
     renderedTab = <FortschrittTab clinicId={clinic.id} entries={entries} />;
+  } else if (tab === "fragebogen") {
+    // Admin connection bypasses RLS by role; explicit clinic filter scopes it.
+    const [row] = await db
+      .select({
+        status: schema.discoveryFragebogen.status,
+        answers: schema.discoveryFragebogen.answers,
+        submittedAt: schema.discoveryFragebogen.submittedAt,
+        resubmittedAt: schema.discoveryFragebogen.resubmittedAt,
+        updatedAt: schema.discoveryFragebogen.updatedAt,
+        submittedByName: schema.clinicUsers.fullName,
+        submittedByEmail: schema.clinicUsers.email,
+      })
+      .from(schema.discoveryFragebogen)
+      .leftJoin(
+        schema.clinicUsers,
+        eq(schema.discoveryFragebogen.submittedBy, schema.clinicUsers.id)
+      )
+      .where(eq(schema.discoveryFragebogen.clinicId, clinic.id))
+      .limit(1);
+    const data: FragebogenTabData | null = row
+      ? {
+          status: row.status as "entwurf" | "eingereicht",
+          answers: (row.answers ?? {}) as DiscoveryAnswers,
+          submittedAt: row.submittedAt,
+          resubmittedAt: row.resubmittedAt,
+          submittedByName: row.submittedByName ?? row.submittedByEmail,
+          updatedAt: row.updatedAt,
+        }
+      : null;
+    renderedTab = <FragebogenTab data={data} />;
+  } else if (tab === "checkliste") {
+    const [itemRows, fileRows] = await Promise.all([
+      db
+        .select()
+        .from(schema.checklistItems)
+        .where(eq(schema.checklistItems.clinicId, clinic.id)),
+      db
+        .select()
+        .from(schema.checklistFiles)
+        .where(eq(schema.checklistFiles.clinicId, clinic.id))
+        .orderBy(asc(schema.checklistFiles.uploadedAt)),
+    ]);
+    const states: ChecklisteTabData["states"] = {};
+    for (const item of ALL_CHECKLIST_ITEMS) {
+      states[item.id] = {
+        status: "offen",
+        answer: {},
+        files: [],
+        deliveredAt: null,
+        verifiedAt: null,
+        verifiedBy: null,
+      };
+    }
+    for (const row of itemRows) {
+      if (!states[row.itemId]) continue;
+      states[row.itemId] = {
+        status: row.status as ChecklistStatus,
+        answer: (row.answer ?? {}) as ChecklistAnswer,
+        files: [],
+        deliveredAt: row.deliveredAt,
+        verifiedAt: row.verifiedAt,
+        verifiedBy: row.verifiedBy,
+      };
+    }
+    for (const f of fileRows) {
+      const bucket = states[f.itemId];
+      if (!bucket) continue;
+      // Admin-scoped passthrough (redirects to a signed URL under R2).
+      bucket.files.push({
+        id: f.id,
+        name: f.originalFilename,
+        sizeBytes: f.sizeBytes,
+        url: `/api/admin/files/${encodeURI(f.storageKey)}`,
+      });
+    }
+    renderedTab = (
+      <ChecklisteTab data={{ clinicId: clinic.id, states }} />
+    );
   } else if (tab === "team") {
     const team = await db
       .select()

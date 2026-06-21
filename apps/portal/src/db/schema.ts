@@ -95,8 +95,7 @@ export const clinics = pgTable("clinics", {
    * intake that a post-visit review email may follow (§7 UWG Abs. 3 Nr. 4,
    * see apps/portal/docs/eins-bewertungen.md). The PVS stream carries no per-event
    * consent (events are pseudonymized), so the pvs-status-derive worker only
-   * schedules a review when this is true. The Make.com webhook keeps its own
-   * per-event reviewConsent and is unaffected. Default false (migration 0058).
+   * schedules a review when this is true. Default false (migration 0058).
    */
   reviewConsentAttested: boolean("review_consent_attested")
     .notNull()
@@ -163,6 +162,24 @@ export const clinicUsers = pgTable(
     invitedAt: timestamp("invited_at", { withTimezone: true }),
     invitationTokenHash: text("invitation_token_hash"),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
+    /** Set when this user finished the interactive portal tour ("Fertig"). */
+    onboardingTourCompletedAt: timestamp("onboarding_tour_completed_at", {
+      withTimezone: true,
+    }),
+    /** Set when this user resolved the one-time tour prompt without finishing
+     *  (clicked "Später", or started it from the prompt). Both this and
+     *  completedAt being NULL is what makes the first-login prompt auto-show. */
+    onboardingTourDismissedAt: timestamp("onboarding_tour_dismissed_at", {
+      withTimezone: true,
+    }),
+    /** Set when the user closes (X) the small "Portal-Rundgang" card that the
+     *  left nav shows after the tour prompt was skipped / the tour abandoned.
+     *  Once set the nav card never re-appears; the tour stays re-launchable
+     *  from Einstellungen. */
+    onboardingTourNavCardDismissedAt: timestamp(
+      "onboarding_tour_nav_card_dismissed_at",
+      { withTimezone: true }
+    ),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -508,10 +525,10 @@ export const reviewEmailSchedule = pgTable(
     feedbackAt: timestamp("feedback_at", { withTimezone: true }),
     // --- PVS-bridge-driven scheduling (0058) ---
     /**
-     * The PVS appointment whose EncounterCompleted scheduled this row. NULL for
-     * Make.com-webhook rows. Doubles as the idempotency key: a re-derived
-     * encounter never schedules a second email (uniqueAppt below + a pre-check
-     * in scheduleReviewRequest).
+     * The PVS appointment whose EncounterCompleted scheduled this row. May be
+     * NULL for legacy rows predating the PVS bridge. Doubles as the idempotency
+     * key: a re-derived encounter never schedules a second email (uniqueAppt
+     * below + a pre-check in scheduleReviewRequest).
      */
     pvsAppointmentId: text("pvs_appointment_id"),
     /** The PVS encounter id behind this row; provenance only. NULL for webhook rows. */
@@ -1310,7 +1327,14 @@ export const clinicTimelineEntries = pgTable(
       .references(() => clinics.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     description: text("description"),
-    eventDate: timestamp("event_date", { withTimezone: true }).notNull(),
+    // Nullable since 0063: relative-phase default-journey steps carry a
+    // phase_label ("Woche 1 bis 2") instead of a concrete date. Dated,
+    // admin-authored entries still set this.
+    eventDate: timestamp("event_date", { withTimezone: true }),
+    // Relative-phase label for date-less steps. Null on dated entries.
+    phaseLabel: text("phase_label"),
+    // Forward ordering for date-less journeys; 0 on legacy/dated entries.
+    sortOrder: integer("sort_order").notNull().default(0),
     status: text("status").notNull().default("geplant"),
     createdByEmail: text("created_by_email"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1329,6 +1353,43 @@ export const clinicTimelineEntries = pgTable(
       t.clinicId,
       t.eventDate.desc()
     ),
+    byClinicSort: index("clinic_timeline_clinic_sort_idx").on(
+      t.clinicId,
+      t.sortOrder
+    ),
+  })
+);
+
+// ---------------------------------------------------------------
+// TIMELINE DEFAULT STEPS — central, admin-editable template for the
+// default Fortschritt-Journey. Copied into clinic_timeline_entries when a
+// clinic is onboarded (auto on creation / admin "Standard-Journey einsetzen").
+// Global EINS content, NOT tenant-scoped and NOT exposed to eins_app: only
+// admin code on the superuser `db` connection touches it (see migration 0063).
+// ---------------------------------------------------------------
+export const timelineDefaultSteps = pgTable(
+  "timeline_default_steps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sortOrder: integer("sort_order").notNull(),
+    phaseLabel: text("phase_label"),
+    title: text("title").notNull(),
+    description: text("description"),
+    defaultStatus: text("default_status").notNull().default("geplant"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    statusCheck: check(
+      "timeline_default_steps_status_check",
+      sql`${t.defaultStatus} IN ('geplant','laeuft','abgeschlossen')`
+    ),
+    bySort: index("timeline_default_steps_sort_idx").on(t.sortOrder),
   })
 );
 
@@ -1589,6 +1650,114 @@ export const userNavSectionViews = pgTable(
   },
   (t) => ({
     pk: primaryKey({ columns: [t.userId, t.section] }),
+  })
+);
+
+// ---------------------------------------------------------------
+// DISCOVERY-FRAGEBOGEN — Kunden-Onboarding Teil 1 (Vorab-Formular).
+// One row per clinic; `answers` is a jsonb map keyed by question id
+// ("A1", "C1", ...). Question definitions live in code
+// (app/(portal)/onboarding/fragebogen/content.ts), not in the DB.
+// Lifecycle: 'entwurf' (draft) -> 'eingereicht' (read-only for clinic).
+// ---------------------------------------------------------------
+export const discoveryFragebogen = pgTable(
+  "discovery_fragebogen",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    answers: jsonb("answers").notNull().default(sql`'{}'::jsonb`),
+    status: text("status").notNull().default("entwurf"),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    submittedBy: uuid("submitted_by").references(() => clinicUsers.id),
+    /** Set when the Praxis re-submits AFTER the first submission (owner can
+     *  reopen + edit from Einstellungen). submittedAt keeps the first send;
+     *  this drives the "Erneut eingereicht" badge in the admin clinic view. */
+    resubmittedAt: timestamp("resubmitted_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedBy: uuid("updated_by").references(() => clinicUsers.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    clinicUniq: unique("discovery_fragebogen_clinic_uniq").on(t.clinicId),
+    statusCheck: check(
+      "discovery_fragebogen_status_check",
+      sql`${t.status} IN ('entwurf','eingereicht')`
+    ),
+  })
+);
+
+// ---------------------------------------------------------------
+// ASSET-LIEFER-CHECKLISTE — Kunden-Onboarding Teil 2. The clinic delivers
+// onboarding assets through the portal. `checklist_items` holds the per-item
+// two-stage state (clinic sets 'geliefert'/'entfaellt' -> EINS confirms
+// 'geprueft'); `checklist_files` holds uploaded files in their own table so
+// multiple files per item are individually listable/removable and parallel
+// uploads never race a jsonb array. Item definitions live in code
+// (app/(portal)/onboarding/checkliste/content.ts), keyed by item id.
+// ---------------------------------------------------------------
+export const checklistItems = pgTable(
+  "checklist_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    itemId: text("item_id").notNull(),
+    status: text("status").notNull().default("offen"),
+    answer: jsonb("answer").notNull().default(sql`'{}'::jsonb`),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
+    deliveredBy: uuid("delivered_by").references(() => clinicUsers.id),
+    // EINS-side confirmation; verified_by is an admin email (no FK).
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    verifiedBy: text("verified_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedBy: uuid("updated_by").references(() => clinicUsers.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    clinicItemUniq: unique("checklist_items_clinic_item_uniq").on(
+      t.clinicId,
+      t.itemId
+    ),
+    statusCheck: check(
+      "checklist_items_status_check",
+      sql`${t.status} IN ('offen','geliefert','geprueft','entfaellt')`
+    ),
+  })
+);
+
+export const checklistFiles = pgTable(
+  "checklist_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    itemId: text("item_id").notNull(),
+    storageKey: text("storage_key").notNull(),
+    originalFilename: text("original_filename").notNull(),
+    contentType: text("content_type"),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    uploadedBy: uuid("uploaded_by").references(() => clinicUsers.id),
+  },
+  (t) => ({
+    clinicItemIdx: index("checklist_files_clinic_item_idx").on(
+      t.clinicId,
+      t.itemId
+    ),
   })
 );
 

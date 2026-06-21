@@ -30,6 +30,7 @@ import { SourceLabel } from "@/app/_components/Brand";
 import { AnfragenFilters } from "./_components/AnfragenFilters";
 import { CallQueue } from "./_components/CallQueue";
 import { RequestListSkeleton } from "./_components/RequestListSkeleton";
+import { ChapterLaunchLink } from "@/app/(portal)/_components/tour/ChapterLaunchLink";
 
 export const metadata = { title: "Anfragen" };
 
@@ -59,16 +60,23 @@ export default async function AnfragenPage({
   const params = await searchParams;
 
   const isFrontdesk = session.role === "frontdesk";
+  const isInhaber = session.role === "inhaber";
 
   return (
     <div className="space-y-6">
-      <header>
-        <h1 className="text-3xl font-semibold md:text-4xl">Anfragen.</h1>
-        <p className="mt-2 text-base text-fg-primary md:text-lg">
-          {isFrontdesk
-            ? "Anfragen behandeln, anrufen und closen. Die heißesten zuerst."
-            : "Alle Patienten-Anfragen an einem Ort. Schnell reagieren, nichts vergessen."}
-        </p>
+      <header
+        data-tour="anfragen-header"
+        className="flex flex-wrap items-start justify-between gap-4"
+      >
+        <div>
+          <h1 className="text-3xl font-semibold md:text-4xl">Anfragen.</h1>
+          <p className="mt-2 text-base text-fg-primary md:text-lg">
+            {isFrontdesk
+              ? "Anfragen behandeln, anrufen und closen. Die heißesten zuerst."
+              : "Alle Patienten-Anfragen an einem Ort. Schnell reagieren, nichts vergessen."}
+          </p>
+        </div>
+        {isInhaber && <ChapterLaunchLink chapter="anfragen" />}
       </header>
 
       <Suspense fallback={<FiltersSkeleton />}>
@@ -189,7 +197,7 @@ async function RequestListLoader({
           }
         />
       ) : (
-        <Card>
+        <Card data-tour="anfragen-list">
           <CardContent className="p-0">
             <div className="hidden border-b border-border px-5 py-3 text-xs font-medium uppercase tracking-wide text-fg-tertiary md:grid md:items-center md:gap-4 md:grid-cols-[minmax(0,1.5fr)_10rem_5rem_7rem_11rem_8rem]">
               <div>Anfrage</div>

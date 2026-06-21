@@ -49,6 +49,8 @@ function groupByMonth(entries: TimelineEntry[]) {
   const groups = new Map<string, { label: string; entries: TimelineEntry[] }>();
   for (const e of entries) {
     const d = e.eventDate;
+    // Completed entries are always dated; skip any date-less row defensively.
+    if (!d) continue;
     const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     if (!groups.has(key)) {
       groups.set(key, { label: MONTH_FORMATTER.format(d), entries: [] });
@@ -146,10 +148,19 @@ function TimelineCard({
           </span>
           {visual.label}
         </span>
-        <MetaDot />
-        <span>{relativeLabelFor(status, entry.eventDate, now)}</span>
-        <MetaDot />
-        <span className="tabular-nums">{formatDate(entry.eventDate)}</span>
+        {entry.eventDate ? (
+          <>
+            <MetaDot />
+            <span>{relativeLabelFor(status, entry.eventDate, now)}</span>
+            <MetaDot />
+            <span className="tabular-nums">{formatDate(entry.eventDate)}</span>
+          </>
+        ) : entry.phaseLabel ? (
+          <>
+            <MetaDot />
+            <span>{entry.phaseLabel}</span>
+          </>
+        ) : null}
       </MetaRow>
       <p className="mt-3 text-lg font-semibold leading-snug text-fg-primary md:text-xl">
         {entry.title}
@@ -200,21 +211,41 @@ function SectionHeader({
   );
 }
 
+/**
+ * Order entries within a status section. Two kinds coexist:
+ *  - dated, admin-authored entries (real calendar events) → sorted by date,
+ *    `dir` = -1 for most-recent-first (active/completed), 1 for soonest-first
+ *    (upcoming).
+ *  - date-less relative-phase steps from the default journey → sorted by
+ *    `sortOrder` ascending, i.e. plan order (Woche 1 bis 2 → … → Nach 90 Tagen).
+ * When a section mixes both, concrete dated entries come first and the generic
+ * phase steps follow.
+ */
+function makeComparator(dir: 1 | -1) {
+  return (a: TimelineEntry, b: TimelineEntry): number => {
+    const at = a.eventDate ? a.eventDate.getTime() : null;
+    const bt = b.eventDate ? b.eventDate.getTime() : null;
+    if (at !== null && bt !== null) return (at - bt) * dir;
+    if (at === null && bt === null) return a.sortOrder - b.sortOrder;
+    return at === null ? 1 : -1;
+  };
+}
+
 export function TimelineList({ entries }: { entries: TimelineEntry[] }) {
   const now = new Date();
 
   const active = entries
     .filter((e) => e.status === "laeuft")
     .slice()
-    .sort((a, b) => b.eventDate.getTime() - a.eventDate.getTime());
+    .sort(makeComparator(-1));
   const upcoming = entries
     .filter((e) => e.status === "geplant")
     .slice()
-    .sort((a, b) => a.eventDate.getTime() - b.eventDate.getTime());
+    .sort(makeComparator(1));
   const completed = entries
     .filter((e) => e.status === "abgeschlossen")
     .slice()
-    .sort((a, b) => b.eventDate.getTime() - a.eventDate.getTime());
+    .sort(makeComparator(-1));
 
   if (entries.length === 0) {
     return (

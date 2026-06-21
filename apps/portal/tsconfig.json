@@ -45,7 +45,8 @@
     "playwright.config.ts",
     "src/**/*.ts",
     "src/**/*.tsx",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    ".next-3007/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

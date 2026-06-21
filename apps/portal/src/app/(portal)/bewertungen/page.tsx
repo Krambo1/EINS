@@ -40,11 +40,13 @@ import {
   templatesByBucket,
 } from "./_lib/reply-templates";
 import { Brand } from "@/app/_components/Brand";
+import { ChapterLaunchLink } from "@/app/(portal)/_components/tour/ChapterLaunchLink";
 
 export const metadata = { title: "Bewertungen" };
 
 export default async function BewertungenPage() {
   const session = await requirePermissionOrRedirect("reviews.view");
+  const isInhaber = session.role === "inhaber";
 
   // The /bewertungen sidebar badge counts new patient feedback rows, but
   // until now the index itself didn't surface them — users would see "1 neu"
@@ -93,11 +95,14 @@ export default async function BewertungenPage() {
 
   return (
     <div className="space-y-8">
-      <header>
-        <h1 className="text-3xl font-semibold md:text-4xl">Bewertungen.</h1>
-        <p className="mt-2 text-base text-fg-primary md:text-lg">
-          Ihre Reputation auf <Brand brand="google" />, <Brand brand="jameda" /> &amp; Co. an einem Ort.
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-semibold md:text-4xl">Bewertungen.</h1>
+          <p className="mt-2 text-base text-fg-primary md:text-lg">
+            Ihre Reputation auf <Brand brand="google" />, <Brand brand="jameda" /> &amp; Co. an einem Ort.
+          </p>
+        </div>
+        {isInhaber && <ChapterLaunchLink chapter="bewertungen" />}
       </header>
 
       {canViewPatientFeedback && newFeedbackCount > 0 && (
@@ -158,6 +163,7 @@ export default async function BewertungenPage() {
 
       {/* Per-platform tiles */}
       <section
+        data-tour="bewertungen-platforms"
         aria-label="Bewertungen pro Plattform"
         className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
       >
@@ -174,7 +180,7 @@ export default async function BewertungenPage() {
       </section>
 
       {/* Antwortvorlagen */}
-      <Card>
+      <Card data-tour="bewertungen-templates">
         <CardHeader>
           <CardTitle>Antwortvorlagen</CardTitle>
         </CardHeader>

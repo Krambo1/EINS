@@ -10,7 +10,7 @@ export default async function FortschrittPage() {
 
   return (
     <div className="space-y-8">
-      <header>
+      <header data-tour="fortschritt-header">
         <h1 className="text-3xl font-semibold md:text-4xl">Fortschritt.</h1>
         <p className="mt-2 text-base text-fg-primary md:text-lg">
           Was wir gerade für Sie tun und was als Nächstes ansteht.

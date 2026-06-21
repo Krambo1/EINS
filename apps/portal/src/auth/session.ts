@@ -74,6 +74,11 @@ export interface ResolvedSession {
   role: Role;
   /** Non-null when an admin opened this session via "View as clinic user". */
   impersonatedByAdminId: string | null;
+  /** Interactive portal-tour lifecycle (drives the first-login auto-prompt). */
+  onboardingTourCompletedAt: Date | null;
+  onboardingTourDismissedAt: Date | null;
+  /** Set once the user dismisses the left-nav tour card; suppresses it for good. */
+  onboardingTourNavCardDismissedAt: Date | null;
 }
 
 /**
@@ -173,6 +178,10 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
       avatarUpdatedAt: schema.clinicUsers.avatarUpdatedAt,
       role: schema.clinicUsers.role,
       archivedAt: schema.clinicUsers.archivedAt,
+      onboardingTourCompletedAt: schema.clinicUsers.onboardingTourCompletedAt,
+      onboardingTourDismissedAt: schema.clinicUsers.onboardingTourDismissedAt,
+      onboardingTourNavCardDismissedAt:
+        schema.clinicUsers.onboardingTourNavCardDismissedAt,
     })
     .from(schema.sessions)
     .innerJoin(schema.clinicUsers, eq(schema.sessions.userId, schema.clinicUsers.id))
@@ -212,6 +221,9 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
     avatarUrl: avatarUrlForKey(row.avatarKey, row.avatarUpdatedAt),
     role: row.role as Role,
     impersonatedByAdminId: row.impersonatedByAdminId,
+    onboardingTourCompletedAt: row.onboardingTourCompletedAt,
+    onboardingTourDismissedAt: row.onboardingTourDismissedAt,
+    onboardingTourNavCardDismissedAt: row.onboardingTourNavCardDismissedAt,
   };
 }
 

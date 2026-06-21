@@ -2,11 +2,12 @@
 
 import { revalidatePath, revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { requireAdmin } from "@/auth/admin-guards";
 import { db, schema } from "@/db/client";
 import { writeAudit } from "@/server/audit";
+import { applyDefaultJourney } from "@/server/timeline-journey";
 import { TIMELINE_STATUSES } from "@/lib/constants";
 
 /**
@@ -195,7 +196,7 @@ export async function updateTimelineEntryAction(formData: FormData) {
       title: { from: before.title, to: d.title },
       status: { from: before.status, to: d.status },
       eventDate: {
-        from: before.eventDate.toISOString(),
+        from: before.eventDate ? before.eventDate.toISOString() : null,
         to: eventDate.toISOString(),
       },
     },
@@ -233,6 +234,105 @@ export async function deleteTimelineEntryAction(formData: FormData) {
   revalidateTag(`timeline:${before.clinicId}`);
   revalidatePath(`/admin/clinics/${before.clinicId}`);
   revalidatePath("/fortschritt");
+}
+
+/**
+ * Seed the central default-journey template into this clinic's Fortschritt feed.
+ * Idempotent (see {@link applyDefaultJourney}): a no-op when the clinic already
+ * has entries, so a double-click never duplicates. Surfaced in the admin tab
+ * only when a clinic is still empty.
+ */
+export async function seedDefaultJourneyAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const clinicId = z.string().uuid().parse(formData.get("clinicId"));
+
+  const { seeded } = await applyDefaultJourney(clinicId);
+
+  await writeAudit({
+    clinicId,
+    actorEmail: admin.email,
+    action: "create",
+    entityKind: "clinic_timeline_entry",
+    diff: { seededDefaultJourney: seeded },
+  });
+
+  revalidateTag(`timeline:${clinicId}`);
+  revalidatePath(`/admin/clinics/${clinicId}`);
+  revalidatePath("/fortschritt");
+}
+
+// ---------------------------------------------------------------
+// Asset-Liefer-Checkliste — EINS confirms delivered items ('geprueft').
+// The clinic side only ever sets 'geliefert'/'entfaellt'; this is the second
+// stage. Runs on the superuser connection (cross-tenant by design).
+// ---------------------------------------------------------------
+
+const VerifyChecklistSchema = z.object({
+  clinicId: z.string().uuid(),
+  itemId: z.string().min(1).max(8),
+  verified: z.enum(["1", "0"]),
+});
+
+export async function setChecklistItemVerifiedAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const parsed = VerifyChecklistSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) {
+    throw new Error("validation failed: " + parsed.error.issues[0]?.message);
+  }
+  const { clinicId, itemId } = parsed.data;
+  const verified = parsed.data.verified === "1";
+
+  const [before] = await db
+    .select()
+    .from(schema.checklistItems)
+    .where(
+      and(
+        eq(schema.checklistItems.clinicId, clinicId),
+        eq(schema.checklistItems.itemId, itemId)
+      )
+    )
+    .limit(1);
+  if (!before) throw new Error("checklist_item_not_found");
+
+  // Only a delivered item can be confirmed (or a re-confirm of an already
+  // verified one). Don't let EINS "verify" something the clinic hasn't sent.
+  if (
+    verified &&
+    before.status !== "geliefert" &&
+    before.status !== "geprueft"
+  ) {
+    throw new Error("checklist_item_not_delivered");
+  }
+
+  await db
+    .update(schema.checklistItems)
+    .set(
+      verified
+        ? {
+            status: "geprueft",
+            verifiedAt: new Date(),
+            verifiedBy: admin.email,
+            updatedAt: new Date(),
+          }
+        : {
+            status: "geliefert",
+            verifiedAt: null,
+            verifiedBy: null,
+            updatedAt: new Date(),
+          }
+    )
+    .where(eq(schema.checklistItems.id, before.id));
+
+  await writeAudit({
+    clinicId,
+    actorEmail: admin.email,
+    action: verified ? "approve" : "reject",
+    entityKind: "checklist_item",
+    diff: { itemId, verified },
+  });
+
+  revalidatePath(`/admin/clinics/${clinicId}`);
+  revalidatePath("/onboarding/checkliste");
 }
 
 export async function unarchiveClinicAction(formData: FormData) {

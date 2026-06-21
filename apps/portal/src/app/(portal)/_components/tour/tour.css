@@ -1,0 +1,166 @@
+/*
+ * EINS styling for the driver.js tour popover. Scoped to `.eins-tour-popover`
+ * (set via the driver `popoverClass`). Uses the portal's CSS variables so the
+ * card follows light/dark mode automatically.
+ *
+ * Brand note: the primary action is a *dark* button (fg-on-bg), matching the
+ * portal's own primary buttons and the active nav pill. We deliberately do NOT
+ * fill the button with --accent (mint), because white-on-mint reads as low
+ * contrast. Mint stays for borders and accents.
+ */
+
+.driver-popover.eins-tour-popover {
+  background-color: var(--bg-primary);
+  color: var(--fg-primary);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  box-shadow: 0 12px 32px rgba(16, 16, 26, 0.18);
+  /* Clamp to the viewport so the card never overflows a narrow phone
+     (e.g. 320px), where a flat 22rem would spill off-screen. */
+  max-width: min(22rem, calc(100vw - 1.5rem));
+  padding: 1.25rem 1.25rem 1rem;
+}
+
+/* driver.css hard-codes a Helvetica/Inter stack on `.driver-popover *`, and
+   uses the `font:` shorthand on the title/description/footer buttons (which
+   resets font-family to bare `sans-serif`). Re-assert the portal's brand font
+   (NeueHaas Display, exposed as --font-display on <html>) with higher
+   specificity so the tour card matches the rest of the portal instead of
+   rendering in a system sans. */
+.driver-popover.eins-tour-popover,
+.driver-popover.eins-tour-popover * {
+  font-family: var(--font-display), system-ui, sans-serif;
+}
+
+.eins-tour-progress {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--fg-secondary);
+  margin-bottom: 0.5rem;
+}
+
+/* First-login prompt card: gentle slide-up entrance. Honors reduced-motion. */
+.eins-tour-prompt {
+  animation: eins-tour-prompt-in 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes eins-tour-prompt-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eins-tour-prompt {
+    animation: none;
+  }
+}
+
+/* Centered welcome / finish card: overlay fades in, card lifts + scales in. */
+.eins-tour-centered-overlay {
+  animation: eins-tour-overlay-in 0.2s ease-out;
+}
+.eins-tour-centered-card {
+  animation: eins-tour-card-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes eins-tour-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes eins-tour-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .eins-tour-centered-overlay,
+  .eins-tour-centered-card {
+    animation: none;
+  }
+}
+
+.driver-popover.eins-tour-popover .driver-popover-title {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--fg-primary);
+}
+
+.driver-popover.eins-tour-popover .driver-popover-description {
+  margin-top: 0.375rem;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: var(--fg-secondary);
+}
+
+.driver-popover.eins-tour-popover .driver-popover-close-btn {
+  color: var(--fg-tertiary);
+  transition: color 0.15s ease;
+}
+.driver-popover.eins-tour-popover .driver-popover-close-btn:hover {
+  color: var(--fg-primary);
+}
+
+.driver-popover.eins-tour-popover .driver-popover-footer {
+  margin-top: 1rem;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.driver-popover.eins-tour-popover .driver-popover-footer button {
+  text-shadow: none;
+  border-radius: 0.625rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 0.5rem 1rem;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease,
+    filter 0.15s ease;
+}
+
+.driver-popover.eins-tour-popover .driver-popover-next-btn {
+  background: var(--fg-primary);
+  color: var(--bg-primary);
+  border: 1px solid var(--fg-primary);
+}
+.driver-popover.eins-tour-popover .driver-popover-next-btn:hover {
+  filter: brightness(1.12);
+}
+
+.driver-popover.eins-tour-popover .driver-popover-prev-btn {
+  background: transparent;
+  color: var(--fg-secondary);
+  border: 1px solid var(--border);
+}
+.driver-popover.eins-tour-popover .driver-popover-prev-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--fg-primary);
+}
+
+/* Recolor the arrow to match the card surface (driver defaults it to white,
+   which breaks in dark mode and against our bordered card). */
+.driver-popover.eins-tour-popover .driver-popover-arrow.driver-popover-arrow-side-top {
+  border-top-color: var(--bg-primary);
+}
+.driver-popover.eins-tour-popover .driver-popover-arrow.driver-popover-arrow-side-bottom {
+  border-bottom-color: var(--bg-primary);
+}
+.driver-popover.eins-tour-popover .driver-popover-arrow.driver-popover-arrow-side-left {
+  border-left-color: var(--bg-primary);
+}
+.driver-popover.eins-tour-popover .driver-popover-arrow.driver-popover-arrow-side-right {
+  border-right-color: var(--bg-primary);
+}

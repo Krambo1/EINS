@@ -167,8 +167,8 @@ async function sendOne(row: {
   //   1. add reviewVisitDate to review_email_schedule (persist
   //      patient_event.appointmentCompletedAt) — easy win
   //   2. add specialty / locationLabel columns on clinics — config UI
-  //   3. extend the PMS Make webhook to carry practitionerName onto the
-  //      patient_event and onto review_email_schedule
+  //   3. extend the PVS canonical event to carry practitionerName onto
+  //      review_email_schedule
   const rendered = renderReviewRequestEmail({
     clinicName: row.clinicDisplayName,
     patientName: row.reviewPatientName,

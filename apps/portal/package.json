@@ -23,6 +23,7 @@
     "admin:create": "tsx src/scripts/create-admin.ts",
     "setup:intake": "tsx src/scripts/setup-intake.ts",
     "pdf:leitfaden": "tsx scripts/generate-leitfaden-pdf.ts",
+    "pdf:checkliste": "tsx scripts/generate-checkliste-pdf.ts",
     "pvs:reconcile": "tsx scripts/pvs-reconcile.ts",
     "pvs:seed-staging": "tsx scripts/pvs-seed-staging.ts"
   },
@@ -53,6 +54,7 @@
     "cmdk": "^1.0.4",
     "csv-parse": "^5.6.0",
     "date-fns": "^4.1.0",
+    "driver.js": "^1.4.0",
     "drizzle-orm": "^0.36.4",
     "jose": "^5.9.6",
     "lucide-react": "^0.456.0",

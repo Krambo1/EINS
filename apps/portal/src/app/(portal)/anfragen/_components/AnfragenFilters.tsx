@@ -161,6 +161,7 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
 
   return (
     <div
+      data-tour="anfragen-filters"
       className={cn("transition-opacity", isPending && "opacity-70")}
       aria-busy={isPending}
     >
@@ -259,6 +260,7 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
           icon={Sparkles}
           label="KI-Bewertung"
           activeCount={countSet("aiCategory")}
+          dataTour="anfragen-ki"
         >
           {AI_CATEGORIES.map((c) => {
             const Icon = c === "hot" ? Flame : c === "warm" ? Sun : Snowflake;
@@ -332,6 +334,7 @@ function FilterDropdown({
   activeCount = 0,
   summaryText,
   active,
+  dataTour,
   children,
 }: {
   icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
@@ -342,6 +345,8 @@ function FilterDropdown({
   summaryText?: string;
   /** Force the active/highlighted trigger style (sort uses this; multi derives it). */
   active?: boolean;
+  /** Optional `data-tour` anchor on the trigger pill (product-tour spotlight). */
+  dataTour?: string;
   children: React.ReactNode;
 }) {
   const isActive = active ?? activeCount > 0;
@@ -356,6 +361,7 @@ function FilterDropdown({
         Trigger directly instead.
       */}
       <DropdownMenuTrigger
+        data-tour={dataTour}
         className={cn(
           "inline-flex h-10 items-center gap-1.5 rounded-full border px-3.5 text-sm font-medium transition-colors",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",

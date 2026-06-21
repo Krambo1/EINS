@@ -114,7 +114,10 @@ async function DashboardGreeting() {
   const now = new Date();
   const greeting = germanGreeting(now);
   return (
-    <div className="flex flex-wrap items-end justify-between gap-4">
+    <div
+      data-tour="dashboard-header"
+      className="flex flex-wrap items-end justify-between gap-4"
+    >
       <div>
         <p className="text-sm text-fg-secondary">{greeting},</p>
         <h1 className="text-3xl font-semibold md:text-4xl">

@@ -42,6 +42,7 @@ const GlobalSearchDialog = dynamic(
 );
 import { UserMenu } from "./UserMenu";
 import { SidebarContactCard } from "./SidebarContactCard";
+import { TourNavCard } from "./tour/TourNavCard";
 import { ThemeToggle } from "@/app/_components/ThemeToggle";
 import { EinsLogo } from "@/app/_components/EinsLogo";
 
@@ -517,6 +518,9 @@ export function PortalShell({
                   onToggle={toggleContactCard}
                 />
               )}
+              {/* Tour re-entry card sits directly above the help group
+                  (Häufige Fragen / Feedback), below everything else. */}
+              {isBottom && <TourNavCard />}
             <div className="flex flex-col gap-0.5">
               <h3 className="px-3 pb-1 text-[0.7rem] font-medium text-fg-tertiary">
                 {group.label}
@@ -704,6 +708,7 @@ export function PortalShell({
                       onToggle={toggleContactCard}
                     />
                   )}
+                  {isBottom && <TourNavCard />}
                 <div className="flex flex-col gap-0.5">
                   <h3 className="px-3 pb-1 text-[0.7rem] font-medium text-fg-tertiary">
                     {group.label}

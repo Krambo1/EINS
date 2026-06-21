@@ -29,6 +29,15 @@ const DEMO_PASSWORD = "DemoPasswort123!";
  */
 const DEMO_CLINIC_ID = "c7d88b71-72da-4920-b939-5158b13d3449";
 
+/**
+ * Second demo clinic: a freshly onboarded Praxis on day one. Empty dashboard /
+ * Anfragen (nothing has happened yet) but a populated Fortschritt tab showing
+ * the default, forward-looking step journey copied from `timeline_default_steps`
+ * (relative phases, no dates). Demonstrates exactly what a new client sees the
+ * moment they log in. Fixed UUID so re-seeds and admin impersonation are stable.
+ */
+const DEMO_NEW_CLINIC_ID = "d1e2f3a4-b5c6-4d7e-8f90-1a2b3c4d5e6f";
+
 type ClientSql = ReturnType<typeof postgres>;
 
 // ----- Helpers -----
@@ -714,6 +723,48 @@ async function main() {
     console.log(
       `  Leitfaden:   ${leitfadenPdf.byteLength.toLocaleString("de-DE")} Bytes PDF → ${leitfadenKey} (Dokumente)`
     );
+
+    // ---------------------------------------------------------------
+    // Second demo clinic: a brand-new onboarded Praxis (day one). Minimal on
+    // purpose — one inhaber account, no Anfragen/KPIs (an empty clinic is the
+    // realistic day-one state) — but a populated Fortschritt tab seeded from the
+    // default-journey template. This is the "what a new client sees" preview.
+    // ---------------------------------------------------------------
+    const newClinicId = DEMO_NEW_CLINIC_ID;
+    const newInhaberId = randomUUID();
+    await sql`
+      INSERT INTO clinics (id, legal_name, display_name, slug, default_doctor_email, hwg_contact_name, hwg_contact_email)
+      VALUES (
+        ${newClinicId},
+        'Praxis Dr. Neu GmbH',
+        'Praxis Dr. Neu',
+        'praxis-neu',
+        'dr.neu@example.com',
+        'Dr. Nadine Neu',
+        'hwg@praxis-neu.de'
+      )
+    `;
+    await sql`
+      INSERT INTO clinic_users (id, clinic_id, email, full_name, role, password_hash, password_set_at, last_login_at)
+      VALUES
+        (${newInhaberId}, ${newClinicId}, 'inhaber@praxis-neu.de', 'Dr. Nadine Neu', 'inhaber', ${demoHash}, now(), NULL)
+    `;
+    // Copy the default journey from the central template → this clinic's
+    // Fortschritt feed. event_date stays NULL (relative phases); status comes
+    // from the template's default_status (step 1 "laeuft", rest "geplant").
+    // This is the same copy the auto-seed / admin button will perform.
+    await sql`
+      INSERT INTO clinic_timeline_entries (
+        clinic_id, title, description, phase_label, sort_order, status, created_by_email
+      )
+      SELECT ${newClinicId}, title, description, phase_label, sort_order, default_status, 'team@eins.ag'
+      FROM timeline_default_steps
+      WHERE is_active = true
+      ORDER BY sort_order
+    `;
+    console.log(`✓ seeded clinic ${newClinicId} (Praxis Dr. Neu — Tag 1)`);
+    console.log(`  inhaber:    inhaber@praxis-neu.de`);
+    console.log(`  Fortschritt: Standard-Journey (10 Schritte, relative Phasen)`);
   } finally {
     await sql.end();
   }

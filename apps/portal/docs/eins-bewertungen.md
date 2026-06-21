@@ -1,12 +1,13 @@
 # EINS Bewertungen — internal compliance + architecture note
 
-Last updated: 2026-05-16.
+Last updated: 2026-06-19.
 
 ## What it is
 
-A post-visit patient-review program. After every appointment, Make.com pushes
-an "appointment completed" webhook to the portal. Three days later (per clinic
-setting) we email the patient with five star buttons. Clicking lands on a
+A post-visit patient-review program. When the PVS bridge derives an
+"encounter completed" event for a patient, the portal schedules a review for
+that clinic. Three days later (per clinic setting) we email the patient with
+five star buttons. Clicking lands on a
 clinic-branded page that surfaces BOTH the public Google/Jameda review CTA and
 a private-feedback form. Public clicks flow toward Google/Jameda. Private text
 lands in `/bewertungen/feedback` as a triage inbox for the Praxis — and so do
@@ -47,8 +48,9 @@ from the DOM. Patients self-select. That's what the BGH and Google want.
      Dienstleistungen" ✓ (asking about the experience of *this clinic*).
   3. Patient did not object ✓ (we check `email_suppression`).
   4. We informed at intake that they can object at any time → **Praxis
-     attests this in the Make scenario** via `reviewConsent: true`. Without
-     it the portal rejects the event.
+     attests this once during onboarding** via the per-clinic
+     `clinics.review_consent_attested` flag (signed checklist in `documents`).
+     The pvs-status-derive worker only schedules a review when this is true.
 - **DSGVO Art. 6 (1)(f)** — legitimate interest. Balancing test: the patient
   loses nothing (no third-party tracking, no resale), the Praxis gains
   diagnostic feedback. Documentation of attestation lives in
@@ -62,52 +64,39 @@ from the DOM. Patients self-select. That's what the BGH and Google want.
 | Layer | Files |
 |---|---|
 | Schema | `src/db/schema.ts` (clinic columns, requestRecalls extensions, patient_feedback, email_suppression), `src/db/migrations/0013_eins_stimme.sql`, `src/db/migrations/0015_feedback_public_redirect.sql` (adds `patient_feedback.source` + `public_platform`) |
-| Inbound (PMS → portal) | `src/app/api/patients/events/route.ts`, `src/server/patient-events.ts`, `src/server/clinic-signature.ts` (HMAC shared with /api/leads/intake) |
+| Trigger (PVS → review) | `src/worker/processors/pvs-status-derive.ts` (`maybeScheduleReviewForCompletedEncounter`), `src/server/patient-events.ts` (`scheduleReviewRequest`) |
 | Scheduler | `src/lib/queues.ts` (`reviewRequestTick`), `src/worker/schedules.ts` (15-min pg-boss schedule), `src/worker/processors/review-request.ts` |
 | Outbound mail | `src/server/email/templates/review-request.ts`, `src/server/email/templates/feedback-alert.ts` |
 | Patient-facing | `apps/clinic-landing/app/r/[token]/page.tsx` (compliant funnel), `feedback-form.tsx`, `go/route.ts` (public click redirect), `feedback/route.ts` (form proxy), `apps/clinic-landing/app/r/unsubscribe/page.tsx` |
 | Token APIs | `src/app/api/review-tokens/[token]/{route,click,feedback,unsubscribe}.ts`, `src/server/review-tokens.ts` |
 | Portal UI | `src/app/(portal)/einstellungen/{page,actions}.ts` (Bewertungen & Reputation), `src/app/(portal)/bewertungen/feedback/*` (inbox) |
 
-## Make.com scenario shape
+## How a review gets scheduled
 
-Per-clinic. Trigger = PMS appointment marked `completed`. HTTP module:
+Per-clinic, no external automation. The PVS bridge syncs encounters into the
+portal; the `pvs-status-derive` worker derives "encounter completed" and calls
+`maybeScheduleReviewForCompletedEncounter`, which:
 
-```
-POST {APP_ORIGIN}/api/patients/events
-Headers:
-  Content-Type: application/json
-  X-EINS-Signature: sha256={hmac-sha256(body, clinic-secret)}
-Body:
-  {
-    "clinicId":           "<uuid>",
-    "eventKind":          "appointment_completed",
-    "patient": {
-      "email":            "<patient mail>",
-      "fullName":         "<optional>",
-      "phone":            "<optional>",
-      "externalId":       "<PMS patient id, optional>"
-    },
-    "appointmentCompletedAt": "2026-05-12T14:30:00Z",
-    "locationId":         null,
-    "treatmentLabel":     "<optional>",
-    "reviewConsent":      true
-  }
-```
+  1. gates on `clinics.review_request_enabled` + `clinics.review_consent_attested`,
+  2. resolves the patient email from the EINS lead linkage (PVS events are
+     pseudonymized and carry no address), and
+  3. hands off to `scheduleReviewRequest` with the PVS appointment id as the
+     per-appointment idempotency key.
 
-`reviewConsent` is a hard precondition. The Praxis attests once during
-onboarding (signed checklist in `documents`) that every patient is informed
-at intake; the Make scenario hard-codes `true` on that basis. Without it the
-portal returns `400 {code: "consent_missing"}`.
+For a PVS we do not support natively, the clinic imports the n8n template
+(`/einstellungen/integrationen/setup/n8n`) which POSTs canonical events to
+`/api/pvs/events`, signed with the per-clinic `pvs` HMAC secret. Same derive
+path from there on.
 
-The same secret is reused for `/api/leads/intake` — one `intake` row per
-clinic in `platform_credentials`. Rotating in the portal UI rotates BOTH
-flows.
+The legacy Make.com inbound webhook (`POST /api/patients/events`) was removed
+once the PVS bridge became the sole review trigger. The per-clinic `intake`
+HMAC secret it shared with `/api/leads/intake` lives on for clinic-landing
+lead-form submissions; rotating it in the portal UI affects only that flow now.
 
 ## Token lifecycle
 
-1. `applyPatientEvent` generates `crypto.randomBytes(32).toString("hex")` and
-   stores it in `request_recalls.review_token`.
+1. `scheduleReviewRequest` generates `crypto.randomBytes(32).toString("hex")` and
+   stores it in `review_email_schedule.review_token`.
 2. Patient mail embeds `/r/<token>?rating=N`.
 3. Clinic-landing resolves token via portal GET, records click target, then
    either redirects to Google/Jameda (via `/r/<token>/go`) or stays for the
@@ -126,10 +115,12 @@ flows.
 
 ## Anti-spam
 
-- Per-patient: `applyPatientEvent` refuses to schedule a second
+- Per-patient: `scheduleReviewRequest` refuses to schedule a second
   `review_request` for the same patient within 90 days. Matches §7 UWG
   ("wiederholt nicht zumutbar").
-- Per-clinic rate-limit on the Make webhook: 240/10min.
+- Per-appointment: `scheduleReviewRequest` dedupes on `pvs_appointment_id`
+  (pre-check + the 0058 unique index) so a re-derived encounter never
+  schedules a second email.
 - Per-IP rate-limit on all `/api/review-tokens/*` endpoints (60/min GET,
   30/min click, 10/min feedback, 20/10min unsubscribe).
 
@@ -139,46 +130,42 @@ flows.
   mentions it as a future channel.
 - Auto-pull of Google/Jameda aggregates into `reviews` snapshot — uses the
   existing GBP sync job slot in cron once OAuth is wired.
-- Per-PMS Make scenario templates (Doctolib, Charly, ivoris, Z1, Dampsoft) —
-  operations team handles per-clinic onboarding from a template Workbook.
+- Per-PMS onboarding coverage (Doctolib, Charly, ivoris, Z1, Dampsoft) is
+  handled by the PVS bridge adapters + the n8n template, not by this program.
 - Marketing copy on eins.de announcing the product — separate copywriting task.
 
 ## Manual smoke test
+
+The scheduling logic (consent/feature gating, anti-spam, per-appointment
+dedup) is covered by `src/server/patient-events.test.ts` and
+`src/worker/processors/pvs-review-schedule.test.ts` — run `pnpm test` for the
+fast path. To exercise the patient-facing funnel end-to-end:
 
 See `apps/portal/RUN.md` for the dev boot. After:
 
 ```bash
 # from apps/portal
-pnpm setup:intake _template       # ensures a clinic + secret exists
-pnpm db:migrate                   # plays 0013_eins_stimme.sql
+pnpm db:migrate                   # ensures 0058 is applied
 pnpm dev                          # in one shell
 pnpm worker                       # in another
 pnpm cron                         # in a third (or just run once; schedules persist)
 ```
 
 ```bash
-# Mint a payload + signature
-CLINIC=$(psql -tA "$DATABASE_URL" -c "SELECT id FROM clinics WHERE slug='_template';")
-SECRET=$(grep PORTAL_INTAKE_SECRET_TEMPLATE apps/clinic-landing/.env.local | cut -d= -f2)
-BODY=$(jq -nc \
-  --arg cid "$CLINIC" \
-  '{clinicId:$cid,
-    eventKind:"appointment_completed",
-    patient:{email:"smoke@eins.test", fullName:"Smoke Test"},
-    appointmentCompletedAt:"2026-05-12T10:00:00Z",
-    reviewConsent:true}')
-SIG="sha256=$(printf %s "$BODY" | openssl dgst -sha256 -hmac "$SECRET" | awk '{print $2}')"
-
-curl -i -X POST http://localhost:3001/api/patients/events \
-  -H "Content-Type: application/json" \
-  -H "X-EINS-Signature: $SIG" \
-  -d "$BODY"
-
-# Force the scheduled_for to today so the next worker tick picks it up.
-psql "$DATABASE_URL" -c "UPDATE request_recalls
-                           SET scheduled_for = CURRENT_DATE
-                         WHERE kind = 'review_request'
-                           AND status = 'pending';"
+# Insert a pending review row directly, scheduled for today so the next worker
+# tick mails it. (In prod this row is created by the pvs-status-derive worker
+# when the PVS bridge reports a completed encounter.)
+psql "$DATABASE_URL" -c "
+  INSERT INTO review_email_schedule
+    (clinic_id, patient_id, kind, status, scheduled_for, review_token,
+     review_token_expires_at, review_email, review_patient_name)
+  SELECT c.id, p.id, 'review_request', 'pending', CURRENT_DATE,
+         encode(gen_random_bytes(32),'hex'), now() + interval '90 days',
+         'smoke@eins.test', 'Smoke Test'
+  FROM clinics c
+  JOIN patients p ON p.clinic_id = c.id
+  WHERE c.slug = '_template'
+  LIMIT 1;"
 ```
 
 A console-driver mail will print to the worker log with five

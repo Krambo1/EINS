@@ -239,6 +239,7 @@ export async function DashboardTopMetricsEnhanced({
   return (
     <section
       aria-label="Kennzahlen"
+      data-tour="dashboard-metrics"
       className="grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-6"
     >
       <MetricTile
@@ -248,12 +249,12 @@ export async function DashboardTopMetricsEnhanced({
           <>
             <ExplainerPopover term="Anfragen">
               <p>
-                Alle ernsthaften Anfragen im gewählten Zeitraum — also alles,
+                Alle ernsthaften Anfragen im gewählten Zeitraum, also alles,
                 was nicht als Spam markiert wurde. Was im Portal landet, ist
-                durch das Landingpage-Formular bereits vorqualifiziert.
+                durch das Formular der Zielseite bereits vorqualifiziert.
               </p>
               <p className="mt-2">
-                Das Monatsziel pflegst du in den Einstellungen — der
+                Das Monatsziel pflegen Sie in den Einstellungen. Der
                 Fortschrittsbalken skaliert automatisch auf den gewählten
                 Zeitraum.
               </p>
@@ -324,7 +325,7 @@ export async function DashboardTopMetricsEnhanced({
                 Werbeausgabe kommen X € Umsatz zurück.
               </p>
               <p className="mt-2">
-                Das Monatsziel pflegst du in den Einstellungen — der
+                Das Monatsziel pflegen Sie in den Einstellungen. Der
                 Fortschrittsbalken skaliert automatisch auf den gewählten
                 Zeitraum.
               </p>
@@ -383,7 +384,7 @@ export async function DashboardTopMetricsEnhanced({
           <>
             <ExplainerPopover term="Offene Anfragen">
               <p>
-                Anfragen mit Status <strong>Neu</strong> — also alles, was noch
+                Anfragen mit Status <strong>Neu</strong>, also alles, was noch
                 nicht zu Termin, Gewonnen oder Verloren weitergezogen ist.
               </p>
               <p className="mt-2">

@@ -463,7 +463,7 @@ export function renderEmailLayout(input: EmailLayoutInput): string {
           .join("\n");
 
   const footerLine1 =
-    input.footerLines?.[0] ?? "[Firmenname] · [Straße Nr.] · [PLZ Ort]";
+    input.footerLines?.[0] ?? "EINS · Rösrather Straße 172 · 51107 Köln";
   const footerLine2 =
     input.footerLines?.[1] ??
     "Diese E-Mail wurde automatisch versendet. Bitte antworten Sie nicht direkt.";

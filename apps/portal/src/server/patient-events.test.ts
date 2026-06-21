@@ -1,29 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { PatientEventInput } from "./patient-events";
 
 /**
- * EINS Bewertungen — patient-events scheduler tests.
+ * EINS Bewertungen — review-request scheduler tests.
  *
- * Two surfaces are covered:
- *   1. applyPatientEvent (the Make.com webhook path) — proves the refactor that
- *      extracted scheduleReviewRequest left the public behaviour byte-for-byte
- *      identical: schedules, dedupes, and the consent/feature/email rejections.
- *   2. scheduleReviewRequest directly — the shared insert helper the PVS derive
- *      worker also calls, including the per-appointment idempotency guard that
- *      stops a re-derived encounter from scheduling a second email.
+ * Covers scheduleReviewRequest, the shared insert helper the PVS derive worker
+ * calls, including the per-appointment idempotency guard that stops a
+ * re-derived encounter from scheduling a second email.
  *
  * We stub @/db/client with a per-table __tag dispatch (mirrors
  * pvs-events.apply.test.ts) so the test is about the branching, not Postgres.
  */
 
 interface MockState {
-  clinic: {
-    id: string;
-    reviewRequestEnabled: boolean;
-    reviewRequestDelayDays: number;
-  } | null;
-  /** patients row returned by the upsert lookup (null = insert a new one). */
-  existingPatient: { id: string } | null;
   suppression: { id: string } | null;
   /** anti-spam: a recent review_email_schedule row (ordered query). */
   recentReview: { id: string } | null;
@@ -38,10 +26,6 @@ let state: MockState;
 
 function selectRowsFor(table: { __tag?: string }, ordered: boolean): unknown[] {
   switch (table.__tag) {
-    case "clinics":
-      return state.clinic ? [state.clinic] : [];
-    case "patients":
-      return state.existingPatient ? [state.existingPatient] : [];
     case "email_suppression":
       return state.suppression ? [state.suppression] : [];
     case "review_email_schedule":
@@ -105,12 +89,6 @@ vi.mock("@/db/client", () => ({
     update: (table: unknown) => buildUpdate(table as { __tag?: string }),
   },
   schema: {
-    clinics: {
-      __tag: "clinics",
-      id: {},
-      reviewRequestEnabled: {},
-      reviewRequestDelayDays: {},
-    },
     patients: {
       __tag: "patients",
       id: {},
@@ -131,17 +109,10 @@ vi.mock("@/db/client", () => ({
   },
 }));
 
-let applyPatientEvent: typeof import("./patient-events").applyPatientEvent;
 let scheduleReviewRequest: typeof import("./patient-events").scheduleReviewRequest;
 
 beforeEach(async () => {
   state = {
-    clinic: {
-      id: "11111111-2222-3333-4444-555555555555",
-      reviewRequestEnabled: true,
-      reviewRequestDelayDays: 3,
-    },
-    existingPatient: null,
     suppression: null,
     recentReview: null,
     apptDupe: null,
@@ -150,7 +121,6 @@ beforeEach(async () => {
   };
   vi.resetModules();
   const mod = await import("./patient-events");
-  applyPatientEvent = mod.applyPatientEvent;
   scheduleReviewRequest = mod.scheduleReviewRequest;
 });
 
@@ -158,84 +128,9 @@ afterEach(() => vi.restoreAllMocks());
 
 const CLINIC = "11111111-2222-3333-4444-555555555555";
 
-function completedEvent(
-  overrides: Partial<PatientEventInput> = {}
-): PatientEventInput {
-  return {
-    clinicId: CLINIC,
-    eventKind: "appointment_completed",
-    patient: { email: "Anna@Example.com ", fullName: "Anna Beispiel" },
-    appointmentCompletedAt: new Date("2026-05-20T10:00:00.000Z"),
-    treatmentLabel: "Hyaluron-Auffrischung",
-    reviewConsent: true,
-    ...overrides,
-  };
-}
-
 function reviewInserts() {
   return state.inserts.filter((i) => i.table === "review_email_schedule");
 }
-
-describe("applyPatientEvent — webhook path (refactor guard)", () => {
-  it("schedules a fresh review, normalizing the email and dating from completion + delay", async () => {
-    const res = await applyPatientEvent(completedEvent());
-    expect(res).toEqual({
-      ok: true,
-      status: "scheduled",
-      reviewRequestId: "rev-new",
-      scheduledFor: "2026-05-23", // 2026-05-20 + 3 delay days
-    });
-    const [row] = reviewInserts();
-    expect(row).toBeDefined();
-    expect(row!.values.reviewEmail).toBe("anna@example.com");
-    expect(row!.values.reviewTreatmentLabel).toBe("Hyaluron-Auffrischung");
-    // Webhook rows carry no PVS linkage.
-    expect(row!.values.pvsAppointmentId).toBeNull();
-    expect(row!.values.requestId).toBeNull();
-  });
-
-  it("rejects consent_missing when reviewConsent is false (no insert)", async () => {
-    const res = await applyPatientEvent(
-      completedEvent({ reviewConsent: false })
-    );
-    expect(res).toEqual({ ok: false, reason: "consent_missing" });
-    expect(reviewInserts()).toHaveLength(0);
-  });
-
-  it("returns feature_disabled when the clinic master switch is off (no insert)", async () => {
-    state.clinic!.reviewRequestEnabled = false;
-    const res = await applyPatientEvent(completedEvent());
-    expect(res).toEqual({ ok: true, status: "feature_disabled" });
-    expect(reviewInserts()).toHaveLength(0);
-  });
-
-  it("rejects clinic_not_found when the clinic does not exist", async () => {
-    state.clinic = null;
-    const res = await applyPatientEvent(completedEvent());
-    expect(res).toEqual({ ok: false, reason: "clinic_not_found" });
-  });
-
-  it("rejects email_missing for a blank address", async () => {
-    const res = await applyPatientEvent(
-      completedEvent({ patient: { email: "   " } })
-    );
-    expect(res).toEqual({ ok: false, reason: "email_missing" });
-  });
-
-  it("dedupes when the patient is on the suppression list (no insert)", async () => {
-    state.suppression = { id: "supp-1" };
-    const res = await applyPatientEvent(completedEvent());
-    expect(res).toEqual({ ok: true, status: "deduped" });
-    expect(reviewInserts()).toHaveLength(0);
-  });
-
-  it("dedupes within the 90-day anti-spam window (no insert)", async () => {
-    state.recentReview = { id: "rev-recent" };
-    const res = await applyPatientEvent(completedEvent());
-    expect(res).toEqual({ ok: true, status: "deduped" });
-    expect(reviewInserts()).toHaveLength(0);
-  });
-});
 
 describe("scheduleReviewRequest — PVS per-appointment idempotency", () => {
   const base = {
@@ -262,6 +157,35 @@ describe("scheduleReviewRequest — PVS per-appointment idempotency", () => {
     expect(row!.values.pvsAppointmentId).toBe("A1");
     expect(row!.values.pvsEncounterId).toBe("E1");
     expect(row!.values.requestId).toBe("req-1");
+  });
+
+  it("normalizes the email and dates from completion + delay", async () => {
+    const res = await scheduleReviewRequest({
+      ...base,
+      email: "Lead@Example.com ",
+      pvsAppointmentId: null,
+    });
+    expect(res).toEqual({
+      status: "scheduled",
+      reviewRequestId: "rev-new",
+      scheduledFor: "2026-05-23", // 2026-05-20 + 3 delay days
+    });
+    const [row] = reviewInserts();
+    expect(row!.values.reviewEmail).toBe("lead@example.com");
+  });
+
+  it("dedupes when the patient is on the suppression list (no insert)", async () => {
+    state.suppression = { id: "supp-1" };
+    const res = await scheduleReviewRequest(base);
+    expect(res).toEqual({ status: "deduped" });
+    expect(reviewInserts()).toHaveLength(0);
+  });
+
+  it("dedupes within the 90-day anti-spam window (no insert)", async () => {
+    state.recentReview = { id: "rev-recent" };
+    const res = await scheduleReviewRequest({ ...base, pvsAppointmentId: null });
+    expect(res).toEqual({ status: "deduped" });
+    expect(reviewInserts()).toHaveLength(0);
   });
 
   it("dedupes when a review already exists for the same PVS appointment (re-derive safe)", async () => {

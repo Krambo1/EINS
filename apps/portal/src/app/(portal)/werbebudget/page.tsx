@@ -35,6 +35,7 @@ import {
 import { AlertTriangle, Link as LinkIcon, Plug } from "lucide-react";
 import { DataTable } from "../dashboard/_components/detail-helpers";
 import { Brand } from "@/app/_components/Brand";
+import { ChapterLaunchLink } from "@/app/(portal)/_components/tour/ChapterLaunchLink";
 
 export const metadata = { title: "Werbebudget Live" };
 
@@ -63,6 +64,7 @@ export default async function WerbebudgetPage({
   const session = await requirePermissionOrRedirect("campaigns.live");
   const params = await searchParams;
   const days = Math.max(7, Math.min(90, Number(params.days ?? 30)));
+  const isInhaber = session.role === "inhaber";
 
   const [live, creds, detail] = await Promise.all([
     campaignLiveSummary(session.clinicId, session.userId, days),
@@ -89,13 +91,21 @@ export default async function WerbebudgetPage({
 
   return (
     <div className="space-y-10">
-      <header className="flex flex-wrap items-end justify-between gap-4">
+      <header
+        data-tour="werbebudget-header"
+        className="flex flex-wrap items-end justify-between gap-4"
+      >
         <div>
           <h1 className="text-3xl font-semibold md:text-4xl">Werbebudget Live.</h1>
           <p className="mt-2 text-base text-fg-primary md:text-lg">
             Was Sie investiert haben und was dabei herauskommt. Aktuelle Zahlen
             direkt aus Meta und Google.
           </p>
+          {isInhaber && (
+            <div className="mt-3">
+              <ChapterLaunchLink chapter="werbebudget" />
+            </div>
+          )}
         </div>
         <div
           role="tablist"
@@ -143,6 +153,7 @@ export default async function WerbebudgetPage({
           <StatStrip
             size="lg"
             title="Insgesamt"
+            dataTour="werbebudget-totals"
             stats={[
               {
                 label: "Budget",
@@ -198,7 +209,7 @@ export default async function WerbebudgetPage({
           )}
 
           {/* Per-platform cards */}
-          <section className="grid gap-6 md:grid-cols-2">
+          <section data-tour="werbebudget-platforms" className="grid gap-6 md:grid-cols-2">
             <PlatformCard
               platform="meta"
               data={live.find((l) => l.platform === "meta")}
@@ -282,7 +293,11 @@ export default async function WerbebudgetPage({
         </>
       )}
 
-      <Card className="print:break-inside-avoid" style={CARD_SURFACE}>
+      <Card
+        data-tour="werbebudget-method"
+        className="print:break-inside-avoid"
+        style={CARD_SURFACE}
+      >
         <CardHeader>
           <CardTitle className="!text-xl !font-medium md:!text-2xl">
             Hinweise zur Messung
@@ -355,14 +370,18 @@ function StatStrip({
   title,
   stats,
   size = "md",
+  dataTour,
 }: {
   title?: string;
   stats: StatItem[];
   size?: "md" | "lg";
+  /** Optional `data-tour` anchor for the product-tour spotlight. */
+  dataTour?: string;
 }) {
   const isHero = size === "lg";
   return (
     <section
+      data-tour={dataTour}
       className="rounded-2xl border border-border p-6 md:p-8 print:break-inside-avoid"
       style={CARD_SURFACE}
     >

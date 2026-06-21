@@ -682,10 +682,10 @@ export async function consumeReviewSyncFlash(): Promise<
 }
 
 /**
- * Rotate the per-clinic HMAC secret used by both /api/leads/intake and
- * /api/patients/events. Encrypts the new secret server-side; flashes the
- * plaintext to the redirected page via a short-lived cookie. The plaintext
- * is shown ONCE — admin must copy it to Make.com immediately.
+ * Rotate the per-clinic HMAC secret used by /api/leads/intake (clinic-landing
+ * lead forms). Encrypts the new secret server-side; flashes the plaintext to
+ * the redirected page via a short-lived cookie. The plaintext is shown ONCE,
+ * so it must be copied into the Zielseiten configuration immediately.
  */
 export async function rotateIntakeSecretAction() {
   const session = await requireSession();

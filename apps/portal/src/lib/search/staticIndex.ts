@@ -229,15 +229,6 @@ export const STATIC_INDEX: SearchEntry[] = [
     keywords: ["audit", "log", "aktionen", "history", "verlauf", "aenderungen"],
     permission: "audit.view",
   },
-  {
-    kind: "setting",
-    id: "setting-make",
-    title: "Make.com-Anbindung",
-    subtitle: "Einstellungen · Webhook · HMAC-Geheimnis",
-    href: "/einstellungen#bewertungen",
-    keywords: ["make", "webhook", "integration", "hmac", "secret", "geheimnis", "automation"],
-    permission: "settings.integrations",
-  },
 
   // ─── Leitfaden — section headings ──────────────────────────────────────
   {

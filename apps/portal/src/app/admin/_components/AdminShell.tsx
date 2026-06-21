@@ -14,6 +14,7 @@ import {
   Database,
   BadgeEuro,
   Rocket,
+  Route,
   Users,
   ScrollText,
   Menu,
@@ -64,6 +65,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/admin/revenue", label: "Umsatz", icon: BadgeEuro },
       { href: "/admin/onboarding", label: "Onboarding", icon: Rocket },
+      { href: "/admin/journey", label: "Standard-Journey", icon: Route },
     ],
   },
   {

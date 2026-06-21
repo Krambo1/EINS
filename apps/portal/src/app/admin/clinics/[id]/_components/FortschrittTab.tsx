@@ -20,6 +20,7 @@ import type { TimelineEntry } from "@/server/queries/timeline";
 import {
   createTimelineEntryAction,
   deleteTimelineEntryAction,
+  seedDefaultJourneyAction,
   updateTimelineEntryAction,
 } from "../actions";
 
@@ -54,6 +55,27 @@ export function FortschrittTab({
 }) {
   return (
     <div className="space-y-5">
+      {entries.length === 0 && (
+        <Card className={GLOW_CARD}>
+          <CardHeader>
+            <CardTitle>Standard-Journey einsetzen</CardTitle>
+            <CardDescription>
+              Diese Praxis hat noch keine Fortschritt-Einträge. Setzen Sie die
+              Standard-Journey ein: 10 Schritte vom Auftakt bis zum
+              90-Tage-Gespräch, mit relativen Phasen statt festen Daten. Der
+              Inhaber sieht damit sofort einen klaren Plan. Jeden Schritt können
+              Sie danach unten anpassen, ergänzen oder löschen.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form action={seedDefaultJourneyAction}>
+              <input type="hidden" name="clinicId" value={clinicId} />
+              <Button type="submit">Standard-Journey einsetzen</Button>
+            </form>
+          </CardContent>
+        </Card>
+      )}
+
       <Card className={GLOW_CARD}>
         <CardHeader>
           <CardTitle>Neuer Eintrag</CardTitle>
@@ -191,7 +213,9 @@ export function FortschrittTab({
                               name="eventDate"
                               type="date"
                               required
-                              defaultValue={toDateInputValue(e.eventDate)}
+                              defaultValue={
+                                e.eventDate ? toDateInputValue(e.eventDate) : ""
+                              }
                             />
                           </div>
 

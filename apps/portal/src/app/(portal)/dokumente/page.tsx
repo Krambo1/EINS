@@ -15,7 +15,8 @@ import {
   type DocumentKind,
   type Role,
 } from "@/lib/constants";
-import { FileText, Download, BookOpen } from "lucide-react";
+import { FileText, Download, BookOpen, ClipboardCheck } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
 export const metadata = { title: "Dokumente" };
 
@@ -23,16 +24,40 @@ type Search = { kind?: string };
 
 const KIND_KEYS = Object.keys(DOCUMENT_KIND_LABELS) as DocumentKind[];
 
-// Produkt-Dokumentation: dieselbe Anleitung für jede Praxis. Liegt als
-// statisches Asset unter public/ und wird mit jedem Deploy ausgeliefert, also
-// ohne Mandanten-Zeile in der DB. Im Standard-Tab ("Alle") oben angepinnt.
-const PORTAL_ANLEITUNG = {
-  title: "EINS Portal: Die komplette Anleitung",
-  description:
-    "Schritt für Schritt: So nutzen Sie alle Funktionen Ihres Portals. Zum Nachlesen und Herunterladen.",
-  href: "/anleitung/eins-portal-anleitung.pdf",
-  downloadName: "EINS Portal - Die komplette Anleitung.pdf",
-} as const;
+// Produkt-Dokumentation: für jede Praxis gleich. Liegt als statisches Asset
+// unter public/ und wird mit jedem Deploy ausgeliefert, also ohne Mandanten-
+// Zeile in der DB. Im Standard-Tab ("Alle") oben angepinnt. Beim Filtern auf
+// eine Dokumentenart ausgeblendet.
+const PINNED_DOCS: ReadonlyArray<{
+  key: string;
+  icon: LucideIcon;
+  badge: string;
+  title: string;
+  description: string;
+  href: string;
+  downloadName: string;
+}> = [
+  {
+    key: "anleitung",
+    icon: BookOpen,
+    badge: "Anleitung",
+    title: "EINS Portal: Die komplette Anleitung",
+    description:
+      "Schritt für Schritt: So nutzen Sie alle Funktionen Ihres Portals. Zum Nachlesen und Herunterladen.",
+    href: "/anleitung/eins-portal-anleitung.pdf",
+    downloadName: "EINS Portal - Die komplette Anleitung.pdf",
+  },
+  {
+    key: "checkliste",
+    icon: ClipboardCheck,
+    badge: "Checkliste",
+    title: "Asset-Liefer-Checkliste: Alles für den Start",
+    description:
+      "Alle Zugänge, Dateien und Angaben für Ihr Onboarding, mit Anleitung pro Punkt. Liefern können Sie alles direkt im Portal unter Erste Schritte.",
+    href: "/anleitung/eins-asset-checkliste.pdf",
+    downloadName: "EINS Asset-Liefer-Checkliste.pdf",
+  },
+];
 
 export default async function DokumentePage({
   searchParams,
@@ -64,10 +89,10 @@ export default async function DokumentePage({
     }))
   );
 
-  // Die Portal-Anleitung ist Produkt-Dokumentation, kein Vertrag: oben im
-  // Standard-Tab ("Alle") anpinnen, beim Filtern auf eine Dokumentenart
-  // ausblenden.
-  const showAnleitung = !kind;
+  // Die angepinnten Produkt-Dokumente (Anleitung, Checkliste) sind keine
+  // Verträge: oben im Standard-Tab ("Alle") anpinnen, beim Filtern auf eine
+  // Dokumentenart ausblenden.
+  const showPinned = !kind;
 
   return (
     <div className="space-y-8">
@@ -108,7 +133,7 @@ export default async function DokumentePage({
         ))}
       </nav>
 
-      {withUrls.length === 0 && !showAnleitung ? (
+      {withUrls.length === 0 && !showPinned ? (
         <EmptyState
           icon={<FileText className="h-8 w-8" />}
           title="Keine Dokumente vorhanden"
@@ -118,42 +143,49 @@ export default async function DokumentePage({
         <Card>
           <CardContent className="p-0">
             <ul className="divide-y divide-border">
-              {showAnleitung && (
-                <li className="flex flex-col gap-3 p-4 transition hover:bg-bg-secondary sm:flex-row sm:flex-wrap sm:items-center sm:justify-between md:p-5">
-                  <div className="min-w-0 sm:flex-1">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <BookOpen className="h-4 w-4 shrink-0 text-accent" />
-                      <span className="min-w-0 break-words text-base font-medium text-fg-primary md:text-lg">
-                        {PORTAL_ANLEITUNG.title}
-                      </span>
-                      <Badge tone="neutral" className="shrink-0">
-                        Anleitung
-                      </Badge>
-                    </div>
-                    <div className="mt-1 text-sm text-fg-secondary">
-                      {PORTAL_ANLEITUNG.description}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 gap-2">
-                    <a
-                      href={PORTAL_ANLEITUNG.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex-1 rounded-md border border-border px-3 py-2 text-center text-sm font-medium hover:bg-bg-secondary sm:flex-none"
+              {showPinned &&
+                PINNED_DOCS.map((d) => {
+                  const Icon = d.icon;
+                  return (
+                    <li
+                      key={d.key}
+                      className="flex flex-col gap-3 p-4 transition hover:bg-bg-secondary sm:flex-row sm:flex-wrap sm:items-center sm:justify-between md:p-5"
                     >
-                      Öffnen
-                    </a>
-                    <a
-                      href={PORTAL_ANLEITUNG.href}
-                      download={PORTAL_ANLEITUNG.downloadName}
-                      className="opa-btn-primary opa-focus-ring inline-flex flex-1 items-center justify-center gap-1 rounded-md px-3 py-2 text-sm font-medium sm:flex-none"
-                    >
-                      <Download className="h-4 w-4" />
-                      Herunterladen
-                    </a>
-                  </div>
-                </li>
-              )}
+                      <div className="min-w-0 sm:flex-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <Icon className="h-4 w-4 shrink-0 text-accent" />
+                          <span className="min-w-0 break-words text-base font-medium text-fg-primary md:text-lg">
+                            {d.title}
+                          </span>
+                          <Badge tone="neutral" className="shrink-0">
+                            {d.badge}
+                          </Badge>
+                        </div>
+                        <div className="mt-1 text-sm text-fg-secondary">
+                          {d.description}
+                        </div>
+                      </div>
+                      <div className="flex shrink-0 gap-2">
+                        <a
+                          href={d.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex-1 rounded-md border border-border px-3 py-2 text-center text-sm font-medium hover:bg-bg-secondary sm:flex-none"
+                        >
+                          Öffnen
+                        </a>
+                        <a
+                          href={d.href}
+                          download={d.downloadName}
+                          className="opa-btn-primary opa-focus-ring inline-flex flex-1 items-center justify-center gap-1 rounded-md px-3 py-2 text-sm font-medium sm:flex-none"
+                        >
+                          <Download className="h-4 w-4" />
+                          Herunterladen
+                        </a>
+                      </div>
+                    </li>
+                  );
+                })}
               {withUrls.map((d) => (
                 <li
                   key={d.id}
