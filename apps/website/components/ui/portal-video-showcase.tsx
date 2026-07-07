@@ -22,6 +22,9 @@ export function PortalVideoShowcase() {
   // Once true the <source>s mount and we never tear them down again — toggling
   // them would re-fetch the file on every scroll in/out.
   const [activated, setActivated] = useState(false);
+  // Mirror of `activated` readable synchronously inside the IntersectionObserver
+  // callback (which closes over the initial render's state).
+  const activatedRef = useRef(false);
   // Tracks native fullscreen so the video can switch object-cover → contain
   // (cover would crop the UI capture once the element fills the screen).
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -40,12 +43,13 @@ export function PortalVideoShowcase() {
     const io = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
+          // Mounting the <source> triggers the [activated] effect below, which
+          // owns loading + playing. We deliberately do NOT call play() here:
+          // on first render the source has not mounted yet, so a play() call in
+          // this tick would just reject against an empty element.
           setActivated(true);
-          if (!reducedMotion) {
-            videoRef.current?.play().catch(() => {
-              // Autoplay can be blocked; the poster stays as a graceful
-              // fallback and the loop simply does not start.
-            });
+          if (activatedRef.current && !reducedMotion) {
+            videoRef.current?.play().catch(() => {});
           }
         } else {
           videoRef.current?.pause();
@@ -61,15 +65,34 @@ export function PortalVideoShowcase() {
   // When the sources first mount, tell the element to (re)load them, then play.
   useEffect(() => {
     if (!activated) return;
+    activatedRef.current = true;
     const v = videoRef.current;
     if (!v) return;
     const reducedMotion = window.matchMedia(
       "(prefers-reduced-motion: reduce)",
     ).matches;
+    if (reducedMotion) return;
+
+    const tryPlay = () => {
+      v.play().catch(() => {
+        // Autoplay can still be blocked (e.g. a non-muted state); the poster
+        // stays as a graceful fallback and the loop simply does not start.
+      });
+    };
+
     v.load();
-    if (!reducedMotion) {
-      v.play().catch(() => {});
-    }
+    // Fire once now for the warm-cache path (data is already available), and
+    // again the moment the element has actually decoded a frame. On a first
+    // visit the file is fetched cold, so this initial play() races the network
+    // and no-ops; the canplay/loadeddata retry is what makes it autoplay for a
+    // new visitor instead of sitting on the poster.
+    tryPlay();
+    v.addEventListener("loadeddata", tryPlay);
+    v.addEventListener("canplay", tryPlay);
+    return () => {
+      v.removeEventListener("loadeddata", tryPlay);
+      v.removeEventListener("canplay", tryPlay);
+    };
   }, [activated]);
 
   // Keep isFullscreen in sync with the browser. iOS Safari never fires
