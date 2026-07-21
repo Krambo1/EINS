@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validatePortalUrl } from "./portal-url";
+import { validatePortalUrl, portalEndpoint } from "./portal-url";
 
 /**
  * P0-4 validator tests.
@@ -65,5 +65,54 @@ describe("validatePortalUrl", () => {
       true
     );
     expect(r.ok).toBe(false);
+  });
+});
+
+describe("validatePortalUrl - normalization (L23)", () => {
+  it("returns a normalized url with the trailing slash dropped", () => {
+    const r = validatePortalUrl("https://portal.eins.ag/", false);
+    if (!r.ok) throw new Error("unreachable");
+    expect(r.url).toBe("https://portal.eins.ag");
+    expect(r.warning).toBeUndefined();
+  });
+
+  it("preserves a path prefix and explicit port", () => {
+    const r = validatePortalUrl("https://staging.eins.ag:8443/api/", false);
+    if (!r.ok) throw new Error("unreachable");
+    expect(r.url).toBe("https://staging.eins.ag:8443/api");
+  });
+
+  it("strips a query string / fragment and surfaces a warning", () => {
+    const r = validatePortalUrl("https://portal.eins.ag/?tab=x#frag", false);
+    if (!r.ok) throw new Error("unreachable");
+    expect(r.url).toBe("https://portal.eins.ag");
+    expect(r.warning).toMatch(/query string or fragment/i);
+  });
+
+  it("normalizes the loopback dev URL too", () => {
+    const r = validatePortalUrl("http://localhost:3000/?x=1", true);
+    if (!r.ok) throw new Error("unreachable");
+    expect(r.url).toBe("http://localhost:3000");
+    expect(r.warning).toMatch(/query string or fragment/i);
+  });
+});
+
+describe("portalEndpoint (L23)", () => {
+  it("joins a root-absolute path with no double slash, trailing slash or not", () => {
+    expect(portalEndpoint("https://portal.eins.ag", "/api/pvs/events")).toBe(
+      "https://portal.eins.ag/api/pvs/events"
+    );
+    expect(portalEndpoint("https://portal.eins.ag/", "/api/pvs/events")).toBe(
+      "https://portal.eins.ag/api/pvs/events"
+    );
+  });
+
+  it("ignores a stray query/fragment on the base (absolute path resolves against origin)", () => {
+    expect(
+      portalEndpoint(
+        "https://portal.eins.ag/?x=1#y",
+        "/api/pvs/agent/heartbeat"
+      )
+    ).toBe("https://portal.eins.ag/api/pvs/agent/heartbeat");
   });
 });

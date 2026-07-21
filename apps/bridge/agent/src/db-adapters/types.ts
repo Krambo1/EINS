@@ -192,6 +192,18 @@ export interface StreamConfig {
    *  (a primary key is the natural choice). Streams without it keep the plain
    *  single-column behaviour, so existing configs are unaffected. */
   tiebreakColumn?: string;
+  /** How the tiebreak column's values compare, for keyset pagination
+   *  (review finding L11). Defaults to "integer": the tiebreak is bound and
+   *  compared NUMERICALLY (a surrogate integer primary key, the natural
+   *  choice). Set "string" when the tiebreak column is a UUID or other
+   *  non-numeric key so it is bound and compared LEXICALLY instead. With the
+   *  default integer mode, a non-numeric tiebreak value would collapse to NaN
+   *  and silently disable the keyset predicate; the framework detects that at
+   *  poll time and halts the stream loudly (config_invalid) rather than
+   *  degrade, so a UUID key must declare tiebreakType: string explicitly. When
+   *  "string", the query's `id > :cursorTiebreak` and `ORDER BY ... id` must
+   *  order the column lexically to match (a text/uuid column already does). */
+  tiebreakType?: "integer" | "string";
   /** Optional poll cadence override. Default per-vendor at the file level. */
   intervalSeconds?: number;
 }

@@ -217,6 +217,33 @@ async function DashboardTopMetricsLoader({
   const revenueGoal = goals.find((g) => g.metric === "revenue");
   const openRequests = statusCounts.neu ?? 0;
 
+  // Empty-window hint: the selected Anfragen window has zero leads, yet the
+  // Praxis has Anfragen all-time (statusCounts is clinic-wide, not windowed).
+  // That's the stale-window case a fresh boot hits ("Monat" empty because the
+  // newest data is older than 30 days). A brand-new Praxis (no Anfragen at all)
+  // is excluded so its day-one empty state is untouched, and we don't offer the
+  // link when already on "Max". The link widens all four top cards to Max.
+  const totalRequestsAllTime = Object.values(statusCounts).reduce(
+    (sum, n) => sum + n,
+    0
+  );
+  const showEmptyWindowHint =
+    leadsBreakdown.leads === 0 &&
+    totalRequestsAllTime > 0 &&
+    leadsRange !== "max";
+  let emptyWindowHint: { href: string } | undefined;
+  if (showEmptyWindowHint) {
+    const fullHistoryParams = new URLSearchParams();
+    for (const [key, val] of Object.entries(sp)) {
+      if (typeof val === "string") fullHistoryParams.set(key, val);
+    }
+    fullHistoryParams.set(DASHBOARD_RANGE_KEYS.leads, "max");
+    fullHistoryParams.set(DASHBOARD_RANGE_KEYS.revenue, "max");
+    fullHistoryParams.set(DASHBOARD_RANGE_KEYS.open, "max");
+    fullHistoryParams.set(DASHBOARD_RANGE_KEYS.sources, "max");
+    emptyWindowHint = { href: `/dashboard?${fullHistoryParams.toString()}` };
+  }
+
   return (
     <DashboardTopMetricsEnhanced
       clinicId={clinicId}
@@ -236,6 +263,7 @@ async function DashboardTopMetricsLoader({
       sourcesRange={sourcesRange}
       relationshipStartedAt={relationshipStartedAt}
       openLeads={openLeads}
+      emptyWindowHint={emptyWindowHint}
     />
   );
 }

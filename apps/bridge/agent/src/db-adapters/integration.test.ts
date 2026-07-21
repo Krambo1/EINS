@@ -245,42 +245,36 @@ describe("integration: pg-mem driven Tomedo poll", () => {
       password: "x",
     });
 
-    const first = await pollOnce({
-      clinicId: "c1",
-      vendor,
-      stream,
-      driver,
-      sink: () => void 0,
-    });
+    // Dedup sink mirroring the outbox UNIQUE(content_hash) index, so the H8
+    // overlap-window re-emits (a caught-up poll re-scans the last few minutes)
+    // are absorbed exactly as they are in production; the test then reasons
+    // about NET-NEW distinct events, not raw emit counts.
+    const seenIds = new Set<string>();
+    const sink = (e: CanonicalEventBase) =>
+      seenIds.add(`${e.pvsExternalEventId}|${e.occurredAt}`);
+
+    const first = await pollOnce({ clinicId: "c1", vendor, stream, driver, sink });
     expect(first.emitted).toBe(1);
+    expect(seenIds.size).toBe(1);
     const cursorAfterFirst = first.newCursor;
     expect(cursorAfterFirst).not.toBe("");
 
-    // Second poll with same data: cursor doesn't move, no events.
-    const second = await pollOnce({
-      clinicId: "c1",
-      vendor,
-      stream,
-      driver,
-      sink: () => void 0,
-    });
-    expect(second.emitted).toBe(0);
+    // Second poll with the same data: the overlap re-emits appt 777 but the
+    // dedup sink collapses it (no NET-NEW event), and the high-water mark does
+    // not regress.
+    const second = await pollOnce({ clinicId: "c1", vendor, stream, driver, sink });
+    expect(seenIds.size).toBe(1);
     expect(second.newCursor).toBe(cursorAfterFirst);
 
-    // Insert a newer appointment; third poll picks it up.
+    // Insert a newer appointment; third poll picks it up (plus a deduped
+    // re-emit of the in-window rows).
     memDb.public.none(`
       INSERT INTO termin (id, patient_id, termin_zeit, behandlung_code, behandlung_name, raum_id, raum_name, kommentar, status, modified_at)
       VALUES
         (778, 42, '2026-06-01 14:00:00', 'IGE-002', 'Botox Stirn', 1, 'Behandlungsraum A', 'Nachsorge', 'geplant', '2026-05-30 09:00:00');
     `);
-    const third = await pollOnce({
-      clinicId: "c1",
-      vendor,
-      stream,
-      driver,
-      sink: () => void 0,
-    });
-    expect(third.emitted).toBe(1);
+    const third = await pollOnce({ clinicId: "c1", vendor, stream, driver, sink });
+    expect(seenIds.size).toBe(2); // exactly one NET-NEW event (appt 778)
     expect(third.newCursor > cursorAfterFirst).toBe(true);
 
     await driver.close();
@@ -390,24 +384,38 @@ describe("integration: pg-mem driven Tomedo poll", () => {
       );
     }
 
+    // Dedup sink mirroring the outbox UNIQUE(content_hash) index: the mid-drain
+    // path uses the STRICT keyset (no overlap while a batch is full), so each
+    // row is fetched exactly once as the cluster pages forward; but the FINAL
+    // short batch flips the stream to "caught up", so the loop's stop-poll
+    // applies the H8 overlap and re-fetches the head of the window. That
+    // re-emit is deduped here exactly as in production. What this test proves is
+    // the finding-6 invariant: NO row is SKIPPED at a batch boundary.
     const seen: string[] = [];
-    // Drain until a poll emits nothing. 92 rows / batchSize 3 = 31 polls plus
-    // one empty poll to stop; the cap sits well above that purely as a
-    // livelock guard: a regression that re-reads the cluster without advancing
-    // the cursor would spin here instead of hanging the suite.
+    const seenKeys = new Set<string>();
+    // Drain until a poll produces no NET-NEW rows. 92 rows / batchSize 3 = 31
+    // draining polls plus a caught-up stop-poll; the cap sits well above that
+    // purely as a livelock guard.
     for (let i = 0; i < 64; i++) {
-      const out = await pollOnce({
+      let netNew = 0;
+      await pollOnce({
         clinicId: "c1",
         vendor: smallBatch,
         stream,
         driver,
-        sink: (e) => seen.push(String(e.pvsPatientId)),
+        sink: (e) => {
+          const key = `${e.pvsExternalEventId}|${e.occurredAt}`;
+          if (seenKeys.has(key)) return; // overlap re-emit, absorbed by dedup
+          seenKeys.add(key);
+          seen.push(String(e.pvsPatientId));
+          netNew++;
+        },
       });
-      if (out.emitted === 0) break;
+      if (netNew === 0) break;
     }
 
-    // Every patient emitted exactly once: no skip at the boundary (old bug),
-    // no duplicate from re-reading the cluster (>= over-correction).
+    // Every patient emitted exactly once after dedup: no skip at the boundary
+    // (the old bug), and the overlap re-reads never produce a NET duplicate.
     expect(seen.slice().sort()).toEqual(ids.map(String).sort());
     expect(new Set(seen).size).toBe(ids.length);
 
@@ -476,17 +484,27 @@ describe("integration: pg-mem driven Tomedo poll", () => {
     // The paid invoice 5001 must NOT leak into the refund stream.
     expect(refunds.some((e) => String(e.pvsInvoiceId) === "5001")).toBe(false);
 
-    // Cursor advanced past both storno rows: a second poll is empty.
+    // Cursor advanced past both storno rows. A second poll produces NO NET-NEW
+    // events: the H8 overlap re-scans and re-emits the two in-window refund
+    // rows, but every re-emitted tuple is byte-identical to one already seen
+    // (the outbox UNIQUE(content_hash) dedup collapses them in production), and
+    // the high-water mark does not move.
+    const beforeIds = new Set(
+      refunds.map((e) => `${e.pvsExternalEventId}|${e.occurredAt}`)
+    );
     const second = await pollOnce({
       clinicId: "c1",
       vendor,
       stream: refundStream,
       driver,
-      sink: () => {
-        throw new Error("second refund poll must emit nothing");
+      sink: (e) => {
+        const key = `${e.pvsExternalEventId}|${e.occurredAt}`;
+        if (!beforeIds.has(key)) {
+          throw new Error(`second refund poll emitted a NET-NEW event: ${key}`);
+        }
       },
     });
-    expect(second.emitted).toBe(0);
+    expect(second.newCursor).toBe(out.newCursor);
 
     await driver.close();
   });

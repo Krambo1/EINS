@@ -22,6 +22,11 @@ export interface MetricDeltaInput {
   tone: "good" | "warn" | "bad" | "neutral";
   /** Optional override for the suffix unit shown next to the number. Defaults to "%". */
   unit?: string;
+  /**
+   * When true the numeric change is not meaningful (e.g. the current period
+   * has no data) and the chip renders a neutral "–" instead of a figure.
+   */
+  suppressed?: boolean;
 }
 
 export interface MetricProgressInput {
@@ -503,7 +508,21 @@ export function MetricStatusBadge({
   );
 }
 
-function DeltaChip({ value, tone, unit = "%" }: MetricDeltaInput) {
+function DeltaChip({ value, tone, unit = "%", suppressed }: MetricDeltaInput) {
+  if (suppressed) {
+    return (
+      <span
+        className={cn(
+          "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium tabular-nums",
+          toneLabelChip.neutral
+        )}
+        title="Keine Daten im gewählten Zeitraum"
+      >
+        <Minus className="h-3 w-3" aria-hidden />
+        <span aria-hidden>–</span>
+      </span>
+    );
+  }
   const Icon = value > 0.05 ? ArrowUp : value < -0.05 ? ArrowDown : ArrowRight;
   const sign = value > 0 ? "+" : "";
   return (

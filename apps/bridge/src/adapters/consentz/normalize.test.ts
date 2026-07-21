@@ -40,6 +40,20 @@ describe("consentz normalizePatient", () => {
     expect(out.gender).toBe("f");
     expect(out.bemerkung).toBe("Followup needed");
   });
+
+  it("normalises a non-UTC updated_at into a canonical id + occurredAt (M-S5)", () => {
+    const input: ConsentzClient_Patient = {
+      id: "c-12",
+      first_name: "Lena",
+      last_name: "Hoffmann",
+      updated_at: "2026-05-21T10:00:00.000+01:00",
+    };
+    const out = normalizePatient(CLINIC, input);
+    expect(out.occurredAt).toBe("2026-05-21T09:00:00.000Z");
+    expect(out.pvsExternalEventId).toBe(
+      "consentz:patient:c-12:2026-05-21T09:00:00.000Z"
+    );
+  });
 });
 
 describe("consentz normalizeAppointment", () => {
@@ -135,8 +149,10 @@ describe("consentz normalizePayment", () => {
   it("converts amount to integer cents", () => {
     const out = normalizePayment(CLINIC, base);
     expect(out).not.toBeNull();
-    expect(out!.amountCents).toBe(35000);
-    expect(out!.pvsAppointmentId).toBe("appt-1");
+    expect(out!.kind).toBe("InvoicePaid");
+    if (!out || out.kind !== "InvoicePaid") return;
+    expect(out.amountCents).toBe(35000);
+    expect(out.pvsAppointmentId).toBe("appt-1");
   });
 
   it("accepts 'succeeded' and 'settled' status values", () => {
@@ -155,8 +171,51 @@ describe("consentz normalizePayment", () => {
 
   it("prefers amount_cents when both fields present", () => {
     const out = normalizePayment(CLINIC, { ...base, amount: 999, amount_cents: 12345 });
-    expect(out!.amountCents).toBe(12345);
+    expect(out!.kind).toBe("InvoicePaid");
+    if (!out || out.kind !== "InvoicePaid") return;
+    expect(out.amountCents).toBe(12345);
   });
+
+  // H1: negative payment amounts are refunds.
+  it("maps a negative amount to InvoiceRefunded with abs magnitude + distinct id", () => {
+    const out = normalizePayment(CLINIC, { ...base, amount: -350 });
+    expect(out!.kind).toBe("InvoiceRefunded");
+    if (!out || out.kind !== "InvoiceRefunded") return;
+    expect(out.refundedAmountCents).toBe(35000);
+    expect(out.pvsInvoiceId).toBe("pay-1");
+    expect(out.pvsExternalEventId).toBe("consentz:payment-refund:pay-1");
+    expect(out.pvsExternalEventId).not.toBe("consentz:payment:pay-1");
+  });
+
+  it("maps a negative amount_cents refund even when status is not paid", () => {
+    const out = normalizePayment(CLINIC, {
+      ...base,
+      amount: undefined,
+      amount_cents: -1200,
+      status: "refunded",
+      paid_at: null,
+    });
+    expect(out!.kind).toBe("InvoiceRefunded");
+    if (!out || out.kind !== "InvoiceRefunded") return;
+    expect(out.refundedAmountCents).toBe(1200);
+  });
+
+  // H3: last-separator-wins locale parsing.
+  it.each([
+    ["999", 99900],
+    ["1000", 100000],
+    ["1.234,50", 123450],
+    ["1,250.00", 125000],
+    ["1234,5", 123450],
+  ] as const)(
+    "parses string amount '%s' as %i cents (last-separator-wins)",
+    (amount, expected) => {
+      const out = normalizePayment(CLINIC, { ...base, amount: amount as unknown as string });
+      expect(out!.kind).toBe("InvoicePaid");
+      if (!out || out.kind !== "InvoicePaid") return;
+      expect(out.amountCents).toBe(expected);
+    }
+  );
 });
 
 describe("consentz normalizeRecall", () => {

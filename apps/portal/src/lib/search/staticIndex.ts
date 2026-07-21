@@ -77,6 +77,15 @@ export const STATIC_INDEX: SearchEntry[] = [
   },
   {
     kind: "nav",
+    id: "nav-dateien",
+    title: "Dateien an EINS",
+    subtitle: "Dokumente, Bilder und Videos an EINS senden",
+    href: "/dateien",
+    keywords: ["dateien", "hochladen", "upload", "senden", "video", "bilder", "dokumente", "files"],
+    permission: "uploads.send",
+  },
+  {
+    kind: "nav",
     id: "nav-leitfaden",
     title: "Leitfaden",
     subtitle: "Praxis-Playbook · Gesprächs-Skripte",

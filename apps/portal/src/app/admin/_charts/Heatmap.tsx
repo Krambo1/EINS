@@ -86,7 +86,7 @@ export function Heatmap({ rows, columnLabels, ceiling }: Props) {
             {columnLabels.map((c) => (
               <th
                 key={c}
-                className="px-2 py-1 text-center text-[10px] font-medium uppercase tracking-wider text-fg-secondary"
+                className="px-2 py-1 text-center text-[10px] font-medium uppercase tracking-wide text-fg-secondary"
               >
                 {c}
               </th>
@@ -122,7 +122,7 @@ export function Heatmap({ rows, columnLabels, ceiling }: Props) {
                 return (
                   <td
                     key={i}
-                    className="rounded-sm px-2 py-1 text-center font-mono text-[11px] tabular-nums transition-transform duration-100"
+                    className="rounded-sm px-2 py-1 text-center text-[11px] tabular-nums transition-transform duration-100"
                     style={{
                       background: color,
                       color: intensity > 0.55 ? "white" : "var(--fg-primary)",

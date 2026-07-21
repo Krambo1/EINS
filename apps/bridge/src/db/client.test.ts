@@ -121,3 +121,37 @@ describe("loadDueLinks SQL contract", () => {
     }
   });
 });
+
+describe("checkpointSync cursor contract (L24)", () => {
+  // The adapter contract is "null cursor = no advance". checkpointSync must
+  // NOT overwrite the stored cursor with NULL, or the next poll resets to the
+  // epoch and re-downloads all history (a real reset-to-epoch bug once the C5
+  // cursor round-trip lands). COALESCE keeps the existing value when the
+  // incoming cursor is null. Pin the source so a refactor can't drop it.
+  it("preserves the stored cursor via COALESCE on a null incoming cursor", () => {
+    const start = CLIENT_SOURCE.indexOf("export async function checkpointSync");
+    const next = CLIENT_SOURCE.indexOf("export async function", start + 1);
+    const body = CLIENT_SOURCE.slice(start, next === -1 ? undefined : next);
+    expect(body).toMatch(
+      /last_incremental_cursor\s*=\s*COALESCE\(\s*EXCLUDED\.last_incremental_cursor\s*,\s*pvs_sync_status\.last_incremental_cursor\s*\)/
+    );
+    // Guard against a regression back to the naive overwrite.
+    expect(body).not.toMatch(
+      /last_incremental_cursor\s*=\s*EXCLUDED\.last_incremental_cursor\s*,/
+    );
+  });
+});
+
+describe("INACTIVE_LINK_STATUSES", () => {
+  it("lists the disabled/errored/disconnected states, not pending/connected", async () => {
+    const { INACTIVE_LINK_STATUSES } = await import("./client.js");
+    expect(INACTIVE_LINK_STATUSES.has("unconfigured")).toBe(true);
+    expect(INACTIVE_LINK_STATUSES.has("error")).toBe(true);
+    expect(INACTIVE_LINK_STATUSES.has("disconnected")).toBe(true);
+    // pending/akkreditierung flow through (portal quarantines them, 0045);
+    // connected is the live state.
+    expect(INACTIVE_LINK_STATUSES.has("pending")).toBe(false);
+    expect(INACTIVE_LINK_STATUSES.has("akkreditierung")).toBe(false);
+    expect(INACTIVE_LINK_STATUSES.has("connected")).toBe(false);
+  });
+});

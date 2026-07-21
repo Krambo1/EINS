@@ -14,8 +14,6 @@ import {
   unarchiveClinicAction,
 } from "../actions";
 
-const GLOW_CARD = "!bg-bg-secondary";
-
 export function VerwaltungTab({
   clinic,
 }: {
@@ -24,7 +22,7 @@ export function VerwaltungTab({
   const isArchived = clinic.archivedAt !== null;
   return (
     <div className="space-y-5">
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardHeader>
           <CardTitle>Praxis-Status</CardTitle>
           <CardDescription>
@@ -56,7 +54,7 @@ export function VerwaltungTab({
         </CardContent>
       </Card>
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardHeader>
           <CardTitle>DSGVO</CardTitle>
           <CardDescription>

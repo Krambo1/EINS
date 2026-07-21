@@ -1,55 +1,53 @@
 import type { Treatment } from "@/lib/types";
 
 export const templateFiller: Treatment = {
-  slug: "filler-stadt",
+  slug: "hyaluron-stadt",
   clinicSlug: "_template",
   category: "filler",
   city: "[Stadt]",
 
-  h1: "Hyaluronsäure-Filler in [Stadt]",
+  h1: "Hyaluron-Behandlung in [Stadt]",
   subline:
-    "Volumen, Konturen und Hautqualität — durchgeführt von [Dr. med. Vorname Nachname]. Sichtbares Ergebnis ohne den Wunsch nach mehr.",
+    "Volumen, Konturen und Lippen, behutsam dosiert statt aufgespritzt. Ehrliche Einschätzung von [Dr. med. Vorname Nachname], ob ein Filler überhaupt das Richtige für Sie ist.",
 
   heroImage: {
     src: "/clinics/_template/hero-filler.svg",
-    alt: "Beratungssituation für Hyaluronsäure-Behandlung",
+    alt: "Beratungssituation für eine Hyaluron-Behandlung",
   },
 
-  trustMicrocopy: "Behandlung mit zertifizierten Präparaten · Persönliches Aufklärungsgespräch",
+  trustMicrocopy: "Zertifizierte Präparate · Ehrliche Beratung, auch mal ein Abraten",
 
   problem: {
     paragraphs: [
-      "Sie merken, dass das Gesicht im Wangenbereich oder rund um den Mund schmaler geworden ist, oder dass eine Lippenkontur unruhig wirkt. Sie möchten dies behutsam korrigieren — ohne dass das Ergebnis aufgesetzt aussieht.",
-      "Sie wünschen sich eine ehrliche Einschätzung dazu, ob ein Filler überhaupt das richtige Mittel ist, oder ob Hautqualität und Mimik im Vordergrund stehen.",
+      "Das Gesicht wirkt im Wangenbereich oder um den Mund schmaler als früher, oder die Lippenkontur ist unruhiger geworden. Sie möchten das behutsam korrigieren.",
+      "Ihre größte Sorge dabei: ein aufgespritztes, künstliches Ergebnis. Sie wünschen sich eine Ärztin, die ehrlich sagt, was sinnvoll ist, und was man besser lässt.",
     ],
   },
 
   explainer: {
     indication:
-      "Hyaluronsäure-Filler eignen sich u.a. für die Konturierung von Wangen und Kinn, dezente Modellierung der Lippen und die Behandlung von Nasolabialfalten oder Marionettenlinien. Die Indikation prüfen wir individuell.",
+      "Hyaluronsäure-Filler eignen sich für die Konturierung von Wangen und Kinn, die dezente Modellierung der Lippen und die Behandlung von Nasolabialfalten oder Marionettenlinien. Ob ein Filler für Ihr Anliegen die richtige Wahl ist, prüfen wir gemeinsam.",
     process:
-      "Nach gründlicher Beratung wird das jeweils passende Präparat mit feinen Nadeln oder Kanülen in die zu behandelnden Bereiche eingebracht. Die Behandlung dauert je nach Region 20–45 Minuten.",
+      "Nach gründlicher Beratung wird das passende Präparat mit feinen Nadeln oder stumpfen Kanülen in die zu behandelnden Bereiche eingebracht. Je nach Region dauert die Behandlung 20 bis 45 Minuten.",
     recovery:
-      "Direkt nach der Behandlung sind kleine Schwellungen oder Druckempfindlichkeit möglich, die sich meist innerhalb weniger Tage zurückbilden. Sport und Sauna sollten 24–48 Stunden vermieden werden.",
+      "Direkt danach sind kleine Schwellungen oder Druckempfindlichkeit möglich; beides bildet sich meist innerhalb weniger Tage zurück. Sport und Sauna sollten 24 bis 48 Stunden pausieren.",
     duration:
-      "Je nach Präparat und Behandlungsareal hält das Ergebnis etwa 9–18 Monate. Der Körper baut Hyaluronsäure langsam und natürlich ab.",
+      "Je nach Präparat und Behandlungsbereich hält das Ergebnis etwa 9 bis 18 Monate. Der Körper baut Hyaluronsäure langsam und gleichmäßig ab.",
     sideEffects:
-      "Häufige Nebenwirkungen: Schwellungen, Hämatome, Druckempfindlichkeit. Selten: Knötchenbildung, Asymmetrien, Gefäßereignisse. Letztere werden im Aufklärungsgespräch detailliert erklärt.",
+      "Häufig: Schwellungen, Hämatome, Druckempfindlichkeit. Selten: Knötchenbildung, Asymmetrien, Gefäßereignisse. Die seltenen Komplikationen werden im Aufklärungsgespräch ausführlich erklärt.",
     riskNotice:
-      "Pflichtangabe HWG: Eine Filler-Behandlung ist ein medizinischer Eingriff. Mögliche Nebenwirkungen und Risiken — einschließlich seltener Komplikationen — werden im persönlichen Aufklärungsgespräch detailliert mit Ihnen besprochen.",
+      "Pflichtangabe HWG: Eine Filler-Behandlung ist ein medizinischer Eingriff. Mögliche Nebenwirkungen und Risiken, einschließlich seltener Komplikationen, werden im persönlichen Aufklärungsgespräch detailliert mit Ihnen besprochen.",
   },
 
   quiz: {
     treatmentOptions: [
       { id: "lippen", label: "Lippen", hint: "Kontur, Volumen, Symmetrie" },
-      { id: "nasolabial", label: "Nasolabialfalten", hint: "Mund-Nase" },
-      { id: "wangen", label: "Wangen", hint: "Volumenaufbau, Definition" },
+      { id: "nasolabial", label: "Nasolabialfalten", hint: "Mund-Nase-Bereich" },
+      { id: "wangen", label: "Wangen", hint: "Volumen, Definition" },
       { id: "kinn", label: "Kinn / Kieferlinie", hint: "Konturierung" },
       { id: "kombination", label: "Kombination", hint: "Mehrere Bereiche" },
-      { id: "unsicher", label: "Bin unsicher", hint: "Empfehlung im Beratungsgespräch" },
+      { id: "unsicher", label: "Bin unsicher", hint: "Empfehlung im Gespräch" },
     ],
-    locationLabel: "Wo wäre Ihr Wunsch-Termin?",
-    askExperience: false,
   },
 
   process: {
@@ -58,69 +56,79 @@ export const templateFiller: Treatment = {
         index: 1,
         title: "Beratung & Analyse",
         body:
-          "Wir schauen uns Ihre Wünsche und Ihr Gesicht in Ruhe an und besprechen, ob ein Filler die richtige Wahl ist oder andere Optionen sinnvoller sind.",
+          "Wir schauen uns Ihr Gesicht in Ruhe an und besprechen ehrlich, ob ein Filler die richtige Wahl ist oder ob eine andere Option besser zu Ihrem Anliegen passt.",
       },
       {
         index: 2,
         title: "Behandlung",
         body:
-          "Die eigentliche Behandlung dauert je nach Areal 20–45 Minuten. Auf Wunsch wird eine Betäubungscreme aufgetragen.",
+          "Je nach Bereich dauert die Behandlung 20 bis 45 Minuten. Auf Wunsch mit betäubender Creme; viele Präparate enthalten zusätzlich ein lokales Betäubungsmittel.",
       },
       {
         index: 3,
         title: "Nachkontrolle",
         body:
-          "Nach 10–14 Tagen sehen wir uns erneut, um das Ergebnis gemeinsam zu beurteilen und feinzujustieren.",
+          "Nach 10 bis 14 Tagen beurteilen wir das Ergebnis gemeinsam und justieren fein nach, wenn nötig.",
       },
     ],
   },
 
+  // Reihenfolge = Einwandgewicht: Natürlichkeit, Reversibilität, Schmerz,
+  // Haltbarkeit, Kosten, Alltag, Kontraindikationen.
   faq: [
     {
-      q: "Was kostet eine Filler-Behandlung?",
+      q: "Sieht das Ergebnis natürlich aus oder aufgespritzt?",
       a:
-        "Der Preis richtet sich nach Bereich und benötigter Menge. Die Spanne beginnt bei etwa 350 € und kann je nach Umfang höher liegen. Sie erhalten in der Beratung ein transparentes Angebot.",
-    },
-    {
-      q: "Sieht das Ergebnis natürlich aus?",
-      a:
-        "Unser Behandlungsansatz ist bewusst zurückhaltend. Ziel ist eine Verbesserung, die zu Ihnen passt und nicht erkennbar ist als Behandlung.",
-    },
-    {
-      q: "Wie lange hält das Ergebnis?",
-      a:
-        "Je nach Präparat und Areal etwa 9–18 Monate. Der Abbau erfolgt langsam und gleichmäßig.",
+        "Unser Ansatz ist bewusst zurückhaltend: lieber in zwei Etappen aufbauen als einmal zu viel einbringen. Ziel ist eine Veränderung, die Ihnen niemand als Behandlung ansieht.",
     },
     {
       q: "Kann man das Ergebnis rückgängig machen?",
       a:
-        "Hyaluronsäure-Filler können in der Regel mit Hyaluronidase aufgelöst werden, falls das Ergebnis nicht den Erwartungen entspricht oder Korrekturen nötig sind.",
+        "Ja. Hyaluronsäure-Filler lassen sich in der Regel mit dem Enzym Hyaluronidase wieder auflösen, falls das Ergebnis nicht Ihren Vorstellungen entspricht. Das unterscheidet Hyaluron von dauerhaften Fillern, die wir bewusst nicht einsetzen.",
     },
     {
-      q: "Wie viele Sitzungen sind nötig?",
+      q: "Tut die Behandlung weh?",
       a:
-        "In den meisten Fällen reicht eine Sitzung. Bei größeren Konturierungen wird das Ergebnis in zwei Etappen aufgebaut, um die Veränderung behutsam zu gestalten.",
+        "Die meisten Patientinnen empfinden die Behandlung als gut auszuhalten. Wir arbeiten mit sehr feinen Nadeln oder stumpfen Kanülen, auf Wunsch mit betäubender Creme.",
+    },
+    {
+      q: "Wie lange hält das Ergebnis?",
+      a:
+        "Je nach Präparat und Bereich etwa 9 bis 18 Monate. Der Abbau erfolgt langsam und gleichmäßig, das Ergebnis verschwindet also nicht von einem Tag auf den anderen.",
+    },
+    {
+      q: "Was kostet eine Hyaluron-Behandlung?",
+      a:
+        "Der Preis richtet sich nach Bereich und benötigter Menge. Die Spanne beginnt bei etwa 350 €. Sie erhalten in der Beratung ein transparentes Angebot vor der Behandlung.",
+    },
+    {
+      q: "Bin ich danach direkt wieder alltagstauglich?",
+      a:
+        "In der Regel ja. Leichte Schwellungen oder Rötungen klingen meist nach 1 bis 3 Tagen ab. Sport und Sauna sollten 24 bis 48 Stunden pausieren.",
     },
     {
       q: "Wann ist von der Behandlung abzuraten?",
       a:
-        "Während Schwangerschaft und Stillzeit, bei akuten Hauterkrankungen im Behandlungsareal oder bestimmten Vorerkrankungen. Diese Punkte besprechen wir im Aufklärungsgespräch.",
-    },
-    {
-      q: "Habe ich nach der Behandlung gleich einen normalen Alltag?",
-      a:
-        "In der Regel ja. Leichte Schwellungen oder Druckempfindlichkeit klingen meist nach 1–3 Tagen ab. Sport und Sauna sollten 24–48 Stunden pausieren.",
+        "In Schwangerschaft und Stillzeit, bei akuten Hauterkrankungen im Behandlungsbereich oder bestimmten Vorerkrankungen. Diese Punkte besprechen wir im Aufklärungsgespräch.",
     },
   ],
 
   priceRange: { fromCents: 35000, toCents: 89000, currency: "EUR" },
 
+  cost: {
+    drivers: [
+      "Behandelter Bereich",
+      "Benötigte Menge und Präparat",
+      "Aufbau in einer oder zwei Etappen",
+    ],
+  },
+
   finalCtaPromise:
-    "Sie wissen heute, ob ein Filler zu Ihnen passt — ehrliche Einschätzung statt Verkaufsgespräch.",
+    "Sie bekommen eine ehrliche Einschätzung, ob ein Filler zu Ihnen passt. Kein Verkaufsgespräch.",
 
   seo: {
-    metaTitle: "Hyaluronsäure-Filler in [Stadt] – [Praxis-Name]",
+    metaTitle: "Hyaluron-Behandlung in [Stadt] – [Praxis-Name]",
     metaDescription:
-      "Filler-Behandlung in [Stadt]: Wangen, Lippen, Nasolabialfalten. Persönliche Beratung durch [Dr. med. Vorname Nachname]. Zertifizierte Präparate, behutsame Dosierung.",
+      "Hyaluron-Behandlung in [Stadt]: Wangen, Lippen, Konturen. Behutsame Dosierung, zertifizierte Präparate, ehrliche Beratung durch [Dr. med. Vorname Nachname].",
   },
 };

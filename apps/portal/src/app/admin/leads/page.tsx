@@ -25,9 +25,8 @@ import {
   AdminUrlToggle,
 } from "../_components/AdminFilters";
 
-export const metadata = { title: "Leads · Admin" };
+export const metadata = { title: "Anfragen · Admin" };
 
-const GLOW_CARD = "!bg-bg-secondary";
 const PAGE_SIZE = 50;
 
 interface PageProps {
@@ -99,8 +98,8 @@ export default async function AdminLeadsPage({ searchParams }: PageProps) {
   return (
     <div className="space-y-8">
       <AdminPageHeader
-        title="Lead-Postfach"
-        subtitle="Alle Anfragen aller Praxen in einer Ansicht. Lesemodus — zum Bearbeiten in die jeweilige Praxis wechseln."
+        title="Anfragen-Postfach"
+        subtitle="Alle Anfragen aller Praxen in einer Ansicht. Lesemodus: zum Bearbeiten in die jeweilige Praxis wechseln."
       />
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -110,7 +109,7 @@ export default async function AdminLeadsPage({ searchParams }: PageProps) {
           sublabel="im aktuellen Filter"
         />
         <MetricTile
-          label="Im Funnel"
+          label="Im Trichter"
           value={formatNumber(result.aggregates.inFunnel)}
           sublabel="Termin vereinbart oder weiter"
         />
@@ -131,7 +130,7 @@ export default async function AdminLeadsPage({ searchParams }: PageProps) {
         />
       </div>
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardContent className="pt-6">
           <div className="grid gap-3 md:grid-cols-[2fr_repeat(4,1fr)_auto]">
             <AdminSearchInput placeholder="Name, E-Mail, Telefon, Behandlungswunsch" />

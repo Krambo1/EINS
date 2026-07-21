@@ -5,15 +5,13 @@ import {
 } from "@/lib/formatting";
 import type { ClinicActivity } from "@/server/queries/admin";
 
-const GLOW_CARD = "!bg-bg-secondary";
-
 export function ActivityTab({ data }: { data: ClinicActivity }) {
   return (
     <div className="space-y-6">
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardContent className="space-y-4 pt-6">
           <header>
-            <h2 className="font-display text-xl font-semibold">Login-Aktivität</h2>
+            <h2 className="text-xl font-medium md:text-2xl">Login-Aktivität</h2>
             <p className="text-xs text-fg-secondary">
               Letzter Login pro Teammitglied. „Nie" = noch nicht eingeloggt.
             </p>
@@ -22,7 +20,7 @@ export function ActivityTab({ data }: { data: ClinicActivity }) {
             <p className="text-sm text-fg-secondary">Keine Mitglieder.</p>
           ) : (
             <table className="w-full text-sm">
-              <thead className="text-left text-xs text-fg-secondary">
+              <thead className="text-left text-xs font-medium text-fg-secondary">
                 <tr>
                   <th className="py-2">E-Mail</th>
                   <th className="py-2 text-right">Letzter Login</th>
@@ -43,10 +41,10 @@ export function ActivityTab({ data }: { data: ClinicActivity }) {
         </CardContent>
       </Card>
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardContent className="space-y-4 pt-6">
           <header>
-            <h2 className="font-display text-xl font-semibold">Audit-Spuren</h2>
+            <h2 className="text-xl font-medium md:text-2xl">Audit-Spuren</h2>
             <p className="text-xs text-fg-secondary">
               Letzte 50 Ereignisse aus dem zentralen Audit-Log.
             </p>
@@ -62,7 +60,7 @@ export function ActivityTab({ data }: { data: ClinicActivity }) {
                   key={a.id}
                   className="flex flex-wrap items-baseline gap-2 border-l-2 border-border pl-3"
                 >
-                  <span className="font-mono text-[11px] text-fg-tertiary">
+                  <span className="text-[11px] text-fg-tertiary tabular-nums">
                     {formatDateTime(a.createdAt)}
                   </span>
                   <Badge tone="neutral">{a.action}</Badge>
@@ -105,9 +103,9 @@ export function ActivityTab({ data }: { data: ClinicActivity }) {
         />
       </div>
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardContent className="space-y-3 pt-6">
-          <h2 className="font-display text-xl font-semibold">
+          <h2 className="text-xl font-medium md:text-2xl">
             Animations-Anfragen
           </h2>
           {data.animationRequests.length === 0 ? (
@@ -116,7 +114,7 @@ export function ActivityTab({ data }: { data: ClinicActivity }) {
             </p>
           ) : (
             <table className="w-full text-sm">
-              <thead className="text-left text-xs text-fg-secondary">
+              <thead className="text-left text-xs font-medium text-fg-secondary">
                 <tr>
                   <th className="py-2">Titel</th>
                   <th className="py-2">Status</th>
@@ -127,7 +125,7 @@ export function ActivityTab({ data }: { data: ClinicActivity }) {
               <tbody>
                 {data.animationRequests.map((a) => (
                   <tr key={a.id} className="border-t border-border">
-                    <td className="py-2">{a.title ?? "—"}</td>
+                    <td className="py-2">{a.title ?? "–"}</td>
                     <td className="py-2">
                       <Badge tone={a.status === "ready" ? "good" : "warn"}>
                         {a.status}
@@ -158,9 +156,9 @@ function UploadCard({
   rows: { id: string; title: string; kind: string; createdAt: Date }[];
 }) {
   return (
-    <Card className={GLOW_CARD}>
+    <Card>
       <CardContent className="space-y-3 pt-6">
-        <h2 className="font-display text-xl font-semibold">{title}</h2>
+        <h2 className="text-xl font-medium md:text-2xl">{title}</h2>
         {rows.length === 0 ? (
           <p className="text-sm text-fg-secondary">Keine Uploads im Zeitraum.</p>
         ) : (
@@ -174,7 +172,7 @@ function UploadCard({
                 <span className="font-mono text-[11px] text-fg-tertiary">
                   {r.kind}
                 </span>
-                <span className="font-mono text-[11px] text-fg-secondary">
+                <span className="text-[11px] text-fg-secondary tabular-nums">
                   {formatRelative(r.createdAt)}
                 </span>
               </li>

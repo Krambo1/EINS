@@ -22,47 +22,101 @@ interface SpawnCall {
   command: string;
   args: string[];
   stdinChunks: Buffer[];
+  killed: boolean;
+  killSignals: string[];
 }
 
 let spawnCalls: SpawnCall[];
 
+/**
+ * Controls how the fake child behaves so we can exercise the M-A4 failure
+ * paths without a real powershell/security binary:
+ *
+ *   "normal"       emit close(0) with a stable roundtrip output (default).
+ *   "hang"         never emit close (simulates an AV/EDR stall) so the
+ *                  psDpapi timeout can fire.
+ *   "exit-nonzero" emit close(1) with stderr (simulates a DPAPI decrypt
+ *                  failure, e.g. user-scope mismatch).
+ *   "spawn-error"  emit an "error" event instead of running (simulates a
+ *                  missing binary / EACCES on spawn).
+ */
+let spawnMode: "normal" | "hang" | "exit-nonzero" | "spawn-error";
+let spawnErrorToEmit: Error | null;
+let spawnStderr: string;
+
 vi.mock("node:child_process", () => {
   return {
     spawn: (command: string, args: string[]) => {
-      const call: SpawnCall = { command, args, stdinChunks: [] };
+      const call: SpawnCall = {
+        command,
+        args,
+        stdinChunks: [],
+        killed: false,
+        killSignals: [],
+      };
       spawnCalls.push(call);
 
       const child = new EventEmitter() as EventEmitter & {
         stdin: Writable;
         stdout: Readable;
         stderr: Readable;
+        kill: (signal?: string) => boolean;
       };
+      child.kill = (signal?: string) => {
+        call.killed = true;
+        call.killSignals.push(signal ?? "SIGTERM");
+        return true;
+      };
+
+      const emitClose = (code: number) => {
+        if (spawnStderr) (child.stderr as Readable).push(spawnStderr);
+        (child.stdout as Readable).push(null);
+        (child.stderr as Readable).push(null);
+        setImmediate(() => child.emit("close", code));
+      };
+
       child.stdin = new Writable({
         write(chunk, _enc, cb) {
           call.stdinChunks.push(Buffer.from(chunk));
           cb();
         },
         final(cb) {
-          // Defer the "close" emission so the test can inspect stdin
-          // chunks after end() was called. Simulate the script
-          // successfully protecting "PAYLOAD" by writing a stable
-          // ciphertext to stdout — the test cares about argv hygiene, not
-          // the actual DPAPI output.
+          // "close" is emitted here (after end()) so the test can inspect
+          // stdin chunks. The Windows accessors write to stdin and end();
+          // the macOS `spawn1` path never touches stdin, so its behaviour
+          // is driven from the spawn-error branch below instead.
+          if (spawnMode === "hang") {
+            // Never resolve: leave the child pending so the timeout fires.
+            cb();
+            return;
+          }
+          if (spawnMode === "exit-nonzero") {
+            emitClose(1);
+            cb();
+            return;
+          }
+          // "normal": simulate the stub successfully protecting/unprotecting
+          // by writing a stable output. The test cares about argv hygiene
+          // and control flow, not the actual DPAPI output.
           const action = call.stdinChunks[0]?.toString().split("\n")[0] ?? "";
           const out =
             action === "protect"
               ? "BASE64-CIPHERTEXT-NOT-REAL"
               : "ROUNDTRIPPED-SECRET";
           (child.stdout as Readable).push(out);
-          (child.stdout as Readable).push(null);
-          (child.stderr as Readable).push(null);
-          // Emit close on next tick so listeners are attached.
-          setImmediate(() => child.emit("close", 0));
+          emitClose(0);
           cb();
         },
       });
       child.stdout = new Readable({ read() {} });
       child.stderr = new Readable({ read() {} });
+
+      if (spawnMode === "spawn-error") {
+        // Emit "error" independent of stdin so the macOS `spawn1` path
+        // (which never writes to stdin) is covered too.
+        const err = spawnErrorToEmit ?? new Error("spawn ENOENT");
+        setImmediate(() => child.emit("error", err));
+      }
       return child;
     },
   };
@@ -88,6 +142,9 @@ let storeDbCredential: typeof import("./secure-store").storeDbCredential;
 
 beforeEach(async () => {
   spawnCalls = [];
+  spawnMode = "normal";
+  spawnErrorToEmit = null;
+  spawnStderr = "";
   vi.resetModules();
   const mod = await import("./secure-store.js");
   storeSecret = mod.storeSecret;
@@ -200,5 +257,181 @@ describe("secure-store · Windows DPAPI argv hygiene (P0-3)", () => {
     // flushing a 50-row batch spawned 50 powershell.exe children; with it,
     // exactly one for the life of the process.
     expect(spawnCalls).toHaveLength(1);
+  });
+});
+
+/**
+ * M-A4 reliability finding. The child-process handling in secure-store could
+ * silently wedge the agent (a hung powershell.exe pins the outbox
+ * flushInFlight guard forever) or crash it (a macOS spawn failure with no
+ * "error" listener throws an uncaught exception). These tests exercise the
+ * three remediation paths without a real powershell/security binary.
+ */
+describe("secure-store · M-A4 powershell child timeout (Windows)", () => {
+  // Mirror of the private PS_DPAPI_TIMEOUT_MS in secure-store.ts. Keep in
+  // sync if the source ceiling changes.
+  const PS_DPAPI_TIMEOUT_MS = 30_000;
+  const SECRET = "deadbeef".repeat(8);
+
+  beforeEach(() => {
+    Object.defineProperty(process, "platform", {
+      value: "win32",
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("rejects and kills the child when powershell.exe hangs; no secret in the error", async () => {
+    vi.useFakeTimers();
+    spawnMode = "hang";
+
+    const p = storeSecret(SECRET);
+    // Capture the outcome now so the eventual rejection is always handled,
+    // even before we advance the clock (avoids an unhandled-rejection warning).
+    const settled = p.then(
+      () => ({ ok: true as const }),
+      (err: unknown) => ({ ok: false as const, err })
+    );
+
+    // Just before the ceiling: still pending, child not yet killed.
+    await vi.advanceTimersByTimeAsync(PS_DPAPI_TIMEOUT_MS - 1);
+    expect(spawnCalls[0]!.killed).toBe(false);
+
+    // Cross the boundary: the timeout fires, kills the child, and rejects.
+    await vi.advanceTimersByTimeAsync(2);
+    const result = await settled;
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      const msg = String((result.err as Error).message);
+      expect(msg).toMatch(/timed out/i);
+      // The timeout/kill path must never leak the secret into the message.
+      expect(msg).not.toContain(SECRET);
+      expect(msg).not.toContain(SECRET.slice(0, 16));
+    }
+    expect(spawnCalls[0]!.killed).toBe(true);
+    expect(spawnCalls[0]!.killSignals).toContain("SIGKILL");
+  });
+});
+
+describe("secure-store · M-A4 DPAPI decrypt-failure logging (Windows)", () => {
+  beforeEach(() => {
+    Object.defineProperty(process, "platform", {
+      value: "win32",
+      configurable: true,
+    });
+  });
+
+  it("loadSecret logs an actionable user-scope hint and returns null when DPAPI cannot decrypt", async () => {
+    spawnMode = "exit-nonzero";
+    // DPAPI's own failure reason for a cross-user blob. Never contains the
+    // plaintext secret (the secret is the output it failed to produce).
+    spawnStderr = "Key not valid for use in specified state.";
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => void 0);
+
+    const result = await loadSecret();
+
+    expect(result).toBeNull();
+    // Loud: a single, explicit error line rather than a silent null.
+    expect(errSpy).toHaveBeenCalledTimes(1);
+    const logged = String(errSpy.mock.calls[0]![0]);
+    // Actionable: names the likely cause and the fix.
+    expect(logged).toMatch(/different Windows user account/i);
+    expect(logged).toMatch(/re-enroll/i);
+    // Must not leak the on-disk ciphertext (what the readFile mock returns).
+    expect(logged).not.toContain("BASE64-CIPHERTEXT-NOT-REAL");
+
+    errSpy.mockRestore();
+  });
+});
+
+describe("secure-store · M-A4 macOS spawn error handling", () => {
+  const SECRET = "deadbeef".repeat(8);
+
+  beforeEach(() => {
+    Object.defineProperty(process, "platform", {
+      value: "darwin",
+      configurable: true,
+    });
+  });
+
+  it("storeSecret rejects (does not crash the process) when `security` fails to spawn", async () => {
+    spawnMode = "spawn-error";
+    spawnErrorToEmit = new Error("spawn security ENOENT");
+    // Without an "error" listener on the child, this spawn failure would
+    // surface as an uncaught exception and take the agent down. The handler
+    // converts it into a normal promise rejection the caller can handle.
+    await expect(storeSecret(SECRET)).rejects.toThrow(/ENOENT/);
+  });
+
+  it("loadSecret returns null (does not crash the process) when `security` fails to spawn", async () => {
+    spawnMode = "spawn-error";
+    spawnErrorToEmit = new Error("spawn security ENOENT");
+    const result = await loadSecret();
+    expect(result).toBeNull();
+  });
+});
+
+describe("secure-store · M-A4 macOS security child timeout", () => {
+  // Mirror of the private SECURITY_TIMEOUT_MS in secure-store.ts. Keep in
+  // sync if the source ceiling changes.
+  const SECURITY_TIMEOUT_MS = 30_000;
+  const SECRET = "deadbeef".repeat(8);
+
+  beforeEach(() => {
+    Object.defineProperty(process, "platform", {
+      value: "darwin",
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("rejects and kills the child when `security` hangs; no secret in the error", async () => {
+    vi.useFakeTimers();
+    spawnMode = "hang";
+
+    const p = storeSecret(SECRET);
+    // Capture the outcome now so the eventual rejection is always handled,
+    // even before we advance the clock (avoids an unhandled-rejection warning).
+    const settled = p.then(
+      () => ({ ok: true as const }),
+      (err: unknown) => ({ ok: false as const, err })
+    );
+
+    // storeMacOsKeychain runs `security delete-generic-password` (its
+    // rejection is swallowed) then `security add-generic-password`, each
+    // guarded by its own 30s ceiling. Fire the delete timeout first, which
+    // lets the add spawn happen, then fire the add timeout.
+    await vi.advanceTimersByTimeAsync(SECURITY_TIMEOUT_MS + 1);
+    await vi.advanceTimersByTimeAsync(SECURITY_TIMEOUT_MS + 1);
+
+    const result = await settled;
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      const msg = String((result.err as Error).message);
+      expect(msg).toMatch(/timed out/i);
+      // The store path passes the secret via `security -w <secret>` on argv,
+      // so it IS present in spawnCalls args, but must NEVER reach the error.
+      expect(msg).not.toContain(SECRET);
+      expect(msg).not.toContain(SECRET.slice(0, 16));
+    }
+
+    // The add call carries the secret on argv; find it and assert the wedged
+    // child was force-killed.
+    const addCall = spawnCalls.find((c) =>
+      c.args.includes("add-generic-password")
+    );
+    expect(addCall).toBeDefined();
+    // Sanity: the secret really is on this call's argv, so the no-leak
+    // assertion above is meaningful rather than vacuous.
+    expect(addCall!.args).toContain(SECRET);
+    expect(addCall!.killed).toBe(true);
+    expect(addCall!.killSignals).toContain("SIGKILL");
   });
 });

@@ -65,9 +65,11 @@ describe("ConsentzClient: requests", () => {
   });
 
   it("sends Bearer token + X-Tenant-Id header on every page", async () => {
-    fetchSpy.mockResolvedValueOnce(
-      mockResponse({ data: [{ id: "c-1", updated_at: "2026-05-21T00:00:00.000Z" }] })
-    );
+    fetchSpy
+      .mockResolvedValueOnce(
+        mockResponse({ data: [{ id: "c-1", updated_at: "2026-05-21T00:00:00.000Z" }] })
+      )
+      .mockResolvedValueOnce(mockResponse({ data: [] }));
     const client = ConsentzClient.from(link());
     for await (const _p of client.streamPatients("1970-01-01T00:00:00.000Z")) {
       void _p;
@@ -81,7 +83,9 @@ describe("ConsentzClient: requests", () => {
     expect(url).toContain("updated_since=");
   });
 
-  it("paginates until short page", async () => {
+  it("paginates until an EMPTY page (H17)", async () => {
+    // H17: stop on an empty page, not a short one, so a server-side page-size
+    // clamp cannot drop rows after the first short page.
     const fullPage = Array.from({ length: 100 }, (_, i) => ({
       id: `c-${i + 1}`,
       updated_at: "2026-05-21T00:00:00.000Z",
@@ -90,14 +94,29 @@ describe("ConsentzClient: requests", () => {
       .mockResolvedValueOnce(mockResponse({ data: fullPage }))
       .mockResolvedValueOnce(
         mockResponse({ data: [{ id: "c-101", updated_at: "2026-05-21T00:00:00.000Z" }] })
-      );
+      )
+      .mockResolvedValueOnce(mockResponse({ data: [] }));
     const client = ConsentzClient.from(link());
     const seen: unknown[] = [];
     for await (const p of client.streamPatients("1970-01-01T00:00:00.000Z")) {
       seen.push(p);
     }
     expect(seen).toHaveLength(101);
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("throws on a 200 whose body has neither a data nor items array (M-S2)", async () => {
+    // A 200 error envelope must NOT be read as a healthy empty page (that would
+    // silently mark the stream permanently drained at first onboarding).
+    fetchSpy.mockResolvedValueOnce(mockResponse({ error: "bad_tenant" }));
+    const client = ConsentzClient.from(link());
+    await expect(async () => {
+      for await (const _p of client.streamPatients(
+        "1970-01-01T00:00:00.000Z"
+      )) {
+        void _p;
+      }
+    }).rejects.toThrow(/missing 'data'\/'items' array/);
   });
 
   it("retries on 429 with Retry-After", async () => {
@@ -114,7 +133,8 @@ describe("ConsentzClient: requests", () => {
       )
       .mockResolvedValueOnce(
         mockResponse({ data: [{ id: "c-1", updated_at: "2026-05-21T00:00:00.000Z" }] })
-      );
+      )
+      .mockResolvedValueOnce(mockResponse({ data: [] }));
 
     const client = ConsentzClient.from(link());
     let count = 0;

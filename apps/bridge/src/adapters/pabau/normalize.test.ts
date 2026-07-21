@@ -65,6 +65,22 @@ describe("pabau normalizePatient", () => {
     expect(out.phone).toBe("01234");
   });
 
+  it("normalises a non-UTC modified_at into a canonical id + occurredAt (M-S5)", () => {
+    const input: PabauPatient = {
+      id: 4711,
+      first_name: "Anna",
+      last_name: "Schmidt",
+      // Offset timestamp: must be folded to canonical UTC so the id and
+      // occurredAt stay byte-stable for the portal dedup index.
+      modified_at: "2026-05-21T10:00:00.000+01:00",
+    };
+    const out = normalizePatient(CLINIC, input);
+    expect(out.occurredAt).toBe("2026-05-21T09:00:00.000Z");
+    expect(out.pvsExternalEventId).toBe(
+      "pabau:patient:4711:2026-05-21T09:00:00.000Z"
+    );
+  });
+
   it("emits `gender: undefined` for unrecognised values", () => {
     const input: PabauPatient = {
       id: "1",
@@ -203,19 +219,25 @@ describe("pabau normalizeInvoice", () => {
   it("converts major-unit total to integer cents", () => {
     const out = normalizeInvoice(CLINIC, base);
     expect(out).not.toBeNull();
-    expect(out!.amountCents).toBe(19950);
-    expect(out!.pvsAppointmentId).toBe("51");
-    expect(out!.paidAt).toBe(base.paid_at);
+    expect(out!.kind).toBe("InvoicePaid");
+    if (!out || out.kind !== "InvoicePaid") return;
+    expect(out.amountCents).toBe(19950);
+    expect(out.pvsAppointmentId).toBe("51");
+    expect(out.paidAt).toBe(base.paid_at);
   });
 
   it("accepts DACH comma decimal in string form", () => {
     const out = normalizeInvoice(CLINIC, { ...base, total: "199,50" as unknown as string });
-    expect(out!.amountCents).toBe(19950);
+    expect(out!.kind).toBe("InvoicePaid");
+    if (!out || out.kind !== "InvoicePaid") return;
+    expect(out.amountCents).toBe(19950);
   });
 
   it("prefers amount_cents when provided", () => {
     const out = normalizeInvoice(CLINIC, { ...base, total: 9999, amount_cents: 12345 });
-    expect(out!.amountCents).toBe(12345);
+    expect(out!.kind).toBe("InvoicePaid");
+    if (!out || out.kind !== "InvoicePaid") return;
+    expect(out.amountCents).toBe(12345);
   });
 
   it("emits even when only paid_at is set (status absent)", () => {
@@ -237,6 +259,51 @@ describe("pabau normalizeInvoice", () => {
     });
     expect(out).toBeNull();
   });
+
+  // H1: negative totals are Storno / Gutschrift rows.
+  it("maps a negative total to InvoiceRefunded with the abs magnitude + distinct id", () => {
+    const out = normalizeInvoice(CLINIC, { ...base, total: -199.5 });
+    expect(out).not.toBeNull();
+    expect(out!.kind).toBe("InvoiceRefunded");
+    if (!out || out.kind !== "InvoiceRefunded") return;
+    expect(out.refundedAmountCents).toBe(19950);
+    expect(out.pvsInvoiceId).toBe("901");
+    expect(out.pvsAppointmentId).toBe("51");
+    // Refund id namespace must differ from the paid event id for the same id.
+    expect(out.pvsExternalEventId).toBe("pabau:invoice-refund:901");
+    expect(out.pvsExternalEventId).not.toBe("pabau:invoice:901");
+  });
+
+  it("maps a negative amount_cents to InvoiceRefunded even when status is not paid", () => {
+    const out = normalizeInvoice(CLINIC, {
+      ...base,
+      total: undefined,
+      amount_cents: -5000,
+      status: "refunded",
+      paid_at: null,
+    });
+    expect(out!.kind).toBe("InvoiceRefunded");
+    if (!out || out.kind !== "InvoiceRefunded") return;
+    expect(out.refundedAmountCents).toBe(5000);
+  });
+
+  // H3: last-separator-wins locale parsing. "1.234,50" must NOT collapse to
+  // 123 cents; "999"/"1000" are whole-euro, not cents.
+  it.each([
+    ["999", 99900],
+    ["1000", 100000],
+    ["1.234,50", 123450],
+    ["1,250.00", 125000],
+    ["1234,5", 123450],
+  ] as const)(
+    "parses string total '%s' as %i cents (last-separator-wins)",
+    (total, expected) => {
+      const out = normalizeInvoice(CLINIC, { ...base, total: total as unknown as string });
+      expect(out!.kind).toBe("InvoicePaid");
+      if (!out || out.kind !== "InvoicePaid") return;
+      expect(out.amountCents).toBe(expected);
+    }
+  );
 });
 
 describe("pabau normalizeRecall", () => {

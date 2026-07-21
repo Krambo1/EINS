@@ -62,13 +62,13 @@ export function ClinicLeaderboard({ rows }: { rows: LeaderboardRow[] }) {
       </div>
       <div className="mt-4 overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="border-y border-border bg-bg-secondary text-left text-xs text-fg-secondary">
+          <thead className="border-y border-border bg-bg-secondary text-left text-xs font-medium text-fg-secondary">
             <tr>
               <th className="px-6 py-2">Praxis</th>
-              <th className="px-3 py-2 text-right">Spend</th>
+              <th className="px-3 py-2 text-right">Budget</th>
               <th className="px-3 py-2 text-right">Umsatz</th>
               <th className="px-3 py-2 text-right">ROAS</th>
-              <th className="px-3 py-2 text-right">Leads</th>
+              <th className="px-3 py-2 text-right">Anfragen</th>
               <th className="px-3 py-2 text-right">Cases</th>
               <th className="px-3 py-2 text-right">No-Show</th>
               <th className="px-3 py-2 text-right">Median Antwort</th>
@@ -114,25 +114,25 @@ export function ClinicLeaderboard({ rows }: { rows: LeaderboardRow[] }) {
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums">
+                  <td className="px-3 py-2 text-right tabular-nums">
                     {formatEuro(r.spendEur)}
                   </td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums">
+                  <td className="px-3 py-2 text-right tabular-nums">
                     {formatMoney(r.revenueEur, r.currency)}
                   </td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums">
+                  <td className="px-3 py-2 text-right tabular-nums">
                     {r.roas == null ? "–" : `${r.roas.toFixed(2)}×`}
                   </td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums">
+                  <td className="px-3 py-2 text-right tabular-nums">
                     {formatNumber(r.leads)}
                   </td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums">
+                  <td className="px-3 py-2 text-right tabular-nums">
                     {formatNumber(r.casesWon)}
                   </td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums">
+                  <td className="px-3 py-2 text-right tabular-nums">
                     {r.noShowRate == null ? "–" : formatPercent(r.noShowRate)}
                   </td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums">
+                  <td className="px-3 py-2 text-right tabular-nums">
                     {r.medianFirstContactMin == null ? (
                       <span className="text-fg-tertiary">–</span>
                     ) : (

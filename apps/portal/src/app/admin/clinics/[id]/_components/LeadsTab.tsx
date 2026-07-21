@@ -10,7 +10,6 @@ import {
 import type { AdminLeadFilters, AdminLeadRow } from "@/server/queries/admin";
 import { LeadsTable } from "../../../_components/LeadsTable";
 
-const GLOW_CARD = "!bg-bg-secondary";
 const PAGE_SIZE = 50;
 
 interface Props {
@@ -39,7 +38,7 @@ export function LeadsTab({
 
   return (
     <div className="space-y-5">
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardContent className="pt-6">
           <form className="grid gap-3 md:grid-cols-[2fr_repeat(3,1fr)_auto]" method="get">
             <input type="hidden" name="tab" value="leads" />

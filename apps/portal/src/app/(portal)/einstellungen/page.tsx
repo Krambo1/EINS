@@ -98,29 +98,38 @@ export default async function EinstellungenPage() {
   const metaCred = credentials.find((c) => c.platform === "meta");
   const googleCred = credentials.find((c) => c.platform === "google");
 
-  const [treatments, locations, recentAudit] = await Promise.all([
+  const [treatments, locations] = await Promise.all([
     listTreatments(session.clinicId, session.userId),
     listLocations(session.clinicId, session.userId),
-    db
-      .select({
-        id: schema.auditLog.id,
-        action: schema.auditLog.action,
-        entityKind: schema.auditLog.entityKind,
-        actorEmail: schema.auditLog.actorEmail,
-        createdAt: schema.auditLog.createdAt,
-      })
-      .from(schema.auditLog)
-      .where(eq(schema.auditLog.clinicId, session.clinicId))
-      .orderBy(schema.auditLog.createdAt)
-      .limit(20),
   ]);
+
+  // Audit-Log — owner only. The rows contain login times, uploads and
+  // IMPERSONATE_START events (incl. EINS admin emails), so the query itself is
+  // gated on the same permission that gates the card below.
+  const canViewAudit = can(session.role, "audit.view");
+  const recentAudit = canViewAudit
+    ? await db
+        .select({
+          id: schema.auditLog.id,
+          action: schema.auditLog.action,
+          entityKind: schema.auditLog.entityKind,
+          actorEmail: schema.auditLog.actorEmail,
+          createdAt: schema.auditLog.createdAt,
+        })
+        .from(schema.auditLog)
+        .where(eq(schema.auditLog.clinicId, session.clinicId))
+        .orderBy(schema.auditLog.createdAt)
+        .limit(20)
+    : [];
 
   return (
     <div className="space-y-10">
       <header>
         <h1 className="text-3xl font-semibold md:text-4xl">Einstellungen.</h1>
         <p className="mt-2 text-base text-fg-primary md:text-lg">
-          Ihr Profil, Ihr Team und Ihre Verbindungen zu Meta und Google.
+          {isInhaber
+            ? "Ihr Profil, Ihr Team und Ihre Verbindungen zu Meta und Google."
+            : "Ihr Profil und Ihre persönlichen Einstellungen."}
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <Button asChild variant="outline" size="sm">
@@ -148,7 +157,7 @@ export default async function EinstellungenPage() {
               email={session.email}
             />
             <p className="mt-2 text-xs text-fg-secondary">
-              JPG, PNG oder WebP — wird quadratisch auf 512&times;512 zugeschnitten.
+              JPG, PNG oder WebP, wird quadratisch auf 512&times;512 zugeschnitten.
             </p>
           </div>
           <form
@@ -508,7 +517,7 @@ export default async function EinstellungenPage() {
                 />
                 <p className="mt-1 text-xs text-fg-secondary">
                   Die öffentliche Profilseite (ohne „/bewerten/" am Ende).
-                  Jameda hat keine API — wir lesen die Bewertung aus den
+                  Jameda hat keine API. Wir lesen die Bewertung aus den
                   strukturierten Daten der Profilseite aus.
                 </p>
               </div>
@@ -527,8 +536,8 @@ export default async function EinstellungenPage() {
                   </h3>
                   <p className="mt-1 text-sm text-fg-secondary">
                     Holt sofort die aktuellen Werte von Google und Jameda.
-                    Nützlich nach dem ersten Hinterlegen der Profil-IDs
-                    &mdash; sonst läuft der Abgleich täglich automatisch.
+                    Nützlich nach dem ersten Hinterlegen der Profil-IDs,
+                    sonst läuft der Abgleich täglich automatisch.
                   </p>
                 </div>
                 <form action={syncReviewsNowAction}>
@@ -892,8 +901,8 @@ export default async function EinstellungenPage() {
             </Card>
           )}
 
-          {/* Audit log preview */}
-          {recentAudit.length > 0 && (
+          {/* Audit log preview — Inhaber only (audit.view) */}
+          {canViewAudit && recentAudit.length > 0 && (
             <Card id="audit" className="scroll-mt-24">
               <CardHeader>
                 <CardTitle>Audit-Log (letzte 20 Aktionen)</CardTitle>
@@ -910,7 +919,7 @@ export default async function EinstellungenPage() {
                           {a.action}
                         </span>
                         <span className="ml-2 text-fg-primary">
-                          {a.entityKind ?? "—"}
+                          {a.entityKind ?? "–"}
                         </span>
                         {a.actorEmail && (
                           <span className="ml-2 text-fg-secondary">
@@ -981,7 +990,7 @@ function IntegrationRow({
         </div>
         {connected ? (
           <div className="mt-1 text-xs text-fg-secondary">
-            Konto-ID: {accountId ?? "—"} · Abgleich:{" "}
+            Konto-ID: {accountId ?? "–"} · Abgleich:{" "}
             {lastSyncedAt ? formatRelative(lastSyncedAt) : "noch nie"}
           </div>
         ) : !available ? (

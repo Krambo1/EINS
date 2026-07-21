@@ -1,4 +1,5 @@
 import type { PvsLinkRow } from "../../db/client.js";
+import { fetchWithTimeout } from "../../http.js";
 
 /**
  * Consentz REST client wrapper.
@@ -31,6 +32,12 @@ import type { PvsLinkRow } from "../../db/client.js";
  */
 
 const PAGE_SIZE = 100;
+/** Upper bound on a single 429 back-off, so a bogus Retry-After can't park the
+ *  sequential scheduler for hours. */
+const MAX_RETRY_AFTER_MS = 5 * 60_000;
+/** Cap on consecutive 429 retries for one request; on the cap we throw and let
+ *  recordFailure back the link off instead of looping forever. */
+const MAX_RETRIES = 5;
 
 interface ConsentzConfig {
   endpoint: string;
@@ -172,9 +179,16 @@ export class ConsentzClient {
 
   private async get(pathAndQuery: string): Promise<Response> {
     const url = `${this.cfg.endpoint}${pathAndQuery}`;
+    let retries = 0;
     for (;;) {
-      const res = await fetch(url, { headers: this.authHeaders() });
+      const res = await fetchWithTimeout(url, { headers: this.authHeaders() });
       if (res.status !== 429) return res;
+      if (retries >= MAX_RETRIES) {
+        throw new Error(
+          `consentz GET ${pathAndQuery} rate-limited: exceeded ${MAX_RETRIES} retries`
+        );
+      }
+      retries += 1;
       const retryAfter = parseRetryAfter(res.headers.get("retry-after"));
       await sleep(retryAfter);
     }
@@ -196,9 +210,30 @@ export class ConsentzClient {
         );
       }
       const body = (await res.json()) as PageEnvelope<T>;
-      const items = body.data ?? body.items ?? [];
+      // A 200 whose body carries neither a `data` nor an `items` array is an
+      // error envelope (changed shape, auth notice), NOT a healthy empty page.
+      // Treating it as `[]` would silently mark the stream permanently drained,
+      // the likeliest onboarding silent-death mode. Fail loudly instead.
+      const items = Array.isArray(body.data)
+        ? body.data
+        : Array.isArray(body.items)
+          ? body.items
+          : null;
+      if (items === null) {
+        throw new Error(
+          `consentz GET ${path} page=${page} ${res.status}: response envelope missing 'data'/'items' array: ${truncate(
+            JSON.stringify(body)
+          )}`
+        );
+      }
       for (const item of items) yield item;
-      if (items.length < PAGE_SIZE) return;
+      // H17: stop on an EMPTY page, not on a short one. A server that clamps
+      // per_page returns a "short" page that is not the end; the old
+      // `< PAGE_SIZE` check dropped everything after it. Page-number paging
+      // stays consistent under a clamp, so page until an empty page. The
+      // result set can mutate between requests; poll overlap plus portal-side
+      // dedup absorb that window.
+      if (items.length === 0) return;
       page += 1;
     }
   }
@@ -216,13 +251,20 @@ export class ConsentzClient {
 function parseRetryAfter(raw: string | null): number {
   if (!raw) return 5_000;
   const asInt = Number.parseInt(raw, 10);
-  if (Number.isFinite(asInt) && asInt > 0) return asInt * 1000;
+  if (Number.isFinite(asInt) && asInt > 0) {
+    return Math.min(asInt * 1000, MAX_RETRY_AFTER_MS);
+  }
   const asDate = Date.parse(raw);
   if (Number.isFinite(asDate)) {
     const delta = asDate - Date.now();
-    return delta > 0 ? delta : 5_000;
+    return delta > 0 ? Math.min(delta, MAX_RETRY_AFTER_MS) : 5_000;
   }
   return 5_000;
+}
+
+/** Cap a string for safe inclusion in an error/log line. */
+function truncate(s: string, max = 200): string {
+  return s.length > max ? `${s.slice(0, max)}...` : s;
 }
 
 function sleep(ms: number): Promise<void> {

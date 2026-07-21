@@ -57,6 +57,12 @@ export interface AngabeField {
   type: "text" | "textarea";
   placeholder?: string;
   optional?: boolean;
+  /**
+   * Semantic format marker. Drives the input type/inputMode on the client and
+   * the value validation on the server (source of truth). Only single-line
+   * `text` fields carry this; freeform textareas stay unvalidated.
+   */
+  format?: "email" | "tel";
 }
 
 export interface ChecklistItem {
@@ -160,8 +166,8 @@ export const CHECKLIST_BLOCKS: ChecklistBlock[] = [
         fields: [
           { key: "name", label: "Name", type: "text" },
           { key: "funktion", label: "Funktion", type: "text" },
-          { key: "handy", label: "Handynummer", type: "text" },
-          { key: "email", label: "E-Mail", type: "text" },
+          { key: "handy", label: "Handynummer", type: "text", format: "tel" },
+          { key: "email", label: "E-Mail", type: "text", format: "email" },
           {
             key: "kanal",
             label: "Bevorzugter Kanal",
@@ -184,12 +190,13 @@ export const CHECKLIST_BLOCKS: ChecklistBlock[] = [
         fields: [
           { key: "name", label: "Name", type: "text" },
           { key: "titel", label: "Titel", type: "text" },
-          { key: "email", label: "E-Mail", type: "text" },
+          { key: "email", label: "E-Mail", type: "text", format: "email" },
           {
             key: "telefon",
             label: "Telefonnummer",
             type: "text",
             optional: true,
+            format: "tel",
           },
         ],
       },
@@ -647,6 +654,7 @@ Falls Ihre Praxis kein Google Ads-Konto hat: "Nicht vorhanden" wählen.`,
             key: "nummer",
             label: "Telefon- und/oder WhatsApp-Nummer",
             type: "text",
+            format: "tel",
           },
           {
             key: "zeiten",
@@ -708,7 +716,13 @@ Falls Ihre Praxis kein Google Ads-Konto hat: "Nicht vorhanden" wählen.`,
             type: "text",
             optional: true,
           },
-          { key: "email", label: "E-Mail", type: "text", optional: true },
+          {
+            key: "email",
+            label: "E-Mail",
+            type: "text",
+            optional: true,
+            format: "email",
+          },
         ],
       },
       {
@@ -784,6 +798,58 @@ export interface ChecklistFileMeta {
   sizeBytes: number;
   contentType: string | null;
   uploadedAt: Date;
+}
+
+// ---------------------------------------------------------------
+// Contact-field validation (email / phone). Shared by the client (inline
+// errors, save-blocking) and the server action (source of truth). QA was able
+// to save "keine-email-adresse" and "null einssss" as delivered contact data;
+// these guards stop garbage that EINS later tries to actually reach out to.
+// ---------------------------------------------------------------
+
+/** Deliberately loose but robust: one @, a dot in the domain, no whitespace. */
+export const CHECKLIST_EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+export function isValidChecklistEmail(value: string): boolean {
+  return CHECKLIST_EMAIL_RE.test(value.trim());
+}
+
+/** Digits, spaces, +, /, -, parentheses; must contain at least 6 digits. */
+export function isValidChecklistPhone(value: string): boolean {
+  const trimmed = value.trim();
+  if (!/^[\d\s+/()-]+$/.test(trimmed)) return false;
+  return trimmed.replace(/\D/g, "").length >= 6;
+}
+
+export const CHECKLIST_FIELD_ERROR: Record<
+  NonNullable<AngabeField["format"]>,
+  string
+> = {
+  email: "Bitte geben Sie eine gültige E-Mail-Adresse ein.",
+  tel: "Bitte geben Sie eine gültige Telefonnummer ein.",
+};
+
+/**
+ * Validate every formatted contact field that carries a value. Empty fields
+ * pass here (Pflicht-completeness is handled separately); only malformed input
+ * is rejected. Returns a per-field-key map of German error messages.
+ */
+export function validateChecklistFields(
+  item: ChecklistItem,
+  answer: ChecklistAnswer
+): Record<string, string> {
+  const errors: Record<string, string> = {};
+  for (const field of item.fields ?? []) {
+    if (!field.format) continue;
+    const value = answer[field.key];
+    if (typeof value !== "string" || value.trim() === "") continue;
+    if (field.format === "email" && !isValidChecklistEmail(value)) {
+      errors[field.key] = CHECKLIST_FIELD_ERROR.email;
+    } else if (field.format === "tel" && !isValidChecklistPhone(value)) {
+      errors[field.key] = CHECKLIST_FIELD_ERROR.tel;
+    }
+  }
+  return errors;
 }
 
 export function itemAcceptsUpload(type: DeliveryType): boolean {

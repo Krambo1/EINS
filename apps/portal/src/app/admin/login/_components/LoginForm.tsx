@@ -70,7 +70,7 @@ export function LoginForm({
       return (
         <div
           role="status"
-          className="space-y-3 rounded-xl border border-tone-good/40 bg-tone-good/10 p-4 text-sm text-fg-primary"
+          className="space-y-3 rounded-xl border border-[var(--tone-good-border)] bg-[var(--tone-good-bg)] p-4 text-sm text-fg-primary"
         >
           <p className="font-medium">Posteingang prüfen.</p>
           <p className="text-fg-secondary">

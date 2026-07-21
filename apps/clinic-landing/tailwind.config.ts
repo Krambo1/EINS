@@ -31,6 +31,7 @@ const config: Config = {
       },
       fontFamily: {
         brand: ["var(--brand-font)", "system-ui", "-apple-system", "sans-serif"],
+        display: ["var(--brand-font-display)", "var(--brand-font)", "Georgia", "serif"],
       },
       borderRadius: {
         brand: "var(--brand-radius)",

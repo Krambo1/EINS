@@ -160,7 +160,14 @@ function expandTemplate(
  */
 function coerceScalar(v: unknown): unknown {
   if (v === null || v === undefined) return undefined;
-  if (v instanceof Date) return v.toISOString();
+  if (v instanceof Date) {
+    // Legacy MySQL / MariaDB zero-dates (0000-00-00) arrive as an Invalid Date
+    // under mysql2's dateStrings:false; toISOString() on one throws RangeError
+    // (review finding H6). Treat an unrepresentable Date like a NULL: drop the
+    // field rather than crash the whole poll.
+    if (Number.isNaN(v.getTime())) return undefined;
+    return v.toISOString();
+  }
   if (Buffer.isBuffer(v)) return v.toString("utf8");
   return v;
 }
@@ -339,7 +346,10 @@ function integerCents(v: unknown): number | undefined {
 
 function isoDateTime(v: unknown): string | undefined {
   if (v === null || v === undefined || v === "") return undefined;
-  if (v instanceof Date) return v.toISOString();
+  // Invalid Date (e.g. a legacy zero-date) would throw on toISOString(); treat
+  // it as an absent value so the field is dropped instead of crashing the poll
+  // (review finding H6).
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? undefined : v.toISOString();
   if (typeof v === "string") {
     // Already-ISO strings pass through (zod accepts both Z and ±HH:mm).
     if (/^\d{4}-\d{2}-\d{2}T/.test(v)) return v;
@@ -352,7 +362,9 @@ function isoDateTime(v: unknown): string | undefined {
 
 function isoDate(v: unknown): string | undefined {
   if (v === null || v === undefined || v === "") return undefined;
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  // Same Invalid-Date guard as isoDateTime (review finding H6).
+  if (v instanceof Date)
+    return Number.isNaN(v.getTime()) ? undefined : v.toISOString().slice(0, 10);
   if (typeof v === "string") {
     if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
     const d = new Date(v);

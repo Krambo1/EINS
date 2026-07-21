@@ -6,18 +6,22 @@
  * Neutral fallback tokens. Each clinic layout overrides these with its own
  * brand palette via inline style on the root. This keeps the CSS bundle
  * single-tenant agnostic — no compiled per-clinic CSS.
+ *
+ * Defaults follow the v2 design system: warm-neutral paper surfaces, deep
+ * forest primary, bronze accent. Premium restraint over clinical white.
  */
 :root {
-  --brand-primary: #1e3a5f;
-  --brand-primary-soft: #cfd9e6;
-  --brand-accent: #c9a96e;
-  --brand-bg: #ffffff;
-  --brand-bg-soft: #f7f7f9;
-  --brand-fg: #15151b;
-  --brand-fg-muted: #555560;
-  --brand-border: #e6e6ea;
+  --brand-primary: #2e453e;
+  --brand-primary-soft: #dde5e0;
+  --brand-accent: #a9865b;
+  --brand-bg: #fbf9f5;
+  --brand-bg-soft: #f2ede5;
+  --brand-fg: #1d1a16;
+  --brand-fg-muted: #6e655a;
+  --brand-border: #e5ded2;
   --brand-radius: 0.75rem;
-  --brand-font: "Inter", system-ui, sans-serif;
+  --brand-font: "Hanken Grotesk", system-ui, sans-serif;
+  --brand-font-display: "Fraunces", Georgia, serif;
 }
 
 * {
@@ -43,11 +47,14 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-/* Headings: pretty wrap on mobile (no orphan single-word lines), balance on tablet+ */
+/* Headings: display font, pretty wrap on mobile, balance on tablet+ */
 h1, h2, h3, h4, h5, h6 {
   text-wrap: pretty;
   font-weight: 600;
   letter-spacing: -0.01em;
+}
+h1, h2 {
+  font-family: var(--brand-font-display), var(--brand-font), Georgia, serif;
 }
 @media (min-width: 768px) {
   h1, h2, h3, h4, h5, h6 {
@@ -56,13 +63,13 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 h1 {
-  font-size: clamp(2rem, 8vw, 3.25rem);
-  line-height: 1.08;
-  letter-spacing: -0.02em;
+  font-size: clamp(1.9rem, 6.5vw, 3.1rem);
+  line-height: 1.1;
+  letter-spacing: -0.015em;
 }
 h2 {
   font-size: clamp(1.5rem, 5vw, 2.25rem);
-  line-height: 1.15;
+  line-height: 1.18;
 }
 h3 {
   font-size: clamp(1.125rem, 3vw, 1.375rem);
@@ -109,14 +116,14 @@ h3 {
   }
 }
 
-/* Button base */
+/* Button base — pill radius, generous touch targets. */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 0.5rem;
-  font-weight: 500;
-  border-radius: var(--brand-radius);
+  font-weight: 600;
+  border-radius: 9999px;
   transition: transform 200ms ease, background 200ms ease, box-shadow 200ms ease;
   white-space: nowrap;
   text-align: center;
@@ -131,22 +138,22 @@ h3 {
 
 .btn-primary {
   background: var(--brand-primary);
-  color: var(--brand-bg);
-  min-height: 56px;
-  padding: 0 1.25rem;
+  color: #ffffff;
+  min-height: 54px;
+  padding: 0 1.5rem;
   font-size: 1.0625rem;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 6px 16px -8px color-mix(in oklab, var(--brand-primary) 40%, transparent);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.04), 0 8px 20px -10px color-mix(in oklab, var(--brand-primary) 45%, transparent);
 }
 .btn-primary:hover {
-  background: color-mix(in oklab, var(--brand-primary) 92%, black);
+  background: color-mix(in oklab, var(--brand-primary) 90%, black);
 }
 
 .btn-secondary {
-  background: var(--brand-bg);
+  background: transparent;
   color: var(--brand-fg);
   border: 1px solid var(--brand-border);
   min-height: 52px;
-  padding: 0 1rem;
+  padding: 0 1.25rem;
   font-size: 1rem;
 }
 .btn-secondary:hover {
@@ -168,12 +175,24 @@ h3 {
   padding: 1.25rem;
 }
 
+/* Chapter eyebrow — sentence case, no shouting. Number prefix set in JSX. */
 .eyebrow {
-  font-size: 0.8125rem;
+  font-size: 0.9375rem;
   font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--brand-primary);
+  letter-spacing: 0.01em;
+  color: var(--brand-accent);
+}
+
+/*
+ * Dark anchor section (doctor block). Redefines the foreground tokens
+ * locally so text utilities keep working; only place body text on the
+ * primary fill — everything inside is controlled by DoctorSection.
+ */
+.section-dark {
+  background: var(--brand-primary);
+  --brand-fg: #ffffff;
+  --brand-fg-muted: color-mix(in oklab, #ffffff 74%, var(--brand-primary));
+  --brand-border: color-mix(in oklab, #ffffff 22%, var(--brand-primary));
 }
 
 /* Form fields — meet ≥48px height, ≥16px font (prevents iOS zoom) */
@@ -184,7 +203,7 @@ h3 {
   font-size: 1rem;
   line-height: 1.4;
   color: var(--brand-fg);
-  background: var(--brand-bg);
+  background: #ffffff;
   border: 1px solid var(--brand-border);
   border-radius: var(--brand-radius);
   transition: border-color 150ms ease, box-shadow 150ms ease;
@@ -206,14 +225,12 @@ h3 {
   display: none;
 }
 
-/* Trust strip: ensure logos line up cleanly */
-.trust-mark {
-  filter: grayscale(100%);
-  opacity: 0.75;
-  transition: opacity 200ms ease;
-}
-.trust-mark:hover {
-  opacity: 1;
+/* Quiz card in the hero — the conversion surface. */
+.quiz-card {
+  background: #ffffff;
+  border: 1px solid var(--brand-border);
+  border-radius: calc(var(--brand-radius) * 1.5);
+  box-shadow: 0 1px 2px rgba(29, 26, 22, 0.04), 0 24px 48px -24px rgba(29, 26, 22, 0.18);
 }
 
 /* Quiz step transitions — opacity only to keep paint cheap */

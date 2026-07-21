@@ -65,6 +65,22 @@ export const BridgeSource = z.enum([
 ]);
 export type BridgeSource = z.infer<typeof BridgeSource>;
 
+/** M-D6: the event kinds that move money. Only these are subject to the
+ *  billing-authority gate — everything else may legitimately flow from more
+ *  than one path (e.g. GDT covering Termine, a DB adapter covering Stammdaten). */
+export const REVENUE_BEARING_KINDS: ReadonlySet<string> = new Set([
+  "InvoicePaid",
+  "InvoiceRefunded",
+]);
+
+/** M-D6: sources that continuously mirror a PVS (agent watcher, vendor DB
+ *  engines, cloud adapters), as opposed to the operator-driven universal
+ *  paths (csv_upload backfills, bespoke n8n flows). Only continuous sources
+ *  can accidentally double-ingest the same billing data. */
+export function isContinuousPvsSource(source: string): boolean {
+  return source !== "csv_upload" && source !== "n8n_custom";
+}
+
 const baseFields = {
   clinicId: z.string().uuid(),
   bridgeSource: BridgeSource,
@@ -280,6 +296,14 @@ export type PvsEventResult =
         | "clinic_not_found"
         | "link_not_ready"
         | "vendor_mismatch"
+        /**
+         * M-D6: a revenue-bearing event arrived from a source that is not the
+         * clinic's authoritative billing path (billing_enabled = false, or a
+         * gdt_agent event colliding with an active vendor DB/cloud path).
+         * Mapped to 403 (non-retryable) by the route; a standing dashboard
+         * alert is raised so the drop is never silent.
+         */
+        | "billing_conflict"
         | "internal_error";
     };
 
@@ -354,6 +378,50 @@ export async function applyPvsEvent(
       .limit(1);
     if (!enrolledSource) {
       return { ok: false, reason: "vendor_mismatch" };
+    }
+  }
+
+  // M-D6 billing-authority gate (dual-ingest-path mutual exclusion).
+  //
+  // A GDT/CSV file watcher and a vendor DB/cloud adapter running for the SAME
+  // Praxis stamp different bridge_source values, so the dedup UNIQUE index can
+  // never collapse the two copies of one logical payment. Cross-source
+  // natural-key dedup is not viable either: the GDT export's Rechnungs-Kennung
+  // and the vendor DB's invoice key do not match (H4 scopes invoice dedup per
+  // source for exactly that reason). So the portal enforces ONE authoritative
+  // ingest path for the billing domain per clinic instead:
+  //   - Only revenue-bearing kinds are gated. Mixed setups where the file
+  //     watcher covers one data kind and the DB adapter another are legitimate
+  //     (see the agent's M-D6 boot warning) and keep flowing.
+  //   - csv_upload / n8n_custom stay exempt (operator-driven).
+  //   - Vendor DB/cloud sources win by default: their billing tables are the
+  //     system of record; the GDT Honorar fields are a lossy export of them.
+  //
+  // Rejections map to 403 in the route — deliberately NON-retryable: a billing
+  // conflict is a standing configuration state, not a transient window, so
+  // retrying hourly forever (409) would only grow the agent outbox. The
+  // agent's dead-letter roll-up keeps the drop visible, and the standing
+  // dashboard alert raised here tells the operator what happened.
+  //
+  // ORDERING IS LOAD-BEARING: this gate must stay BEFORE the event_log insert
+  // (and therefore before the P1-2 pending-quarantine branch). The derive
+  // worker folds EVERY log row for a patient without filtering on applied_at,
+  // so a duplicate that entered the log — even quarantined and later
+  // replay-rejected — would still double-count the moment any other event
+  // triggers a derive for that patient. Side effect, accepted: a replayed
+  // already-ingested revenue event from a blocked source answers 403 instead
+  // of 201 deduped.
+  if (
+    REVENUE_BEARING_KINDS.has(input.kind) &&
+    isContinuousPvsSource(input.bridgeSource)
+  ) {
+    const allowed = await enforceBillingAuthority(
+      input.clinicId,
+      input.bridgeSource,
+      link.vendor
+    );
+    if (!allowed) {
+      return { ok: false, reason: "billing_conflict" };
     }
   }
 
@@ -663,6 +731,150 @@ async function touchLink(linkId: string): Promise<void> {
         totalEventsLast24h: sql`${schema.pvsSyncStatus.totalEventsLast24h} + 1`,
       },
     });
+}
+
+/**
+ * M-D6: decide whether `bridgeSource` may emit a revenue-bearing event for
+ * this clinic. Reads all pvs_link_source rows once and applies:
+ *
+ *   - Vendor DB/cloud source: allowed unless an operator explicitly disabled
+ *     it (billing_enabled = false, the "GDT soll führen" override). No
+ *     auto-resolution on this side: every agent-enrolled clinic has a
+ *     gdt_agent row (the watcher is always on), and pre-emptively disabling
+ *     it for clinics whose GDT stream never carries Honorar data would be
+ *     pure alert noise.
+ *   - gdt_agent: allowed only while its flag is true AND no billing-enabled
+ *     vendor path exists. On the first real collision the vendor wins: we
+ *     persist billing_enabled = false on the gdt_agent row (upsert, so even
+ *     a missing row cannot leave the gate open) and raise a standing
+ *     dashboard alert. The clinic's pvs_link.pvs_vendor counts as an
+ *     implicit vendor path when it has no explicit row — cloud adapters
+ *     pass the vendor fast path and may never be seeded into
+ *     pvs_link_source.
+ *
+ * The alert is re-raised (upserted on its dedupe key) on every rejection so
+ * the standing condition stays visible; a dismissed alert stays dismissed.
+ */
+async function enforceBillingAuthority(
+  clinicId: string,
+  bridgeSource: string,
+  linkVendor: string
+): Promise<boolean> {
+  const rows = await db
+    .select({
+      bridgeSource: schema.pvsLinkSource.bridgeSource,
+      billingEnabled: schema.pvsLinkSource.billingEnabled,
+    })
+    .from(schema.pvsLinkSource)
+    .where(eq(schema.pvsLinkSource.clinicId, clinicId));
+
+  const own = rows.find((r) => r.bridgeSource === bridgeSource);
+  const ownEnabled = own?.billingEnabled ?? true;
+
+  if (bridgeSource !== "gdt_agent") {
+    if (!ownEnabled) {
+      await raiseBillingConflictAlert(clinicId, bridgeSource, ["gdt_agent"]);
+      return false;
+    }
+    return true;
+  }
+
+  // gdt_agent: collect the billing-enabled vendor paths competing for the
+  // billing domain.
+  const competing = rows
+    .filter(
+      (r) =>
+        r.bridgeSource !== "gdt_agent" &&
+        isContinuousPvsSource(r.bridgeSource) &&
+        r.billingEnabled
+    )
+    .map((r) => r.bridgeSource);
+  if (
+    linkVendor !== "gdt_agent" &&
+    linkVendor !== "none" &&
+    isContinuousPvsSource(linkVendor) &&
+    !rows.some((r) => r.bridgeSource === linkVendor)
+  ) {
+    // Implicit vendor path with no explicit row (cloud-adapter fast path).
+    competing.push(linkVendor);
+  }
+
+  if (ownEnabled && competing.length === 0) return true;
+
+  if (ownEnabled) {
+    // First collision: the vendor path wins. Persist the decision so
+    // subsequent gdt_agent revenue events fail fast on the flag alone.
+    await db
+      .insert(schema.pvsLinkSource)
+      .values({
+        clinicId,
+        bridgeSource: "gdt_agent",
+        pvsVendor: "gdt_agent",
+        enrolledVia: "conflict",
+        billingEnabled: false,
+      })
+      .onConflictDoUpdate({
+        target: [
+          schema.pvsLinkSource.clinicId,
+          schema.pvsLinkSource.bridgeSource,
+        ],
+        set: { billingEnabled: false },
+      });
+  }
+  await raiseBillingConflictAlert(clinicId, "gdt_agent", competing);
+  return false;
+}
+
+/**
+ * M-D6: standing "zwei Datenpfade für Rechnungsdaten" alert. Dedupe key is
+ * per blocked source WITHOUT a day suffix — this is a configuration state,
+ * not an incident stream, so one row per source is enough; re-detections
+ * refresh updated_at. Best-effort like the derive-worker alarms: a failed
+ * alert write must never turn into a 500 for the producer.
+ */
+async function raiseBillingConflictAlert(
+  clinicId: string,
+  blockedSource: string,
+  competingSources: string[]
+): Promise<void> {
+  const winners =
+    competingSources.length > 0
+      ? competingSources.join(", ")
+      : "der führenden Quelle";
+  try {
+    await db
+      .insert(schema.dashboardAlerts)
+      .values({
+        clinicId,
+        kind: "pvs_billing_conflict",
+        severity: "high",
+        title: `PVS: zweiter Datenpfad für Rechnungsdaten blockiert (${blockedSource})`,
+        body: `Für diese Praxis liefern zwei Anbindungen gleichzeitig Rechnungsdaten (${blockedSource} und ${winners}). Damit Umsätze nicht doppelt gezählt werden, nimmt das Portal Rechnungs-Ereignisse nur aus einer führenden Quelle an; ${blockedSource} ist dafür blockiert. Termine, Patientendaten und Behandlungen sind nicht betroffen und fließen weiter aus beiden Quellen.`,
+        actionSteps: [
+          "Prüfen, welche Anbindung die Rechnungsdaten liefern soll. Standard: der PVS-Datenbank-Adapter, weil er direkt aus der Abrechnung liest.",
+          "Soll stattdessen der GDT-Pfad führen: billing_enabled in pvs_link_source für beide Quellen umstellen (nie beide gleichzeitig aktiv).",
+          "Nach einer Umstellung ggf. pnpm pvs:reconcile replay-events für das betroffene Zeitfenster ausführen.",
+        ],
+        metric: "pvs_billing_conflict_source",
+        observedValue: blockedSource,
+        dedupeKey: `pvs_billing_conflict:${blockedSource}`,
+      })
+      .onConflictDoUpdate({
+        target: [
+          schema.dashboardAlerts.clinicId,
+          schema.dashboardAlerts.dedupeKey,
+        ],
+        set: {
+          observedValue: blockedSource,
+          updatedAt: new Date(),
+        },
+      });
+  } catch (err) {
+    console.error(
+      `[pvs-events] billing-conflict alert write failed (clinic=${clinicId}, source=${blockedSource}):`,
+      err
+    );
+  }
 }
 
 async function mergeMaps(input: PatientMergedEvent): Promise<void> {

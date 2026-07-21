@@ -98,6 +98,13 @@ export const pvsLinkSource = pgTable(
     bridgeSource: text("bridge_source").notNull(),
     pvsVendor: text("pvs_vendor").notNull(),
     enrolledVia: text("enrolled_via").notNull().default("heartbeat"),
+    // M-D6 (0067): whether this source may emit revenue-bearing events
+    // (InvoicePaid / InvoiceRefunded). At most one continuous ingest path may
+    // own the billing domain per clinic: when a GDT watcher and a vendor
+    // DB/cloud adapter collide, the vendor path wins and the gdt_agent row is
+    // flipped to false (0067 backfill + the applyPvsEvent billing gate).
+    // Appointment / patient / recall kinds are never gated by this flag.
+    billingEnabled: boolean("billing_enabled").notNull().default(true),
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -115,7 +122,7 @@ export const pvsLinkSource = pgTable(
     ),
     enrolledViaCheck: check(
       "pvs_link_source_enrolled_via_check",
-      sql`${t.enrolledVia} IN ('enrollment','heartbeat','backfill','manual')`
+      sql`${t.enrolledVia} IN ('enrollment','heartbeat','backfill','manual','conflict')`
     ),
     // No standalone clinic_id index: the composite PK already covers clinic_id
     // as its leftmost prefix, and every query filters by clinic_id or the
@@ -594,6 +601,28 @@ export const pvsAgentStatus = pgTable("pvs_agent_status", {
   oldestFailedAt: timestamp("oldest_failed_at", { withTimezone: true }),
   lastFailureReason: text("last_failure_reason"),
   recentReasons: jsonb("recent_reasons")
+    .notNull()
+    .default(sql`'[]'::jsonb`),
+  /**
+   * 0069: operational-health fields the agent has always sent and the portal
+   * used to strip. failedEvents only counts permanently DEAD rows, so a moved
+   * export folder, a runner that never started and a forever-retrying outbox
+   * all report zero failures while delivering zero events. These columns are
+   * what tells "quiet Praxis" apart from "broken install".
+   */
+  /** Outbox rows queued but not yet accepted by the portal. */
+  pendingEvents: integer("pending_events").notNull().default(0),
+  /** Subset of pendingEvents older than the agent's 1h stale threshold. */
+  stalePendingEvents: integer("stale_pending_events").notNull().default(0),
+  oldestPendingAt: timestamp("oldest_pending_at", { withTimezone: true }),
+  /** Configured watch folders the agent could not find. */
+  missingFolders: jsonb("missing_folders")
+    .notNull()
+    .default(sql`'[]'::jsonb`),
+  /** Non-null when startRunner threw: no DB-adapter stream is running. */
+  dbAdaptersFailed: text("db_adapters_failed"),
+  /** Per-vendor/per-stream runner snapshot (status, lastError, connectError). */
+  adapterStatuses: jsonb("adapter_statuses")
     .notNull()
     .default(sql`'[]'::jsonb`),
   createdAt: timestamp("created_at", { withTimezone: true })

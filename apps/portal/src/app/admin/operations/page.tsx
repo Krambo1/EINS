@@ -75,7 +75,7 @@ export default async function AdminOperationsPage() {
     { id: "sync-fehler", label: "Sync-Fehler", count: counts.syncErrors },
     {
       id: "stagnierte",
-      label: "Stagnierte Leads",
+      label: "Stagnierte Anfragen",
       count: counts.stalledRequests,
     },
   ];

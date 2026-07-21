@@ -19,8 +19,6 @@ import {
 
 export const metadata = { title: "Nutzer · Admin" };
 
-const GLOW_CARD = "!bg-bg-secondary";
-
 interface PageProps {
   searchParams: Promise<{
     role?: string;
@@ -158,7 +156,7 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
         />
       </div>
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardContent className="pt-6">
           <div className="grid gap-3 md:grid-cols-[2fr_1fr_1fr_auto]">
             <AdminSearchInput placeholder="Name, E-Mail oder Praxis" />
@@ -169,7 +167,7 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
         </CardContent>
       </Card>
 
-      <Card className={`${GLOW_CARD} !p-0 overflow-hidden`}>
+      <Card className="!p-0 overflow-hidden">
         <CardContent className="p-0">
           <AdminTable
             columns={columns}

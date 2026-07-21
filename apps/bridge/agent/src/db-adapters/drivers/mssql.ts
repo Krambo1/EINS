@@ -27,7 +27,10 @@ type MssqlPool = {
 };
 
 type MssqlRequest = {
+  /** Two-arg form binds with mssql's default type inference; the three-arg
+   *  form pins an explicit SQL type (M-D8: DateTime2 for a Date cursor). */
   input(name: string, value: unknown): MssqlRequest;
+  input(name: string, type: unknown, value: unknown): MssqlRequest;
   query(text: string): Promise<{
     recordset: Array<Record<string, unknown>> & {
       columns?: Record<string, { name?: string; index?: number }>;
@@ -53,6 +56,9 @@ type MssqlConfig = {
 
 type MssqlModule = {
   ConnectionPool: new (config: MssqlConfig) => MssqlPool;
+  /** The mssql DateTime2 type factory / marker. Passed to Request.input() to
+   *  bind a Date at full precision instead of legacy datetime (M-D8). */
+  DateTime2: unknown;
 };
 
 let cachedModule: MssqlModule | null = null;
@@ -95,6 +101,17 @@ export class MssqlDriver implements DbDriver {
   private async doConnect(): Promise<void> {
     const params = this.params;
     if (!params) throw new Error("mssql: connect called without params");
+    // M-D5: release the previous pool before reconnecting. A flapping LAN drives
+    // repeated doConnect() calls (query() reconnects whenever `healthy` is false
+    // while `pool` is still set); without closing the old pool each rebuild
+    // leaks dead tedious sockets that accumulate on the Praxis SQL Server over
+    // days. Best-effort and fire-and-forget so a hung close() cannot stall the
+    // reconnect.
+    if (this.pool) {
+      const stale = this.pool;
+      this.pool = null;
+      void stale.close().catch(() => void 0);
+    }
     const mod = await getModule();
     // Praxis-local SQL Server is almost never on a trusted CA; encrypt
     // remains on (TLS over TCP), but we trust whatever cert it presents.
@@ -138,13 +155,21 @@ export class MssqlDriver implements DbDriver {
     if (!this.pool || !this.healthy) {
       await this.connect(this.params!);
     }
-    // mssql/tedious infers a JS Date as datetime and binds it natively, so a
-    // timestamp cursor (framework Phase 3) reaches the column as a Date;
-    // strings and numbers keep their default inference.
+    // M-D8: bind a Date cursor as DateTime2 (100ns grain) rather than letting
+    // mssql/tedious infer legacy `datetime`, whose 3.33ms rounding can push the
+    // bound value off the exact stored timestamp so the keyset equality arm
+    // (`modified_at = :cursor AND id > :cursorTiebreak`) misses rows in a
+    // sub-3ms same-timestamp cluster at the batch boundary, silently skipping
+    // them. Strings and numbers keep mssql's default inference.
+    const mod = await getModule();
     const { translated, bindings } = translateNamedToAt(sql, params);
     const req = this.pool!.request();
     for (const [name, value] of bindings) {
-      req.input(name, value);
+      if (value instanceof Date) {
+        req.input(name, mod.DateTime2, value);
+      } else {
+        req.input(name, value);
+      }
     }
     const result = await req.query(translated);
     const columns = extractColumns(result.recordset);

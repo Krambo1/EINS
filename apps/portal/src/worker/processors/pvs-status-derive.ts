@@ -80,7 +80,24 @@ interface AppointmentBuckets {
   maxOccurredAt: Date | null;
   /** True if at least one PatientMerged event was seen. */
   hadMerge: boolean;
+  /**
+   * M-D6 defense in depth: the distinct CONTINUOUS bridge sources whose
+   * InvoicePaid events were counted into the totals (csv_upload / n8n_custom
+   * excluded — an operator backfill next to a live adapter is legitimate).
+   * Two or more here means two ingest paths delivered billing data for the
+   * same patient despite the applyPvsEvent billing-authority gate (historic
+   * rows from before 0067, or an operator enabling both paths at once) —
+   * processPvsStatusDerive raises a dashboard alert. Detection only: the
+   * fold does NOT suppress either side, because it cannot know which rows
+   * are the duplicates.
+   */
+  revenueSources: Set<string>;
 }
+
+/** Mirror of the universal-source carve-out in pvs-events.ts
+ *  (isContinuousPvsSource). Kept local: importing the server module here
+ *  would pull "server-only" plus the pg-boss job chain into the worker. */
+const UNIVERSAL_PVS_SOURCES = new Set(["csv_upload", "n8n_custom"]);
 
 interface InvoiceEvent {
   /** pvs_event_log row id of the InvoicePaid event — outbox dedup key. */
@@ -172,6 +189,21 @@ export async function processPvsStatusDerive(
 
   // 3) Fold events into per-appointment buckets + patient-level aggregates.
   const buckets = foldEvents(events);
+
+  // M-D6 defense in depth: the applyPvsEvent billing-authority gate should
+  // make it impossible for two continuous sources to deliver billing data for
+  // one clinic. If the fold still counted revenue from two or more (historic
+  // rows from before 0067, or an operator enabling both paths), the totals
+  // below are likely inflated — surface it instead of failing silently. We do
+  // NOT suppress either side here: the fold cannot know which rows are the
+  // duplicates, and a wrong guess would be worse than a loud alert.
+  if (buckets.revenueSources.size >= 2) {
+    await raiseDualPathRevenueAlarm({
+      clinicId,
+      portalPatientId,
+      sources: Array.from(buckets.revenueSources),
+    });
+  }
 
   // P2-3: snapshot the patient's current lifetime revenue BEFORE
   // updates, so applyAppointmentBuckets + the patient-aggregate update
@@ -352,6 +384,55 @@ async function raiseRevenueSwingAlarm(args: {
   }
 }
 
+/**
+ * M-D6: two continuous ingest paths contributed counted revenue to the same
+ * patient. Dedupe key is per patient WITHOUT a day suffix — a standing data
+ * condition, not an incident stream; re-detections refresh updated_at.
+ * Best-effort like the other alarms.
+ */
+async function raiseDualPathRevenueAlarm(args: {
+  clinicId: string;
+  portalPatientId: string;
+  sources: string[];
+}): Promise<void> {
+  const dedupeKey = `pvs_dual_path_revenue:${args.portalPatientId}`;
+  const sourceList = args.sources.join(", ");
+  try {
+    await db
+      .insert(schema.dashboardAlerts)
+      .values({
+        clinicId: args.clinicId,
+        kind: "pvs_dual_path_revenue",
+        severity: "high",
+        title: `PVS: Umsätze aus zwei Datenpfaden bei einem Patienten (${sourceList})`,
+        body: `Für einen Patienten wurden Rechnungs-Ereignisse aus mehreren Anbindungen gezählt (${sourceList}). Wenn beide Pfade dieselbe PVS abbilden, sind Lifetime-Revenue und der Umsatz der zugehörigen Anfragen wahrscheinlich doppelt gezählt. Das Portal nimmt neue Rechnungsdaten nur noch aus der führenden Quelle an; die bereits eingelesenen Ereignisse müssen bereinigt werden.`,
+        actionSteps: [
+          "Rechnungs-Historie des Patienten in der PVS mit den Portal-Ereignissen vergleichen.",
+          "Doppelte Ereignisse des nicht führenden Pfads via pnpm pvs:reconcile bereinigen (unlink + replay-events).",
+          "Prüfen, dass billing_enabled in pvs_link_source nur für die führende Quelle aktiv ist.",
+        ],
+        metric: "pvs_dual_path_revenue_sources",
+        observedValue: sourceList,
+        dedupeKey,
+      })
+      .onConflictDoUpdate({
+        target: [
+          schema.dashboardAlerts.clinicId,
+          schema.dashboardAlerts.dedupeKey,
+        ],
+        set: {
+          observedValue: sourceList,
+          updatedAt: new Date(),
+        },
+      });
+  } catch (err) {
+    console.error(
+      `[pvs-status-derive] dual-path revenue alarm write failed (clinic=${args.clinicId}, patient=${args.portalPatientId}):`,
+      err
+    );
+  }
+}
+
 async function raiseStatusDowngradeAlarm(args: {
   clinicId: string;
   requestId: string;
@@ -482,10 +563,40 @@ export function foldEvents(
     }
   }
 
-  // #10: map each invoice (pvsInvoiceId) to the appointment it landed on, so a
-  // later InvoiceRefunded keyed only by pvsInvoiceId can net the same bucket.
-  // null = the invoice was appt-less (patient-level only).
-  const invoiceApptIndex = new Map<string, string | null>();
+  // H4: re-emissions of the SAME logical invoice (corrected payment date on
+  // re-export, wall-clock occurredAt after watcher-state loss, FHIR webhook
+  // redelivery) land as SEPARATE pvs_event_log rows, because occurredAt is part
+  // of the dedup key. Summing InvoicePaid per row would double-count revenue,
+  // which backs the Garantie, so we dedup per invoice here: an invoice is
+  // counted ONCE, using the amount from the row with the LATEST occurredAt (a
+  // re-emission with a corrected amount wins). pvsInvoiceId is only unique per
+  // source system, so the key is scoped by bridgeSource. Rows without a
+  // pvsInvoiceId (defensive: the schema requires one) stay unique, summed per
+  // row. We collect during the loop and reconcile after it, keeping the ASC
+  // iteration = "last write wins = latest occurredAt" invariant simple.
+  interface PaidEntry {
+    amountCents: number;
+    apptId: string | null;
+    eventLogId: string;
+    paidAt: Date;
+    occurredAt: Date;
+    currency?: "EUR" | "CHF";
+    /** M-D6: provenance of the counted payment, for dual-path detection. */
+    bridgeSource: string | undefined;
+  }
+  interface RefundEntry {
+    refundedAmountCents: number;
+    explicitApptId: string | null;
+    pvsInvoiceId: string | null;
+    bridgeSource: string | undefined;
+    occurredAt: Date;
+  }
+  const paidByInvoice = new Map<string, PaidEntry>();
+  const unkeyedPaid: PaidEntry[] = [];
+  const refundByInvoice = new Map<string, RefundEntry>();
+  const unkeyedRefund: RefundEntry[] = [];
+  const invoiceKey = (bridgeSource: string | undefined, pvsInvoiceId: string) =>
+    `${bridgeSource ?? ""}::${pvsInvoiceId}`;
 
   const ensure = (id: string): AppointmentBucket => {
     let b = byAppt.get(id);
@@ -554,7 +665,6 @@ export function foldEvents(
         break;
       }
       case "InvoicePaid": {
-        invoiceTotalsCents += payload.amountCents;
         // #9: prefer the explicit appointment; otherwise bridge via the
         // encounter. No appointment and no resolvable encounter means the
         // payment counts toward patient lifetime revenue but is never guessed
@@ -563,39 +673,55 @@ export function foldEvents(
           payload.pvsAppointmentId ??
           (payload.pvsEncounterId
             ? encounterToAppt.get(payload.pvsEncounterId)
-            : undefined);
-        if (apptId) {
-          const b = ensure(apptId);
-          b.invoiceCents += payload.amountCents;
-          const paid = new Date(payload.paidAt);
-          if (!b.earliestInvoiceAt || paid < b.earliestInvoiceAt) {
-            b.earliestInvoiceAt = paid;
+            : undefined) ??
+          null;
+        // H4: collect (don't accumulate yet). For a keyed invoice the map keeps
+        // the latest-occurredAt row (ASC iteration => last write wins); unkeyed
+        // rows stay unique.
+        const entry: PaidEntry = {
+          amountCents: payload.amountCents,
+          apptId,
+          eventLogId: e.id,
+          paidAt: new Date(payload.paidAt),
+          occurredAt: e.occurredAt,
+          currency: payload.currency,
+          bridgeSource: payload.bridgeSource,
+        };
+        if (payload.pvsInvoiceId) {
+          const key = invoiceKey(payload.bridgeSource, payload.pvsInvoiceId);
+          const prev = paidByInvoice.get(key);
+          // Latest occurredAt wins; >= keeps ASC "last row wins" on ties.
+          if (!prev || entry.occurredAt >= prev.occurredAt) {
+            paidByInvoice.set(key, entry);
           }
-          b.invoiceEvents.push({
-            eventLogId: e.id,
-            amountCents: payload.amountCents,
-            paidAt: paid,
-            currency: payload.currency,
-          });
+        } else {
+          unkeyedPaid.push(entry);
         }
-        // #10: record the appointment (or null) this invoice landed on, so a
-        // later InvoiceRefunded carrying only pvsInvoiceId nets the same bucket.
-        invoiceApptIndex.set(payload.pvsInvoiceId, apptId ?? null);
         break;
       }
       case "InvoiceRefunded": {
-        // #10: money out. Subtract from the patient total and, where the
-        // appointment is resolvable (explicit, or via the original invoice's
-        // pvsInvoiceId), from that bucket too, so request-level revenue and the
-        // gewonnen status net down. The ads-platform refund/adjustment is a
-        // follow-up; v1 corrects the dashboard numbers.
-        invoiceTotalsCents -= payload.refundedAmountCents;
-        const refundApptId =
-          payload.pvsAppointmentId ??
-          invoiceApptIndex.get(payload.pvsInvoiceId) ??
-          null;
-        if (refundApptId) {
-          ensure(refundApptId).invoiceCents -= payload.refundedAmountCents;
+        // #10 + H4: money out. Collect and dedup the same way as InvoicePaid,
+        // so a re-emitted refund is netted once. Reconciled after the loop:
+        // subtract from the patient total and, where the appointment is
+        // resolvable (explicit, or via the original invoice's pvsInvoiceId),
+        // from that bucket too, so request-level revenue and the gewonnen
+        // status net down. The ads-platform refund/adjustment is a follow-up;
+        // v1 corrects the dashboard numbers.
+        const entry: RefundEntry = {
+          refundedAmountCents: payload.refundedAmountCents,
+          explicitApptId: payload.pvsAppointmentId ?? null,
+          pvsInvoiceId: payload.pvsInvoiceId ?? null,
+          bridgeSource: payload.bridgeSource,
+          occurredAt: e.occurredAt,
+        };
+        if (payload.pvsInvoiceId) {
+          const key = invoiceKey(payload.bridgeSource, payload.pvsInvoiceId);
+          const prev = refundByInvoice.get(key);
+          if (!prev || entry.occurredAt >= prev.occurredAt) {
+            refundByInvoice.set(key, entry);
+          }
+        } else {
+          unkeyedRefund.push(entry);
         }
         break;
       }
@@ -609,6 +735,55 @@ export function foldEvents(
     }
   }
 
+  // H4: apply the deduped invoices. Sort the paid entries by occurredAt ASC so
+  // earliestInvoiceAt and invoiceEvents keep the ordering they had when this was
+  // accumulated inline in the loop.
+  const paidEntries = [...paidByInvoice.values(), ...unkeyedPaid].sort(
+    (a, b) => a.occurredAt.getTime() - b.occurredAt.getTime()
+  );
+  // #10: map each (deduped) invoice to the appointment it landed on, so a later
+  // InvoiceRefunded keyed only by pvsInvoiceId can net the same bucket.
+  // null = the invoice was appt-less (patient-level only).
+  const invoiceApptIndex = new Map<string, string | null>();
+  for (const [key, paid] of paidByInvoice) {
+    invoiceApptIndex.set(key, paid.apptId);
+  }
+  // M-D6: track which continuous sources contributed counted revenue. Two or
+  // more means a dual ingest path slipped past the billing-authority gate.
+  const revenueSources = new Set<string>();
+  for (const paid of paidEntries) {
+    if (paid.bridgeSource && !UNIVERSAL_PVS_SOURCES.has(paid.bridgeSource)) {
+      revenueSources.add(paid.bridgeSource);
+    }
+  }
+  for (const paid of paidEntries) {
+    invoiceTotalsCents += paid.amountCents;
+    if (paid.apptId) {
+      const b = ensure(paid.apptId);
+      b.invoiceCents += paid.amountCents;
+      if (!b.earliestInvoiceAt || paid.paidAt < b.earliestInvoiceAt) {
+        b.earliestInvoiceAt = paid.paidAt;
+      }
+      b.invoiceEvents.push({
+        eventLogId: paid.eventLogId,
+        amountCents: paid.amountCents,
+        paidAt: paid.paidAt,
+        currency: paid.currency,
+      });
+    }
+  }
+  for (const refund of [...refundByInvoice.values(), ...unkeyedRefund]) {
+    invoiceTotalsCents -= refund.refundedAmountCents;
+    const key = refund.pvsInvoiceId
+      ? invoiceKey(refund.bridgeSource, refund.pvsInvoiceId)
+      : null;
+    const refundApptId =
+      refund.explicitApptId ?? (key ? invoiceApptIndex.get(key) ?? null : null);
+    if (refundApptId) {
+      ensure(refundApptId).invoiceCents -= refund.refundedAmountCents;
+    }
+  }
+
   // #10: a refund can only drive a total or bucket below zero if we never saw
   // the original payment (e.g. it was attributed to a different pvs id before a
   // merge). Clamp so revenue never reads negative.
@@ -617,7 +792,14 @@ export function foldEvents(
     if (b.invoiceCents < 0) b.invoiceCents = 0;
   }
 
-  return { byAppt, invoiceTotalsCents, minOccurredAt: minAt, maxOccurredAt: maxAt, hadMerge };
+  return {
+    byAppt,
+    invoiceTotalsCents,
+    minOccurredAt: minAt,
+    maxOccurredAt: maxAt,
+    hadMerge,
+    revenueSources,
+  };
 }
 
 // ---------------------------------------------------------------

@@ -269,57 +269,71 @@ export function runStandardHarness(
     // ISO-8601 'Z' STRING, which every server engine except Postgres throws on
     // or matches nothing against a native TIMESTAMP. Binding a Date makes the
     // store-as-ISO / bind-as-Date round-trip work; this proves it per engine.
+    //
+    // Every caught-up poll deliberately re-binds the cursor lookbackMs early
+    // (H8 overlap) so a row that committed late below the high-water mark is
+    // never missed; production absorbs the resulting re-emits in the outbox
+    // UNIQUE(content_hash) dedup. The sink here mirrors that dedup by patient
+    // id, so the assertions are on NEW rows per poll, plus the invariant that
+    // a re-emit can only be the high-water row itself: the seed rows are one
+    // hour apart, far wider than the 3-minute lookback (max(floor, 2x the
+    // 60-90s vendor interval)), so the overlap window holds exactly one row.
+    // Anything else re-emitted means the cursor skipped or regressed.
     it("round-trips a timestamp cursor across two polls", async () => {
       await h.seedPatients(roundTripPatients());
       const driver = h.newDriver();
       await driver.connect(h.connectionParams());
       try {
-        const seen: string[] = [];
-        const first = await pollOnce({
-          clinicId: CLINIC,
-          vendor: h.vendor,
-          stream: h.stream,
-          driver,
-          sink: (e) => seen.push(String(e.pvsPatientId)),
-        });
-        expect(first.emitted).toBe(3);
-        expect(seen.slice().sort()).toEqual(["1", "2", "3"]);
-        expect(first.newCursor).not.toBe("");
+        const seen = new Set<string>();
+        const poll = async () => {
+          const fresh: string[] = [];
+          const out = await pollOnce({
+            clinicId: CLINIC,
+            vendor: h.vendor,
+            stream: h.stream,
+            driver,
+            sink: (e) => {
+              const id = String(e.pvsPatientId);
+              if (!seen.has(id)) fresh.push(id);
+              seen.add(id);
+            },
+          });
+          return { out, fresh };
+        };
 
-        // Same data, same cursor: nothing new, cursor frozen. A skipped-row
-        // (cursor leapt past the boundary) or re-read (cursor stuck) regression
-        // both fail here.
-        const second = await pollOnce({
-          clinicId: CLINIC,
-          vendor: h.vendor,
-          stream: h.stream,
-          driver,
-          sink: () => {
-            throw new Error("second poll must emit nothing");
-          },
-        });
-        expect(second.emitted).toBe(0);
-        expect(second.newCursor).toBe(first.newCursor);
+        const first = await poll();
+        expect(first.out.emitted).toBe(3);
+        expect(first.fresh.slice().sort()).toEqual(["1", "2", "3"]);
+        expect(first.out.newCursor).not.toBe("");
+
+        // Same data, same cursor: nothing NEW, cursor frozen, and at most the
+        // boundary row re-emitted by the overlap. A skipped-row (cursor leapt
+        // past the boundary) or re-read (cursor stuck re-emitting all three)
+        // regression both fail here.
+        const second = await poll();
+        expect(second.fresh).toEqual([]);
+        expect(second.out.emitted).toBeLessThanOrEqual(1);
+        expect(second.out.newCursor).toBe(first.out.newCursor);
 
         // A newer row is picked up; the cursor advances past the prior max.
         await h.addPatient(newerPatient());
-        const third = await pollOnce({
-          clinicId: CLINIC,
-          vendor: h.vendor,
-          stream: h.stream,
-          driver,
-          sink: () => void 0,
-        });
-        expect(third.emitted).toBe(1);
-        expect(third.newCursor > first.newCursor).toBe(true);
+        const third = await poll();
+        expect(third.fresh).toEqual(["4"]);
+        expect(third.out.emitted).toBeLessThanOrEqual(2);
+        expect(third.out.newCursor > first.out.newCursor).toBe(true);
       } finally {
         await driver.close();
       }
     }, TEST_TIMEOUT_MS);
 
     // Phase 4. A cluster of rows sharing one modified_at, drained with a batch
-    // size far smaller than the cluster, must emit every row exactly once: no
-    // skip at the boundary (the old bug), no duplicate from re-reading.
+    // size far smaller than the cluster, must reach the sink at least once per
+    // row: no skip at the boundary (the old bug), no unbounded re-reading.
+    // Exactly one duplicate batch is legitimate: the first caught-up poll
+    // after the drain applies the H8 overlap, re-reads the head of the cluster
+    // (every row shares the timestamp, so all of it is inside the lookback)
+    // and is capped by the batch size; production dedupes those re-emits in
+    // the outbox. A stuck cursor still fails loudly via the total-emit bound.
     it("emits every row when a batch boundary splits one shared timestamp", async () => {
       const ids = clusterIds();
       await h.seedPatients(clusterPatients(ids));
@@ -327,8 +341,9 @@ export function runStandardHarness(
       await driver.connect(h.connectionParams());
       try {
         const seen: string[] = [];
-        // 92 rows / batchSize 3 = 31 emitting polls + 1 empty; the cap is a
-        // livelock guard (a non-advancing cursor would spin instead of hang).
+        // 92 rows / batchSize 3 = 31 emitting polls, 1 overlap poll, 1 empty;
+        // the cap is a livelock guard (a non-advancing cursor would spin
+        // instead of hang).
         for (let i = 0; i < 200; i++) {
           const out = await pollOnce({
             clinicId: CLINIC,
@@ -339,8 +354,10 @@ export function runStandardHarness(
           });
           if (out.emitted === 0) break;
         }
-        expect(seen.slice().sort()).toEqual(ids.map(String).sort());
-        expect(new Set(seen).size).toBe(ids.length);
+        expect([...new Set(seen)].sort()).toEqual(ids.map(String).sort());
+        expect(seen.length).toBeLessThanOrEqual(
+          ids.length + h.smallBatchVendor.batchSize
+        );
       } finally {
         await driver.close();
       }

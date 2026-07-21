@@ -74,7 +74,7 @@ export function MetricStrip({ data }: { data: PlatformOverviewMetrics }) {
             <TrendChart
               data={zipSeries(dates, data.sparklines.leads)}
               tone="accent"
-              label="Leads"
+              label="Anfragen"
               valueFormat="number"
             />
           }

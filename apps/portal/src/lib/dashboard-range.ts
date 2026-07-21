@@ -32,6 +32,7 @@ export const ADMIN_RANGE_KEYS = {
   perf: "rPerf",
   pipeline: "rPipeline",
   ai: "rAi",
+  leistung: "rLeistung",
 } as const;
 
 export type AdminRangeKey =

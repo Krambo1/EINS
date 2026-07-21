@@ -128,6 +128,14 @@ const brandSchema = z.object({
   border: z.string().regex(HEX),
   radius: z.enum(["sharp", "soft", "pill"]),
   fontFamily: z.string().min(1),
+  // Interpolated into a CSS var like fontFamily — same safe-character constraint
+  // as brandFontFaceSchema.family (pentest L6).
+  fontFamilyDisplay: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^[A-Za-z0-9 ,_-]+$/)
+    .optional(),
   fonts: z.array(brandFontFaceSchema).optional(),
   googleFontsUrl: z.string().url().optional(),
 });
@@ -139,6 +147,7 @@ const doctorSchema = z.object({
   facharzt: z.string().min(2),
   cv: z.array(z.string().min(2)).min(2).max(8),
   memberships: z.array(z.string().min(2)).optional(),
+  quote: noBanned(z.string().min(10).max(240), "doctor.quote").optional(),
   portrait: z.string().min(1),
   portraitAlt: z.string().min(2),
 });
@@ -172,6 +181,7 @@ const testimonialSchema = z.object({
   city: z.string().optional(),
   age: z.union([z.number(), z.string()]).optional(),
   quote: noBanned(z.string().min(20).max(400), "testimonial.quote"),
+  source: z.enum(["google", "jameda", "praxis"]).optional(),
   consentedAt: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "consentedAt must be ISO date YYYY-MM-DD")
@@ -257,6 +267,7 @@ export const clinicSchema = z.object({
     .array(z.object({ src: z.string().min(1), alt: z.string().min(2) }))
     .max(8)
     .optional(),
+  responsePromise: noBanned(z.string().min(4).max(80), "responsePromise").optional(),
   connectors: connectorsSchema,
   datenschutzMarkdown: z.string().min(200),
 });
@@ -272,8 +283,8 @@ const quizOptionSchema = z.object({
 const quizSchema = z
   .object({
     treatmentOptions: z.array(quizOptionSchema).min(2).max(8),
-    locationLabel: z.string().min(2),
-    askExperience: z.boolean().optional(),
+    askBudget: z.boolean().optional(),
+    askDistance: z.boolean().optional(),
   })
   .strict("Quiz schema rejects unknown keys — Art. 9 health-data fields are NOT allowed here");
 
@@ -354,6 +365,12 @@ export const treatmentSchema = z.object({
   process: z.object({ steps: z.array(processStepSchema).min(2).max(6) }),
   faq: faqSchema,
   priceRange: priceRangeSchema,
+  cost: z
+    .object({
+      drivers: z.array(noBanned(z.string().min(2).max(80), "cost.drivers")).max(6).optional(),
+      financingNote: noBanned(z.string().min(4).max(160), "cost.financingNote").optional(),
+    })
+    .optional(),
   finalCtaPromise: noBanned(z.string().min(10).max(200), "finalCtaPromise"),
   seo: z.object({
     metaTitle: noBanned(z.string().min(20).max(70), "seo.metaTitle"),

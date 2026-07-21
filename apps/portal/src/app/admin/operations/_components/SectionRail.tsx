@@ -41,7 +41,7 @@ export function SectionRail({ items }: { items: RailItem[] }) {
       aria-label="Operations-Sektionen"
       className="sticky top-28 hidden w-56 shrink-0 space-y-1 lg:block"
     >
-      <span className="font-mono text-[0.6875rem] uppercase tracking-[0.18em] text-fg-secondary">
+      <span className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
         Sprung
       </span>
       <ul className="mt-2 space-y-0.5">
@@ -57,7 +57,7 @@ export function SectionRail({ items }: { items: RailItem[] }) {
             >
               <span>{it.label}</span>
               {it.count > 0 && (
-                <span className="font-mono text-xs tabular-nums text-fg-secondary">
+                <span className="text-xs tabular-nums text-fg-secondary">
                   {it.count}
                 </span>
               )}

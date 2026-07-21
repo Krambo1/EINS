@@ -9,7 +9,6 @@ import {
 } from "@eins/ui";
 import { DOCUMENT_KIND_LABELS, type DocumentKind } from "@/lib/constants";
 
-const KIND_KEYS = Object.keys(DOCUMENT_KIND_LABELS) as DocumentKind[];
 // Radix Select items can't carry an empty value, so the "show everything"
 // option uses a sentinel that maps back to the clean /dokumente URL.
 const ALL = "alle";
@@ -20,7 +19,14 @@ const ALL = "alle";
  * navigates via the `?kind=` query param, exactly like the pill links, so the
  * server component stays the single source of truth.
  */
-export function KindFilterSelect({ kind }: { kind?: DocumentKind }) {
+export function KindFilterSelect({
+  kind,
+  availableKinds,
+}: {
+  kind?: DocumentKind;
+  /** Kinds the current role can actually see documents in. */
+  availableKinds: DocumentKind[];
+}) {
   const router = useRouter();
   return (
     <Select
@@ -40,7 +46,7 @@ export function KindFilterSelect({ kind }: { kind?: DocumentKind }) {
       </SelectTrigger>
       <SelectContent>
         <SelectItem value={ALL}>Alle</SelectItem>
-        {KIND_KEYS.map((k) => (
+        {availableKinds.map((k) => (
           <SelectItem key={k} value={k}>
             {DOCUMENT_KIND_LABELS[k]}
           </SelectItem>

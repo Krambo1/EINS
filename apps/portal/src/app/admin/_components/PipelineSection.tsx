@@ -17,7 +17,7 @@ const STATUS_TONE: Record<string, ShareTone> = {
 };
 
 /**
- * Lead-Pipeline — the status distribution rendered through the shared segmented
+ * Anfragen-Pipeline — the status distribution rendered through the shared segmented
  * share bar (the same visual as the clinic's Quellen-Aufschlüsselung), directly
  * on the card surface (no inner boxes). Owns its own time window via the
  * rPipeline switcher. The KI-Bewertung lives in its own card alongside this one
@@ -50,7 +50,7 @@ export function PipelineSection({
     >
       <CardHeader>
         <CardTitle className="!text-xl !font-medium md:!text-2xl">
-          Lead-Pipeline
+          Anfragen-Pipeline
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-8">
@@ -85,7 +85,7 @@ export function PipelineSection({
                     aria-hidden
                   />
                   <span className="text-fg-primary">{s.label}</span>
-                  <span className="font-mono tabular-nums text-fg-secondary">
+                  <span className="tabular-nums text-fg-secondary">
                     {formatNumber(s.value)}
                   </span>
                 </span>

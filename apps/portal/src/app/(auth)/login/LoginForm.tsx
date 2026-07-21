@@ -28,6 +28,11 @@ export function LoginForm({
   googleEnabled?: boolean;
 }) {
   const [mode, setMode] = useState<"password" | "magic">("password");
+  // Kontrolliert, damit React 19s automatischer Form-Reset nach einem
+  // fehlgeschlagenen Login die E-Mail nicht mitlöscht (nur das Passwort
+  // soll neu eingegeben werden müssen). Gilt für beide Modi, dadurch
+  // überlebt die Adresse auch den Wechsel Passwort ↔ E-Mail-Link.
+  const [email, setEmail] = useState("");
   const [pwState, pwAction] = useActionState<LoginActionState, FormData>(
     passwordLoginAction,
     initialError ? { ok: false, error: initialError } : undefined
@@ -49,6 +54,8 @@ export function LoginForm({
             autoComplete="email"
             required
             placeholder="ihre.adresse@praxis.de"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             className="h-12 text-base"
           />
         </div>
@@ -86,6 +93,8 @@ export function LoginForm({
           autoComplete="email"
           required
           placeholder="ihre.adresse@praxis.de"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
           className="h-12 text-base"
         />
       </div>

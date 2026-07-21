@@ -50,7 +50,7 @@ export default async function ClinicDsgvoPage({ params }: PageProps) {
           <span className="mx-1">/</span>
           <span className="font-mono">DSGVO</span>
         </div>
-        <h1 className="display-m">DSGVO-Werkzeuge</h1>
+        <h1 className="text-3xl font-semibold md:text-4xl">DSGVO-Werkzeuge</h1>
         <p className="text-lg text-fg-primary">
           Auskunft (Art. 15) und Löschung (Art. 17). Beide Aktionen werden im
           Audit-Log protokolliert.
@@ -58,7 +58,7 @@ export default async function ClinicDsgvoPage({ params }: PageProps) {
       </header>
 
       {/* ----- Export -------------------------------------------------- */}
-      <Card className="!bg-bg-secondary">
+      <Card>
         <CardHeader>
           <CardTitle>Datenauskunft herunterladen</CardTitle>
           <CardDescription>
@@ -80,7 +80,7 @@ export default async function ClinicDsgvoPage({ params }: PageProps) {
       </Card>
 
       {/* ----- Erasure ------------------------------------------------- */}
-      <Card className="!bg-bg-secondary">
+      <Card>
         <CardHeader>
           <CardTitle>Unwiderrufliche Löschung</CardTitle>
           <CardDescription>

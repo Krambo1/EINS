@@ -41,13 +41,115 @@ import type {
  * stringified. This keeps the SQL bindings stable across engine types.
  *
  * Failure semantics: any thrown error increments consecutiveFailures and
- * pushes nextRunAt out by exponential backoff (30s, 60s, 2m, 5m, 15m, 1h,
- * capped). FAIL_THRESHOLD consecutive failures set status='error' so the
+ * pushes nextRunAt out by exponential backoff (30s, 1min, 2min, 4min, 8min,
+ * 16min, 32min, capped at 1h). FAIL_THRESHOLD consecutive failures set status='error' so the
  * portal can surface a health warning at Einstellungen → Integrationen.
  */
 
 const FAIL_THRESHOLD = 5;
 const SCHEMA_DRIFT_SOURCE = "db_adapter_framework";
+
+/**
+ * Overlap-window floor (review finding H8). A poll re-binds the timestamp
+ * cursor a lookback earlier than the persisted high-water mark so a row that
+ * committed LATE below the cursor (a transaction that stamped modified_at at
+ * statement time but committed after our last poll, or a backdated data
+ * repair) is re-fetched instead of being missed forever. The effective
+ * lookback is max(this floor, 2x the poll interval); the floor guarantees a
+ * few minutes of overlap even for very short poll intervals. Re-emitted rows
+ * are absorbed by the outbox UNIQUE(content_hash) dedup and the portal dedup
+ * index, so the overlap is safe to apply on every caught-up poll.
+ */
+const LOOKBACK_FLOOR_MS = 3 * 60_000;
+
+/**
+ * Per-(vendor/stream) "the previous poll filled a batch" flag for the overlap
+ * window (H8). While a backlog is still draining (previous batch full) we keep
+ * the STRICT keyset so a large same-timestamp cluster pages forward instead of
+ * re-scanning the overlap window and re-fetching its own head every poll. Only
+ * when caught up (previous batch not full) do we apply the lookback. In-memory
+ * on purpose: the persisted cursor in db_adapter_state is the true high-water
+ * mark, so losing this flag on restart is harmless (at worst one post-restart
+ * poll applies the overlap while mid-drain, re-emitting deduped rows, and the
+ * next poll's full-batch result restores the strict-keyset path). Cleared by
+ * _setStateDbForTesting so tests never inherit a sibling test's drain state.
+ */
+const lastBatchFull = new Map<string, boolean>();
+
+/**
+ * Rate-limit for the per-row skip log (H6): a systematically bad column must
+ * not spam the agent log on every poll. Keyed per vendor/stream. Cleared by
+ * _setStateDbForTesting.
+ */
+const SKIP_LOG_INTERVAL_MS = 60_000;
+const lastSkipLogAt = new Map<string, number>();
+
+/**
+ * Rate-limit for the post-baseline value-drift log (M-D2). First-poll
+ * validation runs ONCE per stream lifetime; a vendor update that later
+ * introduces an unmapped status code (or any source value a key transform no
+ * longer recognises) makes every emitted event silently drop that field, which
+ * the portal worker then discards with no signal on either side. We watch for
+ * it on every normal poll and warn, but cap the warning to once per interval per
+ * stream so a systematically-unmapped column does not spam the log. Keyed per
+ * vendor/stream. Cleared by _setStateDbForTesting.
+ */
+const VALUE_DRIFT_LOG_INTERVAL_MS = 60_000;
+const lastValueDriftLogAt = new Map<string, number>();
+
+/**
+ * Engine-agnostic wall-clock deadline for a single driver.query() call
+ * (reliability review C4). Firebird, and any engine whose client library
+ * has no native timeout, can otherwise hang a poll forever on a DB lock or
+ * a half-dead TCP connection, and because the runner awaits polls
+ * sequentially, one hung query silently stops polling for EVERY vendor.
+ * 150s sits above the 120s native timeouts (pg, mssql, oracledb
+ * callTimeout) so those fire first with their better error messages; the
+ * race is the backstop for engines without one.
+ */
+const QUERY_DEADLINE_MS = 150_000;
+
+/**
+ * Catch-up delay (review finding L13). When a poll fills its batch (the LIMIT
+ * was hit), a backlog is still draining, so the next run is scheduled after
+ * this short fixed delay instead of the full poll interval. Without it a
+ * 100k-row backfill would advance only one batch per interval (~3.4h per
+ * stream at a 60s interval). A short delay lets the runner's next tick pick the
+ * stream straight back up; normal cadence resumes once a poll returns a short
+ * batch (caught up). Failure/backoff paths are unaffected (recordFailure sets
+ * its own nextRunAt).
+ */
+const CATCHUP_DELAY_MS = 1_000;
+
+/** Error class for deadline expiry so callers can distinguish "the query is
+ *  wedged" (connection must be discarded) from an ordinary query error. */
+export class DeadlineExceededError extends Error {
+  constructor(label: string, ms: number) {
+    super(`${label} exceeded the ${ms}ms deadline`);
+    this.name = "DeadlineExceededError";
+  }
+}
+
+/**
+ * Race a promise against a wall-clock deadline. On expiry the promise is NOT
+ * cancelled (JS cannot cancel an in-flight driver call); the caller must
+ * treat the underlying connection as wedged and discard it.
+ */
+export async function withDeadline<T>(
+  label: string,
+  ms: number,
+  fn: () => Promise<T>
+): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new DeadlineExceededError(label, ms)), ms);
+  });
+  try {
+    return await Promise.race([fn(), deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 let dbCached: Database.Database | null = null;
 
@@ -123,6 +225,12 @@ function db(): Database.Database {
 /** Test-only hook: swap the SQLite backend for an in-memory copy. */
 export function _setStateDbForTesting(handle: Database.Database | null): void {
   dbCached = handle;
+  // Reset the in-memory per-stream drain + skip-log state so a test never
+  // inherits a sibling test's overlap/log-rate-limit state (both maps are
+  // module-level and otherwise persist across the suite).
+  lastBatchFull.clear();
+  lastSkipLogAt.clear();
+  lastValueDriftLogAt.clear();
 }
 
 export function loadState(
@@ -313,6 +421,17 @@ export interface PollOutcome {
   newCursor: string;
   driftDetected: boolean;
   driftReport: DriftReport | null;
+  /** Rows the poll SKIPPED without emitting: a row that failed normalization
+   *  (an Invalid Date that escaped the transform guards) or whose required
+   *  envelope field did not resolve (H6). Surfaced so the runner can log it;
+   *  absent on early-return paths (treated as 0). */
+  skippedRows?: number;
+  /** Emitted events that dropped a key-transform field because its source value
+   *  was present but unrecognised (M-D2 post-baseline value drift). The event
+   *  still shipped, but the portal worker will silently discard the missing
+   *  field; surfaced so a vendor value-set change is visible. Absent on
+   *  early-return paths (treated as 0). */
+  unmappedValues?: number;
 }
 
 export interface PollOptions {
@@ -347,23 +466,74 @@ export async function pollOnce(opts: PollOptions): Promise<PollOutcome> {
     };
   }
 
-  const cursorBind = initialCursorValue(state.cursor, opts.stream);
+  const streamKey = `${opts.vendor.vendor}/${opts.stream.kind}`;
+
+  // Overlap window (review finding H8). When we are CAUGHT UP (the previous
+  // poll did not fill a batch, so we are not mid-draining a backlog), bind the
+  // timestamp cursor a lookback earlier than the persisted high-water mark and
+  // reset the keyset tiebreak to 0, so a row that committed late below the
+  // cursor is re-fetched. The persisted cursor stays the true high-water mark:
+  // the overlap is applied ONLY here at bind time, never stored, and maxCursor
+  // below still starts from the stored cursor so a re-fetched older row can
+  // never drag it backward. While MID-DRAIN (previous batch full) we keep the
+  // STRICT keyset so a large same-timestamp cluster pages forward instead of
+  // re-fetching its own head. The overlap is timestamp-only: integer/string
+  // cursors have no wall-clock lookback semantics and keep the strict keyset.
+  const midDrain = lastBatchFull.get(streamKey) === true;
+  const useOverlap =
+    opts.stream.cursorType === "timestamp" && state.cursor !== "" && !midDrain;
+
+  let cursorBind = initialCursorValue(state.cursor, opts.stream);
+  // Keyset tiebreak (finding 6). Bound NUMERICALLY by default: tiebreakColumn
+  // is normally an integer primary key. Number("") === 0 is the correct
+  // first-poll sentinel: on the first poll `cursorColumn > :cursor` (epoch)
+  // already matches every real row, so the tiebreak branch of the predicate is
+  // dormant and the 0 never excludes rows. When the config declares
+  // tiebreakType: "string" (a UUID / non-numeric key, L11) the tiebreak is
+  // bound and compared LEXICALLY instead, with "" as the first-poll sentinel.
+  const tiebreakType = opts.stream.tiebreakColumn
+    ? tiebreakTypeOf(opts.stream)
+    : undefined;
+  let tiebreakBind = opts.stream.tiebreakColumn
+    ? tiebreakType === "string"
+      ? state.cursorTiebreak
+      : Number(state.cursorTiebreak)
+    : undefined;
+  if (useOverlap && cursorBind instanceof Date) {
+    cursorBind = new Date(
+      cursorBind.getTime() - lookbackMs(opts.vendor, opts.stream)
+    );
+    // Reset the tiebreak for the overlap region: a same-timestamp earlier-id
+    // row that the strict keyset (`id > :cursorTiebreak`) would exclude must be
+    // re-fetched, so bind the low sentinel (0 numeric, "" lexical).
+    if (opts.stream.tiebreakColumn) {
+      tiebreakBind = tiebreakType === "string" ? "" : 0;
+    }
+  }
+
   const queryParams: Record<string, string | number | Date> = {
     cursor: cursorBind,
     limit: opts.vendor.batchSize,
   };
-  if (opts.stream.tiebreakColumn) {
-    // Keyset tiebreak (finding 6). Bound as a number: tiebreakColumn must be an
-    // integer column (the primary key is the natural choice). Number("") === 0
-    // is the correct first-poll sentinel: on the first poll
-    // `cursorColumn > :cursor` (epoch) already matches every real row, so the
-    // tiebreak branch of the predicate is dormant and the 0 never excludes rows.
-    queryParams.cursorTiebreak = Number(state.cursorTiebreak);
+  if (tiebreakBind !== undefined) {
+    queryParams.cursorTiebreak = tiebreakBind;
   }
   let result;
   try {
-    result = await opts.driver.query(opts.stream.query, queryParams);
+    result = await withDeadline(
+      `${opts.vendor.vendor}/${opts.stream.kind} query`,
+      QUERY_DEADLINE_MS,
+      () => opts.driver.query(opts.stream.query, queryParams)
+    );
   } catch (err) {
+    // Deadline expiry (C4): the connection is wedged (DB lock, half-dead
+    // TCP). Discard it fire-and-forget: awaiting close() on a wedged
+    // connection can itself hang, so the driver reconnects fresh on the
+    // next poll instead of re-awaiting a call that never settles.
+    if (err instanceof DeadlineExceededError) {
+      void opts.driver.close().catch(() => void 0);
+      return recordFailure(state, opts, (err as Error).message, now);
+    }
     // A renamed/removed column or table makes the query THROW rather than
     // change the result-set shape, so the column-snapshot detector above
     // never sees it. Classify those errors as drift here so the stream halts
@@ -373,6 +543,32 @@ export async function pollOnce(opts: PollOptions): Promise<PollOutcome> {
       return recordSchemaError(state, opts, err, now);
     }
     return recordFailure(state, opts, (err as Error).message, now);
+  }
+
+  // Record whether this poll filled a batch, for the NEXT poll's overlap
+  // decision (H8): a full batch means a backlog is still draining (stay on the
+  // strict keyset); a short batch means we are caught up (apply the overlap).
+  // The LIMIT is enforced in SQL, so rows.length === batchSize reliably means
+  // "more may remain" regardless of any app-side row filtering. The same flag
+  // drives catch-up scheduling below (L13).
+  const batchWasFull = result.rows.length >= opts.vendor.batchSize;
+  lastBatchFull.set(streamKey, batchWasFull);
+
+  // L11: guard the integer-tiebreak assumption. A stream whose tiebreakColumn
+  // is a UUID / non-numeric key but did NOT declare tiebreakType: string would
+  // bind and compare its tiebreak as Number(...) === NaN, silently disabling
+  // the keyset predicate (NaN > NaN is false, so the composite cursor never
+  // advances on a tie and the stream stalls or re-fetches forever). Detect a
+  // present-but-non-numeric tiebreak value explicitly and halt the stream
+  // loudly as config_invalid, directing the operator to set tiebreakType.
+  if (opts.stream.tiebreakColumn && tiebreakType === "integer") {
+    const offending = firstNonNumericTiebreak(
+      result.rows,
+      opts.stream.tiebreakColumn
+    );
+    if (offending !== null) {
+      return recordTiebreakConfigInvalid(state, opts, offending, now);
+    }
   }
 
   // ---- schema drift detection ------------------------------------------
@@ -452,42 +648,124 @@ export async function pollOnce(opts: PollOptions): Promise<PollOutcome> {
 
   // ---- normalise + enqueue ---------------------------------------------
   let emitted = 0;
+  let skippedRows = 0;
   let maxCursor = state.cursor;
   let maxTiebreak = state.cursorTiebreak;
   const tiebreakColumn = opts.stream.tiebreakColumn;
+  const ctx = {
+    clinicId: opts.clinicId,
+    vendor: opts.vendor,
+    stream: opts.stream,
+  };
+  // M-D2: post-baseline value-drift watch. For every emitted event we check the
+  // fields backed by a key transform; when the transform dropped the field
+  // (event[field] undefined) even though the raw source column held a non-empty
+  // value, the vendor emitted a value the map no longer recognises. Counted and
+  // sampled for a rate-limited warning below. Empty for streams with no key
+  // transform so the hot path stays cheap.
+  const keyTransformFieldList = keyTransformFields(opts.stream);
+  let unmappedValues = 0;
+  const unmappedSamples = new Map<string, string>();
   for (const row of result.rows) {
-    const event = normalizeRow(row, {
-      clinicId: opts.clinicId,
-      vendor: opts.vendor,
-      stream: opts.stream,
-    });
-    if (!event) continue;
+    // Compute this row's cursor position FIRST, guarded, so that even if
+    // normalization fails below (H6) we still know whether it is safe to step
+    // the cursor PAST this row. A row whose cursor VALUE itself is invalid (an
+    // Invalid Date from a legacy zero-date, guarded to "" in stringifyCursor)
+    // yields rowCursor === "" and never advances the cursor onto it.
+    let rowCursor = "";
+    let rowTiebreak = "";
     try {
-      const payload = JSON.stringify(event);
-      if (opts.sink) {
-        opts.sink(event);
-      } else {
-        enqueue(payload, event.pvsExternalEventId);
+      rowCursor = stringifyCursor(row[opts.stream.cursorColumn], opts.stream);
+      if (tiebreakColumn) {
+        rowTiebreak =
+          row[tiebreakColumn] == null ? "" : String(row[tiebreakColumn]);
       }
-      emitted++;
-    } catch (err) {
-      console.error(
-        `[db-framework] ${opts.vendor.vendor}/${opts.stream.kind}: enqueue failed:`,
-        err
-      );
+    } catch {
+      rowCursor = "";
     }
-    const rowCursor = stringifyCursor(row[opts.stream.cursorColumn], opts.stream);
+
+    let event: CanonicalEventBase | null = null;
+    let normalizeThrew = false;
+    try {
+      event = normalizeRow(row, ctx);
+    } catch (err) {
+      // H6: a single row that throws during normalization (e.g. an Invalid
+      // Date that escaped the transform guards, or a poisoned value whose
+      // String() throws) is SKIPPED and counted; the poll CONTINUES with the
+      // rest of the batch. Previously this bubbled out to the runner, which
+      // logged it but did NOT record a failure, so the whole stream re-ran
+      // every 5s tick with no backoff, hammering the Praxis DB.
+      normalizeThrew = true;
+      skippedRows++;
+      logSkippedRow(streamKey, opts.stream, row, err);
+    }
+
+    if (event) {
+      try {
+        const payload = JSON.stringify(event);
+        if (opts.sink) {
+          opts.sink(event);
+        } else {
+          enqueue(payload, event.pvsExternalEventId);
+        }
+        emitted++;
+      } catch (err) {
+        // H5: the outbox enqueue failed. The outbox is SQLite, so a batch of
+        // paid invoices can hit transient SQLITE_BUSY. Abort the ENTIRE batch
+        // WITHOUT advancing the cursor past the failed row, and route through
+        // recordFailure so the poll backs off and RE-READS these rows on the
+        // next run (the cursor is left untouched at its pre-poll value). The
+        // outbox UNIQUE(content_hash) dedup absorbs the re-enqueue of rows that
+        // were written before the failure. Previously the failure was only
+        // logged and the cursor still advanced past the row, permanently losing
+        // it (revenue under-counted with one console line as the only trace).
+        return recordFailure(
+          state,
+          opts,
+          `outbox enqueue failed: ${(err as Error).message}`,
+          now
+        );
+      }
+      // M-D2: the event shipped, but a key-transform field may have been dropped
+      // for an unrecognised source value. Flag those so a mid-life vendor change
+      // does not silently corrupt ingestion.
+      for (const f of keyTransformFieldList) {
+        if (event[f] !== undefined) continue;
+        const raw = rawValueForField(opts.stream.map[f], row);
+        if (raw === null || raw === undefined) continue;
+        let rawStr = "";
+        try {
+          rawStr = String(raw);
+        } catch {
+          rawStr = "";
+        }
+        if (rawStr.trim() === "") continue;
+        unmappedValues++;
+        if (!unmappedSamples.has(f)) unmappedSamples.set(f, truncateRaw(raw));
+      }
+    } else if (!normalizeThrew) {
+      // normalizeRow returned null: a required envelope field
+      // (pvsExternalEventId / occurredAt) did not resolve for this row (it
+      // already logged its own warning). Count it as skipped. It is genuinely
+      // unprocessable, so the cursor is still allowed to advance past it below
+      // (when its cursor value is valid) rather than re-reading it every poll.
+      skippedRows++;
+    }
+
+    // Advance the cursor for enqueued rows AND for skipped rows whose cursor
+    // value is valid, so a single bad row cannot wedge the stream by being
+    // re-read forever. A row with an invalid cursor value (rowCursor === "")
+    // never advances the cursor onto it (H6).
     if (rowCursor) {
       if (tiebreakColumn) {
-        const rowTiebreak =
-          row[tiebreakColumn] == null ? "" : String(row[tiebreakColumn]);
         if (
           cursorAdvances(
             rowCursor,
             rowTiebreak,
             maxCursor,
             maxTiebreak,
-            opts.stream.cursorType
+            opts.stream.cursorType,
+            tiebreakType
           )
         ) {
           maxCursor = rowCursor;
@@ -502,6 +780,16 @@ export async function pollOnce(opts: PollOptions): Promise<PollOutcome> {
     }
   }
 
+  if (skippedRows > 0) {
+    console.warn(
+      `[db-framework] ${streamKey}: skipped ${skippedRows} row(s) this poll (normalization failed or a required field was missing).`
+    );
+  }
+
+  if (unmappedValues > 0) {
+    logValueDrift(streamKey, unmappedValues, unmappedSamples);
+  }
+
   // ---- advance state ---------------------------------------------------
   state.cursor = maxCursor;
   state.cursorTiebreak = maxTiebreak;
@@ -509,7 +797,12 @@ export async function pollOnce(opts: PollOptions): Promise<PollOutcome> {
   state.lastError = null;
   state.lastRunAt = now();
   state.consecutiveFailures = 0;
-  state.nextRunAt = now() + intervalMs(opts.vendor, opts.stream);
+  // L13: drain a backlog fast. A full batch means more rows are waiting, so
+  // re-poll after a short delay rather than the full interval; a short batch
+  // means we are caught up, so return to normal cadence.
+  state.nextRunAt =
+    now() +
+    (batchWasFull ? CATCHUP_DELAY_MS : intervalMs(opts.vendor, opts.stream));
   saveState(state);
 
   return {
@@ -517,10 +810,144 @@ export async function pollOnce(opts: PollOptions): Promise<PollOutcome> {
     newCursor: maxCursor,
     driftDetected: false,
     driftReport: null,
+    skippedRows,
+    unmappedValues,
   };
 }
 
 // ---------- helpers -------------------------------------------------------
+
+/** Effective overlap lookback for a stream (H8): the larger of the floor and
+ *  2x the poll interval, so a late-committing row below the cursor is
+ *  re-fetched on the next caught-up poll. */
+function lookbackMs(vendor: VendorConfig, stream: StreamConfig): number {
+  return Math.max(LOOKBACK_FLOOR_MS, 2 * intervalMs(vendor, stream));
+}
+
+/** Rate-limited per-row skip log (H6). A systematically bad column would
+ *  otherwise log on every poll; this caps it to once per SKIP_LOG_INTERVAL_MS
+ *  per stream and names the stream plus the row's primary key. */
+function logSkippedRow(
+  streamKey: string,
+  stream: StreamConfig,
+  row: Record<string, unknown>,
+  err: unknown
+): void {
+  const nowMs = Date.now();
+  const last = lastSkipLogAt.get(streamKey) ?? 0;
+  if (nowMs - last < SKIP_LOG_INTERVAL_MS) return;
+  lastSkipLogAt.set(streamKey, nowMs);
+  const pkCol = stream.tiebreakColumn ?? stream.cursorColumn;
+  const pk = pkCol ? row[pkCol] : undefined;
+  console.warn(
+    `[db-framework] ${streamKey}: skipped a row that failed to normalize (${pkCol}=${
+      pk === undefined || pk === null ? "<unknown>" : String(pk)
+    }): ${(err as Error).message}`
+  );
+}
+
+/** Canonical event fields whose mapping uses a key transform (M-D2). Their
+ *  silent drop after baselining is the value drift this watch surfaces. */
+function keyTransformFields(stream: StreamConfig): string[] {
+  const out: string[] = [];
+  for (const [field, mapping] of Object.entries(stream.map)) {
+    const t = transformOf(mapping);
+    if (t && KEY_TRANSFORMS.has(t)) out.push(field);
+  }
+  return out;
+}
+
+/** Rate-limited post-baseline value-drift log (M-D2). Names the fields whose
+ *  key transform dropped an unrecognised source value on this poll's emitted
+ *  events, with a sample raw value each, capped to one line per stream per
+ *  VALUE_DRIFT_LOG_INTERVAL_MS. Does NOT halt the stream: healthy events keep
+ *  flowing while the operator updates the vendor map. */
+function logValueDrift(
+  streamKey: string,
+  count: number,
+  samples: Map<string, string>
+): void {
+  const nowMs = Date.now();
+  const last = lastValueDriftLogAt.get(streamKey) ?? 0;
+  if (nowMs - last < VALUE_DRIFT_LOG_INTERVAL_MS) return;
+  lastValueDriftLogAt.set(streamKey, nowMs);
+  const detail = [...samples.entries()]
+    .map(([field, sample]) => `${field} (z. B. '${sample}')`)
+    .join(", ");
+  console.warn(
+    `[db-framework] ${streamKey}: post-baseline value drift on ${count} emitted event(s): a key field was dropped for an unrecognised source value [${detail}]. The portal worker discards the missing field; update the vendor map/transform to cover the new value.`
+  );
+}
+
+/** Effective tiebreak comparison type for a stream (L11). Defaults to integer
+ *  so existing keyset configs (an integer PK tiebreak) are unchanged. */
+function tiebreakTypeOf(stream: StreamConfig): "integer" | "string" {
+  return stream.tiebreakType ?? "integer";
+}
+
+/** First present-but-non-numeric tiebreak value in the batch, or null when all
+ *  tiebreak values are numeric / absent (L11). A UUID PK bound through the
+ *  default integer path shows up here so the caller can halt loudly instead of
+ *  comparing NaN. Guards String() so a poison value cannot escape as a throw. */
+function firstNonNumericTiebreak(
+  rows: Record<string, unknown>[],
+  tiebreakColumn: string
+): string | null {
+  for (const row of rows) {
+    const raw = row[tiebreakColumn];
+    if (raw === null || raw === undefined) continue;
+    let s: string;
+    try {
+      s = String(raw);
+    } catch {
+      return "<nicht darstellbar>";
+    }
+    if (s === "") continue;
+    if (!Number.isSafeInteger(Number(s))) return s;
+  }
+  return null;
+}
+
+/** Halt a stream whose integer-typed tiebreak column returned a non-numeric
+ *  value (L11): record a config_invalid report naming the column and stop
+ *  polling until the operator declares tiebreakType: string (or fixes the
+ *  column). Mirrors the first-poll config_invalid halt path. */
+function recordTiebreakConfigInvalid(
+  state: StreamState,
+  opts: PollOptions,
+  offending: string,
+  now: () => number
+): PollOutcome {
+  const field = opts.stream.tiebreakColumn ?? "tiebreak";
+  recordConfigInvalid({
+    vendorId: opts.vendor.vendor,
+    streamKind: opts.stream.kind,
+    sampleSize: opts.stream.tiebreakColumn ? 1 : 0,
+    passingRows: 0,
+    threshold: 1,
+    issues: [
+      {
+        field,
+        reason: `tiebreakColumn '${field}' liefert nicht-numerische Werte; setzen Sie tiebreakType: string für einen nicht-numerischen Schlüssel (z. B. UUID)`,
+        sampleRawValues: [offending.slice(0, 60)],
+      },
+    ],
+    detectedAt: new Date().toISOString(),
+  });
+  state.status = "config_invalid";
+  state.lastError = `tiebreak not numeric: ${field}=${offending}; set tiebreakType: string`;
+  state.lastRunAt = now();
+  saveState(state);
+  console.warn(
+    `[db-framework] ${opts.vendor.vendor}/${opts.stream.kind}: tiebreakColumn '${field}' returned a non-numeric value (${offending}); stream halted as config_invalid. Set tiebreakType: string for a non-numeric key.`
+  );
+  return {
+    emitted: 0,
+    newCursor: state.cursor,
+    driftDetected: false,
+    driftReport: null,
+  };
+}
 
 function recordFailure(
   state: StreamState,
@@ -683,7 +1110,12 @@ function initialCursorValue(
 
 function stringifyCursor(value: unknown, stream: StreamConfig): string {
   if (value === null || value === undefined) return "";
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Date) {
+    // An Invalid Date (legacy zero-date in the cursor column) would throw on
+    // toISOString(); return "" so the caller does not advance the cursor onto
+    // an unrepresentable value (H6).
+    return Number.isNaN(value.getTime()) ? "" : value.toISOString();
+  }
   if (stream.cursorType === "integer") {
     const n = Number(value);
     return Number.isFinite(n) ? String(n) : "";
@@ -714,13 +1146,19 @@ function cursorAdvances(
   rowTiebreak: string,
   maxCursor: string,
   maxTiebreak: string,
-  cursorType: StreamConfig["cursorType"]
+  cursorType: StreamConfig["cursorType"],
+  tiebreakType?: StreamConfig["tiebreakType"]
 ): boolean {
   if (maxCursor === "") return true;
   const cmp = compareCursor(rowCursor, maxCursor, cursorType);
   if (cmp > 0) return true;
   if (cmp < 0) return false;
-  return Number(rowTiebreak) > Number(maxTiebreak);
+  // Default (integer) tiebreak compares numerically (id 10 sorts after id 9);
+  // a "string" tiebreak (UUID / non-numeric key, L11) compares lexically to
+  // match the query's `id > :cursorTiebreak` on a text-ordered column.
+  return tiebreakType === "string"
+    ? rowTiebreak > maxTiebreak
+    : Number(rowTiebreak) > Number(maxTiebreak);
 }
 
 /**
@@ -856,7 +1294,17 @@ function validateFirstPoll(
   rows: Record<string, unknown>[],
   ctx: { clinicId: string; vendor: VendorConfig; stream: StreamConfig }
 ): FirstPollValidation {
-  const sample = rows.slice(0, FIRST_POLL_SAMPLE_SIZE);
+  // M-D7: sample the NEWEST rows of the batch, not the oldest. The first poll
+  // binds an epoch cursor and the stream query orders by the cursor ASC, so
+  // rows[0..] are the OLDEST records in the table (often 15-20 years of legacy
+  // data whose format predates the current YAML map). Validating those raised
+  // false config_invalid halts on healthy configs while letting current-format
+  // defects through. Taking the tail (rows ordered ASC, so the last entries are
+  // the most recent in the batch) judges the config against the freshest data
+  // available in the poll. NOTE: on a fresh enrolment against a very large
+  // history table the whole first batch can still be old; a fully current sample
+  // would need a dedicated newest-first probe query, flagged as a follow-up.
+  const sample = rows.slice(-FIRST_POLL_SAMPLE_SIZE);
   const total = sample.length;
   if (total === 0) {
     return {
@@ -877,18 +1325,40 @@ function validateFirstPoll(
     // Run the real normalizer (it enforces the envelope null-check);
     // resolveField then re-derives each tracked field so a miss is attributed
     // to the exact field rather than blaming the whole row.
-    const event = normalizeRow(row, ctx);
+    //
+    // H6: a row that THROWS here (e.g. a value whose String() throws) must not
+    // escape validateFirstPoll and bubble out of pollOnce to the runner's
+    // bare-log catch (which would hot-loop the first poll with no backoff). A
+    // throwing row is simply a non-passing sample: it counts against the pass
+    // fraction like any other bad row, so a systematically broken config still
+    // halts as config_invalid instead of crashing.
+    let event: CanonicalEventBase | null = null;
+    try {
+      event = normalizeRow(row, ctx);
+    } catch {
+      event = null;
+    }
     let rowOk = event !== null;
     for (const f of fields) {
       const mapping = ctx.stream.map[f];
-      const value =
-        mapping === undefined ? undefined : resolveField(mapping, row);
+      let value: unknown = undefined;
+      try {
+        value = mapping === undefined ? undefined : resolveField(mapping, row);
+      } catch {
+        value = undefined;
+      }
       if (value === undefined) {
         rowOk = false;
         failCount.set(f, (failCount.get(f) ?? 0) + 1);
         const samples = rawSamples.get(f) ?? new Set<string>();
         if (samples.size < MAX_RAW_SAMPLES_PER_FIELD) {
-          samples.add(truncateRaw(rawValueForField(mapping, row)));
+          let sampleStr = "<leer>";
+          try {
+            sampleStr = truncateRaw(rawValueForField(mapping, row));
+          } catch {
+            sampleStr = "<nicht darstellbar>";
+          }
+          samples.add(sampleStr);
         }
         rawSamples.set(f, samples);
       }
@@ -951,7 +1421,10 @@ export const _internal = {
   extractDriftColumns,
   validateFirstPoll,
   fieldsToValidate,
+  keyTransformFields,
   MIN_PASS_FRACTION,
   FIRST_POLL_SAMPLE_SIZE,
   SCHEMA_DRIFT_SOURCE,
+  lookbackMs,
+  LOOKBACK_FLOOR_MS,
 };

@@ -46,6 +46,8 @@ export const PERMISSIONS = {
   // Feedback — anyone in the clinic can send feedback to EINS
   "feedback.submit": ["inhaber", "marketing", "frontdesk"],
   "feedback.view": ["inhaber", "marketing", "frontdesk"],
+  // Dateien an EINS — general file delivery (documents, images, videos)
+  "uploads.send": ["inhaber", "marketing", "frontdesk"],
   // Onboarding — owner only (initial setup)
   "onboarding.complete": ["inhaber"],
 } as const satisfies Record<string, readonly Role[] | Role[]>;

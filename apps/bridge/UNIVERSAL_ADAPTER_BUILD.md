@@ -156,7 +156,7 @@ streams:
   # ... and so on for AppointmentStatusChanged, EncounterCompleted, InvoicePaid, RecallScheduled
 ```
 
-**Cursor persistence:** reuse the agent's existing SQLite outbox state store. One cursor per `(vendorId, streamKind)` tuple, persisted after every successful batch ack from the portal.
+**Cursor persistence:** reuse the agent's existing SQLite outbox state store. One cursor per `(vendorId, streamKind)` tuple, persisted after each row is durably enqueued into the local outbox (not after portal ack). If the outbox enqueue itself fails, the cursor is left at its pre-poll value so the batch is re-read on the next run; the outbox's own UNIQUE(content_hash) dedup absorbs any re-enqueue. Delivery to the portal is decoupled: the outbox flush loop retries independently with backoff, so a portal outage delays delivery but never re-reads already-enqueued rows from the vendor DB.
 
 **Backpressure and error handling:** mirror the existing scheduler logic from `apps/bridge/src/sync/`. Fail-threshold per stream, exponential backoff, `pvs_link.status='error'` after FAIL_THRESHOLD consecutive failures.
 

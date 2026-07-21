@@ -11,7 +11,7 @@
  */
 
 export type PortalUrlCheck =
-  | { ok: true; url: string }
+  | { ok: true; url: string; warning?: string }
   | { ok: false; reason: string };
 
 export function validatePortalUrl(
@@ -28,7 +28,7 @@ export function validatePortalUrl(
     };
   }
   if (parsed.protocol === "https:") {
-    return { ok: true, url: parsed.toString() };
+    return normalized(parsed);
   }
   if (parsed.protocol === "http:") {
     const loopback =
@@ -37,7 +37,7 @@ export function validatePortalUrl(
       parsed.hostname === "::1" ||
       parsed.hostname === "[::1]";
     if (allowInsecureDev && loopback) {
-      return { ok: true, url: parsed.toString() };
+      return normalized(parsed);
     }
     return {
       ok: false,
@@ -50,4 +50,41 @@ export function validatePortalUrl(
     ok: false,
     reason: `unsupported portal URL scheme '${parsed.protocol}' (expected https://)`,
   };
+}
+
+/**
+ * L23: return the base URL the agent should actually persist and join paths
+ * against, NOT the raw string. A portal base URL legitimately carries only a
+ * scheme, host (with optional port), and an optional path prefix; a query or
+ * fragment is always an operator paste mistake (e.g. copying a browser URL
+ * with `?tab=...`). Left in place they survive `new URL(path, base)` joins and
+ * produce a broken endpoint. We strip them (surfacing a warning the caller
+ * logs) and drop a trailing slash so joins are predictable.
+ */
+function normalized(parsed: URL): PortalUrlCheck {
+  let warning: string | undefined;
+  if (parsed.search || parsed.hash) {
+    warning =
+      `portal URL carried a query string or fragment which was ignored ` +
+      `(${parsed.search}${parsed.hash}). If your portal lives under a path ` +
+      `prefix, keep only the path, not query parameters.`;
+    parsed.search = "";
+    parsed.hash = "";
+  }
+  const path = parsed.pathname.replace(/\/+$/, "");
+  const url = `${parsed.protocol}//${parsed.host}${path}`;
+  return warning ? { ok: true, url, warning } : { ok: true, url };
+}
+
+/**
+ * L23: join a root-absolute portal endpoint path (e.g. "/api/pvs/events") onto
+ * a validated base URL with the WHATWG URL parser instead of string
+ * concatenation. This is `//`-safe regardless of whether the base has a
+ * trailing slash and cannot be fooled by a stray query/fragment on the base
+ * (an absolute path resolves against the base's origin). All portal endpoints
+ * the agent calls are root-absolute, which is why this resolves against the
+ * origin by design.
+ */
+export function portalEndpoint(base: string, path: string): string {
+  return new URL(path, base).toString();
 }

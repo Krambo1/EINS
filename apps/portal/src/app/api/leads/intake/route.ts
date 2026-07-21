@@ -36,6 +36,10 @@ const QuizBody = z.object({
     .enum(["asap", "this-month", "next-3-months", "later", "info-only"])
     .optional(),
   experience: z.enum(["first", "had-similar", "had-this"]).optional(),
+  /** Quiz v2 investment gate (OP-level flows). */
+  budget: z.enum(["ja", "unsicher", "erst-informieren"]).optional(),
+  /** Quiz v2 distance step (OP-level flows). */
+  distance: z.enum(["in-der-naehe", "bis-1-stunde", "weiter-entfernt"]).optional(),
   branch: z.enum(["qualified", "info-only"]),
   city: z.string().max(80).optional(),
   notes: z.string().max(1000).optional(),

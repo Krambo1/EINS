@@ -40,6 +40,7 @@ import { processPvsLeadTokenWrite } from "./processors/pvs-lead-token-write";
 import { processPvsPartitionRotate } from "./processors/pvs-partition-rotate";
 import { processPvsReconcile } from "./processors/pvs-reconcile";
 import { processPvsTreatmentSuggest } from "./processors/pvs-treatment-suggest";
+import { processPvsAgentHealthScan } from "./processors/pvs-agent-health-scan";
 import { processCapiPurchase } from "./processors/capi-purchase";
 import { processOciPurchase } from "./processors/oci-purchase";
 import { processForecastSnapshot } from "./processors/forecast-snapshot";
@@ -99,7 +100,7 @@ interface QueueDef {
   handler: PgBoss.WorkHandler<unknown>;
 }
 
-// One entry per processor queue (24). Concurrency is intentionally serial
+// One entry per processor queue (25). Concurrency is intentionally serial
 // (batchSize 1) — volume is ~zero and per-job retry isolation matters more
 // than parallelism. Latency-sensitive queues simply poll faster.
 const QUEUE_DEFS: QueueDef[] = [
@@ -123,6 +124,7 @@ const QUEUE_DEFS: QueueDef[] = [
   { name: QUEUES.pvsPartitionRotate, handler: wrap("pvs-partition-rotate", processPvsPartitionRotate) },
   { name: QUEUES.pvsReconcile, handler: wrap("pvs-reconcile", processPvsReconcile) },
   { name: QUEUES.pvsTreatmentSuggest, handler: wrap("pvs-treatment-suggest", processPvsTreatmentSuggest) },
+  { name: QUEUES.pvsAgentHealthScan, handler: wrap("pvs-agent-health-scan", processPvsAgentHealthScan) },
   { name: QUEUES.capiPurchase, handler: wrap("capi-purchase", processCapiPurchase) },
   { name: QUEUES.ociPurchase, handler: wrap("oci-purchase", processOciPurchase) },
   { name: QUEUES.forecastSnapshot, handler: wrap("forecast-snapshot", processForecastSnapshot) },

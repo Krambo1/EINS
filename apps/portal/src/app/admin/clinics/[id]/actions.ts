@@ -2,7 +2,7 @@
 
 import { revalidatePath, revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { requireAdmin } from "@/auth/admin-guards";
 import { db, schema } from "@/db/client";
@@ -358,3 +358,83 @@ export async function unarchiveClinicAction(formData: FormData) {
   revalidatePath("/admin/clinics");
 }
 
+
+// ---------------------------------------------------------------
+// Client uploads ("Dateien an EINS") — EINS-side read receipt.
+// ---------------------------------------------------------------
+
+const SeenUploadSchema = z.object({
+  clinicId: z.string().uuid(),
+  uploadId: z.string().uuid(),
+  seen: z.enum(["0", "1"]),
+});
+
+export async function setClientUploadSeenAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const parsed = SeenUploadSchema.safeParse(Object.fromEntries(formData));
+  if (!parsed.success) {
+    throw new Error("validation failed: " + parsed.error.issues[0]?.message);
+  }
+  const { clinicId, uploadId } = parsed.data;
+  const seen = parsed.data.seen === "1";
+
+  const [before] = await db
+    .select()
+    .from(schema.clientUploads)
+    .where(
+      and(
+        eq(schema.clientUploads.id, uploadId),
+        eq(schema.clientUploads.clinicId, clinicId)
+      )
+    )
+    .limit(1);
+  if (!before) throw new Error("client_upload_not_found");
+
+  await db
+    .update(schema.clientUploads)
+    .set(
+      seen
+        ? { seenAt: new Date(), seenBy: admin.email }
+        : { seenAt: null, seenBy: null }
+    )
+    .where(eq(schema.clientUploads.id, before.id));
+
+  await writeAudit({
+    clinicId,
+    actorEmail: admin.email,
+    action: seen ? "approve" : "reject",
+    entityKind: "client_upload",
+    entityId: uploadId,
+    diff: { filename: before.originalFilename, seen },
+  });
+
+  revalidatePath(`/admin/clinics/${clinicId}`);
+  revalidatePath("/dateien");
+}
+
+/** Mark every unseen upload of the clinic as seen — one click after review. */
+export async function markAllClientUploadsSeenAction(formData: FormData) {
+  const admin = await requireAdmin();
+  const clinicId = z.string().uuid().parse(formData.get("clinicId"));
+
+  await db
+    .update(schema.clientUploads)
+    .set({ seenAt: new Date(), seenBy: admin.email })
+    .where(
+      and(
+        eq(schema.clientUploads.clinicId, clinicId),
+        isNull(schema.clientUploads.seenAt)
+      )
+    );
+
+  await writeAudit({
+    clinicId,
+    actorEmail: admin.email,
+    action: "approve",
+    entityKind: "client_upload",
+    diff: { allSeen: true },
+  });
+
+  revalidatePath(`/admin/clinics/${clinicId}`);
+  revalidatePath("/dateien");
+}

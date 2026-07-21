@@ -40,6 +40,8 @@ const submissionSchema = z.object({
   timeframe: z.string().optional(),
   experience: z.string().optional(),
   city: z.string().max(80).optional(),
+  budget: z.enum(["ja", "unsicher", "erst-informieren"]).optional(),
+  distance: z.enum(["in-der-naehe", "bis-1-stunde", "weiter-entfernt"]).optional(),
   firstName: z.string().min(1).max(60).optional(),
   email: z.string().email().max(120),
   phone: z.string().max(40).optional(),
@@ -271,7 +273,9 @@ export async function POST(req: NextRequest) {
   }
 
   const capiToken = envTokenForSlug(clinic.slug);
-  if (fresh && clinic.connectors.metaPixelId && capiToken) {
+  // Lead goes to Meta ONLY for the qualified branch — info-only requests
+  // would teach the pixel to optimize on low-intent traffic.
+  if (fresh && payload.branch === "qualified" && clinic.connectors.metaPixelId && capiToken) {
     tasks.push(
       sendMetaCapi({
         pixelId: clinic.connectors.metaPixelId,

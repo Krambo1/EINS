@@ -9,15 +9,15 @@ export function StalledLeadsQueue({ rows }: { rows: StalledLeadRow[] }) {
   return (
     <QueueShell
       id="stagnierte"
-      title="Stagnierte Leads"
+      title="Stagnierte Anfragen"
       description="Anfragen, die länger als 7 Tage in einer offenen Status-Stufe stehen."
       count={rows.length}
       tone="warn"
-      emptyMessage="Pipeline läuft sauber durch — keine Stagnationen."
+      emptyMessage="Pipeline läuft sauber durch, keine Stagnationen."
     >
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="text-left text-xs text-fg-secondary">
+          <thead className="text-left text-xs font-medium text-fg-secondary">
             <tr>
               <th className="py-2">Praxis</th>
               <th className="py-2">Kontakt</th>
@@ -50,7 +50,7 @@ export function StalledLeadsQueue({ rows }: { rows: StalledLeadRow[] }) {
                 <td className="py-2 text-right text-xs text-fg-secondary">
                   {formatRelative(r.createdAt)}
                 </td>
-                <td className="py-2 text-right font-mono tabular-nums">
+                <td className="py-2 text-right tabular-nums">
                   {r.ageDays}
                 </td>
               </tr>

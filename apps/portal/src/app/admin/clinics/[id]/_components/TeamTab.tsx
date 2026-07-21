@@ -4,8 +4,6 @@ import { formatRelative } from "@/lib/formatting";
 import type { schema } from "@/db/client";
 import { ImpersonateButton } from "./ImpersonateButton";
 
-const GLOW_CARD = "!bg-bg-secondary";
-
 type TeamMember = typeof schema.clinicUsers.$inferSelect;
 
 export function TeamTab({ team }: { team: TeamMember[] }) {
@@ -29,7 +27,7 @@ export function TeamTab({ team }: { team: TeamMember[] }) {
         />
       </div>
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardHeader>
           <CardTitle>Team ({team.length})</CardTitle>
           <CardDescription>
@@ -45,7 +43,7 @@ export function TeamTab({ team }: { team: TeamMember[] }) {
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="border-t border-border bg-bg-secondary text-left text-xs text-fg-secondary">
+                <thead className="border-t border-border bg-bg-secondary text-left text-xs font-medium text-fg-secondary">
                   <tr>
                     <th className="px-4 py-2">E-Mail</th>
                     <th className="px-4 py-2">Name</th>
@@ -62,7 +60,7 @@ export function TeamTab({ team }: { team: TeamMember[] }) {
                       className="border-t border-border last:border-b-0"
                     >
                       <td className="px-4 py-2 font-mono text-xs">{u.email}</td>
-                      <td className="px-4 py-2">{u.fullName ?? "—"}</td>
+                      <td className="px-4 py-2">{u.fullName ?? "–"}</td>
                       <td className="px-4 py-2">
                         <Badge tone={u.role === "inhaber" ? "good" : "neutral"}>
                           {ROLE_LABELS[u.role as Role] ?? u.role}
@@ -82,7 +80,7 @@ export function TeamTab({ team }: { team: TeamMember[] }) {
                       </td>
                       <td className="px-4 py-2 text-right">
                         {u.archivedAt ? (
-                          <span className="text-xs text-fg-secondary">—</span>
+                          <span className="text-xs text-fg-secondary">–</span>
                         ) : (
                           <ImpersonateButton
                             targetUserId={u.id}
@@ -113,7 +111,7 @@ function Stat({
 }) {
   return (
     <div className="rounded-xl border border-border bg-bg-secondary p-4">
-      <div className="font-mono text-[0.6875rem] uppercase tracking-[0.18em] text-fg-secondary">
+      <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
         {label}
       </div>
       <div

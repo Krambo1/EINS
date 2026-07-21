@@ -55,27 +55,19 @@ function daysAgo(days: number, hourOffset = 0): Date {
 }
 
 /**
- * Pick a `daysBack` so the resulting date falls in a chosen month bucket.
- * Bucket 0 = current month, 1 = prior month, 2 = two months ago.
- * Keeps dashboard "current month" cards densely populated while still
- * providing prior-period rows for delta comparisons.
+ * Pick a `daysBack` (offset from the run date) inside a rolling-window bucket.
+ * The windows are anchored to NOW, never to calendar-month boundaries, so a
+ * fresh seed always lands data inside the dashboard's default "Monat" window
+ * (last 30 days) regardless of what day of the month the seed runs.
+ *
+ *   Bucket 0 = last 30 days   → dense; feeds the default "Monat" cards.
+ *   Bucket 1 = ~1–4 months    → prior-period deltas + a live "Jahr" mid-section.
+ *   Bucket 2 = ~4–12 months   → trailing tail so "Jahr" and "Max" look alive.
  */
-function daysBackInBucket(today: Date, bucket: 0 | 1 | 2): number {
-  const dayOfMonth = today.getDate();
-  if (bucket === 0) {
-    // Anywhere from the 1st of this month through today.
-    return randomInt(0, dayOfMonth - 1);
-  }
-  if (bucket === 1) {
-    const priorMonthLast = new Date(today.getFullYear(), today.getMonth(), 0);
-    const priorMonthDays = priorMonthLast.getDate();
-    return randomInt(dayOfMonth, dayOfMonth + priorMonthDays - 1);
-  }
-  // bucket === 2
-  const twoMonthsAgoLast = new Date(today.getFullYear(), today.getMonth() - 1, 0);
-  const priorMonthLast = new Date(today.getFullYear(), today.getMonth(), 0);
-  const minBack = dayOfMonth + priorMonthLast.getDate();
-  return randomInt(minBack, minBack + twoMonthsAgoLast.getDate() - 1);
+function daysBackInBucket(bucket: 0 | 1 | 2): number {
+  if (bucket === 0) return randomInt(0, 29);
+  if (bucket === 1) return randomInt(30, 120);
+  return randomInt(120, 350);
 }
 
 // ----- Fixture content -----
@@ -227,11 +219,15 @@ async function main() {
       return treatmentIdBySlug["sonstige"] ?? null;
     }
 
-    // --- realistic requests, weighted into current month so dashboard cards fill ---
-    // Distribution (today = anchor):
-    //   60% in current month (dashboard "diesen Monat" cards)
-    //   30% in prior month  (delta-vs-prior comparisons)
-    //   10% two months back (longer trend lines, cohorts)
+    // --- realistic requests, weighted into the trailing 30 days so dashboard
+    // cards fill on a fresh seed, with a tail across the year so "Jahr"/"Max"
+    // are alive too. All offsets are relative to the run date (see
+    // daysBackInBucket), never calendar months, so re-seeding on any day
+    // always populates the default "Monat" window.
+    // Distribution (now = anchor):
+    //   60% in the last 30 days (default "Monat" cards)
+    //   25% in the prior ~3 months (delta-vs-prior comparisons)
+    //   15% across the trailing 4–12 months (year-long trend lines, cohorts)
     const statuses = [
       "neu","neu","neu","neu","neu",
       "termin_vereinbart","termin_vereinbart",
@@ -241,7 +237,6 @@ async function main() {
     ] as const;
 
     const REQUEST_COUNT = 80;
-    const today = new Date();
 
     let newCount = 0;
     /** Track patient rows per email so repeat customers aggregate. */
@@ -253,10 +248,12 @@ async function main() {
     > = {};
     for (let i = 0; i < REQUEST_COUNT; i++) {
       const r = Math.random();
-      const bucket: 0 | 1 | 2 = r < 0.6 ? 0 : r < 0.9 ? 1 : 2;
-      const daysBack = daysBackInBucket(today, bucket);
+      const bucket: 0 | 1 | 2 = r < 0.6 ? 0 : r < 0.85 ? 1 : 2;
+      // First three in the loop are forced fresh: "neu" AND within the last
+      // few days, so the dashboard headline always has brand-new Anfragen at
+      // the very top on any fresh seed.
+      const daysBack = i < 3 ? randomInt(0, 4) : daysBackInBucket(bucket);
       const createdAt = daysAgo(daysBack, randomInt(0, 8));
-      // First three in the loop stay "neu" so the dashboard always shows fresh ones.
       const status = i < 3 ? "neu" : pick(statuses);
       const source = pick(SOURCES);
       // 25% chance to repeat a previously-seen contact so LTV accumulates.
@@ -458,8 +455,9 @@ async function main() {
         ${inhaberId})
     `;
 
-    // --- campaign snapshots last 60 days (covers current + prior month for delta) ---
-    for (let i = 0; i < 60; i++) {
+    // --- campaign snapshots last 365 days (covers current + prior month for
+    // delta, and the full "Jahr"/"Max" trend windows) ---
+    for (let i = 0; i < 365; i++) {
       const date = new Date();
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().slice(0, 10);
@@ -487,9 +485,10 @@ async function main() {
     }
 
     // --- kpi_daily rollup (coarse — worker recomputes nightly) ---
-    // 60 days so the dashboard's "Tagesverlauf · 14 Tage" sparklines and the
-    // prior-period delta chips both have rows to aggregate.
-    for (let i = 0; i < 60; i++) {
+    // 365 days so the dashboard's short sparklines, the prior-period delta
+    // chips, and the "Jahr"/"Max" revenue + funnel windows all have rows to
+    // aggregate on a fresh seed.
+    for (let i = 0; i < 365; i++) {
       const date = new Date();
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().slice(0, 10);
@@ -717,8 +716,8 @@ async function main() {
     console.log(`  inhaber:    inhaber@praxis-demo.de`);
     console.log(`  marketing:  marketing@praxis-demo.de`);
     console.log(`  frontdesk:  frontdesk@praxis-demo.de`);
-    console.log(`  Anfragen:   ${REQUEST_COUNT} (${newCount} neu, schwerpunktmäßig im laufenden Monat)`);
-    console.log(`  KPI-Tage:   60`);
+    console.log(`  Anfragen:   ${REQUEST_COUNT} (${newCount} neu, Schwerpunkt in den letzten 30 Tagen)`);
+    console.log(`  KPI-Tage:   365`);
     console.log(`  Werbekonten: meta + google verbunden (Demo-Token)`);
     console.log(
       `  Leitfaden:   ${leitfadenPdf.byteLength.toLocaleString("de-DE")} Bytes PDF → ${leitfadenKey} (Dokumente)`

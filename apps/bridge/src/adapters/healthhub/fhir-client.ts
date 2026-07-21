@@ -1,5 +1,6 @@
 import type { PvsLinkRow } from "../../db/client.js";
 import type { FhirBundle } from "../_fhir/normalize-shared.js";
+import { fetchWithTimeout } from "../../http.js";
 
 /**
  * Thin FHIR client for medatixx HealthHub.
@@ -56,7 +57,7 @@ export class HealthHubFhirClient {
 
   async metadata(): Promise<{ fhirVersion?: string }> {
     await this.ensureToken();
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `${this.cfg.baseUrl.replace(/\/$/, "")}/metadata?_format=json`,
       { headers: { authorization: `Bearer ${this.accessToken}` } }
     );
@@ -73,7 +74,7 @@ export class HealthHubFhirClient {
         `?_lastUpdated=gt${encodeURIComponent(sinceIso)}&_count=${PAGE_SIZE}`;
       while (url) {
         await this.ensureToken();
-        const res = await fetch(url, {
+        const res = await fetchWithTimeout(url, {
           headers: {
             authorization: `Bearer ${this.accessToken}`,
             accept: "application/fhir+json",
@@ -100,7 +101,7 @@ export class HealthHubFhirClient {
     ) {
       return;
     }
-    const res = await fetch(this.cfg.tokenUrl, {
+    const res = await fetchWithTimeout(this.cfg.tokenUrl, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({

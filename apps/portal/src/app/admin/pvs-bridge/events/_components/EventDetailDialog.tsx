@@ -124,7 +124,7 @@ export function EventDetailDialog({ eventId, onClose }: Props) {
           message:
             body.status === "ingested"
               ? "Replay erfolgreich: neuer Event-Log-Eintrag erzeugt."
-              : "Replay deduped — derselbe Suffix existiert bereits.",
+              : "Replay dedupliziert: derselbe Suffix existiert bereits.",
           newEventLogId: body.newEventLogId ?? null,
           replayedExternalEventId: body.replayedExternalEventId,
         });
@@ -162,7 +162,7 @@ export function EventDetailDialog({ eventId, onClose }: Props) {
         )}
 
         {loadError && !loading && (
-          <div className="rounded-md border border-tone-bad/40 bg-tone-bad/10 p-3 text-sm text-fg-primary">
+          <div className="rounded-md border border-[var(--tone-bad-border)] bg-[var(--tone-bad-bg)] p-3 text-sm text-fg-primary">
             Konnte Event nicht laden: <code>{loadError}</code>
           </div>
         )}
@@ -226,19 +226,19 @@ export function EventDetailDialog({ eventId, onClose }: Props) {
                 className={
                   "rounded-md border p-3 text-xs " +
                   (replayResult.ok
-                    ? "border-tone-good/40 bg-tone-good/10"
-                    : "border-tone-bad/40 bg-tone-bad/10")
+                    ? "border-[var(--tone-good-border)] bg-[var(--tone-good-bg)]"
+                    : "border-[var(--tone-bad-border)] bg-[var(--tone-bad-bg)]")
                 }
               >
                 <p>{replayResult.message}</p>
                 {replayResult.replayedExternalEventId && (
-                  <p className="mt-1 font-mono text-fg-tertiary">
+                  <p className="mt-1 text-fg-tertiary">
                     Neue External-ID:{" "}
                     <code>{replayResult.replayedExternalEventId}</code>
                   </p>
                 )}
                 {replayResult.newEventLogId && (
-                  <p className="mt-1 font-mono text-fg-tertiary">
+                  <p className="mt-1 text-fg-tertiary">
                     Neuer Event-Log-ID:{" "}
                     <code>{replayResult.newEventLogId}</code>
                   </p>

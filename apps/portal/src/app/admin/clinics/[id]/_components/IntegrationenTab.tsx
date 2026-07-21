@@ -10,8 +10,6 @@ import { formatDateTime, formatRelative } from "@/lib/formatting";
 import type { schema } from "@/db/client";
 import { Brand } from "@/app/_components/Brand";
 
-const GLOW_CARD = "!bg-bg-secondary";
-
 type Cred = typeof schema.platformCredentials.$inferSelect;
 interface SyncEvent {
   id: string;
@@ -43,6 +41,35 @@ export interface AdsConversionHealth {
  * the agent has never sent a heartbeat (e.g. clinic without an on-prem
  * install — cloud adapters don't produce this signal).
  */
+/** Ein Eintrag aus pvs_agent_status.adapter_statuses (0069). */
+export interface AdapterStatusEntry {
+  vendor: string;
+  stream: string;
+  status: string;
+  lastError?: string | null;
+  connectError?: string | null;
+}
+
+/** Diese Zustände bedeuten: aus diesem Stream fließt nichts mehr. */
+const UNHEALTHY_ADAPTER_STATUS = new Set([
+  "error",
+  "schema_drift",
+  "config_invalid",
+]);
+
+const ADAPTER_STATUS_LABEL: Record<string, string> = {
+  idle: "Bereit",
+  running: "Läuft",
+  error: "Fehler",
+  schema_drift: "Schema geändert",
+  config_invalid: "Konfiguration ungültig",
+  disabled: "Deaktiviert",
+};
+
+function isAdapterUnhealthy(a: AdapterStatusEntry): boolean {
+  return UNHEALTHY_ADAPTER_STATUS.has(a.status) || Boolean(a.connectError);
+}
+
 export interface AgentStatusHealth {
   lastHeartbeatAt: Date;
   agentVersion: string | null;
@@ -50,6 +77,20 @@ export interface AgentStatusHealth {
   oldestFailedAt: Date | null;
   lastFailureReason: string | null;
   recentReasons: Array<{ reason: string; count: number }>;
+  /**
+   * 0069: liveness signals next to the dead-letter counter. Ein Backlog, das
+   * ewig neu versucht wird, ein verschobener Export-Ordner und ein nie
+   * gestarteter Runner melden alle failedEvents = 0.
+   */
+  pendingEvents: number;
+  /** Teilmenge von pendingEvents, die älter als 1 h ist: Backlog steckt. */
+  stalePendingEvents: number;
+  oldestPendingAt: Date | null;
+  /** Konfigurierte Watch-Ordner, die der Agent nicht finden kann. */
+  missingFolders: string[];
+  /** Nicht null, wenn der DB-Adapter-Runner gar nicht erst gestartet ist. */
+  dbAdaptersFailed: string | null;
+  adapterStatuses: AdapterStatusEntry[];
   /** Latest 5 prune roll-ups (most recent first). */
   recentPruneSummaries: Array<{
     id: string;
@@ -78,7 +119,7 @@ export function IntegrationenTab({
     <div className="space-y-5">
       {agentStatus !== null && <AgentStatusCard status={agentStatus} />}
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardHeader>
           <CardTitle>Werbekonten</CardTitle>
           <CardDescription>
@@ -131,7 +172,7 @@ export function IntegrationenTab({
         </CardContent>
       </Card>
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardHeader>
           <CardTitle>Closed-Loop Conversion-Outbox</CardTitle>
           <CardDescription>
@@ -171,7 +212,7 @@ export function IntegrationenTab({
                   key={r.id}
                   className="flex flex-wrap items-baseline gap-2 border-l-2 border-border pl-3"
                 >
-                  <span className="font-mono text-[11px] text-fg-tertiary">
+                  <span className="text-[11px] text-fg-tertiary tabular-nums">
                     {formatDateTime(r.createdAt)}
                   </span>
                   <Badge tone="neutral">{r.channel}</Badge>
@@ -195,7 +236,7 @@ export function IntegrationenTab({
         </CardContent>
       </Card>
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardHeader>
           <CardTitle>Sync-Historie</CardTitle>
           <CardDescription>
@@ -215,7 +256,7 @@ export function IntegrationenTab({
                   key={e.id}
                   className="flex flex-wrap items-baseline gap-2 border-l-2 border-border pl-3"
                 >
-                  <span className="font-mono text-[11px] text-fg-tertiary">
+                  <span className="text-[11px] text-fg-tertiary tabular-nums">
                     {formatDateTime(e.createdAt)}
                   </span>
                   <Badge tone="neutral">{e.action}</Badge>
@@ -297,23 +338,41 @@ function AgentStatusCard({ status }: { status: AgentStatusHealth }) {
   // is down — the operator should be alerted.
   const heartbeatStale =
     Date.now() - status.lastHeartbeatAt.getTime() > 5 * 60 * 1000;
+  // 0069: das Wartende-Backlog. Alles unter 1 h ist normaler Durchlauf
+  // (neutral), alles darüber steckt fest und muss angefasst werden (bad).
+  const pendingTone: "good" | "neutral" | "bad" =
+    status.stalePendingEvents > 0
+      ? "bad"
+      : status.pendingEvents > 0
+        ? "neutral"
+        : "good";
+  const unhealthyAdapters = status.adapterStatuses.filter(isAdapterUnhealthy);
+  const hasUnhealthyAdapters = unhealthyAdapters.length > 0;
   return (
-    <Card className={GLOW_CARD}>
+    <Card>
       <CardHeader>
         <CardTitle>GDT-Agent · Status</CardTitle>
         <CardDescription>
           Heartbeat alle 60 s vom On-Prem-Agent. Zeigt das Backlog an
           dauerhaft fehlgeschlagenen Outbox-Zeilen (Dead-Letter) und die
           häufigsten Fehlergründe. Beim Überschreiten von {ALERT_FAILED_THRESHOLD}{" "}
-          Zeilen wird die Praxis auf dem Admin-Dashboard hervorgehoben.
+          Zeilen wird die Praxis auf dem Admin-Dashboard hervorgehoben. Daneben
+          stehen die Liveness-Signale: wartendes Backlog, fehlende
+          Export-Ordner und der Zustand der einzelnen Streams. Damit lässt sich
+          eine ruhige Woche von einer kaputten Installation unterscheiden.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid grid-cols-3 gap-3 text-xs">
+        <div className="grid grid-cols-2 gap-3 text-xs md:grid-cols-4">
           <OutboxStat
             label="Dead-Letter"
             value={status.failedEvents}
             tone={failedTone}
+          />
+          <OutboxStat
+            label="Wartend"
+            value={status.pendingEvents}
+            tone={pendingTone}
           />
           <div className="rounded-md border border-border bg-bg-secondary px-2.5 py-2">
             <div className="text-fg-secondary">Letzter Heartbeat</div>
@@ -322,7 +381,7 @@ function AgentStatusCard({ status }: { status: AgentStatusHealth }) {
                 {formatRelative(status.lastHeartbeatAt)}
               </span>
               <div className="text-[10px] text-fg-tertiary">
-                v{status.agentVersion ?? "—"}
+                v{status.agentVersion ?? "–"}
               </div>
             </div>
           </div>
@@ -332,11 +391,92 @@ function AgentStatusCard({ status }: { status: AgentStatusHealth }) {
               <span className="text-sm font-semibold">
                 {status.oldestFailedAt
                   ? formatRelative(status.oldestFailedAt)
-                  : "—"}
+                  : "–"}
               </span>
             </div>
           </div>
         </div>
+        {status.stalePendingEvents > 0 && (
+          <div className="rounded-md border border-tone-bad bg-bg-secondary px-3 py-2 text-xs">
+            <div className="font-semibold text-tone-bad">
+              Backlog steckt fest
+            </div>
+            <div className="mt-0.5 text-fg-primary">
+              {status.stalePendingEvents} von {status.pendingEvents} wartenden
+              Zeilen liegen seit über einer Stunde in der Outbox. Der Agent
+              sendet, die Zeilen kommen aber nicht an.
+              {status.oldestPendingAt && (
+                <> Ältester Eintrag: {formatRelative(status.oldestPendingAt)}.</>
+              )}
+            </div>
+          </div>
+        )}
+        {status.missingFolders.length > 0 && (
+          <div className="rounded-md border border-tone-bad bg-bg-secondary px-3 py-2 text-xs">
+            <div className="font-semibold text-tone-bad">
+              Export-Ordner nicht gefunden
+            </div>
+            <div className="mt-0.5 text-fg-primary">
+              Der Agent findet {status.missingFolders.length} konfigurierte{" "}
+              {status.missingFolders.length === 1 ? "Ablage" : "Ablagen"} nicht.
+              Aus {status.missingFolders.length === 1 ? "ihr" : "ihnen"} kann
+              nichts eingelesen werden, solange der Pfad falsch ist.
+            </div>
+            <ul className="mt-1.5 space-y-1">
+              {status.missingFolders.map((f) => (
+                <li
+                  key={f}
+                  className="truncate border-l-2 border-border pl-3 font-mono text-fg-primary"
+                  title={f}
+                >
+                  {f}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {status.dbAdaptersFailed && (
+          <div className="rounded-md border border-tone-bad bg-bg-secondary px-3 py-2 text-xs">
+            <div className="font-semibold text-tone-bad">
+              DB-Adapter nicht gestartet
+            </div>
+            <div className="mt-0.5 text-fg-primary">
+              Kein einziger Datenbank-Stream läuft. Aus dem PVS kommen deshalb
+              keine Umsätze an.
+            </div>
+            <div
+              className="mt-1.5 truncate border-l-2 border-border pl-3 font-mono text-fg-primary"
+              title={status.dbAdaptersFailed}
+            >
+              {status.dbAdaptersFailed}
+            </div>
+          </div>
+        )}
+        {status.adapterStatuses.length > 0 &&
+          (hasUnhealthyAdapters ? (
+            <div className="rounded-md border border-tone-bad bg-bg-secondary px-3 py-2 text-xs">
+              <div className="font-semibold text-tone-bad">
+                {unhealthyAdapters.length} von {status.adapterStatuses.length}{" "}
+                Streams liefern nichts
+              </div>
+              <ul className="mt-1.5 space-y-1.5">
+                {status.adapterStatuses.map((a) => (
+                  <AdapterStatusRow key={`${a.vendor}:${a.stream}`} adapter={a} />
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <details className="rounded-md border border-border bg-bg-secondary px-3 py-2 text-xs">
+              <summary className="cursor-pointer text-fg-secondary">
+                Alle {status.adapterStatuses.length} Streams laufen
+              </summary>
+              <ul className="mt-2 space-y-1.5">
+                {status.adapterStatuses.map((a) => (
+                  <AdapterStatusRow key={`${a.vendor}:${a.stream}`} adapter={a} />
+                ))}
+              </ul>
+            </details>
+          ))}
         {status.lastFailureReason && (
           <div className="rounded-md border border-border bg-bg-secondary px-3 py-2 text-xs">
             <div className="text-fg-secondary">Letzter Grund</div>
@@ -376,7 +516,7 @@ function AgentStatusCard({ status }: { status: AgentStatusHealth }) {
                   key={p.id}
                   className="flex flex-wrap items-baseline gap-2 border-l-2 border-border pl-3"
                 >
-                  <span className="font-mono text-[11px] text-fg-tertiary">
+                  <span className="text-[11px] text-fg-tertiary tabular-nums">
                     {formatDateTime(p.reportedAt)}
                   </span>
                   <Badge tone="warn">{p.prunedCount} gelöscht</Badge>
@@ -398,6 +538,41 @@ function AgentStatusCard({ status }: { status: AgentStatusHealth }) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Eine Zeile pro Vendor-Stream. Der Fehlertext steht direkt darunter, damit
+ * man beim Überfliegen sieht, warum ein Stream nichts liefert.
+ */
+function AdapterStatusRow({ adapter }: { adapter: AdapterStatusEntry }) {
+  const unhealthy = isAdapterUnhealthy(adapter);
+  const detail = adapter.connectError ?? adapter.lastError ?? null;
+  return (
+    <li className="border-l-2 border-border pl-3">
+      <div className="flex flex-wrap items-baseline gap-2">
+        <span className="font-medium text-fg-primary">{adapter.vendor}</span>
+        <span className="font-mono text-[11px] text-fg-secondary">
+          {adapter.stream}
+        </span>
+        <Badge tone={unhealthy ? "bad" : "good"}>
+          {ADAPTER_STATUS_LABEL[adapter.status] ?? adapter.status}
+        </Badge>
+        {adapter.connectError && (
+          <span className="text-[11px] text-tone-bad">keine Verbindung</span>
+        )}
+      </div>
+      {detail && (
+        <div
+          className={`mt-0.5 truncate font-mono text-[11px] ${
+            unhealthy ? "text-tone-bad" : "text-fg-secondary"
+          }`}
+          title={detail}
+        >
+          {detail}
+        </div>
+      )}
+    </li>
   );
 }
 

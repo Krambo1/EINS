@@ -103,6 +103,11 @@ export type CsvMapping =
         pvsEncounterId?: string;
         amount: string;
         paidAt: string;
+        /** Optional Zahlstatus column. When set, only rows whose value reads
+         *  as paid emit InvoicePaid; offen / storniert rows are skipped so an
+         *  "export all invoices" file cannot book every open invoice as
+         *  revenue (H2). */
+        statusColumn?: string;
       };
     });
 
@@ -112,6 +117,18 @@ export interface CsvMapRowContext {
    *  only as a *fallback* when a row's natural key (pvsInvoiceId,
    *  pvsAppointmentId, ...) is missing. */
   fileHash: string;
+  /**
+   * ISO-8601 UTC modification time of the source CSV file, supplied by the
+   * watcher. The patients stream carries no per-row business date (dob is the
+   * birth date, not a record date), so PatientUpserted derives its occurredAt
+   * from this stable file mtime instead of the wall clock; re-processing the
+   * same export then produces byte-identical events and the portal dedups them
+   * (H4). Optional for back-compat: when the watcher does not set it, the
+   * previous wall-clock fallback applies. All other streams already key
+   * occurredAt off a real row date (scheduledAt / completedAt / recallAt /
+   * paidAt) and are unaffected.
+   */
+  fileModifiedAtIso?: string;
   rowIndex: number;
   row: Record<string, string>;
   mapping: CsvMapping;
@@ -150,10 +167,16 @@ function mapPatientRow(
   const dob = v.dob ? parseDate(v.dob, m.dateFormat) : null;
   if (v.dob && !dob) return { ok: false, reason: `invalid dob: ${v.dob}` };
 
-  // If the CSV splits name into first + last columns, recombine.
+  // M-P4: when the CSV carries a Vorname-like column AND a Name/Nachname-like
+  // column, prefer recombining first + last over treating a bare "Name" column
+  // as the full name. A bare "Name" header resolves to BOTH fullName and
+  // lastName; the old `v.fullName ?? recombine` let the fullName alias win and
+  // silently dropped the Vorname for the standard German "Vorname; Name" pair.
+  // Recombination wins whenever both a first and a last name are present.
+  const recombined =
+    [v.firstName, v.lastName].filter(Boolean).join(" ") || null;
   const fullName =
-    v.fullName ??
-    ([v.firstName, v.lastName].filter(Boolean).join(" ") || null);
+    v.firstName && v.lastName ? recombined : v.fullName ?? recombined;
 
   const email = v.email && isEmail(v.email) ? v.email.toLowerCase() : undefined;
 
@@ -162,7 +185,11 @@ function mapPatientRow(
     clinicId: ctx.clinicId,
     bridgeSource: "gdt_agent",
     pvsExternalEventId: `csv-local:patient:${v.pvsPatientId}`,
-    occurredAt: new Date().toISOString(),
+    // H4: deterministic occurredAt. The event id keys on the stable patient id,
+    // so prefer the file mtime (stable across re-exports) over the wall clock;
+    // the latter only survives as the back-compat fallback until the watcher
+    // passes fileModifiedAtIso.
+    occurredAt: ctx.fileModifiedAtIso ?? new Date().toISOString(),
     pvsPatientId: v.pvsPatientId,
     email,
     phone: v.phone ?? undefined,
@@ -303,13 +330,45 @@ function mapInvoiceRow(
   const paidAt = parseDateTime(v.paidAt, m.dateFormat);
   if (!paidAt) return { ok: false, reason: `invalid paidAt: ${v.paidAt}` };
 
-  const amountCents = parseAmountToCents(
-    v.amount,
-    m.amountUnit,
-    m.decimalSeparator
-  );
+  const amountCents = parseAmountToCents(v.amount, m.amountUnit);
   if (amountCents === null) {
     return { ok: false, reason: `invalid amount: ${v.amount}` };
+  }
+
+  // H1: negative amounts are Stornobuchungen. Map them to InvoiceRefunded with
+  // the absolute magnitude and a dedicated id namespace (csv-local:invoice-
+  // refund:) so a refund can never collide with the paid event of the same
+  // invoice. This happens BEFORE the status gate: a storniert row with a
+  // negative amount is still a real refund.
+  if (amountCents < 0) {
+    const refund: CanonicalEvent = {
+      kind: "InvoiceRefunded",
+      clinicId: ctx.clinicId,
+      bridgeSource: "gdt_agent",
+      pvsExternalEventId: `csv-local:invoice-refund:${v.pvsInvoiceId}`,
+      occurredAt: paidAt,
+      pvsPatientId: v.pvsPatientId,
+      pvsInvoiceId: v.pvsInvoiceId,
+      pvsAppointmentId: v.pvsAppointmentId ?? undefined,
+      refundedAmountCents: Math.abs(amountCents),
+      currency: "EUR",
+      refundedAt: paidAt,
+    };
+    return { ok: true, events: [refund] };
+  }
+
+  // H2: when a Zahlstatus column is mapped, a positive row only counts as
+  // revenue if the status reads as paid. Open / storniert / unknown rows are
+  // skipped with a distinct, counted reason (the watcher tallies skips and
+  // logs the first few). Without a status column, behavior is unchanged: the
+  // row is booked as paid.
+  if (m.columns.statusColumn) {
+    if (!isPaidInvoiceStatus(v.statusColumn)) {
+      return {
+        ok: false,
+        reason: `invoice not paid (status=${v.statusColumn ?? "<empty>"}); skipped`,
+      };
+    }
   }
 
   const event: CanonicalEvent = {
@@ -379,10 +438,25 @@ const ALIASES: Record<string, RegExp[]> = {
     /^gesamt$/i,
   ],
   paidAt: [
+    // H2: `rechnungsdatum` (and other invoice-DATE aliases) are intentionally
+    // NOT here. A PVS that exports offen + bezahlt invoices with only a
+    // Rechnungsdatum would otherwise book every open invoice as paid revenue.
+    // Rechnungsdatum may still serve as paidAt via an EXPLICIT operator column
+    // mapping (mapping.columns.paidAt = "Rechnungsdatum"), which bypasses this
+    // auto-detection table entirely.
     /^bezahl[t]?[\s\-_.]*(am|datum)?$/i,
     /^zahldatum$/i,
-    /^rechnungsdatum$/i,
+    /^zahlungsdatum$/i,
     /^paid[\s\-_.]*at$/i,
+  ],
+  invoiceStatus: [
+    /^zahlungs?status$/i,
+    /^zahlstatus$/i,
+    /^rechnungs?status$/i,
+    /^status$/i,
+    /^bezahlt$/i,
+    /^paid$/i,
+    /^payment[\s\-_.]*status$/i,
   ],
   scheduledAt: [
     /^termin[\s\-_.]*datum$/i,
@@ -587,6 +661,7 @@ export function autoDetectMapping(headers: string[]): CsvMapping | null {
         pvsEncounterId: resolved.pvsEncounterId,
         amount: resolved.amount,
         paidAt: resolved.paidAt,
+        statusColumn: resolved.invoiceStatus,
       },
       dateFormat: "DD.MM.YYYY",
       amountUnit: "eur",
@@ -636,20 +711,76 @@ function pluckColumns<T extends Record<string, string | undefined>>(
 function parseDate(input: string, format: CommonOpts["dateFormat"]): string | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
+  // M-P5: each branch validates SHAPE, then real CALENDAR validity below. The
+  // old code was shape-only, so "99.99.2026" produced "2026-99-99" and shipped
+  // downstream to fail far from the source. Invalid calendar dates now return
+  // null and are treated like any unparseable date (skip/null per the caller).
+  let year: number;
+  let month: number;
+  let day: number;
   if (format === "YYYY-MM-DD") {
-    return /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : null;
-  }
-  if (format === "DD.MM.YYYY") {
+    const m = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    year = Number(m[1]);
+    month = Number(m[2]);
+    day = Number(m[3]);
+  } else if (format === "DD.MM.YYYY") {
     const m = trimmed.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
     if (!m) return null;
-    return `${m[3]}-${m[2]}-${m[1]}`;
-  }
-  if (format === "MM/DD/YYYY") {
+    day = Number(m[1]);
+    month = Number(m[2]);
+    year = Number(m[3]);
+  } else if (format === "MM/DD/YYYY") {
     const m = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
     if (!m) return null;
-    return `${m[3]}-${m[1]}-${m[2]}`;
+    month = Number(m[1]);
+    day = Number(m[2]);
+    year = Number(m[3]);
+  } else {
+    return null;
   }
-  return null;
+  if (!isValidCalendarDate(year, month, day)) return null;
+  const mm = String(month).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  return `${year}-${mm}-${dd}`;
+}
+
+/**
+ * M-P5: true when (year, month, day) is a real calendar date. Month 1-12 and
+ * day within the month's length, accounting for leap years. Rejects the
+ * shape-valid but impossible dates ("99.99.2026", "31.02.2026") that the
+ * shape-only regex used to accept.
+ */
+function isValidCalendarDate(
+  year: number,
+  month: number,
+  day: number
+): boolean {
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day)
+  ) {
+    return false;
+  }
+  if (month < 1 || month > 12) return false;
+  if (day < 1) return false;
+  const isLeap = (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+  const daysInMonth = [
+    31,
+    isLeap ? 29 : 28,
+    31,
+    30,
+    31,
+    30,
+    31,
+    31,
+    30,
+    31,
+    30,
+    31,
+  ];
+  return day <= daysInMonth[month - 1];
 }
 
 function parseDateTime(
@@ -661,9 +792,7 @@ function parseDateTime(
   if (!trimmed) return null;
 
   if (format === "ISO_DATETIME") {
-    const d = new Date(trimmed);
-    if (Number.isNaN(d.getTime())) return null;
-    return d.toISOString();
+    return parseIsoDateTime(trimmed);
   }
   // Many PVS exports of "datetime" fields include the time as
   // "DD.MM.YYYY HH:MM" or "DD.MM.YYYY HH:MM:SS". Strip the time and
@@ -674,23 +803,214 @@ function parseDateTime(
   return `${date}T00:00:00.000Z`;
 }
 
+/** IANA zone the PVS-exported wall-clock datetimes are stamped in (L7). */
+const PVS_WALL_TIME_ZONE = "Europe/Berlin";
+
+/**
+ * Parse an ISO_DATETIME cell into an ISO-8601 UTC instant with an EXPLICIT,
+ * machine-TZ-independent interpretation (L7).
+ *
+ * The old code called `new Date(isoString).toISOString()`. For a string WITHOUT
+ * an offset, the JS Date constructor interprets a date+time value in the host
+ * machine's local zone but a date-only value in UTC, so the same export
+ * produced different instants depending on the workstation's TZ setting. German
+ * PVS export offset-less wall-clock time, which in practice is Europe/Berlin.
+ * We therefore:
+ *   - respect an explicit offset (Z or ±HH:MM) when present;
+ *   - interpret an offset-less date+time as Europe/Berlin wall time;
+ *   - pin an offset-less date-only value to UTC midnight (date semantics,
+ *     matching the DD.MM.YYYY path).
+ * Under Europe/Berlin the output equals the previous behaviour; the difference
+ * is that it is now the SAME on every machine.
+ */
+function parseIsoDateTime(s: string): string | null {
+  // Explicit offset present (trailing Z or ±HH:MM / ±HHMM): trust the instant.
+  if (/(?:z|[+-]\d{2}:?\d{2})$/i.test(s)) {
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  // Offset-less date + time: interpret as Europe/Berlin wall time.
+  const dt = s.match(
+    /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/
+  );
+  if (dt) {
+    const [, y, mo, d, h, mi, se] = dt;
+    if (!isValidCalendarDate(Number(y), Number(mo), Number(d))) return null;
+    return wallTimeToUtcIso(
+      PVS_WALL_TIME_ZONE,
+      Number(y),
+      Number(mo),
+      Number(d),
+      Number(h),
+      Number(mi),
+      se ? Number(se) : 0
+    );
+  }
+  // Offset-less date only: date semantics, pin to UTC midnight.
+  const dOnly = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dOnly) {
+    const [, y, mo, d] = dOnly;
+    if (!isValidCalendarDate(Number(y), Number(mo), Number(d))) return null;
+    return `${y}-${mo}-${d}T00:00:00.000Z`;
+  }
+  // Anything else: last-resort parse, still explicit (no silent local-TZ
+  // datetime interpretation reaches here because the date+time shape is handled
+  // above).
+  const d = new Date(s);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/**
+ * Convert a wall-clock date/time in an IANA zone to an ISO-8601 UTC instant,
+ * DST-correct, without a date library. Computes the zone's UTC offset for the
+ * given instant via Intl and subtracts it. Accurate outside the ~1h DST-gap
+ * window, which does not matter for PVS appointment/invoice timestamps.
+ */
+function wallTimeToUtcIso(
+  timeZone: string,
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number
+): string {
+  const naiveUtcMs = Date.UTC(year, month - 1, day, hour, minute, second);
+  const offsetMin = zoneOffsetMinutes(timeZone, naiveUtcMs);
+  return new Date(naiveUtcMs - offsetMin * 60_000).toISOString();
+}
+
+/** UTC offset (minutes, east-positive) of `timeZone` at the given instant. */
+function zoneOffsetMinutes(timeZone: string, utcMs: number): number {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const parts = dtf.formatToParts(new Date(utcMs));
+  const get = (t: string): number =>
+    Number(parts.find((p) => p.type === t)?.value);
+  let hour = get("hour");
+  if (hour === 24) hour = 0; // some engines render midnight as 24
+  const asIfUtc = Date.UTC(
+    get("year"),
+    get("month") - 1,
+    get("day"),
+    hour,
+    get("minute"),
+    get("second")
+  );
+  return Math.round((asIfUtc - utcMs) / 60_000);
+}
+
+// Plausibility counter (H3). A single-invoice amount outside 0 < x <= 100_000
+// EUR is logged with a running count but NOT dropped: the value could be a
+// legitimate large procedure, and dropping it would silently understate
+// revenue. The count lets the operator spot a systematic locale/parse defect.
+let implausibleAmountCount = 0;
+
+function guardPlausibleCents(cents: number, raw: string): number {
+  const abs = Math.abs(cents);
+  if (abs === 0 || abs > 100_000 * 100) {
+    implausibleAmountCount++;
+    console.warn(
+      `[csv-mapper] implausible invoice amount ${JSON.stringify(raw)} -> ${cents} cents ` +
+        `(expected 0 < x <= 100000 EUR); count=${implausibleAmountCount}`
+    );
+  }
+  return cents;
+}
+
+/**
+ * Parse a CSV amount cell into SIGNED integer cents.
+ *
+ * Locale rule (H3): last-separator-wins, replicated from db-adapters/
+ * normalizer.ts's normaliseDecimalString. The old code trusted the configured
+ * `decimalSeparator` blindly and mis-parsed dot-decimal input ("1,250.00" ->
+ * 125 cents instead of 125000). We now decide the decimal separator from the
+ * string itself. The configured separator is no longer consulted for the EUR
+ * path; a lone separator + exactly three trailing digits is a thousands group.
+ *
+ * `unit === "cents"` still means the value is already integer cents (after
+ * stripping grouping): "35000" -> 35000 cents.
+ */
 function parseAmountToCents(
   input: string,
-  unit: "cents" | "eur",
-  decimalSeparator: "." | ","
+  unit: "cents" | "eur"
 ): number | null {
-  const cleaned = input
-    .replace(/[€\s]/g, "")
-    .replace(/EUR/gi, "")
-    .replace(decimalSeparator === "," ? /\./g : /,/g, "");
-  const num = Number(
-    decimalSeparator === ","
-      ? cleaned.replace(",", ".")
-      : cleaned
-  );
-  if (!Number.isFinite(num) || num < 0) return null;
-  if (unit === "cents") return Math.round(num);
-  return Math.round(num * 100);
+  const cleaned = input.replace(/[€\s]/g, "").replace(/EUR/gi, "");
+  if (!cleaned || !/\d/.test(cleaned)) return null;
+
+  const negative = cleaned.startsWith("-");
+  const unsigned = cleaned.replace(/^[-+]/, "");
+  const normalised = normaliseDecimalString(unsigned);
+  if (normalised === undefined) return null;
+  const num = Number(normalised);
+  if (!Number.isFinite(num)) return null;
+
+  const magnitude = unit === "cents" ? Math.round(num) : Math.round(num * 100);
+  const signed = negative ? -magnitude : magnitude;
+  return guardPlausibleCents(signed, input);
+}
+
+/**
+ * Turn a localized money string (unsigned) into a plain JS-number string.
+ * Replicated from apps/bridge/agent/src/db-adapters/normalizer.ts's
+ * normaliseDecimalString (kept in sync by contract, not imported: the pkg-
+ * bundled agent keeps these small modules self-contained).
+ *
+ *   "1.234"    -> "1234"     (lone separator + 3 digits -> thousands group)
+ *   "1,250"    -> "1250"     (same rule -> 1250 EUR, not 1.25)
+ *   "1.50"     -> "1.50"     (<=2 trailing digits -> decimal)
+ *   "1234,5"   -> "1234.5"
+ *   "1.234,56" -> "1234.56"  (two separator types -> the LAST is the decimal)
+ *   "1,250.00" -> "1250.00"
+ */
+function normaliseDecimalString(s: string): string | undefined {
+  const hasComma = s.includes(",");
+  const hasDot = s.includes(".");
+
+  if (hasComma && hasDot) {
+    return s.lastIndexOf(",") > s.lastIndexOf(".")
+      ? s.replace(/\./g, "").replace(",", ".")
+      : s.replace(/,/g, "");
+  }
+
+  const sep = hasComma ? "," : hasDot ? "." : "";
+  if (sep === "") return s;
+
+  const parts = s.split(sep);
+  if (parts.length > 2) return parts.join("");
+  const trailing = parts[1] ?? "";
+  return trailing.length === 3 ? parts[0] + trailing : `${parts[0]}.${trailing}`;
+}
+
+/**
+ * Is an invoice Zahlstatus value one that means "paid"? Case-insensitive.
+ * Only a recognized paid token books revenue; empty, open, storniert, or an
+ * unknown token is treated as not-paid so an "export all invoices" file
+ * cannot inflate revenue (H2).
+ */
+function isPaidInvoiceStatus(input: string | null): boolean {
+  if (!input) return false;
+  const v = input.trim().toLowerCase();
+  return [
+    "bezahlt",
+    "beglichen",
+    "gezahlt",
+    "paid",
+    "settled",
+    "ja",
+    "yes",
+    "1",
+    "true",
+    "wahr",
+  ].includes(v);
 }
 
 function isEmail(v: string): boolean {

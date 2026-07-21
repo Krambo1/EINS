@@ -17,8 +17,6 @@ import { AuditOverviewPanel } from "./_components/AuditOverview";
 
 export const metadata = { title: "Audit-Log" };
 
-const GLOW_CARD = "!bg-bg-secondary";
-
 const TABS = [
   { key: "uebersicht", label: "Übersicht" },
   { key: "protokoll", label: "Protokoll" },
@@ -120,7 +118,7 @@ async function AuditProtokoll({
 
   return (
     <div className="space-y-6">
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardContent className="pt-6">
           <form className="grid gap-3 md:grid-cols-5" method="get">
             <input type="hidden" name="tab" value="protokoll" />
@@ -149,10 +147,10 @@ async function AuditProtokoll({
         </CardContent>
       </Card>
 
-      <Card className={`${GLOW_CARD} !p-0 overflow-hidden`}>
+      <Card className="!p-0 overflow-hidden">
         <CardContent className="p-0">
           <table className="w-full text-sm">
-            <thead className="border-b border-border bg-bg-secondary text-left text-xs text-fg-secondary">
+            <thead className="border-b border-border bg-bg-secondary text-left text-xs font-medium text-fg-secondary">
               <tr>
                 <th className="px-4 py-2">Zeit</th>
                 <th className="px-4 py-2">Praxis</th>
@@ -184,13 +182,13 @@ async function AuditProtokoll({
                     )}
                   </td>
                   <td className="px-4 py-2 font-mono text-xs">
-                    {r.actorEmail ?? "—"}
+                    {r.actorEmail ?? "–"}
                   </td>
                   <td className="px-4 py-2">
                     <Badge tone="neutral">{r.action}</Badge>
                   </td>
                   <td className="px-4 py-2 text-xs">
-                    {r.entityKind ?? "—"}
+                    {r.entityKind ?? "–"}
                     {r.entityId && (
                       <div className="font-mono text-[10px] text-fg-secondary">
                         {r.entityId.slice(0, 8)}
@@ -203,7 +201,7 @@ async function AuditProtokoll({
                         {JSON.stringify(r.diff, null, 0)}
                       </pre>
                     ) : (
-                      "—"
+                      "–"
                     )}
                   </td>
                 </tr>

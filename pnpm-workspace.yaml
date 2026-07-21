@@ -2,4 +2,5 @@ packages:
   - "apps/*"
   - "apps/bridge/agent"
   - "apps/bridge/test-harness"
+  - "apps/bridge/soak"
   - "packages/*"

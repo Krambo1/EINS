@@ -15,7 +15,7 @@ export function SyncErrorsQueue({ rows }: { rows: SyncErrorRow[] }) {
     >
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="text-left text-xs text-fg-secondary">
+          <thead className="text-left text-xs font-medium text-fg-secondary">
             <tr>
               <th className="py-2">Praxis</th>
               <th className="py-2">Plattform</th>
@@ -40,7 +40,7 @@ export function SyncErrorsQueue({ rows }: { rows: SyncErrorRow[] }) {
                 </td>
                 <td className="py-2 capitalize">{r.platform}</td>
                 <td className="py-2 font-mono text-xs">
-                  {r.accountId ?? "—"}
+                  {r.accountId ?? "–"}
                 </td>
                 <td className="py-2 text-right text-xs text-fg-secondary">
                   {r.lastSyncedAt ? formatRelative(r.lastSyncedAt) : "nie"}

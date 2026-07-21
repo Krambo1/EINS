@@ -28,7 +28,7 @@ const PENDING_ITEMS: {
   },
   {
     href: "/admin/operations#stagnierte",
-    label: "Stagnierte Leads",
+    label: "Stagnierte Anfragen",
     key: "stalledRequests",
     tone: "warn",
   },
@@ -102,7 +102,7 @@ export function OperationsSection({
             </p>
           ) : (
             <table className="w-full text-sm">
-              <thead className="text-left text-xs text-fg-secondary">
+              <thead className="text-left text-xs font-medium text-fg-secondary">
                 <tr>
                   <th className="py-2">Praxis</th>
                   <th className="py-2 text-right">Offen</th>
@@ -123,7 +123,7 @@ export function OperationsSection({
                     <td className="py-2 text-right">
                       <Badge tone="bad">{r.breachCount}</Badge>
                     </td>
-                    <td className="py-2 text-right font-mono text-xs tabular-nums text-fg-secondary">
+                    <td className="py-2 text-right text-xs tabular-nums text-fg-secondary">
                       {r.oldestBreachHours}h
                     </td>
                   </tr>

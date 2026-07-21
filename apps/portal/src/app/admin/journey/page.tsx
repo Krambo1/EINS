@@ -6,8 +6,6 @@ import { JourneyTemplateEditor } from "./_components/JourneyTemplateEditor";
 
 export const metadata = { title: "Standard-Journey · Admin" };
 
-const GLOW_CARD = "!bg-bg-secondary";
-
 export default async function AdminJourneyPage() {
   await requireAdmin();
 
@@ -21,7 +19,7 @@ export default async function AdminJourneyPage() {
         subtitle="Der Standard-Fahrplan, den jede neue Praxis im Fortschritt-Tab sieht: vom Auftakt bis zum 90-Tage-Gespräch. So weiß der Inhaber ab Tag eins, was kommt."
       />
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardContent className="space-y-2 pt-6 text-sm text-fg-secondary">
           <p>
             Diese Vorlage wird in jede Praxis kopiert, sobald sie angelegt oder

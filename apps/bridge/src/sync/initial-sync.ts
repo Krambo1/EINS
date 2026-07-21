@@ -5,8 +5,14 @@ import type { CanonicalEvent } from "../canonical/types.js";
 
 /**
  * Drive an adapter's initialSync iterator and POST events to the portal in
- * batches. Used once per pvs_link when an inhaber connects a new PVS — yields
- * back a summary the bridge logs as the "first sync" outcome.
+ * batches. Invoked by the scheduler (C7) for every connected link whose
+ * pvs_sync_status.last_initial_sync_completed_at is still NULL: yields
+ * back a summary the scheduler uses to decide completion.
+ *
+ * Failure semantics: a rejected batch THROWS (aborting the sync); per-event
+ * errors reported by the portal accumulate in `errors`, and the scheduler
+ * refuses to mark the sync complete when errors > 0. Either way the sync
+ * re-runs from the top on retry and the portal dedup absorbs the overlap.
  *
  * The batch size is intentionally lower than postBatch's hard cap (500)
  * because initial-sync events tend to be larger payloads (FHIR Bundles
@@ -40,17 +46,23 @@ export async function runInitialSync(
     if (buffer.length === 0) return;
     const r = await postBatch(link.clinicId, buffer);
     if (!r.ok) {
-      errors += buffer.length;
-    } else {
-      const b = r.body as {
-        ingested?: number;
-        deduped?: number;
-        errors?: unknown[];
-      };
-      ingested += b.ingested ?? 0;
-      deduped += b.deduped ?? 0;
-      errors += b.errors?.length ?? 0;
+      // C7: a rejected batch ABORTS the sync instead of being counted and
+      // skipped: continuing would let a sync "complete" with whole
+      // batches missing, and (portal down) would pound through the entire
+      // history for nothing. The scheduler records the failure and retries
+      // the whole sync later; portal dedup absorbs the re-posts.
+      throw new Error(
+        `portal rejected batch of ${buffer.length} event(s): http ${r.status} ${JSON.stringify(r.body).slice(0, 300)}`
+      );
     }
+    const b = r.body as {
+      ingested?: number;
+      deduped?: number;
+      errors?: unknown[];
+    };
+    ingested += b.ingested ?? 0;
+    deduped += b.deduped ?? 0;
+    errors += b.errors?.length ?? 0;
     buffer = [];
   };
 

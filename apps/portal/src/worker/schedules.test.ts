@@ -12,8 +12,8 @@ import {
  * dispatcher model (one dispatcher per per-clinic job instead of N repeatables).
  */
 describe("worker schedule registry", () => {
-  it("registers the 9 platform-wide schedules with their crons", () => {
-    expect(PLATFORM_SCHEDULES).toHaveLength(9);
+  it("registers the 10 platform-wide schedules with their crons", () => {
+    expect(PLATFORM_SCHEDULES).toHaveLength(10);
     const map = Object.fromEntries(PLATFORM_SCHEDULES.map((s) => [s.queue, s.cron]));
     expect(map[QUEUES.slaCheck]).toBe("*/15 * * * *");
     expect(map[QUEUES.refreshOauth]).toBe("*/15 * * * *");
@@ -24,6 +24,9 @@ describe("worker schedule registry", () => {
     expect(map[QUEUES.pvsReconcile]).toBe("15 */4 * * *");
     expect(map[QUEUES.pvsTreatmentSuggest]).toBe("30 4 * * *");
     expect(map[QUEUES.anomalyScan]).toBe("30 */6 * * *");
+    // 0069: agent liveness. Offset off the top of the hour so it does not
+    // queue behind the per-clinic syncs.
+    expect(map[QUEUES.pvsAgentHealthScan]).toBe("5 * * * *");
   });
 
   it("registers one fan-out dispatcher per per-clinic queue", () => {

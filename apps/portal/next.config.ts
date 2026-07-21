@@ -16,6 +16,14 @@ const config: NextConfig = {
   // but throws "Cannot find module" on Vercel once STORAGE_DRIVER=r2.
   serverExternalPackages: ["@aws-sdk/client-s3", "@aws-sdk/s3-request-presigner"],
   experimental: {
+    // File uploads go direct-to-storage (presigned R2 PUT, see
+    // server/uploads.ts), so server actions only ever carry metadata — but
+    // the avatar cropper still posts up to 2 MB of WebP through an action,
+    // and Next's 1 MB default rejected it. 10 MB gives headroom locally;
+    // note Vercel itself caps request bodies at ~4.5 MB regardless.
+    serverActions: {
+      bodySizeLimit: "10mb",
+    },
     // Tree-shake barrel imports from these packages.
     // - lucide-react: 16 import sites in portal pages, ~hundreds of icons total.
     // - date-fns: defensive — server-only utility imports.

@@ -23,11 +23,20 @@ interface MockState {
     vendor: string;
     status: string;
   } | null;
-  // Rows pvs_link_source returns for the membership lookup.
-  membership: Array<{ bridgeSource: string }>;
+  // Rows pvs_link_source returns for the membership lookup + the M-D6
+  // billing-authority gate. billingEnabled omitted = column default (true).
+  membership: Array<{ bridgeSource: string; billingEnabled?: boolean }>;
 }
 
 let state: MockState;
+
+/** Every db.insert(...).values(...) call, so the M-D6 tests can assert the
+ *  persisted billing_enabled flip + the dashboard alert without a real DB. */
+interface WriteRecord {
+  table: string | undefined;
+  values: Record<string, unknown>;
+}
+let writes: WriteRecord[];
 
 function selectRowsFor(table: { __tag?: string }): unknown[] {
   if (table.__tag === "pvs_link") {
@@ -51,9 +60,17 @@ function selectRowsFor(table: { __tag?: string }): unknown[] {
 function buildSelect() {
   return {
     from: (table: { __tag?: string }) => ({
-      where: (_clause: unknown) => ({
-        limit: async (_n: number) => selectRowsFor(table),
-      }),
+      // The membership lookup chains .limit(1); the M-D6 billing gate awaits
+      // the where() result directly (it wants ALL of the clinic's source
+      // rows). Support both by returning a thenable that also has .limit.
+      where: (_clause: unknown) => {
+        const rows = selectRowsFor(table);
+        const p = Promise.resolve(rows) as Promise<unknown[]> & {
+          limit: (n: number) => Promise<unknown[]>;
+        };
+        p.limit = async (_n: number) => rows;
+        return p;
+      },
     }),
   };
 }
@@ -62,13 +79,20 @@ function buildInsert(table: { __tag?: string }) {
   const ret = async () =>
     table.__tag === "pvs_event_log" ? [{ id: "evt-1" }] : [];
   return {
-    values: (_vals: unknown) => ({
-      // event_log: .onConflictDoNothing().returning()
-      onConflictDoNothing: (_spec?: unknown) => ({ returning: ret }),
-      // sync_status touchLink: .onConflictDoUpdate() (awaited directly)
-      onConflictDoUpdate: (_spec?: unknown) => Promise.resolve([]),
-      returning: ret,
-    }),
+    values: (vals: unknown) => {
+      writes.push({
+        table: table.__tag,
+        values: vals as Record<string, unknown>,
+      });
+      return {
+        // event_log: .onConflictDoNothing().returning()
+        onConflictDoNothing: (_spec?: unknown) => ({ returning: ret }),
+        // sync_status touchLink + M-D6 upserts: .onConflictDoUpdate()
+        // (awaited directly)
+        onConflictDoUpdate: (_spec?: unknown) => Promise.resolve([]),
+        returning: ret,
+      };
+    },
   };
 }
 
@@ -98,6 +122,14 @@ vi.mock("@/db/client", () => ({
       __tag: "pvs_link_source",
       clinicId: {},
       bridgeSource: {},
+      pvsVendor: {},
+      enrolledVia: {},
+      billingEnabled: {},
+    },
+    dashboardAlerts: {
+      __tag: "dashboard_alerts",
+      clinicId: {},
+      dedupeKey: {},
     },
     pvsEventLog: { __tag: "pvs_event_log", id: {} },
     pvsSyncStatus: {
@@ -144,6 +176,7 @@ let applyPvsEvent: typeof import("./pvs-events").applyPvsEvent;
 
 beforeEach(async () => {
   state = { link: null, membership: [] };
+  writes = [];
   vi.resetModules();
   applyPvsEvent = (await import("./pvs-events")).applyPvsEvent;
 });
@@ -227,5 +260,176 @@ describe("applyPvsEvent — Phase 7 provenance membership", () => {
     state.membership = [];
     const res = await applyPvsEvent(invoicePaid("medatixx"));
     expect(res).toEqual({ ok: false, reason: "vendor_mismatch" });
+  });
+});
+
+// ---------------------------------------------------------------
+// M-D6 billing-authority gate (dual-ingest-path mutual exclusion)
+// ---------------------------------------------------------------
+
+function invoiceRefunded(bridgeSource: string): PvsEvent {
+  return {
+    kind: "InvoiceRefunded",
+    clinicId: CLINIC,
+    bridgeSource,
+    pvsExternalEventId: "evt-ext-2",
+    occurredAt: "2026-05-31T11:00:00.000Z",
+    pvsPatientId: "P-1",
+    pvsInvoiceId: "I-1",
+    refundedAmountCents: 45000,
+    currency: "EUR",
+    refundedAt: "2026-05-31T11:00:00.000Z",
+  } as PvsEvent;
+}
+
+function patientUpserted(bridgeSource: string): PvsEvent {
+  return {
+    kind: "PatientUpserted",
+    clinicId: CLINIC,
+    bridgeSource,
+    pvsExternalEventId: "evt-ext-3",
+    occurredAt: "2026-05-31T09:00:00.000Z",
+    pvsPatientId: "P-1",
+    fullName: "Maria Muster",
+  } as PvsEvent;
+}
+
+describe("applyPvsEvent — M-D6 billing-authority gate", () => {
+  function gdtAgentClinic() {
+    state.link = {
+      id: "link-1",
+      clinicId: CLINIC,
+      vendor: "gdt_agent",
+      status: "connected",
+    };
+  }
+
+  const linkSourceWrites = () =>
+    writes.filter((w) => w.table === "pvs_link_source");
+  const alertWrites = () =>
+    writes.filter((w) => w.table === "dashboard_alerts");
+
+  it("DONE-WHEN: gdt_agent InvoicePaid colliding with a billing-enabled DB source → billing_conflict, flag persisted, standing alert", async () => {
+    gdtAgentClinic();
+    state.membership = [
+      { bridgeSource: "gdt_agent", billingEnabled: true },
+      { bridgeSource: "medatixx", billingEnabled: true },
+    ];
+    const res = await applyPvsEvent(invoicePaid("gdt_agent"));
+    expect(res).toEqual({ ok: false, reason: "billing_conflict" });
+    // The resolution is persisted: gdt_agent's billing flag flips to false so
+    // subsequent events fail fast on the flag alone.
+    expect(
+      linkSourceWrites().some(
+        (w) =>
+          w.values.bridgeSource === "gdt_agent" &&
+          w.values.billingEnabled === false
+      )
+    ).toBe(true);
+    // The drop is never silent: a standing dashboard alert is raised.
+    expect(
+      alertWrites().some(
+        (w) => w.values.dedupeKey === "pvs_billing_conflict:gdt_agent"
+      )
+    ).toBe(true);
+    // And no event_log row was written — the duplicate never enters derive.
+    expect(writes.some((w) => w.table === "pvs_event_log")).toBe(false);
+  });
+
+  it("gdt_agent InvoicePaid with no competing vendor path ingests normally", async () => {
+    gdtAgentClinic();
+    state.membership = [{ bridgeSource: "gdt_agent", billingEnabled: true }];
+    const res = await applyPvsEvent(invoicePaid("gdt_agent"));
+    expect(res).toMatchObject({ ok: true, status: "ingested" });
+    expect(alertWrites()).toHaveLength(0);
+  });
+
+  it("rejects on the standing flag alone (already resolved earlier or by the 0067 backfill)", async () => {
+    gdtAgentClinic();
+    state.membership = [
+      { bridgeSource: "gdt_agent", billingEnabled: false },
+      { bridgeSource: "medatixx", billingEnabled: true },
+    ];
+    const res = await applyPvsEvent(invoicePaid("gdt_agent"));
+    expect(res).toEqual({ ok: false, reason: "billing_conflict" });
+    // Already false — no redundant flip, but the alert is refreshed.
+    expect(
+      linkSourceWrites().filter(
+        (w) => w.values.billingEnabled === false
+      )
+    ).toHaveLength(0);
+    expect(alertWrites()).toHaveLength(1);
+  });
+
+  it("the vendor DB source keeps flowing while gdt_agent is merely enrolled (no pre-emptive alert)", async () => {
+    // Every agent-enrolled clinic has a gdt_agent row (the watcher is always
+    // on). That alone is NOT a conflict — only an actual GDT revenue event is.
+    gdtAgentClinic();
+    state.membership = [
+      { bridgeSource: "gdt_agent", billingEnabled: true },
+      { bridgeSource: "medatixx", billingEnabled: true },
+    ];
+    const res = await applyPvsEvent(invoicePaid("medatixx"));
+    expect(res).toMatchObject({ ok: true, status: "ingested" });
+    expect(alertWrites()).toHaveLength(0);
+  });
+
+  it("a vendor DB source explicitly billing-disabled (GDT-wins override) is rejected with an alert", async () => {
+    gdtAgentClinic();
+    state.membership = [
+      { bridgeSource: "gdt_agent", billingEnabled: true },
+      { bridgeSource: "medatixx", billingEnabled: false },
+    ];
+    const res = await applyPvsEvent(invoicePaid("medatixx"));
+    expect(res).toEqual({ ok: false, reason: "billing_conflict" });
+    expect(
+      alertWrites().some(
+        (w) => w.values.dedupeKey === "pvs_billing_conflict:medatixx"
+      )
+    ).toBe(true);
+  });
+
+  it("counts pvs_link.pvs_vendor as an implicit vendor path (cloud-adapter fast path, no source row)", async () => {
+    // A tomedo cloud clinic never needs a pvs_link_source row for its own
+    // vendor. Its presence must still block gdt_agent revenue.
+    state.link = {
+      id: "link-1",
+      clinicId: CLINIC,
+      vendor: "tomedo",
+      status: "connected",
+    };
+    state.membership = [{ bridgeSource: "gdt_agent", billingEnabled: true }];
+    const res = await applyPvsEvent(invoicePaid("gdt_agent"));
+    expect(res).toEqual({ ok: false, reason: "billing_conflict" });
+  });
+
+  it("InvoiceRefunded is gated exactly like InvoicePaid", async () => {
+    gdtAgentClinic();
+    state.membership = [
+      { bridgeSource: "gdt_agent", billingEnabled: true },
+      { bridgeSource: "medatixx", billingEnabled: true },
+    ];
+    const res = await applyPvsEvent(invoiceRefunded("gdt_agent"));
+    expect(res).toEqual({ ok: false, reason: "billing_conflict" });
+  });
+
+  it("non-revenue kinds are never gated — mixed setups over disjoint data kinds stay legal", async () => {
+    gdtAgentClinic();
+    state.membership = [
+      { bridgeSource: "gdt_agent", billingEnabled: false },
+      { bridgeSource: "medatixx", billingEnabled: true },
+    ];
+    const res = await applyPvsEvent(patientUpserted("gdt_agent"));
+    expect(res).toMatchObject({ ok: true, status: "ingested" });
+  });
+
+  it("csv_upload InvoicePaid stays exempt (operator-driven backfill)", async () => {
+    gdtAgentClinic();
+    state.membership = [
+      { bridgeSource: "gdt_agent", billingEnabled: false },
+      { bridgeSource: "medatixx", billingEnabled: true },
+    ];
+    const res = await applyPvsEvent(invoicePaid("csv_upload"));
+    expect(res).toMatchObject({ ok: true, status: "ingested" });
   });
 });

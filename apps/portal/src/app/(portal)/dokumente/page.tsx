@@ -7,7 +7,10 @@ import {
 } from "@eins/ui";
 import { requirePermissionOrRedirect } from "@/auth/guards";
 import { KindFilterSelect } from "./_components/KindFilterSelect";
-import { listDocuments } from "@/server/queries/documents";
+import {
+  listDocuments,
+  listVisibleDocumentKinds,
+} from "@/server/queries/documents";
 import { getStorage } from "@/server/storage";
 import { formatDate } from "@/lib/formatting";
 import {
@@ -74,12 +77,19 @@ export default async function DokumentePage({
       : undefined
   ) as DocumentKind | undefined;
 
-  const docs = await listDocuments(
-    session.clinicId,
-    session.userId,
-    session.role as Role,
-    { kind }
-  );
+  const [docs, availableKinds] = await Promise.all([
+    listDocuments(session.clinicId, session.userId, session.role as Role, {
+      kind,
+    }),
+    // Only offer filter chips for kinds this role can actually see documents
+    // in. Verträge/AVV are inhaber-only, so a marketing/frontdesk user must not
+    // get a "Vertrag" chip that would just render an empty list.
+    listVisibleDocumentKinds(
+      session.clinicId,
+      session.userId,
+      session.role as Role
+    ),
+  ]);
 
   const storage = getStorage();
   const withUrls = await Promise.all(
@@ -103,9 +113,13 @@ export default async function DokumentePage({
         </p>
       </header>
 
-      {/* Kind filter — dropdown on mobile, pill row on sm+ */}
+      {/* Kind filter — dropdown on mobile, pill row on sm+. Only kinds the role
+          can actually see documents in are offered; hidden entirely when there
+          is nothing to filter. */}
+      {availableKinds.length > 0 && (
+        <>
       <div className="sm:hidden">
-        <KindFilterSelect kind={kind} />
+        <KindFilterSelect kind={kind} availableKinds={availableKinds} />
       </div>
       <nav className="hidden flex-wrap gap-2 sm:flex">
         <Link
@@ -118,7 +132,7 @@ export default async function DokumentePage({
         >
           Alle
         </Link>
-        {KIND_KEYS.map((k) => (
+        {availableKinds.map((k) => (
           <Link
             key={k}
             href={`/dokumente?kind=${k}`}
@@ -132,6 +146,8 @@ export default async function DokumentePage({
           </Link>
         ))}
       </nav>
+        </>
+      )}
 
       {withUrls.length === 0 && !showPinned ? (
         <EmptyState

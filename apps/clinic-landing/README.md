@@ -70,7 +70,7 @@ Things you cannot accidentally subvert without ripping out the type system:
   `Marktführer`, `Nr. 1`, etc. Build fails on a hit.
 - **No Art. 9 health data in the quiz** — the `TreatmentQuiz` zod schema is
   `.strict()`, so any field outside the whitelist (treatmentOptions,
-  locationLabel, askExperience) is a compile-time error.
+  askBudget, askDistance) is a compile-time error.
 - **Impressum-Vollständigkeit** — Berufsbezeichnung, Verleihungsstaat,
   Kammer (name + address + URL), Berufsordnung-URL, Heilberufekammergesetz-URL
   and Berufshaftpflicht are required by `clinicSchema`.

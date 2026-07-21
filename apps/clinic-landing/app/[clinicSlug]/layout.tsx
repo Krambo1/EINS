@@ -78,6 +78,7 @@ function buildCssVars(clinic: Clinic): React.CSSProperties {
     ["--brand-border" as any]: b.border,
     ["--brand-radius" as any]: radiusToCss(b.radius),
     ["--brand-font" as any]: b.fontFamily,
+    ["--brand-font-display" as any]: b.fontFamilyDisplay ?? b.fontFamily,
   } as React.CSSProperties;
 }
 

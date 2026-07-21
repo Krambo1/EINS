@@ -502,6 +502,29 @@ export const ALL_RULES: Array<(clinicId: string) => Promise<AlertCandidate[]>> =
   ruleSlaBreachTrend,
 ];
 
+/**
+ * The alert kinds this scan OWNS, and therefore the only ones its auto-clear
+ * sweep may dismiss.
+ *
+ * dashboard_alerts is a shared table. Other producers write into it with their
+ * own kinds and their own lifecycles: `pvs_billing_conflict` (server/
+ * pvs-events.ts), the PVS derive alerts (worker/processors/pvs-status-derive.ts)
+ * and `pvs_agent_health` (server/pvs-agent-health.ts). The auto-clear step
+ * dismisses every active row whose dedupe key this run did not reproduce, so
+ * without this filter it silently dismissed every foreign alert within one
+ * tick, and those producers do not clear dismissed_at when they re-upsert, so
+ * the alert never came back.
+ *
+ * Keep in lock-step with the `kind:` values in the rule bodies above.
+ */
+export const ANOMALY_ALERT_KINDS = [
+  "no_show_spike",
+  "cpl_surge",
+  "lead_drought",
+  "revenue_drop",
+  "sla_breach_trend",
+] as const;
+
 // ---------------------------------------------------------------
 // Formatters. All German-facing copy lives here so the rule bodies stay
 // data-focused.

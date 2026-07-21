@@ -27,6 +27,7 @@ import {
   Menu,
   Search,
   HelpCircle,
+  FileUp,
 } from "lucide-react";
 import { CONTACT_CARD_COOKIE, type Role } from "@/lib/constants";
 import { can } from "@/lib/roles";
@@ -100,6 +101,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/medien", label: "Medien", icon: Film, permission: "assets.view" },
       { href: "/dokumente", label: "Dokumente", icon: FileText, permission: "documents.view.all_roles" },
+      { href: "/dateien", label: "Dateien an EINS", icon: FileUp, permission: "uploads.send" },
       {
         href: "/leitfaden",
         label: "Leitfaden",

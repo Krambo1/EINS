@@ -20,7 +20,6 @@ import type { ClinicPerformance } from "@/server/queries/admin";
 import { withBrandLogos } from "@/app/_components/Brand";
 import { FunnelBar } from "../../../_charts/FunnelBar";
 
-const GLOW_CARD = "!bg-bg-secondary";
 const PERIOD_OPTIONS: { key: string; label: string; days: number }[] = [
   { key: "30d", label: "30 Tage", days: 30 },
   { key: "90d", label: "90 Tage", days: 90 },
@@ -51,7 +50,7 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-[0.6875rem] uppercase tracking-[0.18em] text-fg-secondary">
+        <span className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
           Zeitraum
         </span>
         {PERIOD_OPTIONS.map((p) => (
@@ -77,7 +76,7 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
         <MetricTile
           label="Spend"
           value={formatEuro(summary.spendEur)}
-          sublabel={`${formatNumber(summary.leads)} Leads`}
+          sublabel={`${formatNumber(summary.leads)} Anfragen`}
         />
         <MetricTile
           label="Umsatz"
@@ -99,9 +98,9 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
         />
       </div>
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardContent className="space-y-4 pt-6">
-          <h2 className="font-display text-xl font-semibold">
+          <h2 className="text-xl font-medium md:text-2xl">
             Spend &amp; Umsatz
           </h2>
           <div className="rounded-xl border border-border bg-bg-primary p-3">
@@ -122,19 +121,19 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
       </Card>
 
       <div className="grid gap-5 lg:grid-cols-2">
-        <Card className={GLOW_CARD}>
+        <Card>
           <CardContent className="space-y-4 pt-6">
-            <h2 className="font-display text-xl font-semibold">Quellen</h2>
+            <h2 className="text-xl font-medium md:text-2xl">Quellen</h2>
             {bySource.length === 0 ? (
               <p className="text-sm text-fg-secondary">
                 Keine Anfragen in diesem Zeitraum.
               </p>
             ) : (
               <table className="w-full text-sm">
-                <thead className="text-left text-xs text-fg-secondary">
+                <thead className="text-left text-xs font-medium text-fg-secondary">
                   <tr>
                     <th className="py-2">Quelle</th>
-                    <th className="py-2 text-right">Leads</th>
+                    <th className="py-2 text-right">Anfragen</th>
                     <th className="py-2 text-right">Umsatz</th>
                   </tr>
                 </thead>
@@ -144,10 +143,10 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
                       <td className="py-2">
                         {withBrandLogos(SOURCE_LABELS[s.source as RequestSource] ?? s.source)}
                       </td>
-                      <td className="py-2 text-right font-mono tabular-nums">
+                      <td className="py-2 text-right tabular-nums">
                         {formatNumber(s.leads)}
                       </td>
-                      <td className="py-2 text-right font-mono tabular-nums">
+                      <td className="py-2 text-right tabular-nums">
                         {formatMoney(s.revenueEur, currency)}
                       </td>
                     </tr>
@@ -158,9 +157,9 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
           </CardContent>
         </Card>
 
-        <Card className={GLOW_CARD}>
+        <Card>
           <CardContent className="space-y-3 pt-6">
-            <h2 className="font-display text-xl font-semibold">Plattformen</h2>
+            <h2 className="text-xl font-medium md:text-2xl">Plattformen</h2>
             <Donut
               slices={byPlatform.map((p) => ({
                 name: p.platform.toUpperCase(),
@@ -181,7 +180,7 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
                     aria-hidden
                   />
                   <span className="flex-1 capitalize">{p.platform}</span>
-                  <span className="font-mono tabular-nums text-fg-secondary">
+                  <span className="tabular-nums text-fg-secondary">
                     {formatEuro(p.spendEur)}
                   </span>
                 </div>
@@ -191,9 +190,9 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
         </Card>
       </div>
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardContent className="space-y-4 pt-6">
-          <h2 className="font-display text-xl font-semibold">Funnel</h2>
+          <h2 className="text-xl font-medium md:text-2xl">Funnel</h2>
           <FunnelBar
             stages={funnel.map((b) => ({
               label: REQUEST_STATUS_LABELS[b.status] ?? b.status,
@@ -211,16 +210,16 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
         </CardContent>
       </Card>
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardContent className="space-y-4 pt-6">
-          <h2 className="font-display text-xl font-semibold">Ziele</h2>
+          <h2 className="text-xl font-medium md:text-2xl">Ziele</h2>
           {goals.length === 0 ? (
             <p className="text-sm text-fg-secondary">
               Keine aktiven Ziele für diese Praxis.
             </p>
           ) : (
             <table className="w-full text-sm">
-              <thead className="text-left text-xs text-fg-secondary">
+              <thead className="text-left text-xs font-medium text-fg-secondary">
                 <tr>
                   <th className="py-2">Ziel</th>
                   <th className="py-2 text-right">Aktuell</th>
@@ -239,12 +238,12 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
                       <td className="py-2 capitalize">
                         {g.metric.replace(/_/g, " ")}
                       </td>
-                      <td className="py-2 text-right font-mono tabular-nums">
+                      <td className="py-2 text-right tabular-nums">
                         {g.metric === "revenue"
                           ? formatMoney(g.currentValue, currency)
                           : formatNumber(g.currentValue)}
                       </td>
-                      <td className="py-2 text-right font-mono tabular-nums">
+                      <td className="py-2 text-right tabular-nums">
                         {g.metric === "revenue"
                           ? formatMoney(g.targetValue, currency)
                           : formatNumber(g.targetValue)}
@@ -252,7 +251,7 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
                       <td className="py-2 text-right">
                         <Badge tone={tone}>{formatPercent(Math.min(ratio, 2))}</Badge>
                       </td>
-                      <td className="py-2 text-right font-mono text-xs tabular-nums text-fg-secondary">
+                      <td className="py-2 text-right text-xs tabular-nums text-fg-secondary">
                         {g.periodStart} → {g.periodEnd}
                       </td>
                     </tr>

@@ -36,6 +36,40 @@ durability boundary).
    secret which the agent stores encrypted via DPAPI (Windows) /
    Keychain (macOS).
 
+When enrolling from the CLI, prefer piping the one-time token on stdin over
+passing it as an argument, so it never lands in the OS process listing
+(`Get-CimInstance Win32_Process` on Windows, `ps` / `/proc` on POSIX) or in
+shell history:
+
+```
+echo <token> | eins-agent --enroll --token-stdin --clinic <clinicId>
+```
+
+The positional `eins-agent --enroll <token> --clinic <clinicId>` form still
+works. If the token is omitted and stdin is a terminal, the agent prompts for
+it. Enrollment is crash-safe: if the process dies after the portal redeems the
+token but before the secret and config are written locally, a plain restart
+completes it from a recovery journal, so a spent token is never stranded.
+
+## Networks behind a proxy or TLS inspection
+
+Praxis workstations sometimes sit behind a corporate proxy or a
+TLS-inspecting firewall that is rolled out AFTER the agent is installed.
+Node's built-in fetch does not honour proxy env vars on its own and does not
+trust the Windows certificate store, so without configuration every upload
+fails silently with `network: fetch failed`. Two environment variables fix
+this; set them for the service account that runs the agent, then restart it:
+
+- **`HTTPS_PROXY`** (and/or `HTTP_PROXY`, `NO_PROXY`): the agent installs
+  undici's `EnvHttpProxyAgent` as the global dispatcher at startup when any of
+  these is set, routing enrollment, event, and heartbeat requests through the
+  proxy. A startup log line confirms which proxy is active.
+- **`NODE_EXTRA_CA_CERTS`**: path to the corporate root CA (`.pem`) used by a
+  TLS-inspecting middlebox. Node reads this at process start and adds the CA to
+  its trust store. When a request fails certificate verification, the agent
+  logs a targeted hint naming this variable (see `src/net-setup.ts`,
+  `tlsHint`). Enrollment failures print the same guidance.
+
 ## Layout
 
 - `src/index.ts` — entry point. Boots watcher + outbox flush loop.

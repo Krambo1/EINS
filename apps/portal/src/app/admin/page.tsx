@@ -31,7 +31,7 @@ const LEADERBOARD_DAYS = 30;
 
 /**
  * Admin command-center home, styled to mirror the clinic dashboard: a KPI strip
- * plus four flat clinic-styled cards (Werbeleistung, Lead-Pipeline,
+ * plus four flat clinic-styled cards (Werbeleistung, Anfragen-Pipeline,
  * Praxis-Leaderboard, Operations) with no duplicated data and no nested card
  * chrome. The chart cards each own their own time window via a per-card
  * switcher (rPerf / rPipeline / rAi); every section renders an empty state if

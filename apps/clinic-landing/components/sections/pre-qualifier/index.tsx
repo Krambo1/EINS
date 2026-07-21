@@ -5,11 +5,19 @@ import type { Clinic, Treatment, QuizSubmissionPayload } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { useConsent } from "@/components/consent/consent-context";
 import { track } from "@/components/tracking/track";
-import { buildInitialState, reducer, type QuizState } from "./types";
+import {
+  buildInitialState,
+  deriveBranch,
+  reducer,
+  stepsFor,
+  type QuizAction,
+  type QuizState,
+  type StepId,
+} from "./types";
 import { StepTreatment } from "./step-treatment";
 import { StepTimeframe } from "./step-timeframe";
-import { StepExperience } from "./step-experience";
-import { StepLocation } from "./step-location";
+import { StepBudget } from "./step-budget";
+import { StepDistance } from "./step-distance";
 import { StepContact } from "./step-contact";
 import { Confirmation } from "./confirmation";
 
@@ -21,162 +29,201 @@ interface Props {
 
 const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** Delay between tile tap and auto-advance — long enough to see the selection. */
+const ADVANCE_DELAY_MS = 260;
+
 /**
- * 4-step (5 with experience) state machine.
+ * Quiz v2 — lives INSIDE the hero (quiz-in-hero architecture).
  *
- * Step numbering depends on `treatment.quiz.askExperience`:
- *   askExperience=false   →  1: treatment, 2: timeframe, 3: location, 4: contact
- *   askExperience=true    →  1: treatment, 2: timeframe, 3: experience, 4: location, 5: contact
- *
- * The "Ich informiere mich nur" path skips experience+location and jumps to a
- * shorter contact step (email only, no phone, marketing-leaning copy).
+ * Tile steps auto-advance on selection (no "Weiter" tap); only the contact
+ * step has an explicit submit. Steps are derived per answer state — see
+ * `stepsFor` in ./types. The progress bar starts visibly filled (endowed
+ * progress) and the back arrow never destroys state.
  */
-export function PreQualifier({ clinic, treatment, privacyHref }: Props) {
+export function QuizCard({ clinic, treatment, privacyHref }: Props) {
   const consent = useConsent();
   const eventIdRef = React.useRef<string>(uuid());
+  const honeypotRef = React.useRef<string>("");
+  const startedRef = React.useRef(false);
+  const advanceTimer = React.useRef<number | null>(null);
   const [state, dispatch] = React.useReducer(
     reducer,
-    treatment,
-    (t) => buildInitialState(t, eventIdRef.current),
+    eventIdRef.current,
+    buildInitialState,
   );
 
-  const askExperience = Boolean(treatment.quiz.askExperience);
-  const isInfoOnly = state.branch === "info-only";
+  React.useEffect(() => {
+    return () => {
+      if (advanceTimer.current !== null) window.clearTimeout(advanceTimer.current);
+    };
+  }, []);
 
-  // Compute the active step component based on branch + askExperience.
-  const stepNode = React.useMemo(() => {
-    if (state.submitted) return null;
-    if (isInfoOnly && state.step >= 3) {
-      // info-only short-circuits to contact at step 3
-      return <StepContact clinic={clinic} state={state} dispatch={dispatch} privacyHref={privacyHref} />;
-    }
-    switch (state.step) {
-      case 1:
-        return <StepTreatment treatment={treatment} state={state} dispatch={dispatch} />;
-      case 2:
-        return <StepTimeframe state={state} dispatch={dispatch} />;
-      case 3:
-        return askExperience ? (
-          <StepExperience state={state} dispatch={dispatch} />
-        ) : (
-          <StepLocation treatment={treatment} state={state} dispatch={dispatch} />
-        );
-      case 4:
-        return askExperience ? (
-          <StepLocation treatment={treatment} state={state} dispatch={dispatch} />
-        ) : (
-          <StepContact clinic={clinic} state={state} dispatch={dispatch} privacyHref={privacyHref} />
-        );
-      case 5:
-        return <StepContact clinic={clinic} state={state} dispatch={dispatch} privacyHref={privacyHref} />;
-      default:
-        return null;
-    }
-  }, [askExperience, clinic, isInfoOnly, privacyHref, state, treatment]);
+  const steps = stepsFor(treatment, state);
+  const activeIndex = Math.min(state.stepIndex, steps.length - 1);
+  const currentStep: StepId = steps[activeIndex];
+  const branch = deriveBranch(state);
+  const isInfoOnly = branch === "info-only";
 
-  const onNext = React.useCallback(() => {
-    const errors = validateStep(state, treatment, askExperience, isInfoOnly);
+  const fireStep = React.useCallback(
+    (completed: StepId) => {
+      if (!startedRef.current) {
+        startedRef.current = true;
+        if (consent.marketing) {
+          track({
+            event: "QuizStart",
+            eventId: eventIdRef.current,
+            treatment: treatment.slug,
+          });
+        }
+      }
+      if (consent.marketing) {
+        track({
+          event: "QuizStep",
+          eventId: eventIdRef.current,
+          step: completed,
+          treatment: treatment.slug,
+          branch: deriveBranch(state),
+        });
+      }
+    },
+    [consent.marketing, state, treatment.slug],
+  );
+
+  /** Tile handler: select, show the highlight briefly, then advance. */
+  const selectAndAdvance = React.useCallback(
+    (field: "treatment" | "timeframe" | "budget" | "distance") => (value: string) => {
+      dispatch({ type: "set", field, value });
+      fireStep(field);
+      if (advanceTimer.current !== null) window.clearTimeout(advanceTimer.current);
+      advanceTimer.current = window.setTimeout(() => {
+        dispatch({ type: "next" });
+        advanceTimer.current = null;
+      }, ADVANCE_DELAY_MS);
+    },
+    [fireStep],
+  );
+
+  const onBack = React.useCallback(() => {
+    if (advanceTimer.current !== null) {
+      window.clearTimeout(advanceTimer.current);
+      advanceTimer.current = null;
+    }
+    dispatch({ type: "goto", index: activeIndex - 1 });
+  }, [activeIndex]);
+
+  const onSubmit = React.useCallback(() => {
+    const errors = validateContact(state, isInfoOnly);
     if (Object.keys(errors).length > 0) {
       dispatch({ type: "errors", value: errors });
       return;
     }
+    fireStep("contact");
+    void submit(state, branch, clinic, treatment, honeypotRef.current, dispatch);
+  }, [branch, clinic, fireStep, isInfoOnly, state, treatment]);
 
-    // Fire QuizStep event with marketing consent only (server route checks too).
-    if (consent.marketing) {
-      track({
-        event: "QuizStep",
-        eventId: eventIdRef.current,
-        step: String(state.step),
-        treatment: treatment.slug,
-        branch: state.branch ?? "qualified",
-      });
-    }
-
-    const isLast =
-      (isInfoOnly && state.step === 3) ||
-      (!isInfoOnly && state.step === state.totalSteps);
-
-    if (isLast) {
-      void submit(state, clinic, treatment, dispatch);
-    } else {
-      dispatch({ type: "next" });
-    }
-  }, [askExperience, clinic, consent.marketing, isInfoOnly, state, treatment]);
-
-  const onBack = React.useCallback(() => dispatch({ type: "back" }), []);
-
-  if (state.submitted && state.branch) {
+  if (state.submitted) {
     return (
-      <section id="anfrage" className="bg-brand-bg-soft">
-        <div className="container mx-auto max-w-3xl py-14 md:py-20">
-          <Confirmation
-            clinic={clinic}
-            branch={state.branch}
-            marketingPending={state.consents.marketing}
-          />
-        </div>
-      </section>
+      <div className="quiz-card p-5 sm:p-6">
+        <Confirmation
+          clinic={clinic}
+          treatment={treatment}
+          branch={branch}
+          firstName={state.firstName.trim()}
+          email={state.email.trim()}
+          eventId={state.eventId}
+        />
+      </div>
     );
   }
 
-  const isFinalStep =
-    (isInfoOnly && state.step === 3) ||
-    (!isInfoOnly && state.step === state.totalSteps);
+  const isContact = currentStep === "contact";
+  const responsePromise = clinic.responsePromise ?? "innerhalb eines Werktags";
 
   return (
-    <section id="anfrage" className="bg-brand-bg-soft">
-      <div className="container mx-auto max-w-3xl py-14 md:py-20">
-        <p className="eyebrow">Anfrage zur Beratung</p>
-        <h2 className="mt-3">In 60 Sekunden zum passenden Termin</h2>
-        <p className="mt-3 max-w-prose text-brand-fg-muted">
-          Sie beantworten 4 kurze Fragen, dann melden wir uns mit einem Vorschlag. Keine medizinischen
-          Daten — diese besprechen wir vertraulich im Beratungsgespräch.
-        </p>
-
-        <div className="mt-6 rounded-brand-lg border border-brand-border bg-brand-bg p-5 sm:p-7">
-          <ProgressBar
-            current={state.step}
-            total={isInfoOnly ? 3 : state.totalSteps}
+    <div className="quiz-card p-5 sm:p-6">
+      <ProgressBar current={activeIndex} total={steps.length} />
+      <div className="mt-5">
+        {currentStep === "treatment" && (
+          <StepTreatment
+            treatment={treatment}
+            state={state}
+            onSelect={selectAndAdvance("treatment")}
           />
-          <div className="mt-6">{stepNode}</div>
-          <div className="mt-7 flex items-center justify-between gap-3">
-            {state.step > 1 ? (
-              <Button variant="ghost" onClick={onBack} disabled={state.submitting}>
-                ← Zurück
-              </Button>
-            ) : (
-              <span aria-hidden />
-            )}
-            <Button variant="primary" onClick={onNext} disabled={state.submitting}>
-              {state.submitting
-                ? "Senden …"
-                : isFinalStep
-                  ? isInfoOnly
-                    ? "Informationen anfordern"
-                    : "Anfrage senden"
-                  : "Weiter →"}
-            </Button>
-          </div>
-          {state.serverMessage && (
-            <p className="mt-3 text-sm text-red-600" role="alert">
-              {state.serverMessage}
-            </p>
-          )}
-        </div>
+        )}
+        {currentStep === "timeframe" && (
+          <StepTimeframe state={state} onSelect={selectAndAdvance("timeframe")} />
+        )}
+        {currentStep === "budget" && (
+          <StepBudget
+            treatment={treatment}
+            state={state}
+            onSelect={selectAndAdvance("budget")}
+          />
+        )}
+        {currentStep === "distance" && (
+          <StepDistance state={state} onSelect={selectAndAdvance("distance")} />
+        )}
+        {isContact && (
+          <StepContact
+            clinic={clinic}
+            state={state}
+            dispatch={dispatch}
+            privacyHref={privacyHref}
+            isInfoOnly={isInfoOnly}
+            honeypotRef={honeypotRef}
+          />
+        )}
       </div>
-    </section>
+
+      <div className="mt-5 flex items-center justify-between gap-3">
+        {activeIndex > 0 ? (
+          <Button variant="ghost" onClick={onBack} disabled={state.submitting} className="text-sm">
+            ← Zurück
+          </Button>
+        ) : (
+          <span aria-hidden />
+        )}
+        {isContact && (
+          <Button
+            variant="primary"
+            onClick={onSubmit}
+            disabled={state.submitting}
+            className="flex-1 sm:flex-none"
+          >
+            {state.submitting
+              ? "Senden …"
+              : isInfoOnly
+                ? "Informationen anfordern"
+                : "Beratungstermin anfragen"}
+          </Button>
+        )}
+      </div>
+
+      {state.errors._form && (
+        <p className="mt-3 text-sm text-red-600" role="alert">
+          {state.errors._form}
+        </p>
+      )}
+
+      <p className="mt-4 border-t border-brand-border pt-3 text-xs leading-relaxed text-brand-fg-muted">
+        {isContact
+          ? `Unverbindlich. Diskret. Antwort ${responsePromise}.`
+          : "Dauert unter einer Minute. Keine medizinischen Daten nötig, diese besprechen Sie vertraulich im Gespräch."}
+      </p>
+    </div>
   );
 }
 
 function ProgressBar({ current, total }: { current: number; total: number }) {
-  const pct = Math.min(100, Math.round((current / total) * 100));
+  // Endowed progress: the bar starts visibly filled — completing feels closer
+  // from the first second (Nunes & Drèze).
+  const pct = Math.round(15 + 85 * (current / total));
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between text-xs text-brand-fg-muted">
         <span>
-          Schritt {Math.min(current, total)} von {total}
+          Schritt {current + 1} von {total}
         </span>
-        <span>{pct}%</span>
       </div>
       <div className="progress-track">
         <div className="progress-fill" style={{ width: `${pct}%` }} />
@@ -185,65 +232,51 @@ function ProgressBar({ current, total }: { current: number; total: number }) {
   );
 }
 
-function validateStep(
-  state: QuizState,
-  _treatment: Treatment,
-  askExperience: boolean,
-  isInfoOnly: boolean,
-): Partial<Record<string, string>> {
-  const e: Partial<Record<string, string>> = {};
-  if (state.step === 1 && !state.treatment) e.treatment = "Bitte wählen Sie einen Bereich aus.";
-  if (state.step === 2 && !state.timeframe) e.timeframe = "Bitte wählen Sie ein Zeitfenster.";
-
-  if (!isInfoOnly) {
-    if (askExperience && state.step === 3 && !state.experience)
-      e.experience = "Bitte wählen Sie eine Option.";
-    const locStep = askExperience ? 4 : 3;
-    if (state.step === locStep && !state.city.trim()) e.city = "Bitte geben Sie Ihre Stadt an.";
-    if (state.step === state.totalSteps) Object.assign(e, validateContact(state, false));
-  } else {
-    if (state.step === 3) Object.assign(e, validateContact(state, true));
-  }
-  return e;
-}
-
 function validateContact(state: QuizState, isInfoOnly: boolean) {
   const e: Partial<Record<string, string>> = {};
   if (!state.firstName.trim()) e.firstName = "Bitte geben Sie Ihren Vornamen an.";
   if (!EMAIL_RX.test(state.email)) e.email = "Bitte eine gültige E-Mail-Adresse angeben.";
-  if (!isInfoOnly && state.phone) {
+  if (!isInfoOnly) {
     const digits = state.phone.replace(/\D/g, "");
     if (digits.length < 8 || /^(\d)\1+$/.test(digits))
       e.phone = "Bitte eine gültige Telefonnummer angeben.";
   }
-  if (!state.consents.privacy) e.privacy = "Bitte stimmen Sie der Datenschutzerklärung zu.";
-  if (!state.consents.ageGate) e.ageGate = "Bitte bestätigen Sie das Mindestalter.";
+  if (!state.consent) e.consent = "Bitte bestätigen Sie Datenschutz und Mindestalter.";
   return e;
 }
 
 async function submit(
   state: QuizState,
+  branch: "qualified" | "info-only",
   clinic: Clinic,
   treatment: Treatment,
-  dispatch: React.Dispatch<import("./types").QuizAction>,
+  honeypot: string,
+  dispatch: React.Dispatch<QuizAction>,
 ) {
   dispatch({ type: "submitting", value: true });
-  const branch = state.branch ?? "qualified";
 
-  const payload: QuizSubmissionPayload = {
+  const payload: QuizSubmissionPayload & { website?: string } = {
     clinicSlug: clinic.slug,
     treatmentSlug: treatment.slug,
     branch,
     treatment: state.treatment ?? "",
     timeframe: state.timeframe ?? undefined,
-    experience: state.experience ?? undefined,
-    city: state.city || undefined,
-    firstName: state.firstName,
-    email: state.email,
-    phone: state.phone || undefined,
-    notes: state.notes.trim() || undefined,
-    consents: state.consents,
+    budget: state.budget ?? undefined,
+    distance: state.distance ?? undefined,
+    firstName: state.firstName.trim(),
+    email: state.email.trim(),
+    phone: branch === "qualified" ? state.phone : undefined,
+    // Quiz v2: the combined checkbox covers privacy + age; marketing moved to
+    // the confirmation screen (starts false, DOI flips it); the notes field
+    // and its AI-scoring consent were removed — aiProcessing is always false.
+    consents: {
+      privacy: state.consent,
+      ageGate: state.consent,
+      marketing: false,
+      aiProcessing: false,
+    },
     marketingConfirmedAt: null,
+    website: honeypot || undefined,
     meta: {
       eventId: state.eventId,
       sourceUrl: typeof window !== "undefined" ? window.location.href : "",
@@ -264,22 +297,26 @@ async function submit(
     if (!res.ok) {
       dispatch({
         type: "errors",
-        value: { _form: json?.error ?? "Senden fehlgeschlagen — bitte erneut versuchen." },
+        value: { _form: json?.error ?? "Senden fehlgeschlagen, bitte erneut versuchen." },
       });
       dispatch({ type: "submitting", value: false });
       return;
     }
-    track({
-      event: "Lead",
-      eventId: state.eventId,
-      treatment: treatment.slug,
-      branch,
-    });
+    // Lead fires ONLY for the qualified branch — the pixel keeps optimizing
+    // on full leads, not info requests.
+    if (branch === "qualified") {
+      track({
+        event: "Lead",
+        eventId: state.eventId,
+        treatment: treatment.slug,
+        branch,
+      });
+    }
     dispatch({ type: "submitted" });
   } catch {
     dispatch({
       type: "errors",
-      value: { _form: "Netzwerkfehler — bitte erneut versuchen." },
+      value: { _form: "Netzwerkfehler, bitte erneut versuchen." },
     });
     dispatch({ type: "submitting", value: false });
   }

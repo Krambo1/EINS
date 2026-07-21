@@ -2,6 +2,7 @@ import type { Adapter, AdapterPollResult } from "../Adapter.js";
 import type { PvsLinkRow } from "../../db/client.js";
 import type { CanonicalEvent } from "../../canonical/types.js";
 import { TomedoClient } from "./client.js";
+import { pickMaxIso } from "../_shared/iso.js";
 import {
   normalizePatient,
   normalizeAppointment,
@@ -71,23 +72,23 @@ export const tomedoAdapter: Adapter = {
     const newCursors = { ...cursors };
     for await (const p of client.streamPatients(cursors.patients)) {
       events.push(normalizePatient(link.clinicId, p));
-      newCursors.patients = pickMax(newCursors.patients, p.modifiedAt);
+      newCursors.patients = pickMaxIso(newCursors.patients, p.modifiedAt);
     }
     for await (const a of client.streamAppointments(cursors.appointments)) {
       events.push(normalizeAppointment(link.clinicId, a));
-      newCursors.appointments = pickMax(newCursors.appointments, a.modifiedAt);
+      newCursors.appointments = pickMaxIso(newCursors.appointments, a.modifiedAt);
     }
     for await (const e of client.streamEncounters(cursors.encounters)) {
       events.push(normalizeEncounter(link.clinicId, e));
-      newCursors.encounters = pickMax(newCursors.encounters, e.modifiedAt);
+      newCursors.encounters = pickMaxIso(newCursors.encounters, e.modifiedAt);
     }
     for await (const i of client.streamInvoices(cursors.invoices)) {
       events.push(normalizeInvoice(link.clinicId, i));
-      newCursors.invoices = pickMax(newCursors.invoices, i.modifiedAt);
+      newCursors.invoices = pickMaxIso(newCursors.invoices, i.modifiedAt);
     }
     for await (const r of client.streamRecalls(cursors.recalls)) {
       events.push(normalizeRecall(link.clinicId, r));
-      newCursors.recalls = pickMax(newCursors.recalls, r.modifiedAt);
+      newCursors.recalls = pickMaxIso(newCursors.recalls, r.modifiedAt);
     }
 
     return {
@@ -96,6 +97,20 @@ export const tomedoAdapter: Adapter = {
       // Empty poll? Back off to 5 min. Otherwise hit again in 60s.
       recommendedDelayMs: events.length === 0 ? 5 * 60_000 : 60_000,
     };
+  },
+
+  seedCursor(syncStartIso: string): string {
+    // Initial-sync watermark handoff (C7): every stream starts polling at
+    // the moment the initial sync began, so nothing falls in the gap and
+    // anything modified DURING the sync is re-fetched once (portal dedup
+    // absorbs the overlap).
+    return serializeCursor({
+      patients: syncStartIso,
+      appointments: syncStartIso,
+      encounters: syncStartIso,
+      invoices: syncStartIso,
+      recalls: syncStartIso,
+    });
   },
 };
 
@@ -131,8 +146,4 @@ function parseCursor(input: string | null): Cursors {
 
 function serializeCursor(c: Cursors): string {
   return [c.patients, c.appointments, c.encounters, c.invoices, c.recalls].join(",");
-}
-
-function pickMax(a: string, b: string): string {
-  return a >= b ? a : b;
 }

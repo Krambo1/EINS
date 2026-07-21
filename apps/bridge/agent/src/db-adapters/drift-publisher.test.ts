@@ -179,6 +179,46 @@ describe("drift-publisher: publish loop", () => {
     expect(pendingDriftReports()).toHaveLength(0);
   });
 
+  it("defers on 401 / 403 (auth misconfig is retryable); the row stays queued (finding L10)", async () => {
+    seedDrift("medatixx-db", "AppointmentCreated");
+    let call = 0;
+    const fakeFetch = (async () => {
+      call++;
+      // First tick: 401 (secret not yet rotated on the agent). Second tick,
+      // after the operator fixes the secret: 201 OK. The signal must survive
+      // the auth failure rather than being permanently dropped.
+      if (call === 1) return new Response("{}", { status: 401 });
+      if (call === 2) return new Response("{}", { status: 403 });
+      return new Response("{}", { status: 201 });
+    }) as unknown as typeof fetch;
+
+    const first = await publishPendingDrift({
+      configLoader: mockConfig(),
+      secretLoader: mockSecret(),
+      fetchImpl: fakeFetch,
+    });
+    expect(first.delivered).toBe(0);
+    expect(first.failed).toBe(0);
+    expect(first.deferred).toBe(1);
+    expect(pendingDriftReports()).toHaveLength(1);
+
+    const second = await publishPendingDrift({
+      configLoader: mockConfig(),
+      secretLoader: mockSecret(),
+      fetchImpl: fakeFetch,
+    });
+    expect(second.deferred).toBe(1);
+    expect(pendingDriftReports()).toHaveLength(1);
+
+    const third = await publishPendingDrift({
+      configLoader: mockConfig(),
+      secretLoader: mockSecret(),
+      fetchImpl: fakeFetch,
+    });
+    expect(third.delivered).toBe(1);
+    expect(pendingDriftReports()).toHaveLength(0);
+  });
+
   it("marks reported on non-retryable 4xx so it does not loop forever", async () => {
     seedDrift("medatixx-db", "AppointmentCreated");
     const fakeFetch = (async () =>

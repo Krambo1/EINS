@@ -29,3 +29,26 @@ export function verifySignature(
     expected.length === provided.length && timingSafeEqual(expected, provided)
   );
 }
+
+/**
+ * Verify a plaintext secret that a FHIR server echoes back verbatim (H16).
+ *
+ * FHIR rest-hook Subscriptions replay the registered `channel.header` values
+ * as-is on every delivery; they do NOT compute an HMAC over the body. The
+ * bridge registers `x-<vendor>-secret: <secret>`, so the inbound handler must
+ * compare the echoed header against the stored per-clinic secret with a
+ * timing-safe, length-checked comparison (never `===`, which leaks length and
+ * short-circuits on the first differing byte).
+ */
+export function verifyEchoedSecret(
+  provided: string | null | undefined,
+  expected: string
+): boolean {
+  if (!provided) return false;
+  // Header whitespace after the colon is insignificant per HTTP; some FHIR
+  // servers preserve a leading space when they replay channel.header.
+  const a = Buffer.from(provided.trim(), "utf8");
+  const b = Buffer.from(expected, "utf8");
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}

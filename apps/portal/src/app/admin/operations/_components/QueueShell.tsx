@@ -11,8 +11,6 @@ interface Props {
   emptyMessage?: string;
 }
 
-const GLOW_CARD = "!bg-bg-secondary scroll-mt-28";
-
 export function QueueShell({
   id,
   title,
@@ -23,11 +21,11 @@ export function QueueShell({
   emptyMessage,
 }: Props) {
   return (
-    <Card id={id} className={GLOW_CARD}>
+    <Card id={id} className="scroll-mt-28">
       <CardContent className="space-y-4 pt-6">
         <header className="flex flex-wrap items-center justify-between gap-2">
           <div>
-            <h2 className="font-display text-xl font-semibold">{title}</h2>
+            <h2 className="text-xl font-medium md:text-2xl">{title}</h2>
             {description && (
               <p className="mt-0.5 text-xs text-fg-secondary">{description}</p>
             )}

@@ -85,6 +85,15 @@ export function normalizeAppointment(
   // sync, also emit a StatusChanged — but tomedo doesn't expose a separate
   // "status changed at" timestamp, so we cheat by setting the event's
   // occurredAt to modifiedAt.
+  //
+  // H4 note: AppointmentCreated.occurredAt stays scheduledAt. Tomedo exposes no
+  // appointment CREATION timestamp (only the mutable scheduledAt and
+  // modifiedAt), so there is no stable creation instant to key on; a reschedule
+  // that moves scheduledAt re-emits one AppointmentCreated row. That count
+  // impact is accepted (the derive worker folds by pvsAppointmentId and dedups
+  // revenue by pvsInvoiceId). scheduledAt must ALSO stay the occurredAt for the
+  // cross-path dedup contract in event-identity.ts (the DB-read YAML path maps
+  // occurred_at from the same scheduledAt).
   const scheduledAt = isoUtc(t.scheduledAt);
   const created: AppointmentCreatedEvent = {
     kind: "AppointmentCreated",

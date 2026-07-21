@@ -70,7 +70,7 @@ export function EventsPanel({ rows, truncated, hardCap }: Props) {
   return (
     <>
       {truncated && (
-        <div className="rounded-md border border-tone-warn/40 bg-tone-warn/10 px-3 py-2 text-xs text-fg-primary">
+        <div className="rounded-md border border-[var(--tone-warn-border)] bg-[var(--tone-warn-bg)] px-3 py-2 text-xs text-fg-primary">
           Mehr als {hardCap.toLocaleString("de-DE")} passende Events. Es werden
           die {hardCap.toLocaleString("de-DE")} jüngsten gezeigt: Filter weiter
           einengen oder Zeitraum kürzen.
@@ -78,12 +78,12 @@ export function EventsPanel({ rows, truncated, hardCap }: Props) {
       )}
 
       <div className="rounded-md border border-border bg-bg-primary">
-        <div className="grid grid-cols-[160px_180px_120px_170px_1fr_120px] gap-3 border-b border-border bg-bg-secondary px-3 py-2 text-[11px] font-medium uppercase tracking-wide text-fg-tertiary">
-          <div>Occurred</div>
+        <div className="grid grid-cols-[160px_180px_120px_170px_1fr_120px] gap-3 border-b border-border bg-bg-secondary px-3 py-2 text-xs font-medium text-fg-secondary">
+          <div>Zeitpunkt</div>
           <div>Praxis</div>
           <div>Adapter</div>
-          <div>Kind</div>
-          <div>External ID</div>
+          <div>Typ</div>
+          <div>Externe ID</div>
           <div className="text-right">Status</div>
         </div>
 
@@ -95,7 +95,7 @@ export function EventsPanel({ rows, truncated, hardCap }: Props) {
           aria-rowcount={rowModel.rows.length}
         >
           {rowModel.rows.length === 0 ? (
-            <div className="p-6 text-center text-sm text-fg-tertiary">
+            <div className="px-4 py-10 text-center text-sm text-fg-secondary">
               Keine Events in diesem Zeitfenster.
             </div>
           ) : (
@@ -108,12 +108,12 @@ export function EventsPanel({ rows, truncated, hardCap }: Props) {
                     key={r.id}
                     type="button"
                     onClick={() => setSelectedId(r.id)}
-                    className="grid w-full grid-cols-[160px_180px_120px_170px_1fr_120px] gap-3 border-b border-border/40 px-3 py-1.5 text-left text-xs hover:bg-bg-secondary focus:bg-bg-secondary focus:outline-none"
+                    className="grid w-full grid-cols-[160px_180px_120px_170px_1fr_120px] gap-3 border-b border-border px-3 py-1.5 text-left text-xs hover:bg-bg-secondary focus:bg-bg-secondary focus:outline-none"
                     style={{ height: ROW_HEIGHT }}
                     role="row"
                     aria-rowindex={vi.index + 1}
                   >
-                    <span className="font-mono tabular-nums text-fg-secondary">
+                    <span className="tabular-nums text-fg-secondary">
                       {dtFormatter.format(new Date(r.occurredAt))}
                     </span>
                     <span className="truncate" title={r.clinicLabel}>

@@ -1,6 +1,7 @@
 /**
  * Shared loading skeleton for the admin list pages (users / integrations /
- * revenue / onboarding): page header, KPI strip, and a tall content block.
+ * revenue / onboarding / clinics / leads / leistung / operations / audit /
+ * pvs-bridge): page header, KPI strip, and a tall content block.
  */
 export function AdminListSkeleton() {
   return (
@@ -13,11 +14,11 @@ export function AdminListSkeleton() {
         {[0, 1, 2, 3].map((i) => (
           <div
             key={i}
-            className="h-28 animate-pulse rounded-2xl border border-border bg-bg-secondary"
+            className="h-28 animate-pulse rounded-xl border border-border bg-bg-secondary"
           />
         ))}
       </div>
-      <div className="h-80 animate-pulse rounded-2xl border border-border bg-bg-secondary" />
+      <div className="h-80 animate-pulse rounded-xl border border-border bg-bg-secondary" />
     </div>
   );
 }

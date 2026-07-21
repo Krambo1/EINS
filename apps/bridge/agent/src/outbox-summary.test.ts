@@ -99,6 +99,78 @@ describe("getFailureSummary (P2-2)", () => {
     expect(snap.failedCount).toBe(1);
     expect(snap.lastFailureReason).toBe("rejected");
   });
+
+  it("reports the pending backlog + retrying subset (H10c)", () => {
+    // Three pending rows; retry one so it has attempt_count > 0.
+    outbox.enqueue(JSON.stringify({ a: 1 }), "hash-1");
+    outbox.enqueue(JSON.stringify({ a: 2 }), "hash-2");
+    outbox.enqueue(JSON.stringify({ a: 3 }), "hash-3");
+    const due = outbox.dueRows(10);
+    outbox.recordRetry(due[0].id, "http 503"); // stays pending, attempt_count=1
+
+    const snap = outbox.getFailureSummary();
+    // failedCount stays 0 during an outage; the pending fields are what make
+    // a permanently-retrying outbox visible.
+    expect(snap.failedCount).toBe(0);
+    expect(snap.pendingCount).toBe(3);
+    expect(snap.pendingWithAttemptsCount).toBe(1);
+    expect(snap.oldestPendingAt).not.toBeNull();
+  });
+
+  it("counts pending rows stuck past the stale threshold (M-A2)", () => {
+    outbox.enqueue(JSON.stringify({ a: 1 }), "hash-fresh");
+    outbox.enqueue(JSON.stringify({ a: 2 }), "hash-stuck");
+    const due = outbox.dueRows(10);
+    // Back-date one pending row's created_at to 2h ago (past the 1h stale
+    // threshold) via a raw write, leaving the other fresh.
+    outbox
+      .outboxConnection()
+      .prepare(`UPDATE outbox SET created_at = ? WHERE id = ?`)
+      .run(Date.now() - 2 * 60 * 60 * 1000, due[1].id);
+
+    const snap = outbox.getFailureSummary();
+    // Both rows are still pending, but only the back-dated one is "stuck": a
+    // permanently-retrying row failedCount would never surface.
+    expect(snap.pendingCount).toBe(2);
+    expect(snap.stalePendingCount).toBe(1);
+    expect(snap.failedCount).toBe(0);
+  });
+});
+
+describe("backoffWithJitter (M-A5)", () => {
+  it("follows the documented base schedule at the mid-jitter point", () => {
+    // rand()=0.5 -> factor 1.0 -> the base delay with no spread.
+    const mid = () => 0.5;
+    expect(outbox.backoffWithJitter(1, mid)).toBe(30_000);
+    expect(outbox.backoffWithJitter(2, mid)).toBe(60_000);
+    expect(outbox.backoffWithJitter(3, mid)).toBe(120_000);
+    expect(outbox.backoffWithJitter(4, mid)).toBe(240_000);
+    expect(outbox.backoffWithJitter(5, mid)).toBe(480_000);
+  });
+
+  it("caps the base at 1h before jitter", () => {
+    const mid = () => 0.5;
+    // attempt 8 -> 30s * 2^7 = 3_840_000ms > 1h, so capped at 3_600_000.
+    expect(outbox.backoffWithJitter(8, mid)).toBe(3_600_000);
+    expect(outbox.backoffWithJitter(20, mid)).toBe(3_600_000);
+  });
+
+  it("spreads +/-20% across the rand() range", () => {
+    // rand()=0 -> factor 0.8 (lower bound), rand()->1 -> factor ~1.2 (upper).
+    expect(outbox.backoffWithJitter(1, () => 0)).toBe(24_000); // 30_000 * 0.8
+    // Near the top of [0,1) the rounded delay approaches (but does not exceed)
+    // 30_000 * 1.2 = 36_000.
+    expect(outbox.backoffWithJitter(1, () => 0.999999)).toBeLessThanOrEqual(36_000);
+    expect(outbox.backoffWithJitter(1, () => 0.999999)).toBeGreaterThan(35_900);
+  });
+
+  it("stays within [0.8x, 1.2x) of the base for any rand() value", () => {
+    for (const r of [0, 0.1, 0.25, 0.5, 0.75, 0.9, 0.9999]) {
+      const d = outbox.backoffWithJitter(3, () => r);
+      expect(d).toBeGreaterThanOrEqual(120_000 * 0.8);
+      expect(d).toBeLessThan(120_000 * 1.2);
+    }
+  });
 });
 
 describe("pruneFailedOlderThan (P2-2)", () => {
@@ -150,5 +222,98 @@ describe("pruneFailedOlderThan (P2-2)", () => {
     // After prune, the outbox no longer has failed rows.
     const after = outbox.getFailureSummary();
     expect(after.failedCount).toBe(0);
+  });
+});
+
+describe("vacuumOld (sent-row retention keys off sent time, L2)", () => {
+  const DAY_MS = 24 * 60 * 60 * 1000;
+
+  function countHash(hash: string): number {
+    const row = outbox
+      .outboxConnection()
+      .prepare(`SELECT COUNT(*) AS n FROM outbox WHERE content_hash = ?`)
+      .get(hash) as { n: number };
+    return row.n;
+  }
+
+  it("stamps sent_at when a row transitions to sent", () => {
+    const before = Date.now();
+    outbox.enqueue(JSON.stringify({ a: 1 }), "hash-ts");
+    const due = outbox.dueRows(1);
+    outbox.markSent(due[0].id);
+
+    const row = outbox
+      .outboxConnection()
+      .prepare(`SELECT sent_at FROM outbox WHERE id = ?`)
+      .get(due[0].id) as { sent_at: number | null };
+    expect(row.sent_at).not.toBeNull();
+    expect(row.sent_at!).toBeGreaterThanOrEqual(before);
+  });
+
+  it("keeps a row enqueued long ago but sent recently", () => {
+    // This is the L2 regression: the old `created_at < cutoff` predicate would
+    // drop the dedup record the moment the row was vacuumed, even though it was
+    // only just delivered.
+    outbox.enqueue(JSON.stringify({ a: 2 }), "hash-old-enqueue");
+    const due = outbox.dueRows(1);
+    outbox.markSent(due[0].id); // sent_at = now
+
+    // Back-date created_at to 30 days ago; sent_at stays "now".
+    outbox
+      .outboxConnection()
+      .prepare(`UPDATE outbox SET created_at = ? WHERE id = ?`)
+      .run(Date.now() - 30 * DAY_MS, due[0].id);
+
+    outbox.vacuumOld(7);
+
+    // Survives: retention now keys off the recent sent_at, so the dedup record
+    // remains to absorb a replay.
+    expect(countHash("hash-old-enqueue")).toBe(1);
+  });
+
+  it("deletes a row that was sent longer ago than the retention window", () => {
+    outbox.enqueue(JSON.stringify({ a: 3 }), "hash-sent-old");
+    const due = outbox.dueRows(1);
+    outbox.markSent(due[0].id);
+
+    const tenDaysAgo = Date.now() - 10 * DAY_MS;
+    outbox
+      .outboxConnection()
+      .prepare(`UPDATE outbox SET created_at = ?, sent_at = ? WHERE id = ?`)
+      .run(tenDaysAgo, tenDaysAgo, due[0].id);
+
+    outbox.vacuumOld(7);
+
+    expect(countHash("hash-sent-old")).toBe(0);
+  });
+
+  it("falls back to created_at for a legacy sent row with no sent_at", () => {
+    outbox.enqueue(JSON.stringify({ a: 4 }), "hash-legacy");
+    const due = outbox.dueRows(1);
+    outbox.markSent(due[0].id);
+
+    // Simulate a pre-migration sent row: old created_at, sent_at never set.
+    outbox
+      .outboxConnection()
+      .prepare(`UPDATE outbox SET created_at = ?, sent_at = NULL WHERE id = ?`)
+      .run(Date.now() - 10 * DAY_MS, due[0].id);
+
+    outbox.vacuumOld(7);
+
+    expect(countHash("hash-legacy")).toBe(0);
+  });
+
+  it("never deletes a pending row regardless of age", () => {
+    outbox.enqueue(JSON.stringify({ a: 5 }), "hash-pending");
+    const due = outbox.dueRows(1);
+
+    outbox
+      .outboxConnection()
+      .prepare(`UPDATE outbox SET created_at = ? WHERE id = ?`)
+      .run(Date.now() - 365 * DAY_MS, due[0].id);
+
+    outbox.vacuumOld(7);
+
+    expect(countHash("hash-pending")).toBe(1);
   });
 });

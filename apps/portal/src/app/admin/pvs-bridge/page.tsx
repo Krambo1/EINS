@@ -10,11 +10,13 @@ import {
   CardDescription,
   Badge,
   Button,
+  MetricTile,
 } from "@eins/ui";
-import { formatDateTime, formatRelative } from "@/lib/formatting";
+import { formatDateTime, formatNumber, formatRelative } from "@/lib/formatting";
 import { AdminPageHeader } from "../_components/AdminPageHeader";
+import { AdminTable, type AdminColumn } from "../_components/AdminTable";
 
-export const metadata = { title: "PVS-Bridge Health" };
+export const metadata = { title: "PVS-Bridge" };
 
 /**
  * /admin/pvs-bridge — operational health dashboard.
@@ -149,11 +151,126 @@ export default async function AdminPvsBridgePage() {
     (r) => r.status === "akkreditierung"
   ).length;
 
+  const columns: AdminColumn<LinkRow>[] = [
+    {
+      key: "praxis",
+      header: "Praxis",
+      render: (r) => (
+        <span className="font-mono text-xs">{r.clinicId.slice(0, 8)}</span>
+      ),
+    },
+    {
+      key: "adapter",
+      header: "Adapter",
+      render: (r) => formatAdapter(r.vendor, r.sources),
+    },
+    {
+      key: "status",
+      header: "Status",
+      render: (r) => <StatusBadge status={r.status} />,
+    },
+    {
+      key: "lastEvent",
+      header: "Letztes Event",
+      render: (r) => (
+        <span className="text-fg-secondary">
+          {r.lastEventAt ? formatRelative(r.lastEventAt) : "–"}
+        </span>
+      ),
+    },
+    {
+      key: "events24h",
+      header: "Events (24h)",
+      align: "right",
+      render: (r) => formatNumber(r.events24h),
+    },
+    {
+      key: "failures",
+      header: "Fehler in Folge",
+      align: "right",
+      render: (r) =>
+        r.consecutiveFailures > 0 ? (
+          <span className="text-tone-bad">{r.consecutiveFailures}</span>
+        ) : (
+          "0"
+        ),
+    },
+    {
+      key: "dlq",
+      header: "Agent-DLQ",
+      align: "right",
+      render: (r) =>
+        r.agentLastHeartbeatAt === null ? (
+          <span className="text-fg-secondary">–</span>
+        ) : r.agentFailedEvents > 0 ? (
+          <Badge
+            tone={
+              r.agentFailedEvents > AGENT_FAILED_ALERT_THRESHOLD ? "bad" : "warn"
+            }
+            className="text-[10px]"
+          >
+            {r.agentFailedEvents}
+          </Badge>
+        ) : (
+          "0"
+        ),
+    },
+    {
+      key: "totalEvents",
+      header: "Gesamt",
+      detailLabel: "Events gesamt",
+      align: "right",
+      secondary: true,
+      render: (r) => formatNumber(r.totalEvents),
+    },
+    {
+      key: "lastError",
+      header: "Letzter Fehler",
+      secondary: true,
+      render: (r) =>
+        r.lastError ? (
+          <span title={formatDateTime(r.lastErrorAt ?? new Date())}>
+            {r.lastError}
+          </span>
+        ) : (
+          "–"
+        ),
+    },
+    {
+      key: "openFailures",
+      header: "Offene Zuordnungen",
+      align: "right",
+      secondary: true,
+      render: (r) =>
+        r.openFailures > 0 ? (
+          <Badge tone="warn" className="text-[10px]">
+            {r.openFailures}
+          </Badge>
+        ) : (
+          "0"
+        ),
+    },
+    {
+      key: "csv",
+      header: "CSV-Uploads",
+      align: "right",
+      secondary: true,
+      render: (r) =>
+        r.pendingCsvUploads > 0 ? (
+          <Badge tone="warn" className="text-[10px]">
+            {r.pendingCsvUploads}
+          </Badge>
+        ) : (
+          "0"
+        ),
+    },
+  ];
+
   return (
     <div className="space-y-8">
       <AdminPageHeader
-        title="PVS-Bridge Health"
-        subtitle="Operational view of every clinic's PVS connection. Read-only."
+        title="PVS-Bridge"
+        subtitle="Betriebszustand jeder PVS-Verbindung, pro Praxis. Nur Lesezugriff."
         actions={
           <Button asChild variant="ghost">
             <Link href="/admin/pvs-bridge/events">Event-Trace öffnen →</Link>
@@ -161,129 +278,47 @@ export default async function AdminPvsBridgePage() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-5">
-        <SummaryStat label="Verbunden" value={totalConnected} tone="good" />
-        <SummaryStat label="Fehler" value={totalErrored} tone={totalErrored > 0 ? "bad" : "neutral"} />
-        <SummaryStat
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <MetricTile
+          label="Verbunden"
+          value={formatNumber(totalConnected)}
+          tone="good"
+        />
+        <MetricTile
+          label="Fehler"
+          value={formatNumber(totalErrored)}
+          tone={totalErrored > 0 ? "bad" : "neutral"}
+        />
+        <MetricTile
           label="Akkreditierung"
-          value={totalAkkreditierung}
+          value={formatNumber(totalAkkreditierung)}
           tone={totalAkkreditierung > 0 ? "warn" : "neutral"}
         />
-        <SummaryStat
-          label="Dead-Letter >100"
-          value={agentAlertCount}
+        <MetricTile
+          label="Agent-DLQ über 100"
+          value={formatNumber(agentAlertCount)}
           tone={agentAlertCount > 0 ? "bad" : "neutral"}
         />
-        <SummaryStat label="Praxen gesamt" value={linkRows.length} tone="neutral" />
+        <MetricTile label="Praxen gesamt" value={formatNumber(linkRows.length)} />
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Per-Praxis</CardTitle>
+      <Card className="!p-0 overflow-hidden">
+        <CardHeader className="px-6 pt-6">
+          <CardTitle className="!text-xl !font-medium md:!text-2xl">
+            Per-Praxis
+          </CardTitle>
           <CardDescription>
-            Sortiert nach letztem Event. Klick auf die Praxis-ID startet eine
-            Impersonations-Session.
+            Sortiert nach letztem Event. Details je Zeile über die
+            Detail-Ansicht.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          <table className="w-full text-xs">
-            <thead className="bg-muted/30 text-left uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th className="p-2">Praxis</th>
-                <th className="p-2">Adapter</th>
-                <th className="p-2">Status</th>
-                <th className="p-2">Letztes Event</th>
-                <th className="p-2 text-right">24h</th>
-                <th className="p-2 text-right">Gesamt</th>
-                <th className="p-2 text-right">Failures</th>
-                <th className="p-2">Letzter Fehler</th>
-                <th className="p-2 text-right">Inbox</th>
-                <th className="p-2 text-right">CSV</th>
-                <th className="p-2 text-right">Agent-DLQ</th>
-              </tr>
-            </thead>
-            <tbody>
-              {linkRows.map((r) => (
-                <tr
-                  key={r.id}
-                  className={
-                    r.agentFailedEvents > AGENT_FAILED_ALERT_THRESHOLD
-                      ? "border-t bg-destructive/5"
-                      : "border-t"
-                  }
-                >
-                  <td className="p-2">
-                    <code>{r.clinicId.slice(0, 8)}</code>
-                  </td>
-                  <td className="p-2">{formatAdapter(r.vendor, r.sources)}</td>
-                  <td className="p-2">
-                    <StatusBadge status={r.status} />
-                  </td>
-                  <td className="p-2 text-muted-foreground">
-                    {r.lastEventAt ? formatRelative(r.lastEventAt) : "—"}
-                  </td>
-                  <td className="p-2 text-right">{r.events24h}</td>
-                  <td className="p-2 text-right">{r.totalEvents.toLocaleString("de-DE")}</td>
-                  <td className="p-2 text-right">
-                    {r.consecutiveFailures > 0 ? (
-                      <span className="text-destructive">{r.consecutiveFailures}</span>
-                    ) : (
-                      "0"
-                    )}
-                  </td>
-                  <td className="p-2 max-w-xs truncate" title={r.lastError ?? ""}>
-                    {r.lastError ? (
-                      <span title={formatDateTime(r.lastErrorAt ?? new Date())}>
-                        {r.lastError}
-                      </span>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td className="p-2 text-right">
-                    {r.openFailures > 0 ? (
-                      <Badge tone="warn" className="text-[10px]">
-                        {r.openFailures}
-                      </Badge>
-                    ) : (
-                      "0"
-                    )}
-                  </td>
-                  <td className="p-2 text-right">
-                    {r.pendingCsvUploads > 0 ? (
-                      <Badge tone="warn" className="text-[10px]">
-                        {r.pendingCsvUploads}
-                      </Badge>
-                    ) : (
-                      "0"
-                    )}
-                  </td>
-                  <td className="p-2 text-right">
-                    {r.agentLastHeartbeatAt === null ? (
-                      <span className="text-muted-foreground">—</span>
-                    ) : r.agentFailedEvents > AGENT_FAILED_ALERT_THRESHOLD ? (
-                      <Badge tone="bad" className="text-[10px]">
-                        {r.agentFailedEvents}
-                      </Badge>
-                    ) : r.agentFailedEvents > 0 ? (
-                      <Badge tone="warn" className="text-[10px]">
-                        {r.agentFailedEvents}
-                      </Badge>
-                    ) : (
-                      "0"
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {linkRows.length === 0 && (
-                <tr>
-                  <td colSpan={11} className="p-4 text-center text-muted-foreground">
-                    Noch keine Praxis hat ein pvs_link eingerichtet.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+          <AdminTable
+            columns={columns}
+            rows={linkRows}
+            getRowKey={(r) => r.id}
+            empty="Noch keine Praxis hat eine PVS-Verbindung eingerichtet."
+          />
         </CardContent>
       </Card>
     </div>
@@ -301,38 +336,6 @@ function formatAdapter(vendor: string, sources: string[]): string {
   return extras.length > 0
     ? `${vendor} ${extras.map((e) => `+${e}`).join(" ")}`
     : vendor;
-}
-
-function SummaryStat({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: number;
-  tone: "good" | "warn" | "bad" | "neutral";
-}) {
-  return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="text-xs text-muted-foreground">{label}</div>
-        <div
-          className={
-            "mt-1 text-2xl font-semibold " +
-            (tone === "good"
-              ? "text-emerald-600"
-              : tone === "warn"
-              ? "text-amber-600"
-              : tone === "bad"
-              ? "text-destructive"
-              : "")
-          }
-        >
-          {value}
-        </div>
-      </CardContent>
-    </Card>
-  );
 }
 
 function StatusBadge({ status }: { status: string }) {

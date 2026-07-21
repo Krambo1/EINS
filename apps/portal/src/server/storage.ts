@@ -30,6 +30,23 @@ export interface Storage {
     body: Buffer | Uint8Array,
     options?: { contentType?: string }
   ): Promise<void>;
+  /**
+   * Presigned browser-PUT URL for `key`, or null when the active driver has
+   * no presigning (local dev). Client uploads go DIRECTLY to object storage
+   * with this URL — Vercel serverless caps request bodies at ~4.5 MB, so
+   * routing file bytes through a server action or route handler is a dead
+   * end in production. Local dev falls back to the /api/uploads route.
+   */
+  presignedPutUrl(
+    key: string,
+    options: { contentType?: string; expiresInSeconds?: number }
+  ): Promise<string | null>;
+  /**
+   * Object metadata, or null if the object does not exist. Used by
+   * finalize-upload actions to verify the client actually delivered the
+   * bytes before a DB row is written.
+   */
+  head(key: string): Promise<{ size: number; contentType?: string } | null>;
   /** Delete an object. */
   remove(key: string): Promise<void>;
   /**
@@ -61,6 +78,25 @@ class LocalStorage implements Storage {
     const fullPath = join(root, key);
     await mkdir(dirname(fullPath), { recursive: true });
     await writeFile(fullPath, body);
+  }
+
+  async presignedPutUrl(): Promise<string | null> {
+    // No presigning locally — the client helper falls back to POSTing the
+    // bytes to /api/uploads, which streams them into storage/<key>.
+    return null;
+  }
+
+  async head(key: string): Promise<{ size: number; contentType?: string } | null> {
+    const { stat } = await import("node:fs/promises");
+    const { join, resolve } = await import("node:path");
+    const root = resolve(process.cwd(), "storage");
+    try {
+      const s = await stat(join(root, key));
+      if (!s.isFile()) return null;
+      return { size: s.size };
+    } catch {
+      return null;
+    }
   }
 
   async remove(key: string): Promise<void> {
@@ -147,6 +183,59 @@ class R2Storage implements Storage {
         ContentType: options?.contentType,
       })
     );
+  }
+
+  async presignedPutUrl(
+    key: string,
+    options: { contentType?: string; expiresInSeconds?: number }
+  ): Promise<string | null> {
+    const { S3Client, PutObjectCommand } = await import(
+      /* webpackIgnore: true */ "@aws-sdk/client-s3"
+    );
+    const { getSignedUrl } = await import(
+      /* webpackIgnore: true */ "@aws-sdk/s3-request-presigner"
+    );
+    const client = new S3Client({
+      region: "auto",
+      endpoint: env.R2_ENDPOINT,
+      credentials: {
+        accessKeyId: env.R2_ACCESS_KEY_ID!,
+        secretAccessKey: env.R2_SECRET_ACCESS_KEY!,
+      },
+    });
+    const cmd = new PutObjectCommand({
+      Bucket: env.R2_BUCKET!,
+      Key: key,
+      ContentType: options.contentType,
+    });
+    return getSignedUrl(client, cmd, {
+      expiresIn: options.expiresInSeconds ?? 3600,
+    });
+  }
+
+  async head(key: string): Promise<{ size: number; contentType?: string } | null> {
+    const { S3Client, HeadObjectCommand } = await import(
+      /* webpackIgnore: true */ "@aws-sdk/client-s3"
+    );
+    const client = new S3Client({
+      region: "auto",
+      endpoint: env.R2_ENDPOINT,
+      credentials: {
+        accessKeyId: env.R2_ACCESS_KEY_ID!,
+        secretAccessKey: env.R2_SECRET_ACCESS_KEY!,
+      },
+    });
+    try {
+      const out = await client.send(
+        new HeadObjectCommand({ Bucket: env.R2_BUCKET!, Key: key })
+      );
+      return {
+        size: Number(out.ContentLength ?? 0),
+        contentType: out.ContentType ?? undefined,
+      };
+    } catch {
+      return null;
+    }
   }
 
   async remove(key: string): Promise<void> {

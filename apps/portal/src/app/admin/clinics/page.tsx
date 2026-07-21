@@ -22,8 +22,6 @@ import { AdminTable, type AdminColumn } from "../_components/AdminTable";
 
 export const metadata = { title: "Praxen" };
 
-const GLOW_CARD = "!bg-bg-secondary";
-
 const SORT_KEYS = [
   "name",
   "spend",
@@ -146,27 +144,27 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
       key: "revenue",
       align: "right",
       header: <SortLink label="Umsatz" sortKey="revenue" current={sortKey} dir={dir} baseQuery={baseQuery} align />,
-      render: (c) => <span className="font-mono">{formatMoney(c.revenueEur, c.currency)}</span>,
+      render: (c) => <span className="tabular-nums">{formatMoney(c.revenueEur, c.currency)}</span>,
     },
     {
       key: "roas",
       align: "right",
       header: <SortLink label="ROAS" sortKey="roas" current={sortKey} dir={dir} baseQuery={baseQuery} align />,
       render: (c) => (
-        <span className="font-mono">{c.roas == null ? "–" : `${c.roas.toFixed(2)}×`}</span>
+        <span className="tabular-nums">{c.roas == null ? "–" : `${c.roas.toFixed(2)}×`}</span>
       ),
     },
     {
       key: "leads",
       align: "right",
-      header: <SortLink label="Leads" sortKey="leads" current={sortKey} dir={dir} baseQuery={baseQuery} align />,
-      render: (c) => <span className="font-mono">{formatNumber(c.leads)}</span>,
+      header: <SortLink label="Anfragen" sortKey="leads" current={sortKey} dir={dir} baseQuery={baseQuery} align />,
+      render: (c) => <span className="tabular-nums">{formatNumber(c.leads)}</span>,
     },
     {
       key: "cases",
       align: "right",
       header: <SortLink label="Cases" sortKey="cases" current={sortKey} dir={dir} baseQuery={baseQuery} align />,
-      render: (c) => <span className="font-mono">{formatNumber(c.casesWon)}</span>,
+      render: (c) => <span className="tabular-nums">{formatNumber(c.casesWon)}</span>,
     },
     {
       key: "health",
@@ -187,8 +185,8 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
     {
       key: "spend",
       secondary: true,
-      detailLabel: "Spend",
-      header: "Spend",
+      detailLabel: "Werbebudget",
+      header: "Budget",
       render: (c) => formatEuro(c.spendEur),
     },
     {
@@ -247,12 +245,12 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
         <MetricTile
           label="Ø ROAS"
           value={avgRoas == null ? "–" : `${avgRoas.toFixed(2)}×`}
-          sublabel={`${formatNumber(totalLeads)} Leads`}
+          sublabel={`${formatNumber(totalLeads)} Anfragen`}
         />
         <MetricTile label="Cases gewonnen" value={formatNumber(totalCases)} sublabel="30 Tage" />
       </div>
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardContent className="pt-6">
           <div className="grid gap-3 md:grid-cols-[2fr_repeat(3,1fr)]">
             <AdminSearchInput placeholder="Praxisname oder Slug" />
@@ -275,7 +273,7 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
         </CardContent>
       </Card>
 
-      <Card className={`${GLOW_CARD} !p-0 overflow-hidden`}>
+      <Card className="!p-0 overflow-hidden">
         <CardContent className="p-0">
           <AdminTable
             columns={columns}

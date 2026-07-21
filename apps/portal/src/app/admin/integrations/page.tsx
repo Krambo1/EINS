@@ -18,7 +18,6 @@ import { AdminTable, type AdminColumn } from "../_components/AdminTable";
 
 export const metadata = { title: "Integrationen · Admin" };
 
-const GLOW_CARD = "!bg-bg-secondary";
 const TOKEN_SOON_MS = 7 * 86_400_000;
 const STALE_SYNC_MS = 48 * 3_600_000;
 
@@ -196,7 +195,7 @@ export default async function AdminIntegrationsPage() {
         </div>
       )}
 
-      <Card className={`${GLOW_CARD} !p-0 overflow-hidden`}>
+      <Card className="!p-0 overflow-hidden">
         <CardContent className="p-0">
           <AdminTable
             columns={columns}

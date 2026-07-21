@@ -1,6 +1,10 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db, schema } from "@/db/client";
-import { ALL_RULES, combineMultiSignal } from "../anomaly/rules";
+import {
+  ALL_RULES,
+  ANOMALY_ALERT_KINDS,
+  combineMultiSignal,
+} from "../anomaly/rules";
 import { enrichWithAi } from "../anomaly/enrich";
 import type { AlertCandidate } from "../anomaly/types";
 
@@ -58,6 +62,13 @@ async function scanClinic(clinicId: string): Promise<void> {
   candidates = combineMultiSignal(candidates);
 
   // 3. Look up existing rows so we know whether to call AI fresh.
+  //
+  // Scoped to the kinds THIS scan owns. dashboard_alerts is shared with the
+  // PVS producers (pvs_billing_conflict, the derive alerts, pvs_agent_health),
+  // and step 5 below dismisses every active row it did not reproduce. Without
+  // the kind filter this loop silently dismissed those foreign alerts on its
+  // first tick, and since none of those producers clear dismissed_at when they
+  // re-upsert, the alert never returned. See ANOMALY_ALERT_KINDS.
   const existing = await db
     .select({
       id: schema.dashboardAlerts.id,
@@ -67,7 +78,12 @@ async function scanClinic(clinicId: string): Promise<void> {
       dismissedAt: schema.dashboardAlerts.dismissedAt,
     })
     .from(schema.dashboardAlerts)
-    .where(eq(schema.dashboardAlerts.clinicId, clinicId));
+    .where(
+      and(
+        eq(schema.dashboardAlerts.clinicId, clinicId),
+        inArray(schema.dashboardAlerts.kind, [...ANOMALY_ALERT_KINDS])
+      )
+    );
 
   const existingByKey = new Map(existing.map((r) => [r.dedupeKey, r]));
   const producedKeys = new Set<string>();
@@ -148,6 +164,9 @@ async function scanClinic(clinicId: string): Promise<void> {
       .where(
         and(
           eq(schema.dashboardAlerts.clinicId, clinicId),
+          // Redundant with the scoped read above, kept as defense in depth:
+          // this UPDATE must never be able to touch a foreign producer's alert.
+          inArray(schema.dashboardAlerts.kind, [...ANOMALY_ALERT_KINDS]),
           inArray(
             schema.dashboardAlerts.id,
             stale.map((r) => r.id)

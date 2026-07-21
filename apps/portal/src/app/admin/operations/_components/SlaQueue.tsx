@@ -17,7 +17,7 @@ export function SlaQueue({ rows }: { rows: SlaQueueRow[] }) {
     >
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="text-left text-xs text-fg-secondary">
+          <thead className="text-left text-xs font-medium text-fg-secondary">
             <tr>
               <th className="py-2">Praxis</th>
               <th className="py-2">Kontakt</th>
@@ -43,7 +43,7 @@ export function SlaQueue({ rows }: { rows: SlaQueueRow[] }) {
                     {r.contactName ?? "ohne Namen"}
                   </div>
                   <div className="text-xs text-fg-secondary">
-                    {r.contactEmail ?? "—"}
+                    {r.contactEmail ?? "–"}
                   </div>
                 </td>
                 <td className="py-2 capitalize">{r.source}</td>
@@ -55,7 +55,7 @@ export function SlaQueue({ rows }: { rows: SlaQueueRow[] }) {
                 <td className="py-2 text-right text-xs text-fg-secondary">
                   {r.slaRespondBy ? formatRelative(r.slaRespondBy) : "–"}
                 </td>
-                <td className="py-2 text-right font-mono tabular-nums text-fg-secondary">
+                <td className="py-2 text-right tabular-nums text-fg-secondary">
                   {r.ageHours}h
                 </td>
               </tr>

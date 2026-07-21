@@ -65,6 +65,42 @@ async function getClientCtor(): Promise<PgClientCtor> {
   return mod.Client;
 }
 
+/**
+ * Translate `connection.options.sslmode` into a `pg` ssl option.
+ *
+ * Mirrors libpq's sslmode names, collapsed to the two knobs the `pg` client
+ * exposes (encrypt yes/no, verify-cert yes/no):
+ *   • unset / "disable"        → no TLS (the Praxis-local default)
+ *   • "prefer" / "require"     → TLS, do NOT verify the cert (self-signed is
+ *                                the norm on a Praxis DB box)
+ *   • "verify-ca"/"verify-full"→ TLS AND verify the cert against the trust store
+ * An unknown value fails loudly rather than silently doing nothing (the dead
+ * `? undefined : undefined` this replaces meant sslmode never took effect).
+ */
+export function sslOptionFromMode(
+  sslmode: unknown
+): { rejectUnauthorized: boolean } | undefined {
+  if (sslmode === undefined || sslmode === null || sslmode === "") {
+    return undefined;
+  }
+  switch (sslmode) {
+    case "disable":
+      return undefined;
+    case "prefer":
+    case "require":
+      return { rejectUnauthorized: false };
+    case "verify-ca":
+    case "verify-full":
+      return { rejectUnauthorized: true };
+    default:
+      throw new Error(
+        `postgres: unknown sslmode '${String(
+          sslmode
+        )}' (expected disable|prefer|require|verify-ca|verify-full)`
+      );
+  }
+}
+
 export class PostgresDriver implements DbDriver {
   readonly engine = "postgres" as const;
 
@@ -88,12 +124,24 @@ export class PostgresDriver implements DbDriver {
   private async doConnect(): Promise<void> {
     const params = this.params;
     if (!params) throw new Error("postgres: connect called without params");
+    // M-D5: a reconnect must release the previous client first. A flapping LAN
+    // drives repeated doConnect() calls (the 'error'/'end' handlers flip
+    // `healthy` false while `client` is still set), and without closing the old
+    // handle each rebuild leaks a dead backend on the Praxis Postgres, which
+    // accumulate over days. Best-effort and fire-and-forget: awaiting end() on a
+    // half-dead socket can itself hang, so we detach the reference and let the
+    // close settle in the background.
+    if (this.client) {
+      const stale = this.client;
+      this.client = null;
+      void stale.end().catch(() => void 0);
+    }
     const Ctor = await getClientCtor();
-    const ssl = params.options?.sslmode === "disable" ? undefined : undefined;
+    const ssl = sslOptionFromMode(params.options?.sslmode);
     // SSL note: a Praxis-local Tomedo Postgres almost never has SSL enabled,
     // and forcing it would just produce confusing handshake errors. We leave
-    // ssl off by default; the YAML config can opt in via options.sslmode in
-    // a future iteration.
+    // ssl off by default (no sslmode / "disable"); the YAML config opts in via
+    // connection.options.sslmode. See sslOptionFromMode for the mapping.
 
     const client = new Ctor({
       host: params.host,

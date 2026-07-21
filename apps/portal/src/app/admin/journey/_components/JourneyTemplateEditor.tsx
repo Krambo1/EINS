@@ -22,8 +22,6 @@ import {
   updateDefaultStepAction,
 } from "../actions";
 
-const GLOW_CARD = "!bg-bg-secondary";
-
 const SELECT_CLASS =
   "flex h-10 w-full rounded-md border border-border bg-bg-primary px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
@@ -47,7 +45,7 @@ export function JourneyTemplateEditor({
 
   return (
     <div className="space-y-5">
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardHeader>
           <CardTitle>Neuer Schritt</CardTitle>
           <CardDescription>
@@ -147,7 +145,7 @@ export function JourneyTemplateEditor({
         </CardContent>
       </Card>
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardHeader>
           <CardTitle>Schritte ({steps.length})</CardTitle>
           <CardDescription>

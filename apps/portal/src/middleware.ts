@@ -103,10 +103,15 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  // Skip Next internals, static assets, the health probe, and the
+  // Skip Next internals, static assets, the health probe, the
   // high-traffic web-vitals beacon (fires on every page nav and gains
-  // nothing from middleware's host/flash logic).
+  // nothing from middleware's host/flash logic), and the dev upload sink:
+  // when middleware runs on a route, Next tees the request body with an
+  // internal ~10 MiB cap and SILENTLY TRUNCATES anything bigger — a 20 MB
+  // file arrives as 10 MiB with no error. /api/uploads takes raw file
+  // bytes (local-driver direct uploads), so it must bypass middleware
+  // entirely; its auth lives in the handler like api/health.
   matcher: [
-    "/((?!_next/|favicon\\.ico|api/health|api/vitals|robots\\.txt|sitemap\\.xml).*)",
+    "/((?!_next/|favicon\\.ico|api/health|api/vitals|api/uploads|robots\\.txt|sitemap\\.xml).*)",
   ],
 };

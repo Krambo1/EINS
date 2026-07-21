@@ -212,15 +212,52 @@ async function storeWindowsFile(secret: string, filename: string): Promise<void>
 }
 
 async function loadWindowsFile(filename: string): Promise<string | null> {
+  const path = join(configDir(), filename);
+  let blob: string;
   try {
-    const path = join(configDir(), filename);
-    const blob = (await readFile(path, "utf8")).trim();
+    blob = (await readFile(path, "utf8")).trim();
+  } catch {
+    // No blob on disk yet: the agent has not been enrolled, or this
+    // credential was never stored. Expected at first boot, so stay quiet.
+    return null;
+  }
+  if (!blob) return null;
+  try {
     const out = await psDpapi("unprotect", blob);
     return out.trim() || null;
-  } catch {
+  } catch (err) {
+    // The blob exists on disk but DPAPI could not decrypt it. The usual
+    // cause on a Praxis workstation is a user-scope mismatch: the secret was
+    // DPAPI-protected (CurrentUser scope) under one Windows account, e.g. the
+    // interactive login used during enrollment, but the agent now runs under
+    // a different account, e.g. a dedicated service account. A CurrentUser
+    // blob is only decryptable by the exact user that created it, so this
+    // fails on every load, permanently, until the agent is re-enrolled under
+    // the account that actually runs it. Log loudly and actionably instead
+    // of silently returning null and shipping nothing (review finding M-A4).
+    // The error text is DPAPI's own failure reason and never contains the
+    // protected secret: the secret is the plaintext DPAPI failed to produce,
+    // not the ciphertext it was given.
+    console.error(
+      `[secure-store] windows: ${filename} exists on disk but DPAPI could ` +
+        `not decrypt it. Most likely it was stored under a different Windows ` +
+        `user account than the one now running the agent. Re-enroll the agent ` +
+        `under the account that runs it (run enrollment as that user, e.g. ` +
+        `the service account) so the secret is re-protected under that scope. ` +
+        `DPAPI error: ${err instanceof Error ? err.message : String(err)}`
+    );
     return null;
   }
 }
+
+// Hard ceiling on how long we wait for the DPAPI powershell child. Without
+// it, a hung powershell.exe (an AV/EDR scan stalling process start, or a
+// wedged console host) leaves this promise pending forever. The outbox flush
+// loop awaits loadSecret() under a flushInFlight guard, so a single hung
+// child wedges the whole agent: it keeps running but ships nothing and logs
+// nothing (review finding M-A4). On expiry we kill the child and reject so
+// the caller's failure path runs instead of hanging.
+const PS_DPAPI_TIMEOUT_MS = 30_000;
 
 /**
  * Run the DPAPI stub. Command-line arguments are:
@@ -232,6 +269,11 @@ async function loadWindowsFile(filename: string): Promise<string | null> {
  * That distinction is the whole point: even when the Windows process
  * listing exposes the command line of every running powershell.exe, the
  * sensitive bytes are not visible to other processes.
+ *
+ * The child is bounded by PS_DPAPI_TIMEOUT_MS: on expiry it is killed and
+ * the promise rejects, so a stalled powershell.exe can never wedge the
+ * caller. Neither the timeout nor the kill path puts the payload in the
+ * error message (only the fixed action verb), so no secret can leak.
  */
 function psDpapi(action: "protect" | "unprotect", payload: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -244,17 +286,50 @@ function psDpapi(action: "protect" | "unprotect", payload: string): Promise<stri
     ]);
     let stdout = "";
     let stderr = "";
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      // Force-terminate the wedged child so it does not linger. The error
+      // names only the fixed action verb ("protect"/"unprotect"), never the
+      // payload, so no secret material can leak into logs.
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // Child already gone; nothing to kill.
+      }
+      reject(
+        new Error(
+          `powershell DPAPI '${action}' timed out after ` +
+            `${PS_DPAPI_TIMEOUT_MS}ms; killed the child process`
+        )
+      );
+    }, PS_DPAPI_TIMEOUT_MS);
+
     child.stdout.on("data", (d) => (stdout += d.toString()));
     child.stderr.on("data", (d) => (stderr += d.toString()));
-    child.on("error", (err) => reject(err));
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(err);
+    });
     child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       if (code !== 0)
         reject(new Error(`powershell ${code}: ${stderr.trim()}`));
       else resolve(stdout);
     });
 
     if (!child.stdin) {
-      reject(new Error("powershell stdin unavailable"));
+      if (!settled) {
+        settled = true;
+        clearTimeout(timer);
+        reject(new Error("powershell stdin unavailable"));
+      }
       return;
     }
     // Stdin contract: action newline payload, then EOF.
@@ -301,14 +376,57 @@ async function loadMacOsKeychain(account: string): Promise<string | null> {
   }
 }
 
+// Hard ceiling on how long we wait for a `security` child, mirroring the
+// Windows psDpapi timeout. macOS is a supported deployment target, so a hung
+// `security` process (a stuck Keychain unlock prompt, an MDM/EDR stall) is
+// the same M-A4 failure mode: loadMacOsKeychain never resolves, the outbox
+// flush loop stays pinned under its flushInFlight guard, and the agent runs
+// but ships nothing. On expiry we kill the child and reject.
+const SECURITY_TIMEOUT_MS = 30_000;
+
 function spawn1(cmd: string, args: string[]): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args);
     let stdout = "";
     let stderr = "";
+    let settled = false;
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      // Force-terminate the wedged child so it cannot linger. The message
+      // names only the binary (`cmd`), never `args`: the store path passes
+      // the secret via `security add-generic-password -w <secret>` on argv,
+      // so `args` must never reach a log or error string.
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // Child already gone; nothing to kill.
+      }
+      reject(
+        new Error(
+          `${cmd} timed out after ${SECURITY_TIMEOUT_MS}ms; killed the child process`
+        )
+      );
+    }, SECURITY_TIMEOUT_MS);
+
     child.stdout.on("data", (d) => (stdout += d.toString()));
     child.stderr.on("data", (d) => (stderr += d.toString()));
+    // Without this handler a spawn failure (binary missing, EACCES, fork
+    // limit) emits an "error" event with no listener, which Node re-throws
+    // as an uncaught exception and takes the whole agent down. Reject so the
+    // caller's failure path runs instead. The rejection carries only the
+    // spawn error (e.g. ENOENT), never any secret.
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(err);
+    });
     child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
       if (code !== 0) reject(new Error(`${cmd} ${code}: ${stderr}`));
       else resolve(stdout);
     });

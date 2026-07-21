@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { translateNamedToPositional } from "./postgres.js";
+import { sslOptionFromMode, translateNamedToPositional } from "./postgres.js";
 
 describe("postgres driver: named-to-positional translation", () => {
   it("translates a single :cursor and :limit", () => {
@@ -40,5 +40,30 @@ describe("postgres driver: named-to-positional translation", () => {
     );
     expect(translated).toBe(`SELECT 1`);
     expect(values).toEqual([]);
+  });
+});
+
+describe("postgres driver: sslmode → pg ssl option (finding L9)", () => {
+  it("returns no ssl when sslmode is unset / null / empty / disable", () => {
+    expect(sslOptionFromMode(undefined)).toBeUndefined();
+    expect(sslOptionFromMode(null)).toBeUndefined();
+    expect(sslOptionFromMode("")).toBeUndefined();
+    expect(sslOptionFromMode("disable")).toBeUndefined();
+  });
+
+  it("encrypts without cert verification for prefer / require", () => {
+    expect(sslOptionFromMode("prefer")).toEqual({ rejectUnauthorized: false });
+    expect(sslOptionFromMode("require")).toEqual({ rejectUnauthorized: false });
+  });
+
+  it("encrypts AND verifies the cert for verify-ca / verify-full", () => {
+    expect(sslOptionFromMode("verify-ca")).toEqual({ rejectUnauthorized: true });
+    expect(sslOptionFromMode("verify-full")).toEqual({
+      rejectUnauthorized: true,
+    });
+  });
+
+  it("throws on an unknown sslmode instead of silently doing nothing", () => {
+    expect(() => sslOptionFromMode("bogus")).toThrow(/unknown sslmode 'bogus'/);
   });
 });

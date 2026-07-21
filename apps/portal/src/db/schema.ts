@@ -1762,6 +1762,40 @@ export const checklistFiles = pgTable(
 );
 
 // ---------------------------------------------------------------
+// CLIENT UPLOADS — "Dateien an EINS": general clinic-to-EINS file
+// delivery outside the onboarding checklist. seen_at/seen_by is the
+// EINS-side read receipt (admin email, no FK — admins are not
+// clinic_users, same convention as checklist_items.verified_by).
+// ---------------------------------------------------------------
+export const clientUploads = pgTable(
+  "client_uploads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    storageKey: text("storage_key").notNull(),
+    originalFilename: text("original_filename").notNull(),
+    contentType: text("content_type"),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    note: text("note"),
+    uploadedBy: uuid("uploaded_by").references(() => clinicUsers.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    seenAt: timestamp("seen_at", { withTimezone: true }),
+    seenBy: text("seen_by"),
+  },
+  (t) => ({
+    storageKeyUniq: unique("client_uploads_storage_key_uniq").on(t.storageKey),
+    clinicCreatedIdx: index("client_uploads_clinic_created_idx").on(
+      t.clinicId,
+      t.createdAt
+    ),
+  })
+);
+
+// ---------------------------------------------------------------
 // ADMIN TOKENS — single-use admin login + password-reset tokens.
 // Replaces the former Redis token store (adm:mlk: / adm:pwd:). Sensitive
 // (token hashes + admin emails), so migration 0059 REVOKEs all access from

@@ -6,9 +6,9 @@ export const templateLiposuktion: Treatment = {
   category: "liposuktion",
   city: "[Stadt]",
 
-  h1: "Liposuktion (Fettabsaugung) in [Stadt]",
+  h1: "Fettabsaugung (Liposuktion) in [Stadt]",
   subline:
-    "Konturierung von Bauch, Hüfte, Beinen oder Kinn — durchgeführt von [Dr. med. Vorname Nachname]. Nach gründlicher Voruntersuchung und gesetzlicher Bedenkzeit.",
+    "Für hartnäckige Fettpolster, die Training und Ernährung nicht erreichen. Ehrliche Einschätzung von [Dr. med. Vorname Nachname], wofür eine Liposuktion geeignet ist und wofür nicht.",
 
   heroImage: {
     src: "/clinics/_template/hero-liposuktion.svg",
@@ -19,37 +19,37 @@ export const templateLiposuktion: Treatment = {
 
   problem: {
     paragraphs: [
-      "Sie trainieren regelmäßig und ernähren sich bewusst, aber bestimmte Fettpolster — am Bauch, an den Hüften, an den Reiterhosen oder am Kinn — bleiben hartnäckig bestehen. Sie wünschen sich eine Möglichkeit, diese Bereiche gezielt zu konturieren.",
-      "Sie suchen eine Praxis, die Sie ehrlich darüber aufklärt, wofür eine Liposuktion geeignet ist und wofür nicht — und die nicht jede OP empfiehlt.",
+      "Sie trainieren regelmäßig und achten auf Ihre Ernährung, aber bestimmte Polster am Bauch, an den Hüften oder am Kinn bleiben, egal was Sie tun. Das ist keine Frage der Disziplin, sondern der Veranlagung.",
+      "Sie suchen eine Praxis, die ehrlich einordnet, was eine Liposuktion leisten kann und was nicht, und die nicht jede OP empfiehlt, nur weil sie machbar ist.",
     ],
   },
 
   explainer: {
     indication:
-      "Die Liposuktion eignet sich zur Konturierung lokal abgegrenzter Fettpolster, die sich durch Training und Ernährung nicht reduzieren lassen. Sie ist keine Methode zur Gewichtsreduktion. Die Indikation prüfen wir in Ruhe gemeinsam.",
+      "Die Liposuktion eignet sich zur Konturierung einzelner, klar abgegrenzter Fettdepots, die auf Training und Ernährung nicht ansprechen. Sie ist keine Methode zur Gewichtsreduktion. Ob Ihr Befund geeignet ist, prüfen wir in Ruhe gemeinsam.",
     process:
-      "Der Eingriff erfolgt in der Regel in Tumeszenz-Lokalanästhesie oder Vollnarkose, je nach Umfang. Über kleine Zugänge wird mit feinen Kanülen Fettgewebe abgetragen. Die OP-Dauer beträgt 1–3 Stunden.",
+      "Der Eingriff erfolgt je nach Umfang in Tumeszenz-Lokalanästhesie oder Vollnarkose. Über wenige Millimeter kleine Zugänge wird das Fettgewebe mit feinen Kanülen entfernt. Die OP dauert 1 bis 3 Stunden.",
     recovery:
-      "Eine Kompressionswäsche wird etwa 4–6 Wochen Tag und Nacht getragen. Schwellungen und Blutergüsse sind die ersten Wochen üblich. Sport ist je nach Befund nach 4–6 Wochen wieder möglich.",
+      "Kompressionswäsche wird etwa 4 bis 6 Wochen getragen. Schwellungen und Blutergüsse sind in den ersten Wochen normal. Sport ist je nach Befund nach 4 bis 6 Wochen wieder möglich.",
     duration:
-      "Das Ergebnis ist dauerhaft, sofern das Körpergewicht stabil bleibt. Fettzellen, die entfernt wurden, bilden sich nicht neu — das übrige Gewebe kann jedoch bei Gewichtszunahme weiter Fett einlagern.",
+      "Entfernte Fettzellen bilden sich nicht neu; das Ergebnis ist bei stabilem Gewicht dauerhaft. Bei deutlicher Gewichtszunahme kann das verbliebene Gewebe weiterhin Fett einlagern.",
     sideEffects:
-      "Mögliche Nebenwirkungen: Schwellungen, Hämatome, Sensibilitätsstörungen, Konturunregelmäßigkeiten, in seltenen Fällen Infektionen oder Wundheilungsstörungen. Vollständige Aufklärung im persönlichen Gespräch.",
+      "Möglich: Schwellungen, Hämatome, Sensibilitätsstörungen, Konturunregelmäßigkeiten, selten Infektionen oder Wundheilungsstörungen. Die vollständige Aufklärung erfolgt im persönlichen Gespräch.",
     riskNotice:
-      "Pflichtangabe HWG: Die Liposuktion ist eine Operation. Sämtliche Risiken — auch seltene — werden im persönlichen Aufklärungsgespräch erläutert. Vor einem operativen Eingriff besteht eine gesetzliche Bedenkzeit. Bitte lesen Sie die Aufklärungsunterlagen sorgfältig.",
+      "Pflichtangabe HWG: Die Liposuktion ist eine Operation. Sämtliche Risiken, auch seltene, werden im persönlichen Aufklärungsgespräch erläutert. Vor einem operativen Eingriff besteht eine gesetzliche Bedenkzeit. Bitte lesen Sie die Aufklärungsunterlagen sorgfältig.",
   },
 
   quiz: {
     treatmentOptions: [
-      { id: "bauch", label: "Bauch", hint: "Ober-/Unterbauch" },
+      { id: "bauch", label: "Bauch", hint: "Ober- und Unterbauch" },
       { id: "huefte", label: "Hüfte / Reiterhosen", hint: "Außenseite Oberschenkel" },
       { id: "innenseite", label: "Innenseite Oberschenkel", hint: "Konturierung" },
-      { id: "kinn", label: "Kinn / Hals", hint: "Submentale Region" },
+      { id: "kinn", label: "Kinn / Hals", hint: "Doppelkinn" },
       { id: "arme", label: "Oberarme", hint: "Konturierung" },
       { id: "kombination", label: "Kombination", hint: "Mehrere Bereiche" },
     ],
-    locationLabel: "Wo wäre Ihr Wunsch-Termin?",
-    askExperience: true,
+    askBudget: true,
+    askDistance: true,
   },
 
   process: {
@@ -58,75 +58,86 @@ export const templateLiposuktion: Treatment = {
         index: 1,
         title: "Beratung & Voruntersuchung",
         body:
-          "60 Minuten persönliches Gespräch und Untersuchung. Wir besprechen Anliegen, Indikation und Ablauf und klären ehrlich über Möglichkeiten und Grenzen auf.",
+          "Wir untersuchen die betroffenen Bereiche, prüfen Haut und Gewebe und sagen Ihnen ehrlich, ob eine Liposuktion Ihr Anliegen löst, oder ob sie es nicht tut.",
       },
       {
         index: 2,
         title: "Gesetzliche Bedenkzeit",
         body:
-          "Zwischen Aufklärung und Operation liegt eine gesetzliche Bedenkzeit. Sie entscheiden in Ruhe und ohne Druck.",
+          "Zwischen Aufklärung und OP liegt eine gesetzliche Bedenkzeit. Sie entscheiden ohne Druck, gerne mit einem zweiten Termin für offene Fragen.",
       },
       {
         index: 3,
         title: "Operation",
         body:
-          "Der Eingriff dauert je nach Umfang 1–3 Stunden. Die Wahl der Anästhesie besprechen wir individuell mit Ihnen.",
+          "Je nach Umfang in Lokalanästhesie oder Vollnarkose, Dauer 1 bis 3 Stunden. Die Zugänge sind wenige Millimeter klein.",
       },
       {
         index: 4,
-        title: "Nachsorge & Heilungsverlauf",
+        title: "Nachsorge & Kontrollen",
         body:
-          "Kompressionswäsche, regelmäßige Kontrollen, Lymphdrainage nach Bedarf. Das endgültige Ergebnis zeigt sich nach etwa 6 Monaten.",
+          "Kompressionswäsche für 4 bis 6 Wochen, regelmäßige Kontrollen. Das endgültige Ergebnis zeigt sich nach 3 bis 6 Monaten.",
       },
     ],
   },
 
+  // Reihenfolge = Einwandgewicht: die Abnehm-Ehrlichkeit zuerst (falsche
+  // Erwartung = unzufriedene Patientin), dann Schmerz, Dellen, Kompression, Kosten.
   faq: [
     {
-      q: "Ist die Liposuktion eine Methode zur Gewichtsabnahme?",
+      q: "Ist eine Fettabsaugung ein Ersatz fürs Abnehmen?",
       a:
-        "Nein. Die Liposuktion dient der Konturierung lokal abgegrenzter Fettpolster und ist nicht zur Gewichtsreduktion geeignet. Voraussetzung ist ein stabiles, körpergerechtes Gewicht.",
+        "Nein, und jede seriöse Beratung sagt Ihnen das deutlich. Die Liposuktion formt einzelne, hartnäckige Depots bei weitgehend stabilem Gewicht. Zur Gewichtsreduktion ist sie nicht geeignet; dafür besprechen wir andere Wege.",
     },
     {
-      q: "Wie lange muss ich Kompressionswäsche tragen?",
+      q: "Wie schmerzhaft ist der Eingriff und die Zeit danach?",
       a:
-        "In der Regel 4–6 Wochen Tag und Nacht, je nach Befund individuell länger. Die Wäsche unterstützt die Konturierung und reduziert Schwellungen.",
+        "Während der OP spüren Sie durch die Anästhesie nichts. Danach beschreiben die meisten Patientinnen einen Muskelkater-artigen Schmerz für einige Tage, der mit üblichen Schmerzmitteln gut beherrschbar ist.",
     },
     {
-      q: "Wann kann ich wieder Sport machen?",
+      q: "Können Dellen oder Unebenheiten entstehen?",
       a:
-        "Leichte Bewegung ist nach 1–2 Wochen möglich. Belastendes Training in der Regel nach 4–6 Wochen — abhängig vom Befund.",
+        "Konturunregelmäßigkeiten sind ein reales Risiko dieser OP. Wir reduzieren es durch feine Kanülen, systematische Technik und realistische Mengenplanung, und besprechen es offen in der Aufklärung statt es kleinzureden.",
     },
     {
-      q: "Was kostet die Liposuktion?",
+      q: "Muss ich wirklich 6 Wochen Kompressionswäsche tragen?",
       a:
-        "Der Preis hängt von Anzahl und Größe der Areale, Anästhesie und Klinik-Aufenthalt ab. Die Spanne beginnt bei etwa 2.500 € und kann je nach Umfang höher liegen.",
+        "Ja, in der Regel 4 bis 6 Wochen. Die Kompression ist entscheidend dafür, dass sich das Gewebe glatt anlegt. Moderne Wäsche ist unter Alltagskleidung nicht sichtbar.",
     },
     {
-      q: "Bleibt das Ergebnis dauerhaft?",
+      q: "Was kostet eine Liposuktion?",
       a:
-        "Ja, sofern Ihr Gewicht stabil bleibt. Die entfernten Fettzellen bilden sich nicht neu. Bei Gewichtszunahme kann das übrige Gewebe jedoch Fett einlagern.",
+        "Je nach Anzahl der Zonen, Umfang und Anästhesie beginnt der Preis bei etwa 2.500 €. Nach der Voruntersuchung erhalten Sie ein schriftliches Angebot für Ihren konkreten Befund.",
     },
     {
-      q: "Hilft die Liposuktion bei Cellulite?",
+      q: "Wann sehe ich das endgültige Ergebnis?",
       a:
-        "Cellulite ist ein eigenständiges Hautbild und wird durch die Liposuktion nicht direkt verbessert. Wir klären in der Beratung, welche Maßnahmen in Frage kommen.",
+        "Erste Veränderungen sehen Sie nach dem Abklingen der Schwellung, das endgültige Ergebnis nach 3 bis 6 Monaten, wenn sich das Gewebe vollständig angelegt hat.",
     },
     {
-      q: "Wann sollte ich nicht operieren lassen?",
+      q: "Wann ist von einer Liposuktion abzuraten?",
       a:
-        "Bei Schwangerschaft, akuten Erkrankungen, Gerinnungsstörungen oder bestimmten Vorerkrankungen. Diese Punkte besprechen wir in der Voruntersuchung.",
+        "Bei starkem Übergewicht, ausgeprägter Hauterschlaffung, bestimmten Vorerkrankungen oder unrealistischen Erwartungen. Genau dafür ist die Voruntersuchung da.",
     },
   ],
 
-  priceRange: { fromCents: 250000, toCents: 690000, currency: "EUR" },
+  priceRange: { fromCents: 250000, toCents: 750000, currency: "EUR" },
+
+  cost: {
+    drivers: [
+      "Anzahl und Größe der Zonen",
+      "Art der Anästhesie",
+      "Kompressionswäsche und Nachsorge",
+    ],
+    financingNote: "Eine Zahlung in Raten ist auf Anfrage möglich.",
+  },
 
   finalCtaPromise:
-    "Sie verlassen die Beratung mit Klarheit — über Möglichkeiten, Grenzen und einen für Sie passenden Weg.",
+    "Sie erfahren in der Beratung ehrlich, ob Ihr Befund geeignet ist, und was realistisch erreichbar ist.",
 
   seo: {
-    metaTitle: "Liposuktion in [Stadt] – Fettabsaugung bei [Praxis-Name]",
+    metaTitle: "Fettabsaugung in [Stadt] – Liposuktion bei [Praxis-Name]",
     metaDescription:
-      "Liposuktion in [Stadt] für Bauch, Hüfte, Beine oder Kinn. Eingehende Beratung durch [Dr. med. Vorname Nachname], gesetzliche Bedenkzeit, persönliche Begleitung der Heilung.",
+      "Liposuktion in [Stadt]: Bauch, Hüfte, Kinn, Oberschenkel. Ehrliche Voruntersuchung durch [Dr. med. Vorname Nachname], gesetzliche Bedenkzeit, persönliche Nachsorge.",
   },
 };

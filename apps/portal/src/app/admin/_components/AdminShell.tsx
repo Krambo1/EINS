@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { Button, cn } from "@eins/ui";
@@ -20,9 +21,17 @@ import {
   Menu,
 } from "lucide-react";
 import { TopProgressBar } from "@/app/(portal)/_components/TopProgressBar";
+import { GlobalSearch } from "@/app/(portal)/_components/GlobalSearch";
 import { ThemeToggle } from "@/app/_components/ThemeToggle";
 import { EinsLogo } from "@/app/_components/EinsLogo";
 import type { PendingOperations } from "@/server/queries/admin";
+
+// Lazy-load the dialog so cmdk + the admin index + icons don't ship on every
+// admin route. Once loaded we keep it mounted so subsequent opens are instant.
+const AdminSearchDialog = dynamic(
+  () => import("./AdminSearchDialog").then((m) => m.AdminSearchDialog),
+  { ssr: false }
+);
 
 interface NavItem {
   href: string;
@@ -48,7 +57,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "Akquise",
     items: [
-      { href: "/admin/leads", label: "Leads", icon: Inbox },
+      { href: "/admin/leads", label: "Anfragen", icon: Inbox },
       { href: "/admin/leistung", label: "Leistung", icon: TrendingUp },
     ],
   },
@@ -136,6 +145,17 @@ export function AdminShell({ email, pendingCounts, children }: AdminShellProps) 
 
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
+  // Global search palette. State lives here (not in <GlobalSearch>) so the
+  // trigger can render twice (desktop rail + mobile drawer) without
+  // duplicating the dialog. `loaded` gates the dynamic import — once true
+  // the dialog stays mounted for instant re-opens.
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchLoaded, setSearchLoaded] = useState(false);
+  const openSearchPalette = () => {
+    setSearchLoaded(true);
+    setSearchOpen(true);
+  };
+
   // Desktop sidenav sliding pill — track top/left/width/height of the active
   // item so the pill follows font-load / route changes.
   const desktopItemRefs = useRef<Record<string, HTMLAnchorElement | null>>({});
@@ -181,6 +201,39 @@ export function AdminShell({ email, pendingCounts, children }: AdminShellProps) 
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [mobileNavOpen]);
+
+  // Global search keyboard shortcuts. ⌘/Ctrl-K toggles the palette; "/" opens
+  // it but only when the user isn't typing into a form control.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      const isPalette = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k";
+      if (isPalette) {
+        e.preventDefault();
+        setSearchLoaded(true);
+        setSearchOpen((v) => !v);
+        return;
+      }
+      if (e.key === "/") {
+        const t = e.target as HTMLElement | null;
+        if (!t) return;
+        const tag = t.tagName;
+        if (
+          tag === "INPUT" ||
+          tag === "TEXTAREA" ||
+          tag === "SELECT" ||
+          t.isContentEditable
+        ) {
+          return;
+        }
+        e.preventDefault();
+        setSearchLoaded(true);
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   // Edge-swipe: right-swipe from the left edge opens the drawer; left-swipe
   // closes it. Mobile only.
@@ -366,8 +419,8 @@ export function AdminShell({ email, pendingCounts, children }: AdminShellProps) 
 
       {/* Header */}
       <header
-        className="sticky top-0 z-40 border-b border-border backdrop-blur-xl"
-        style={{ backgroundColor: "color-mix(in srgb, var(--bg-primary) 80%, transparent)" }}
+        className="sticky top-0 z-40 border-b border-border backdrop-blur"
+        style={{ backgroundColor: "color-mix(in srgb, var(--bg-primary) 95%, transparent)" }}
       >
         <div className="mx-auto flex max-w-screen-2xl items-center gap-4 px-4 py-3 md:px-6">
           <button
@@ -383,7 +436,7 @@ export function AdminShell({ email, pendingCounts, children }: AdminShellProps) 
           <Link href="/admin" className="flex items-center gap-3 md:pl-3" aria-label="EINS Admin">
             <EinsLogo className="h-9 w-auto md:h-10" />
             <span aria-hidden="true" className="hidden h-7 w-px bg-border md:block" />
-            <span className="hidden font-mono text-[0.6875rem] uppercase tracking-[0.18em] text-fg-secondary sm:inline">
+            <span className="hidden text-base font-semibold sm:inline">
               Admin
             </span>
           </Link>
@@ -403,6 +456,7 @@ export function AdminShell({ email, pendingCounts, children }: AdminShellProps) 
       <div className="mx-auto flex w-full max-w-screen-2xl flex-1 gap-8 px-4 py-6 md:px-6">
         {/* Desktop side rail */}
         <div className="sticky top-20 hidden h-[calc(100dvh-6rem)] w-56 shrink-0 flex-col gap-3 self-start overflow-y-auto pr-1 md:flex">
+          <GlobalSearch onOpen={openSearchPalette} />
           <nav aria-label="Hauptnavigation" className="relative flex flex-1 flex-col gap-4">
             {desktopPill && (
               <div
@@ -446,10 +500,11 @@ export function AdminShell({ email, pendingCounts, children }: AdminShellProps) 
           >
             <div className="flex items-center gap-3 pb-1">
               <EinsLogo className="h-9 w-auto" />
-              <span className="font-mono text-[0.6875rem] uppercase tracking-[0.18em] text-fg-secondary">
+              <span className="truncate text-base font-semibold">
                 Admin
               </span>
             </div>
+            <GlobalSearch onOpen={openSearchPalette} />
             <nav aria-label="Hauptnavigation" className="flex flex-1 flex-col gap-4">
               {renderNav("mobile")}
             </nav>
@@ -460,6 +515,10 @@ export function AdminShell({ email, pendingCounts, children }: AdminShellProps) 
           {children}
         </main>
       </div>
+
+      {searchLoaded && (
+        <AdminSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
+      )}
     </div>
   );
 }

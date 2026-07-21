@@ -1,42 +1,54 @@
 import type { Clinic } from "@/lib/types";
 
-/** Section 8 — Patientinnenstimmen. Skipped if none provided. */
+const SOURCE_LABELS: Record<string, string> = {
+  google: "Google",
+  jameda: "Jameda",
+  praxis: "Praxis",
+};
+
+/**
+ * Section 7 — Patientenstimmen. Skipped if none provided.
+ *
+ * Quotes are about Betreuung, Aufklärung, Ehrlichkeit — never outcomes
+ * (§ 11 Nr. 11 HWG). Source + date line makes them verifiable instead of
+ * decorative.
+ */
 export function Testimonials({ clinic }: { clinic: Clinic }) {
   const list = clinic.testimonials ?? [];
   if (list.length === 0) return null;
 
   return (
     <section className="bg-brand-bg-soft">
-      <div className="container mx-auto py-14 md:py-20">
-        <p className="eyebrow">Stimmen aus der Praxis</p>
-        <h2 className="mt-3">Was Patientinnen über die Beratung sagen</h2>
+      <div className="container mx-auto py-16 md:py-24">
+        <p className="eyebrow">04 · Stimmen aus der Praxis</p>
+        <h2 className="mt-3">Wie Patientinnen die Betreuung erleben</h2>
         <div className="mt-8 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {list.slice(0, 6).map((t, i) => (
-            <figure
-              key={i}
-              className="card flex h-full flex-col justify-between"
-            >
+            <figure key={i} className="card flex h-full flex-col justify-between p-6">
               <blockquote className="text-base leading-relaxed text-brand-fg">
-                <span aria-hidden className="select-none text-2xl text-brand-primary">
+                <span aria-hidden className="block font-display text-3xl leading-none text-brand-accent">
                   „
                 </span>
                 {t.quote}
-                <span aria-hidden className="select-none text-2xl text-brand-primary">
-                  "
-                </span>
               </blockquote>
-              <figcaption className="mt-4 text-sm text-brand-fg-muted">
-                {t.name}
+              <figcaption className="mt-4 border-t border-brand-border pt-3 text-sm text-brand-fg-muted">
+                <span className="font-medium text-brand-fg">{t.name}</span>
                 {t.age ? `, ${t.age}` : null}
                 {t.city ? ` · ${t.city}` : null}
+                {(t.source || t.consentedAt) && (
+                  <span className="mt-0.5 block text-xs">
+                    {t.source ? SOURCE_LABELS[t.source] : null}
+                    {t.source && t.consentedAt ? ", " : null}
+                    {t.consentedAt ? t.consentedAt.slice(0, 4) : null}
+                  </span>
+                )}
               </figcaption>
             </figure>
           ))}
         </div>
         <p className="mt-6 text-xs text-brand-fg-muted">
-          Hinweis: Patientinnenstimmen wurden hand-kuratiert und mit schriftlicher Einwilligung
-          veröffentlicht. Es handelt sich um individuelle Erfahrungsberichte; ein vergleichbarer
-          Verlauf kann daraus nicht abgeleitet werden.
+          Individuelle Erfahrungsberichte, veröffentlicht mit schriftlicher Einwilligung. Ein
+          vergleichbarer Verlauf lässt sich daraus nicht ableiten.
         </p>
       </div>
     </section>

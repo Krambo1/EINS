@@ -5,7 +5,7 @@ import type { AiCategoryDistribution } from "@/server/queries/admin";
 
 /**
  * KI-Bewertung — the AI lead-score distribution as a donut on its own card so
- * it sits beside the Lead-Pipeline instead of stacked inside it. Owns its own
+ * it sits beside the Anfragen-Pipeline instead of stacked inside it. Owns its own
  * time window via the rAi switcher.
  */
 export function AiScoreSection({

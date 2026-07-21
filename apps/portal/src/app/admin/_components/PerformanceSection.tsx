@@ -90,7 +90,7 @@ export function PerformanceSection({ daily, mix, range }: Props) {
         <div className="space-y-2">
           <div className="flex items-center justify-between text-xs text-fg-secondary">
             <span>Werbebudget je Plattform</span>
-            <span className="font-mono tabular-nums">{formatEuro(mixTotal)}</span>
+            <span className="tabular-nums">{formatEuro(mixTotal)}</span>
           </div>
           <SegmentedShareBar
             segments={segments}
@@ -112,7 +112,7 @@ export function PerformanceSection({ daily, mix, range }: Props) {
                     aria-hidden
                   />
                   <span className="text-fg-primary">{s.label}</span>
-                  <span className="font-mono tabular-nums text-fg-secondary">
+                  <span className="tabular-nums text-fg-secondary">
                     {formatEuro(s.value)}
                   </span>
                 </span>

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import iconv from "iconv-lite";
-import { parseGdtFile, pickFirst } from "./gdt-parser";
+import { parseGdtFile, pickFirst, TornGdtFileError } from "./gdt-parser";
 
 /**
  * Parser fixture coverage. Real-world Praxis GDT files are CRLF-line-
@@ -69,6 +69,49 @@ describe("gdt-parser", () => {
     const a = await parseGdtFile(bytes);
     const b = await parseGdtFile(bytes);
     expect(a.contentHash).toBe(b.contentHash);
+  });
+
+  it("rejects a file without a final line terminator as a torn write (C1)", async () => {
+    const complete = gdt([
+      ["8000", "8316"],
+      ["3000", "PAT-1"],
+      ["8420", "350,00"],
+    ]);
+    // Simulate a paused write: cut the last 5 bytes (mid-amount, no CRLF).
+    const torn = complete.subarray(0, complete.length - 5);
+    await expect(parseGdtFile(torn)).rejects.toBeInstanceOf(TornGdtFileError);
+  });
+
+  it("segments a multi-Satz BDT batch at FK 8000 boundaries (C2)", async () => {
+    const bytes = gdt([
+      ["8000", "6301"],
+      ["3000", "PAT-1"],
+      ["3101", "Müller"],
+      ["8000", "6301"],
+      ["3000", "PAT-2"],
+      ["3101", "Schmidt"],
+      ["8000", "8316"],
+      ["3000", "PAT-3"],
+      ["8420", "120,00"],
+    ]);
+    const r = await parseGdtFile(bytes);
+    expect(r.saetze).toHaveLength(3);
+    expect(r.saetze.map((s) => s.satzart)).toEqual(["6301", "6301", "8316"]);
+    expect(pickFirst(r.saetze[0].records, "3000")).toBe("PAT-1");
+    expect(pickFirst(r.saetze[1].records, "3000")).toBe("PAT-2");
+    expect(pickFirst(r.saetze[2].records, "8420")).toBe("120,00");
+    // Back-compat: satzart still reports the FIRST Satz.
+    expect(r.satzart).toBe("6301");
+  });
+
+  it("yields a single Satz for a plain GDT file", async () => {
+    const bytes = gdt([
+      ["8000", "6301"],
+      ["3000", "PAT-42"],
+    ]);
+    const r = await parseGdtFile(bytes);
+    expect(r.saetze).toHaveLength(1);
+    expect(r.saetze[0].records).toHaveLength(2);
   });
 
   it("decodes ISO-8859-15 (umlauts via Latin-1 byte sequence)", async () => {
@@ -165,5 +208,44 @@ describe("gdt-parser encoding probe", () => {
     expect(r.encoding).toBe("utf8");
     expect(pickFirst(r.records, "3101")).toBe("Mueller");
     expect(pickFirst(r.records, "3102")).toBe("Juergen");
+  });
+});
+
+describe("gdt-parser: LLL length-prefix validation (L6)", () => {
+  it("does not flag a well-formed file", async () => {
+    const bytes = gdt([
+      ["8000", "6301"],
+      ["3000", "PAT-1"],
+      ["3101", "Müller"],
+    ]);
+    const r = await parseGdtFile(bytes);
+    expect(r.suspectLineCount).toBe(0);
+  });
+
+  it("drops a line whose LLL claims MORE bytes than present and counts it", async () => {
+    const valid = gdt([
+      ["8000", "6301"],
+      ["3000", "PAT-1"],
+    ]);
+    // Hand-crafted line: LLL="020" claims a 20-byte line, but the line holds
+    // "0203101Mueller" (14 bytes) + CR LF (2) = 16. It is the torn/truncated
+    // signature: a length header written for a value the exporter never
+    // finished. The FK 3101 is otherwise valid, so the OLD parser would have
+    // emitted "Mueller" as a silently truncated record.
+    const lying = Buffer.from("0203101Mueller\r\n", "latin1");
+    const r = await parseGdtFile(Buffer.concat([valid, lying]));
+    // The valid records survive; the lying line is dropped, not emitted.
+    expect(pickFirst(r.records, "3000")).toBe("PAT-1");
+    expect(pickFirst(r.records, "3101")).toBeUndefined();
+    expect(r.suspectLineCount).toBe(1);
+  });
+
+  it("does not flag lines that are LONGER than claimed (padding / no-CRLF convention)", async () => {
+    // LLL="010" but the line is longer than 10 bytes; byteLen + 2 >= claimed,
+    // so this is NOT truncation and must not be flagged.
+    const line = Buffer.from("0103101Mueller\r\n", "latin1");
+    const r = await parseGdtFile(line);
+    expect(r.suspectLineCount).toBe(0);
+    expect(pickFirst(r.records, "3101")).toBe("Mueller");
   });
 });

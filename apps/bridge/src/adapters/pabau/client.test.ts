@@ -73,7 +73,11 @@ describe("PabauClient: pagination + auth", () => {
     globalThis.fetch = origFetch;
   });
 
-  it("sends Bearer api_token in Authorization header and walks pages until short page", async () => {
+  it("sends Bearer api_token in Authorization header and walks pages until an EMPTY page (H17)", async () => {
+    // H17: termination is on an EMPTY page now, not a short one. A short page
+    // (page2 has 1 row) is NOT the end, so the client must request page3 and
+    // stop only when it comes back empty. The old contract stopped on the
+    // short page and could drop rows after a server-side page-size clamp.
     const page1 = Array.from({ length: 100 }, (_, i) => ({
       id: i + 1,
       modified_at: "2026-05-21T00:00:00.000Z",
@@ -82,7 +86,8 @@ describe("PabauClient: pagination + auth", () => {
 
     fetchSpy
       .mockResolvedValueOnce(mockResponse({ data: page1, total: 101 }))
-      .mockResolvedValueOnce(mockResponse({ data: page2, total: 101 }));
+      .mockResolvedValueOnce(mockResponse({ data: page2, total: 101 }))
+      .mockResolvedValueOnce(mockResponse({ data: [], total: 101 }));
 
     const client = PabauClient.from(linkWithApiToken());
     const seen: unknown[] = [];
@@ -90,7 +95,7 @@ describe("PabauClient: pagination + auth", () => {
       seen.push(p);
     }
     expect(seen).toHaveLength(101);
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
 
     const firstCall = fetchSpy.mock.calls[0]!;
     const url = firstCall[0] as string;
@@ -105,11 +110,13 @@ describe("PabauClient: pagination + auth", () => {
   });
 
   it("accepts `items` envelope in addition to `data`", async () => {
-    fetchSpy.mockResolvedValueOnce(
-      mockResponse({
-        items: [{ id: 1, modified_at: "2026-05-21T00:00:00.000Z" }],
-      })
-    );
+    fetchSpy
+      .mockResolvedValueOnce(
+        mockResponse({
+          items: [{ id: 1, modified_at: "2026-05-21T00:00:00.000Z" }],
+        })
+      )
+      .mockResolvedValueOnce(mockResponse({ items: [] }));
     const client = PabauClient.from(linkWithApiToken());
     const seen: unknown[] = [];
     for await (const p of client.streamPatients("1970-01-01T00:00:00.000Z")) {
@@ -133,7 +140,8 @@ describe("PabauClient: pagination + auth", () => {
       )
       .mockResolvedValueOnce(
         mockResponse({ data: [{ id: 1, modified_at: "2026-05-21T00:00:00.000Z" }] })
-      );
+      )
+      .mockResolvedValueOnce(mockResponse({ data: [] }));
 
     const client = PabauClient.from(linkWithApiToken());
     const seen: unknown[] = [];
@@ -141,8 +149,25 @@ describe("PabauClient: pagination + auth", () => {
       seen.push(p);
     }
     expect(seen).toHaveLength(1);
-    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    // 429 retry (1) + page1 (1) + empty terminator page (1) = 3.
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
     sleepSpy.mockRestore();
+  });
+
+  it("throws on a 200 whose body has neither a data nor items array (M-S2)", async () => {
+    // A 200 error envelope (e.g. { message: "..." }) must NOT be read as a
+    // healthy empty page, which would silently mark the stream drained forever.
+    fetchSpy.mockResolvedValueOnce(
+      mockResponse({ message: "invalid api token" })
+    );
+    const client = PabauClient.from(linkWithApiToken());
+    await expect(async () => {
+      for await (const _p of client.streamPatients(
+        "1970-01-01T00:00:00.000Z"
+      )) {
+        void _p;
+      }
+    }).rejects.toThrow(/missing 'data'\/'items' array/);
   });
 
   it("throws with the upstream body when GET fails non-429", async () => {

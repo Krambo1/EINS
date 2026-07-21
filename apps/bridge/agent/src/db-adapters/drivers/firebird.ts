@@ -56,6 +56,9 @@ type FbAttach = (
     pageSize?: number;
     lowercase_keys?: boolean;
     wireEncryption?: boolean;
+    /** Connection charset (Firebird lc_ctype). node-firebird maps this to
+     *  isc_dpb_lc_ctype and defaults to 'UTF8' when omitted (M-D3). */
+    encoding?: string;
   },
   cb: (err: Error | null, db: FbConnection) => void
 ) => void;
@@ -104,12 +107,33 @@ export class FirebirdDriver implements DbDriver {
   private async doConnect(): Promise<void> {
     const params = this.params;
     if (!params) throw new Error("firebird: connect called without params");
+    // M-D5: release the previous connection before reconnecting. A flapping LAN
+    // drives repeated doConnect() calls (the 'error'/'end' handlers flip
+    // `healthy` false while `conn` is still set); without detaching the old
+    // handle each rebuild leaks a dead Firebird attachment that accumulates on
+    // the Praxis server over days. Best-effort and fire-and-forget so a hung
+    // detach on a half-dead socket cannot stall the reconnect.
+    if (this.conn) {
+      const stale = this.conn;
+      this.conn = null;
+      this.healthy = false;
+      try {
+        stale.detach(() => void 0);
+      } catch {
+        // ignore: the old attachment may already be gone
+      }
+    }
     const mod = await getModule();
     const role = typeof params.options?.role === "string" ? (params.options.role as string) : undefined;
     const pageSize =
       typeof params.options?.pageSize === "number" ? (params.options.pageSize as number) : undefined;
     const wireEncryption =
       params.options?.wireEncryption === false ? false : true;
+    // M-D3: optional connection charset for legacy WIN1252 / NONE databases
+    // whose umlauts otherwise garble or throw transliteration errors under the
+    // default UTF8 read. Undefined leaves node-firebird on its 'UTF8' default,
+    // so existing configs are unchanged.
+    const encoding = resolveFirebirdEncoding(params.options);
 
     const conn: FbConnection = await new Promise((resolve, reject) => {
       mod.attach(
@@ -123,6 +147,7 @@ export class FirebirdDriver implements DbDriver {
           pageSize,
           lowercase_keys: true,
           wireEncryption,
+          encoding,
         },
         (err, db) => {
           if (err) reject(err);
@@ -241,4 +266,24 @@ export function translateNamedToPositional(
 function inferColumnsFromRow(rows: Array<Record<string, unknown>> | undefined): string[] {
   if (!rows || rows.length === 0) return [];
   return Object.keys(rows[0]);
+}
+
+/**
+ * Resolve the optional connection charset (M-D3) from the vendor connection
+ * `options` bag. Accepts either `charset` or `encoding` (both plumbed through
+ * the vendor YAML `connection.options`); `charset` wins when both are present.
+ * Returns undefined when neither is a non-empty string, which leaves
+ * node-firebird on its 'UTF8' default so current behaviour is preserved.
+ *
+ * Legacy medatixx / Turbomed / Quincy installs whose database was created with
+ * WIN1252 or NONE can set `charset: "WIN1252"` (or "NONE") so umlauts read back
+ * intact instead of garbling or raising a transliteration error that would burn
+ * the stream's failure budget as a generic error.
+ */
+export function resolveFirebirdEncoding(
+  options: Record<string, unknown> | undefined
+): string | undefined {
+  const raw = options?.charset ?? options?.encoding;
+  if (typeof raw === "string" && raw.trim() !== "") return raw.trim();
+  return undefined;
 }

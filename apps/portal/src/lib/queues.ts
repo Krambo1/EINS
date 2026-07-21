@@ -45,6 +45,12 @@ export const QUEUES = {
   /** PVS Bridge — trigram-based treatment auto-mapping suggestions. */
   pvsTreatmentSuggest: "pvs-treatment-suggest",
   /**
+   * PVS Bridge: hourly agent liveness scan. Raises the two conditions a
+   * heartbeat cannot report about itself: agent gone silent, and agent
+   * heartbeating while delivering no events at all.
+   */
+  pvsAgentHealthScan: "pvs-agent-health-scan",
+  /**
    * Nightly per-praxis 90-day cashflow forecast snapshot. Bootstrap Monte
    * Carlo over historical close rates + time-to-close + DSO; writes one row
    * to `forecast_snapshots` per (clinic_id, snapshot_date).

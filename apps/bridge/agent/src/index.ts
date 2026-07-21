@@ -1,3 +1,6 @@
+// H7: MUST be the first import so process.env.TZ = "UTC" is set before any DB
+// client library initialises or any Date is constructed. Do not reorder.
+import "./tz-pin.js";
 import { stdin as input, stdout as output } from "node:process";
 import { createInterface } from "node:readline";
 import {
@@ -7,7 +10,7 @@ import {
   type AgentConfig,
   type DbAdapterEnrollment,
 } from "./config.js";
-import { enroll } from "./enrollment.js";
+import { enroll, completePendingEnrollment } from "./enrollment.js";
 import { watchFolder } from "./watcher.js";
 import { watchHonorarFolder } from "./csv-watcher.js";
 import {
@@ -19,20 +22,35 @@ import {
   getFailureSummary,
   pruneFailedOlderThan,
   setOutboxKey,
+  closeOutbox,
 } from "./outbox.js";
 import { getOrCreateOutboxKey } from "./outbox-key.js";
 import {
   postEvent,
   postHeartbeat,
   postFailureSummary,
+  type HeartbeatPayload,
 } from "./portal-client.js";
 import { storeDbCredential } from "./secure-store.js";
-import { startRunner, type RunnerHandle } from "./db-adapters/runner.js";
+import {
+  startRunner,
+  type RunnerHandle,
+  type AdapterStreamStatus,
+} from "./db-adapters/runner.js";
 import {
   publishPendingDrift,
   bridgeSourceForVendor,
 } from "./db-adapters/drift-publisher.js";
 import { validatePortalUrl } from "./portal-url.js";
+import { configureGlobalDispatcher } from "./net-setup.js";
+import {
+  createFlushState,
+  runFlushCycle,
+  type FlushDeps,
+  type OutageSnapshot,
+} from "./flush.js";
+import { makeRateLimiter } from "./log-throttle.js";
+import { findMissingFolders } from "./folder-check.js";
 
 /**
  * eins-agent entry point.
@@ -40,7 +58,10 @@ import { validatePortalUrl } from "./portal-url.js";
  * Modes:
  *   eins-agent --enroll <token> --clinic <uuid> [--portal <url>] [--folder <path>]
  *               [--honorar-folder <path>] [--honorar-mapping <json-path>]
- *     One-shot enrollment. Persists config + secret, then exits.
+ *     One-shot enrollment. Persists config + secret, then exits. Prefer
+ *     `--token-stdin` (pipe or prompt) over the positional token so the
+ *     one-time token never lands in the OS process listing or shell history:
+ *       echo <token> | eins-agent --enroll --token-stdin --clinic <uuid>
  *
  *   eins-agent
  *     Default: load existing config, start watcher(s) + flush loop. Starts
@@ -72,6 +93,13 @@ const VACUUM_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const DRIFT_PUBLISH_INTERVAL_MS = 60_000;
 const HEARTBEAT_INTERVAL_MS = 60_000;
 /**
+ * L20: on SIGINT/SIGTERM, how long to await an in-flight flush before exiting
+ * anyway. A few seconds lets the current batch's POSTs settle; beyond that we
+ * exit regardless (each POST is already capped by portal-client's own request
+ * timeout, and server-side dedup absorbs any re-send after a hard exit).
+ */
+const SHUTDOWN_FLUSH_DEADLINE_MS = 5000;
+/**
  * P2-2: rows that have been in 'failed' state longer than this get
  * pruned. The agent POSTs a one-row roll-up to the portal first so a
  * permanent record outlives the prune. 30 days matches the plan's
@@ -82,11 +110,57 @@ const FAILED_PRUNE_AGE_DAYS = 30;
 
 const AGENT_VERSION = "0.2.0";
 
+/**
+ * How often the folder-presence monitor re-warns about a missing watch
+ * folder (H13.1) and re-warns that the DB adapters failed to start (H13.3).
+ * Loud once at boot, then hourly so the warning stays in a rolling log tail
+ * without spamming.
+ */
+const FOLDER_MONITOR_INTERVAL_MS = 60 * 60 * 1000;
+
+// H13.1 / H13.3: live operator-mistake status, surfaced in the heartbeat and
+// re-warned periodically. `missingFolders` is refreshed by the folder monitor;
+// `dbAdaptersFailed` is set once if startRunner throws.
+let missingFolders: string[] = [];
+let dbAdaptersFailed: string | null = null;
+
+// H10b: rate limiter for heartbeat-delivery-failure logging (all reasons, not
+// just http), so a multi-day outage does not spam one line per minute.
+const shouldLogHeartbeatFailure = makeRateLimiter(10 * 60_000);
+
+/**
+ * H13.2: load config, exiting cleanly with the corrupt-file guidance if
+ * loadConfig throws a ConfigError. Returns null only for "not enrolled"
+ * (ENOENT), which each caller handles with its own --enroll hint.
+ */
+async function loadConfigOrExit(): Promise<AgentConfig | null> {
+  try {
+    return await loadConfig();
+  } catch (err) {
+    console.error(`[agent] ${(err as Error).message}`);
+    process.exit(2);
+  }
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
 
+  // H12: route outbound HTTPS through a corporate proxy when HTTP(S)_PROXY is
+  // set. Must run before any fetch (enrollment included). No-op without a
+  // proxy env var.
+  configureGlobalDispatcher();
+
   if (args.includes("--enroll")) {
-    const token = arg(args, "--enroll");
+    // L18: the enrollment token is a bearer credential. On argv it leaks into
+    // the OS process listing (Get-CimInstance Win32_Process on Windows, ps /
+    // /proc on POSIX) and into shell history. Prefer stdin: `--token-stdin`
+    // reads a piped value or prompts. The positional `--enroll <token>` form
+    // still works for now.
+    const tokenStdin = args.includes("--token-stdin");
+    let token = tokenStdin ? undefined : arg(args, "--enroll");
+    // Guard the `--enroll --clinic ...` shape: `arg` would otherwise hand back
+    // the NEXT flag as the token. Treat a flag-looking value as "no token".
+    if (token && token.startsWith("--")) token = undefined;
     const clinicId = arg(args, "--clinic");
     const portalBaseUrl =
       arg(args, "--portal") ?? "https://portal.eins.ag";
@@ -94,9 +168,21 @@ async function main(): Promise<void> {
     const watchPath = arg(args, "--folder") ?? defaultWatchPath();
     const honorarFolder = arg(args, "--honorar-folder");
     const honorarMappingPath = arg(args, "--honorar-mapping");
-    if (!token || !clinicId) {
+    if (!clinicId) {
       console.error(
-        "usage: eins-agent --enroll <token> --clinic <uuid> [--portal <url>] [--folder <path>] [--honorar-folder <path>] [--honorar-mapping <json-path>] [--allow-insecure-dev]"
+        "usage: eins-agent --enroll <token> --clinic <uuid> [--portal <url>] [--folder <path>] [--honorar-folder <path>] [--honorar-mapping <json-path>] [--allow-insecure-dev]\n" +
+          "       recommended: keep the token off argv and pipe it instead:\n" +
+          "         echo <token> | eins-agent --enroll --token-stdin --clinic <uuid>"
+      );
+      process.exit(2);
+    }
+    if (!token) {
+      // L18: read the token from stdin (piped value or interactive prompt).
+      token = await readTokenFromStdin();
+    }
+    if (!token) {
+      console.error(
+        "no enrollment token provided. Pass it as `--enroll <token>` or pipe it via `--token-stdin`."
       );
       process.exit(2);
     }
@@ -110,10 +196,16 @@ async function main(): Promise<void> {
       console.error(`enrollment aborted: ${portalCheck.reason}`);
       process.exit(2);
     }
+    // L23: enroll against the validator's NORMALIZED base URL (query/fragment
+    // stripped, trailing slash dropped), never the raw operator string, so the
+    // persisted portalBaseUrl and every later path join are well-formed.
+    if (portalCheck.warning) {
+      console.warn(`[agent] ${portalCheck.warning}`);
+    }
     const result = await enroll({
       token,
       clinicId,
-      portalBaseUrl,
+      portalBaseUrl: portalCheck.url,
       watchFolder: watchPath,
       honorarCsvFolder: honorarFolder,
       honorarCsvMapping: honorarMappingPath
@@ -140,7 +232,7 @@ async function main(): Promise<void> {
       );
       process.exit(2);
     }
-    const cfg = await loadConfig();
+    const cfg = await loadConfigOrExit();
     if (!cfg) {
       console.error(
         "no config found. Run `eins-agent --enroll <token> --clinic <uuid>` first."
@@ -178,7 +270,29 @@ async function main(): Promise<void> {
     process.exit(0);
   }
 
-  const cfg = await loadConfig();
+  // L16: finish a previously-interrupted enrollment before deciding whether
+  // this agent is enrolled. A crash between the portal spending the one-time
+  // token and the local secret/config write leaves a recovery journal; we
+  // complete it here so a mid-install crash is fixed by a plain restart, never
+  // a new (impossible) token.
+  try {
+    const recovered = await completePendingEnrollment();
+    if (recovered) {
+      console.log(
+        `[agent] completed a previously-interrupted enrollment for clinic=${recovered.clinicId} ` +
+          `from the recovery journal; secret + config are now persisted.`
+      );
+    }
+  } catch (err) {
+    console.error(
+      `[agent] found an interrupted enrollment that could NOT be completed: ${(err as Error).message} ` +
+        `The enrollment token was already spent; do NOT re-enroll. Fix the underlying error ` +
+        `(config-dir permissions / secure-store) and restart the agent.`
+    );
+    process.exit(2);
+  }
+
+  const cfg = await loadConfigOrExit();
   if (!cfg) {
     console.error(
       "no config found. Run `eins-agent --enroll <token> --clinic <uuid>` first."
@@ -204,6 +318,12 @@ async function main(): Promise<void> {
       `        (config.json portalBaseUrl=${cfg.portalBaseUrl})`
     );
     process.exit(2);
+  }
+  // L23: if a hand-edited config carried a query/fragment on the portal URL,
+  // surface it. The runtime path joins with the URL API so the join stays
+  // correct regardless, but the operator should know the URL was not clean.
+  if (startupPortalCheck.warning) {
+    console.warn(`[agent] ${startupPortalCheck.warning}`);
   }
 
   // P3-4: load (or mint, on first boot) the SQLCipher master key for the
@@ -268,12 +388,98 @@ async function main(): Promise<void> {
           .join(", ")}`
       );
     } catch (err) {
+      // H13.3: a failed startRunner used to be swallowed with one line while
+      // the agent kept running and the heartbeat still reported the CONFIGURED
+      // vendors, so an operator saw "medatixx enrolled" while zero DB rows were
+      // ever read. Record the failure in a module-level status that the
+      // heartbeat surfaces and the folder monitor re-warns about hourly.
+      dbAdaptersFailed = (err as Error).message;
       console.error(
-        `[agent] db-adapters failed to start: ${(err as Error).message}`
+        `[agent] DB ADAPTERS FAILED TO START: ${dbAdaptersFailed}. ` +
+          `Configured vendors (${cfg.dbAdapters
+            .map((a) => a.vendor)
+            .join(", ")}) are NOT polling. The file/CSV watchers keep running, ` +
+          `but no SQL-introspection events will be emitted until this is fixed ` +
+          `and the agent is restarted.`
       );
       // Continue without db-adapters; the other watchers keep running.
     }
   }
+
+  // M-D6: a GDT/CSV file watcher and a SQL DB adapter running for the SAME
+  // Praxis double-ingest. The two paths stamp DIFFERENT bridge_source values, so
+  // the portal's dedup index can never collapse them: every appointment /
+  // invoice that both paths see lands twice, once per source. There are
+  // legitimate mixed setups (GDT covering one data kind, SQL another), so we do
+  // NOT refuse to start; we warn loudly at boot so an accidental overlap is
+  // caught early. The GDT file watcher is always active (enrollment requires a
+  // watchFolder); the DB adapter is active only when the runner actually started.
+  if (dbRunner) {
+    const fileSources = [
+      "GDT-Ordner",
+      cfg.honorarCsvFolder ? "Honorar-CSV-Ordner" : null,
+    ].filter((s): s is string => !!s);
+    console.warn(
+      `[agent] DOUBLE-INGESTION WARNING: both a Datei-Watcher (${fileSources.join(
+        ", "
+      )}) and a SQL-Adapter (${(cfg.dbAdapters ?? [])
+        .map((a) => a.vendor)
+        .join(", ")}) are active for this Praxis. If both cover the same data ` +
+        `(Termine / Rechnungen), every record is ingested twice under different ` +
+        `bridge_source values and the portal dedup cannot merge them, inflating ` +
+        `the numbers. Confirm the two paths cover DISJOINT data; otherwise disable ` +
+        `one (eins-agent --disable-db-adapter <vendor>, or remove the file export).`
+    );
+  }
+
+  // H13.1: a wrong or not-yet-created watch folder makes chokidar silently
+  // watch nothing. Check every configured folder at boot, warn LOUDLY and by
+  // exact path if any is missing, then re-check hourly (the folder may be
+  // created later, e.g. once the PVS export is configured; chokidar picks it
+  // up when it appears). The result also feeds the heartbeat.
+  const configuredFolders = [cfg.watchFolder, cfg.honorarCsvFolder].filter(
+    (f): f is string => !!f
+  );
+  async function refreshFolderStatus(): Promise<void> {
+    missingFolders = await findMissingFolders(configuredFolders);
+    if (missingFolders.length > 0) {
+      console.error(
+        `[agent] WATCH FOLDER MISSING: ${missingFolders.join(
+          ", "
+        )}. Nothing will be ingested from ${
+          missingFolders.length > 1 ? "these paths" : "this path"
+        } until it exists. ` +
+          `Check the configured folder against the PVS export target; the agent ` +
+          `will keep running and re-check hourly.`
+      );
+    }
+    if (dbAdaptersFailed) {
+      console.error(
+        `[agent] DB adapters are still down: ${dbAdaptersFailed}. Restart the ` +
+          `agent after fixing the connection to resume SQL-introspection polling.`
+      );
+    }
+  }
+  await refreshFolderStatus();
+  const folderMonitorTimer = setInterval(() => {
+    void refreshFolderStatus();
+  }, FOLDER_MONITOR_INTERVAL_MS);
+
+  // H10 + H11: the flush cycle (outage logging + auth-pause) lives in
+  // flush.ts; index.ts supplies the concrete outbox/portal dependencies and
+  // holds the per-agent flush state (auth-pause flag + log rate limiters).
+  const flushState = createFlushState();
+  const flushDeps: FlushDeps = {
+    dueRows: (limit) => dueRows(limit).map((r) => ({ id: r.id, payload: r.payload })),
+    postEvent,
+    markSent,
+    recordRetry,
+    markFailedPermanent,
+    outageSnapshot: buildOutageSnapshot,
+    now: () => Date.now(),
+    logWarn: (msg) => console.warn(msg),
+    logError: (msg) => console.error(msg),
+  };
 
   // P0-2: single-flight guard. Without this, a portal that holds the
   // socket open without responding lets each 5-second tick spawn another
@@ -282,16 +488,24 @@ async function main(): Promise<void> {
   // portal-client.ts caps each request at 30s, but the guard is the
   // primary defence against stampede.
   let flushInFlight = false;
+  // M-A3: when a cycle aborted on a portal Retry-After, space out the next
+  // attempt instead of hammering every 5s. The cycle itself already
+  // fast-aborts; this only delays the follow-up.
+  let nextFlushAllowedAt = 0;
   const flushTimer = setInterval(() => {
     if (flushInFlight) return;
+    if (Date.now() < nextFlushAllowedAt) return;
     flushInFlight = true;
     void (async () => {
       try {
-        await flush();
+        await runFlushCycle(flushDeps, flushState);
+        if (flushState.retryAfterMs != null) {
+          nextFlushAllowedAt = Date.now() + flushState.retryAfterMs;
+        }
       } catch (err) {
-        // flush() catches per-row errors via the outbox markFailed*
-        // helpers, so reaching here means the loop itself blew up.
-        // Log and let the guard release so the next tick can retry.
+        // runFlushCycle handles per-row failures via the outbox helpers, so
+        // reaching here means the loop itself blew up. Log and let the guard
+        // release so the next tick can retry.
         console.error("[agent] flush loop error:", err);
       } finally {
         flushInFlight = false;
@@ -299,7 +513,17 @@ async function main(): Promise<void> {
     })();
   }, FLUSH_INTERVAL_MS);
   const vacuumTimer = setInterval(() => {
-    vacuumOld();
+    // M-A1: vacuumOld() is a synchronous SQLite DELETE. A throw here (disk full,
+    // database locked, I/O error) would escape this timer callback as an
+    // uncaughtException and kill the whole agent, taking the watchers and the
+    // flush loop down with it. Every other periodic tick is guarded; this one
+    // was not. Log and keep the timer alive so a transient SQLite error does not
+    // end ingestion.
+    try {
+      vacuumOld();
+    } catch (err) {
+      console.error("[agent] outbox vacuum failed (continuing):", err);
+    }
     // P2-2: dead-letter prune. pruneAndReportFailed deletes the aged failed
     // rows, then POSTs the roll-up that the delete returns; see its body for
     // the delete-before-POST trade-off.
@@ -320,14 +544,27 @@ async function main(): Promise<void> {
   // through the same plumbing would mask the failure we're trying to
   // surface.
   const heartbeatTimer = setInterval(() => {
-    void emitHeartbeat(cfg);
+    void emitHeartbeat(cfg, dbRunner?.statusSnapshot() ?? []);
   }, HEARTBEAT_INTERVAL_MS);
   // Fire one heartbeat at startup so a fresh agent immediately surfaces
   // its state without a 60s delay.
-  void emitHeartbeat(cfg);
+  void emitHeartbeat(cfg, dbRunner?.statusSnapshot() ?? []);
 
-  const shutdown = (signal: string) => {
+  // L20: graceful shutdown. The previous handler called process.exit(0)
+  // immediately, tearing down mid-POST (safe only because of server-side
+  // dedup) and leaving the SQLCipher outbox handle open. Now we stop taking new
+  // work, await any in-flight flush under a bounded deadline, close the outbox,
+  // then exit. A second signal forces an immediate exit.
+  let shuttingDown = false;
+  const shutdown = async (signal: string): Promise<void> => {
+    if (shuttingDown) {
+      console.log(`[agent] received ${signal} again; forcing immediate exit.`);
+      process.exit(1);
+    }
+    shuttingDown = true;
     console.log(`[agent] received ${signal}, shutting down…`);
+    // Stop new work: watchers + every periodic timer. A flush cycle already in
+    // progress keeps running; we await it below.
     watcher.stop();
     honorarWatcher?.stop();
     void dbRunner?.stop();
@@ -335,24 +572,49 @@ async function main(): Promise<void> {
     clearInterval(vacuumTimer);
     clearInterval(driftTimer);
     clearInterval(heartbeatTimer);
+    clearInterval(folderMonitorTimer);
+
+    // Await any in-flight flush so a POST mid-write is not torn, bounded so a
+    // hung portal cannot block shutdown forever. The event loop yields on each
+    // sleep so the flush IIFE's `finally { flushInFlight = false }` can run.
+    const deadline = Date.now() + SHUTDOWN_FLUSH_DEADLINE_MS;
+    while (flushInFlight && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    if (flushInFlight) {
+      console.warn(
+        `[agent] in-flight flush did not finish within ${SHUTDOWN_FLUSH_DEADLINE_MS}ms; ` +
+          `exiting anyway (server-side dedup absorbs any re-send).`
+      );
+    }
+
+    // Release the SQLCipher outbox handle (checkpoint WAL + drop the file lock)
+    // before exiting, instead of the abrupt process.exit that left it open.
+    try {
+      closeOutbox();
+    } catch (err) {
+      console.error("[agent] error closing outbox on shutdown:", err);
+    }
     process.exit(0);
   };
-  process.on("SIGINT", () => shutdown("SIGINT"));
-  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => void shutdown("SIGINT"));
+  process.on("SIGTERM", () => void shutdown("SIGTERM"));
 }
 
-async function flush(): Promise<void> {
-  const rows = dueRows(50);
-  for (const row of rows) {
-    const result = await postEvent(row.payload);
-    if (result.ok) {
-      markSent(row.id);
-    } else if (result.retryable) {
-      recordRetry(row.id, result.reason);
-    } else {
-      markFailedPermanent(row.id, result.reason);
-    }
-  }
+/**
+ * H10: map the outbox failure/pending snapshot into the shape flush.ts logs.
+ * getFailureSummary now also reports the pending backlog and pending-with-
+ * attempts count, so a permanently-retrying outbox (failedCount stays 0) is
+ * no longer invisible in the outage summary.
+ */
+function buildOutageSnapshot(): OutageSnapshot {
+  const snap = getFailureSummary();
+  return {
+    pendingCount: snap.pendingCount,
+    pendingWithAttemptsCount: snap.pendingWithAttemptsCount,
+    oldestPendingAt: snap.oldestPendingAt,
+    failedCount: snap.failedCount,
+  };
 }
 
 /**
@@ -374,10 +636,23 @@ function enrolledBridgeSources(cfg: AgentConfig): string[] {
   return Array.from(sources);
 }
 
-async function emitHeartbeat(cfg: AgentConfig): Promise<void> {
+async function emitHeartbeat(
+  cfg: AgentConfig,
+  adapterStatuses: AdapterStreamStatus[] = []
+): Promise<void> {
   try {
     const snap = getFailureSummary();
-    const res = await postHeartbeat({
+    // M-D4: attach the LIVE per-stream adapter status. The framework halts a
+    // stream to status='error' (FAIL_THRESHOLD poll failures), 'schema_drift' or
+    // 'config_invalid', and the runner records a vendor connectError on a
+    // rotated/stale DB password; none of that reached the portal before, so a
+    // broken adapter showed nothing but stale data. Rides as an additive field
+    // via an intersection type so the wire contract stays backward-compatible;
+    // the portal validates and stores it since migration 0069.
+    const payload: HeartbeatPayload & {
+      adapterStatuses?: AdapterStreamStatus[];
+      stalePendingCount?: number;
+    } = {
       clinicId: cfg.clinicId,
       agentVersion: AGENT_VERSION,
       failedCount: snap.failedCount,
@@ -386,13 +661,32 @@ async function emitHeartbeat(cfg: AgentConfig): Promise<void> {
       recentReasons: snap.recentReasons,
       enrolledVendors: enrolledBridgeSources(cfg),
       sentAt: Date.now(),
-    });
+      // H10c / H13: additive operational-health fields. Persisted portal-side
+      // since migration 0069 and used to raise the pvs_agent_health alerts, so
+      // a permanently-retrying outbox and the two silent operator mistakes are
+      // now visible without anyone touching this machine.
+      pendingCount: snap.pendingCount,
+      oldestPendingAt: snap.oldestPendingAt,
+      // M-A2: pending rows stuck past the stale threshold (a permanently-
+      // retrying outbox that failedCount never surfaces).
+      stalePendingCount: snap.stalePendingCount,
+      missingFolders,
+      dbAdaptersFailed,
+      adapterStatuses,
+    };
+    const res = await postHeartbeat(payload);
     if (!res.ok) {
-      // Heartbeat failures are noisy when the portal is unreachable; log
-      // at info level so an operator tailing the agent log can see them
-      // without being spammed when the network is fine.
-      if (snap.failedCount > 0 || res.reason.startsWith("http")) {
-        console.warn(`[agent] heartbeat failed: ${res.reason}`);
+      // H10b: a multi-day outage's heartbeat failures are `network:` /
+      // `timeout` / `no_secret`, none of which the old `startsWith("http")`
+      // gate matched, so the operator saw NOTHING while telemetry silently
+      // stopped. Log ALL reasons now, but rate-limit to ~1 line / 10 min so
+      // a genuine outage does not spam one line per minute.
+      if (shouldLogHeartbeatFailure(Date.now())) {
+        console.warn(
+          `[agent] heartbeat delivery failing: ${res.reason} ` +
+            `(pending=${snap.pendingCount}, failed=${snap.failedCount}). ` +
+            `Portal telemetry is stale until this recovers.`
+        );
       }
     }
   } catch (err) {
@@ -473,7 +767,7 @@ async function runEnableDbAdapter(args: string[]): Promise<void> {
     );
     process.exit(2);
   }
-  const cfg = await loadConfig();
+  const cfg = await loadConfigOrExit();
   if (!cfg) {
     console.error(
       "no config found. Run `eins-agent --enroll <token> --clinic <uuid>` first."
@@ -534,7 +828,7 @@ async function runDisableDbAdapter(args: string[]): Promise<void> {
     console.error("usage: eins-agent --disable-db-adapter <vendor>");
     process.exit(2);
   }
-  const cfg = await loadConfig();
+  const cfg = await loadConfigOrExit();
   if (!cfg) {
     console.error("no config found.");
     process.exit(2);
@@ -550,6 +844,31 @@ async function runDisableDbAdapter(args: string[]): Promise<void> {
     `db-adapter '${vendor}' removed (${before - cfg.dbAdapters.length} entry). ` +
       `Credential stays in secure-store for easy re-enable.`
   );
+}
+
+/**
+ * L18: read the enrollment token from stdin instead of argv. Uses a piped
+ * value when stdin is not a TTY (`echo <token> | eins-agent --enroll
+ * --token-stdin ...`), or an interactive prompt otherwise. The prompt is
+ * written to stderr so a piped stdout stays clean. Returns "" if nothing is
+ * read (EOF / empty line), which the caller treats as "no token".
+ */
+async function readTokenFromStdin(): Promise<string> {
+  if (input.isTTY) {
+    process.stderr.write("Enrollment token: ");
+  }
+  const rl = createInterface({ input });
+  return new Promise<string>((resolve) => {
+    let done = false;
+    const finish = (value: string) => {
+      if (done) return;
+      done = true;
+      rl.close();
+      resolve(value.trim());
+    };
+    rl.once("line", (line) => finish(line));
+    rl.once("close", () => finish(""));
+  });
 }
 
 async function promptHidden(prompt: string): Promise<string> {

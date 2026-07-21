@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { translateNamedToPositional } from "./firebird.js";
+import {
+  resolveFirebirdEncoding,
+  translateNamedToPositional,
+} from "./firebird.js";
 
 describe("firebird driver: named-to-positional translation", () => {
   it("translates :cursor and :limit to ? placeholders", () => {
@@ -33,5 +36,30 @@ describe("firebird driver: named-to-positional translation", () => {
     );
     expect(translated).toBe(`SELECT 1 FROM RDB$DATABASE`);
     expect(values).toEqual([]);
+  });
+});
+
+describe("firebird driver: connection charset (M-D3)", () => {
+  it("defaults to UTF8 (undefined) when no charset/encoding option is set", () => {
+    expect(resolveFirebirdEncoding(undefined)).toBeUndefined();
+    expect(resolveFirebirdEncoding({})).toBeUndefined();
+    expect(resolveFirebirdEncoding({ role: "READONLY" })).toBeUndefined();
+  });
+
+  it("plumbs an explicit charset for legacy WIN1252 / NONE databases", () => {
+    expect(resolveFirebirdEncoding({ charset: "WIN1252" })).toBe("WIN1252");
+    expect(resolveFirebirdEncoding({ charset: "NONE" })).toBe("NONE");
+  });
+
+  it("accepts `encoding` as an alias and lets `charset` win", () => {
+    expect(resolveFirebirdEncoding({ encoding: "ISO8859_1" })).toBe("ISO8859_1");
+    expect(
+      resolveFirebirdEncoding({ charset: "WIN1252", encoding: "UTF8" })
+    ).toBe("WIN1252");
+  });
+
+  it("ignores blank / non-string values so the driver keeps its UTF8 default", () => {
+    expect(resolveFirebirdEncoding({ charset: "   " })).toBeUndefined();
+    expect(resolveFirebirdEncoding({ charset: 1252 as unknown as string })).toBeUndefined();
   });
 });

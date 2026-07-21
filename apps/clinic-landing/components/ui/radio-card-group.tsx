@@ -37,7 +37,10 @@ export function RadioCardGroup({
   return (
     <RadioGroup.Root
       name={name}
-      value={value ?? undefined}
+      // Empty string (not undefined) keeps Radix in controlled mode while
+      // nothing is selected — undefined would flip uncontrolled→controlled
+      // on the first tap and spam a React warning.
+      value={value ?? ""}
       onValueChange={onValueChange}
       aria-label={ariaLabel}
       className={cn("grid gap-2", colClass)}
@@ -49,11 +52,11 @@ export function RadioCardGroup({
             key={opt.id}
             value={opt.id}
             className={cn(
-              "group relative flex min-h-[64px] flex-col items-start justify-center rounded-brand border bg-brand-bg p-4 text-left transition-all",
+              "group relative flex min-h-[60px] flex-col items-start justify-center rounded-brand border bg-white p-3.5 text-left transition-all",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2",
               selected
-                ? "border-brand-primary bg-brand-primary-soft/40 shadow-[0_4px_12px_-6px_color-mix(in_oklab,var(--brand-primary)_30%,transparent)]"
-                : "border-brand-border hover:border-brand-fg/30",
+                ? "border-brand-primary bg-brand-primary-soft"
+                : "border-brand-border hover:border-brand-primary",
             )}
           >
             <span className="font-medium leading-snug text-brand-fg">{opt.label}</span>

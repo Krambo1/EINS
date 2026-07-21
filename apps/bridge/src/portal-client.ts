@@ -1,6 +1,7 @@
 import { env } from "./config.js";
 import { signBody } from "./canonical/sign.js";
 import { loadClinicPvsSecret } from "./db/client.js";
+import { fetchWithTimeout } from "./http.js";
 import type { CanonicalEvent } from "./canonical/types.js";
 
 /**
@@ -58,7 +59,7 @@ export async function postEvent(
   }
   const raw = JSON.stringify(event);
   const sig = signBody(raw, secret);
-  const res = await fetch(`${env().PORTAL_BASE_URL}/api/pvs/events`, {
+  const res = await fetchWithTimeout(`${env().PORTAL_BASE_URL}/api/pvs/events`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -101,7 +102,7 @@ export async function postBatch(
   }
   const raw = JSON.stringify({ clinicId, events });
   const sig = signBody(raw, secret);
-  const res = await fetch(`${env().PORTAL_BASE_URL}/api/pvs/events/batch`, {
+  const res = await fetchWithTimeout(`${env().PORTAL_BASE_URL}/api/pvs/events/batch`, {
     method: "POST",
     headers: {
       "content-type": "application/json",

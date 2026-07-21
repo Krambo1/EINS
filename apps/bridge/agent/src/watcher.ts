@@ -1,6 +1,6 @@
 import chokidar from "chokidar";
 import { readFile, readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { parseGdtFile } from "./gdt-parser.js";
 import { gdtToCanonical } from "./normalize.js";
 import { enqueue } from "./outbox.js";
@@ -53,16 +53,42 @@ export function watchFolder(opts: {
     ignoreInitial: true,
   });
 
+  // M-P9 part 3: serialize live file processing through a single promise chain.
+  // chokidar fires add/change concurrently; running process() concurrently made
+  // the per-file mtime cursor race, so after a crash a slower older file could
+  // be skipped (its newer sibling had already advanced the cursor past it).
+  // Chaining guarantees each file is fully processed, and its cursor advanced,
+  // before the next one starts.
+  let processingChain: Promise<void> = Promise.resolve();
+  function enqueueProcessing(path: string): void {
+    processingChain = processingChain
+      .then(() => process(path))
+      .catch((err) => {
+        // process() has its own try/catch; this is a belt-and-suspenders guard
+        // so one rejected link cannot break the chain for every later file.
+        console.error(
+          `[watcher] queued processing failed for ${basename(path)}:`,
+          err
+        );
+      });
+  }
+
   watcher.on("add", (path) => {
     if (!isGdtFile(path)) return;
-    void process(path);
+    enqueueProcessing(path);
   });
   watcher.on("change", (path) => {
     if (!isGdtFile(path)) return;
-    void process(path);
+    enqueueProcessing(path);
   });
 
   async function process(path: string): Promise<void> {
+    // L22: log the file BASENAME only, never the full path. Some GDT/BDT
+    // installations put patient identifiers into the export filename; the
+    // watched folder (a config value) stays loggable, but per-file log lines
+    // must not carry the filename verbatim into logs that may be shipped for
+    // support.
+    const base = basename(path);
     try {
       // P3-1 size guard: stat first, read only if size is sane. A
       // 100 MB file allocated into Buffer would balloon the Praxis-
@@ -71,7 +97,7 @@ export function watchFolder(opts: {
       const preStat = await stat(path).catch(() => null);
       if (preStat && preStat.size > GDT_MAX_BYTES) {
         console.warn(
-          `[watcher] ${path} exceeds GDT_MAX_BYTES (${preStat.size} > ${GDT_MAX_BYTES}); skipped`
+          `[watcher] ${base} exceeds GDT_MAX_BYTES (${preStat.size} > ${GDT_MAX_BYTES}); skipped`
         );
         // Advance the cursor so the file is not re-attempted on
         // restart. Operator triage path: read the log line, decide
@@ -85,11 +111,39 @@ export function watchFolder(opts: {
         return;
       }
       const bytes = await readFile(path);
+      // parseGdtFile throws TornGdtFileError when the file lacks its final
+      // CR LF (torn-write guard, C1). The catch below logs it; the cursor
+      // does not advance, so the completed file is re-processed on the next
+      // change event or restart.
       const parsed = await parseGdtFile(bytes);
       const events = gdtToCanonical(parsed, {
         clinicId: opts.clinicId,
         contentHash: parsed.contentHash,
+        // H4: use the source file's mtime (the PRE-read stat, matching the
+        // bytes we just parsed) as the deterministic occurredAt fallback, so
+        // re-processing the same file after watcher-state loss yields
+        // byte-identical events the portal's unique index dedups. preStat is
+        // null only if the earlier stat failed; fall back to wall clock then.
+        fileModifiedAtIso: preStat
+          ? new Date(preStat.mtimeMs).toISOString()
+          : undefined,
       });
+      // Torn-write guard, part 2 (C1): if the file changed between our read
+      // and now, the exporter is still writing. Enqueue nothing: a partial
+      // parse would win the per-event-id outbox dedup and the corrected
+      // re-parse would be silently discarded. chokidar fires another change
+      // event when the write completes.
+      const postStat = await stat(path).catch(() => null);
+      if (
+        preStat &&
+        postStat &&
+        (postStat.size !== preStat.size || postStat.mtimeMs !== preStat.mtimeMs)
+      ) {
+        console.warn(
+          `[watcher] ${base} changed while being processed; skipping this pass (will re-process on the next change event)`
+        );
+        return;
+      }
       for (const event of events) {
         enqueue(JSON.stringify(event), `${event.pvsExternalEventId}`);
       }
@@ -106,10 +160,10 @@ export function watchFolder(opts: {
         // dedup makes idempotent.
       }
       console.log(
-        `[watcher] ${path} parsed satzart=${parsed.satzart ?? "?"} events=${events.length}`
+        `[watcher] ${base} parsed satzart=${parsed.satzart ?? "?"} events=${events.length}`
       );
     } catch (err) {
-      console.error(`[watcher] failed for ${path}:`, err);
+      console.error(`[watcher] failed for ${base}:`, err);
     }
   }
 
@@ -137,8 +191,11 @@ export function watchFolder(opts: {
       console.log(
         `[watcher] startup catch-up: ${toProcess.length} file(s) newer than cursor=${cursor}`
       );
+      // M-P9 part 3: feed catch-up files through the same serialization chain
+      // as live events, so a live add/change that arrives mid-catch-up cannot
+      // interleave and advance the cursor out of mtime order.
       for (const f of toProcess) {
-        await process(f.path);
+        enqueueProcessing(f.path);
       }
     } catch (err) {
       console.error(`[watcher] startup catch-up failed:`, err);

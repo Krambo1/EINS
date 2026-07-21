@@ -13,8 +13,6 @@ import { FunnelBar } from "../_charts/FunnelBar";
 
 export const metadata = { title: "Onboarding · Admin" };
 
-const GLOW_CARD = "!bg-bg-secondary";
-
 const STAGE_ORDER: OnboardingStage[] = [
   "registriert",
   "integration_verbunden",
@@ -100,7 +98,7 @@ export default async function AdminOnboardingPage() {
       key: "days",
       align: "right",
       header: "Tage seit Start",
-      render: (c) => <span className="font-mono">{formatNumber(c.daysSinceSignup)}</span>,
+      render: (c) => <span className="tabular-nums">{formatNumber(c.daysSinceSignup)}</span>,
     },
     {
       key: "activity",
@@ -169,14 +167,14 @@ export default async function AdminOnboardingPage() {
         />
       </div>
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardContent className="space-y-4 pt-6">
-          <h2 className="font-display text-xl font-semibold">Verteilung nach Phase</h2>
+          <h2 className="text-xl font-medium md:text-2xl">Verteilung nach Phase</h2>
           <FunnelBar stages={funnelStages} />
         </CardContent>
       </Card>
 
-      <Card className={`${GLOW_CARD} !p-0 overflow-hidden`}>
+      <Card className="!p-0 overflow-hidden">
         <CardContent className="p-0">
           <AdminTable
             columns={columns}

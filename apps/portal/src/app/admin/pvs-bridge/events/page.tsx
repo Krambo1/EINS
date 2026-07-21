@@ -141,7 +141,7 @@ export default async function PvsEventsPage({
             </CardHeader>
             <CardContent className="p-0">
               <table className="w-full text-xs">
-                <thead className="bg-bg-secondary text-left uppercase tracking-wide text-fg-tertiary">
+                <thead className="border-b border-border bg-bg-secondary text-left font-medium text-fg-secondary">
                   <tr>
                     <th className="p-2">Erkannt</th>
                     <th className="p-2">Praxis</th>
@@ -154,7 +154,7 @@ export default async function PvsEventsPage({
                 </thead>
                 <tbody>
                   {drift.map((d) => (
-                    <tr key={d.id} className="border-t border-border/60">
+                    <tr key={d.id} className="border-t border-border">
                       <td className="p-2 whitespace-nowrap text-fg-secondary">
                         {formatDateTime(d.detectedAt)}
                       </td>
@@ -188,7 +188,7 @@ export default async function PvsEventsPage({
                     <tr>
                       <td
                         colSpan={7}
-                        className="p-6 text-center text-fg-tertiary"
+                        className="px-4 py-10 text-center text-fg-secondary"
                       >
                         Keine offenen Drift-Reports.
                       </td>

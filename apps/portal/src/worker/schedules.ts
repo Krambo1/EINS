@@ -45,6 +45,9 @@ export const PLATFORM_SCHEDULES: readonly PlatformSchedule[] = [
   { queue: QUEUES.pvsReconcile, cron: "15 */4 * * *" },
   // PVS Bridge — daily treatment auto-mapping suggestions 04:30.
   { queue: QUEUES.pvsTreatmentSuggest, cron: "30 4 * * *" },
+  // PVS Bridge: agent liveness scan hourly at :05, offset from the top of the
+  // hour so it does not queue behind the per-clinic syncs.
+  { queue: QUEUES.pvsAgentHealthScan, cron: "5 * * * *" },
   // Anomaly scan every 6h at :30, offset from the top-of-hour per-clinic syncs.
   { queue: QUEUES.anomalyScan, cron: "30 */6 * * *" },
 ];

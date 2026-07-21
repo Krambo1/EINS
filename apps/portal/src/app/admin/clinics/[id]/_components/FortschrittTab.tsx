@@ -24,8 +24,6 @@ import {
   updateTimelineEntryAction,
 } from "../actions";
 
-const GLOW_CARD = "!bg-bg-secondary";
-
 function statusTone(
   status: TimelineStatus
 ): "neutral" | "accent" | "good" | "warn" | "bad" {
@@ -56,7 +54,7 @@ export function FortschrittTab({
   return (
     <div className="space-y-5">
       {entries.length === 0 && (
-        <Card className={GLOW_CARD}>
+        <Card>
           <CardHeader>
             <CardTitle>Standard-Journey einsetzen</CardTitle>
             <CardDescription>
@@ -76,7 +74,7 @@ export function FortschrittTab({
         </Card>
       )}
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardHeader>
           <CardTitle>Neuer Eintrag</CardTitle>
           <CardDescription>
@@ -149,7 +147,7 @@ export function FortschrittTab({
         </CardContent>
       </Card>
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardHeader>
           <CardTitle>Einträge ({entries.length})</CardTitle>
           <CardDescription>

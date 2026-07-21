@@ -18,8 +18,6 @@ import { AdminTable, type AdminColumn } from "../_components/AdminTable";
 
 export const metadata = { title: "Umsatz · Admin" };
 
-const GLOW_CARD = "!bg-bg-secondary";
-
 const PERIODS: Record<string, number> = {
   "30d": 30,
   "90d": 90,
@@ -101,28 +99,28 @@ export default async function AdminRevenuePage({ searchParams }: PageProps) {
       key: "revenue",
       align: "right",
       header: "Umsatz",
-      render: (c) => <span className="font-mono">{formatMoney(c.revenueEur, c.currency)}</span>,
+      render: (c) => <span className="tabular-nums">{formatMoney(c.revenueEur, c.currency)}</span>,
     },
     {
       key: "spend",
       align: "right",
       header: "Werbebudget",
-      render: (c) => <span className="font-mono">{formatEuro(c.spendEur)}</span>,
+      render: (c) => <span className="tabular-nums">{formatEuro(c.spendEur)}</span>,
     },
     {
       key: "roas",
       align: "right",
       header: "ROAS",
       render: (c) => (
-        <span className="font-mono">{c.roas == null ? "–" : `${c.roas.toFixed(2)}×`}</span>
+        <span className="tabular-nums">{c.roas == null ? "–" : `${c.roas.toFixed(2)}×`}</span>
       ),
     },
     {
       key: "leads",
       align: "right",
       secondary: true,
-      detailLabel: "Leads",
-      header: "Leads",
+      detailLabel: "Anfragen",
+      header: "Anfragen",
       render: (c) => formatNumber(c.leads),
     },
     {
@@ -143,7 +141,7 @@ export default async function AdminRevenuePage({ searchParams }: PageProps) {
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-[0.6875rem] uppercase tracking-[0.18em] text-fg-secondary">
+        <span className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
           Zeitraum
         </span>
         {Object.entries(PERIODS).map(([k, d]) => (
@@ -192,10 +190,10 @@ export default async function AdminRevenuePage({ searchParams }: PageProps) {
         />
       </div>
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardContent className="space-y-4 pt-6">
           <header className="flex flex-wrap items-end justify-between gap-2">
-            <h2 className="font-display text-xl font-semibold">
+            <h2 className="text-xl font-medium md:text-2xl">
               Umsatzverlauf · {days} Tage
             </h2>
             <div className="flex flex-wrap gap-4 text-xs">
@@ -235,9 +233,9 @@ export default async function AdminRevenuePage({ searchParams }: PageProps) {
       </Card>
 
       <div className="grid gap-5 lg:grid-cols-[1fr_2fr]">
-        <Card className={GLOW_CARD}>
+        <Card>
           <CardContent className="space-y-3 pt-6">
-            <h2 className="font-display text-xl font-semibold">Umsatz je Praxis</h2>
+            <h2 className="text-xl font-medium md:text-2xl">Umsatz je Praxis</h2>
             <p className="text-xs text-fg-secondary">Top 5 nach Werbeumsatz · {days} Tage</p>
             <Donut
               slices={donutSlices}
@@ -253,7 +251,7 @@ export default async function AdminRevenuePage({ searchParams }: PageProps) {
           </CardContent>
         </Card>
 
-        <Card className={`${GLOW_CARD} !p-0 overflow-hidden`}>
+        <Card className="!p-0 overflow-hidden">
           <CardContent className="p-0">
             <AdminTable
               columns={columns}

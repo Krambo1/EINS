@@ -44,7 +44,18 @@ export const redAdapter: Adapter = {
   },
 
   decodePush(link: PvsLinkRow, rawBody: string): CanonicalEvent[] {
-    const bundle = JSON.parse(rawBody) as FhirBundle;
+    // Guard the parse: a malformed-but-correctly-signed body must surface as a
+    // decode error the inbound route can turn into a non-retryable 400, so the
+    // vendor stops redelivering the same poison delivery forever (a raw
+    // JSON.parse throw would 500 and invite an endless retry storm).
+    let bundle: FhirBundle;
+    try {
+      bundle = JSON.parse(rawBody) as FhirBundle;
+    } catch (err) {
+      throw new Error(
+        `red decodePush: body is not valid JSON: ${(err as Error).message}`
+      );
+    }
     return decodeFhirBundle(link.clinicId, "red", bundle);
   },
 };

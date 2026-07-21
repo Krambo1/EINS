@@ -195,7 +195,13 @@ describe("integration: Pixelmedics SQLite end-to-end", () => {
     await driver.close();
   });
 
-  it("second poll returns nothing new (cursor advance + idempotency)", async () => {
+  // With the H8 overlap window, a caught-up second poll re-scans the last few
+  // minutes and RE-EMITS the same row (the outbox UNIQUE(content_hash) dedup
+  // collapses it in production; this test uses a raw sink, so it sees the
+  // re-emit). The invariants that still hold and that matter: the re-emitted
+  // event is byte-identical to the first (so dedup will absorb it), and the
+  // persisted high-water-mark cursor does NOT regress.
+  it("second poll re-emits an identical event within the overlap window without regressing the cursor", async () => {
     const vendor = await loadVendorConfigFile(PIXEL_YAML);
     const stream = vendor.streams.find((s) => s.kind === "AppointmentCreated")!;
     const driver = new SqliteDriver();
@@ -206,11 +212,84 @@ describe("integration: Pixelmedics SQLite end-to-end", () => {
       username: "",
       password: "",
     });
-    const first = await pollOnce({ clinicId: "c1", vendor, stream, driver, sink: () => void 0 });
+    const firstEvents: CanonicalEventBase[] = [];
+    const first = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream,
+      driver,
+      sink: (e) => firstEvents.push(e),
+    });
     expect(first.emitted).toBe(1);
-    const second = await pollOnce({ clinicId: "c1", vendor, stream, driver, sink: () => void 0 });
-    expect(second.emitted).toBe(0);
+
+    const secondEvents: CanonicalEventBase[] = [];
+    const second = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream,
+      driver,
+      sink: (e) => secondEvents.push(e),
+    });
+    // Re-scanned + re-emitted the in-window row (dedup absorbs it in prod).
+    expect(second.emitted).toBe(1);
+    // Byte-identical dedup tuple: same external id + occurredAt as the first.
+    expect(secondEvents[0].pvsExternalEventId).toBe(
+      firstEvents[0].pvsExternalEventId
+    );
+    expect(secondEvents[0].occurredAt).toBe(firstEvents[0].occurredAt);
+    // The persisted high-water mark never moves backward.
     expect(second.newCursor).toBe(first.newCursor);
+    await driver.close();
+  });
+
+  // The behavioural core of H8: a row that commits LATE below the cursor (same
+  // timestamp as the high-water mark but a LOWER id, so the strict keyset
+  // `id > :cursorTiebreak` would exclude it forever) IS re-fetched on the next
+  // caught-up poll because the overlap resets the tiebreak.
+  it("re-fetches a late-committing same-timestamp lower-id row via the overlap window", async () => {
+    const vendor = await loadVendorConfigFile(PIXEL_YAML);
+    const stream = vendor.streams.find((s) => s.kind === "AppointmentCreated")!;
+    const driver = new SqliteDriver();
+    await driver.connect({
+      host: "",
+      port: 0,
+      database: dbPath,
+      username: "",
+      password: "",
+    });
+
+    // Seed appt 200 already exists at modified_at 2026-05-20T11:00:00Z. First
+    // poll advances the cursor to (that ts, id=200).
+    const first = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream,
+      driver,
+      sink: () => void 0,
+    });
+    expect(first.emitted).toBe(1);
+
+    // A transaction that stamped the SAME modified_at but a LOWER id (150)
+    // commits only now, after we polled past id 200. Under the strict keyset it
+    // is invisible forever (150 < 200 at the same timestamp).
+    const late = new BetterSqlite3(dbPath);
+    late.exec(`
+      INSERT INTO appointments (id, patient_id, scheduled_at, treatment_code, treatment_name, room_id, room_name, notes, status, modified_at)
+      VALUES (150, 10, '2026-06-02T14:00:00.000Z', 'BOT-9', 'Botox spät', 1, 'Raum 1', 'Nachzügler', 'scheduled', '2026-05-20T11:00:00.000Z');
+    `);
+    late.close();
+
+    const seen: string[] = [];
+    const second = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream,
+      driver,
+      sink: (e) => seen.push(String(e.pvsAppointmentId)),
+    });
+    // The late lower-id row is now fetched (alongside a deduped re-emit of 200).
+    expect(seen).toContain("150");
+    expect(second.newCursor).toBe(first.newCursor); // HWM unchanged
     await driver.close();
   });
 

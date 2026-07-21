@@ -84,6 +84,7 @@ export async function DashboardTopMetricsEnhanced({
   sourcesRange,
   relationshipStartedAt,
   openLeads,
+  emptyWindowHint,
 }: {
   clinicId: string;
   userId: string;
@@ -116,6 +117,14 @@ export async function DashboardTopMetricsEnhanced({
    * the headline `openRequests` signals the rest of the open queue.
    */
   openLeads: OpenLeadForDashboard[];
+  /**
+   * Set only when the Anfragen window is empty *but* the Praxis has Anfragen
+   * outside it (i.e. a stale window, not a brand-new Praxis). Drives a light
+   * inline hint above the tiles with a link that widens all four top cards to
+   * the full history ("Max"). Undefined for both the populated case and the
+   * genuinely-empty (day-one) Praxis, so their existing states stay untouched.
+   */
+  emptyWindowHint?: { href: string };
 }) {
   const leadsWin = dashboardRangeWindow(leadsRange);
   const revenueWin = dashboardRangeWindow(revenueRange);
@@ -237,11 +246,27 @@ export async function DashboardTopMetricsEnhanced({
   );
 
   return (
-    <section
-      aria-label="Kennzahlen"
-      data-tour="dashboard-metrics"
-      className="grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-6"
-    >
+    <div className="space-y-5">
+      {emptyWindowHint && (
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 rounded-xl border border-border bg-bg-secondary px-4 py-3 text-sm">
+          <span className="text-fg-secondary">
+            Im gewählten Zeitraum gab es keine neuen Anfragen. Ihre Praxis hat
+            aber Anfragen außerhalb dieses Zeitraums.
+          </span>
+          <Link
+            href={emptyWindowHint.href}
+            scroll={false}
+            className="rounded font-medium text-accent underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-bg-primary"
+          >
+            Gesamten Verlauf ansehen
+          </Link>
+        </div>
+      )}
+      <section
+        aria-label="Kennzahlen"
+        data-tour="dashboard-metrics"
+        className="grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-6"
+      >
       <MetricTile
         size="large"
         label="Anfragen"
@@ -540,7 +565,8 @@ export async function DashboardTopMetricsEnhanced({
           />
         </CardContent>
       </Card>
-    </section>
+      </section>
+    </div>
   );
 }
 

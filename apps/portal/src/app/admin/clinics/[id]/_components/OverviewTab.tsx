@@ -17,8 +17,6 @@ import { MetricTile } from "@eins/ui";
 
 type Clinic = typeof schema.clinics.$inferSelect;
 
-const GLOW_CARD = "!bg-bg-secondary";
-
 export function OverviewTab({
   clinic,
   totals,
@@ -96,9 +94,9 @@ export function OverviewTab({
         />
       </div>
 
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardContent className="space-y-4 pt-6">
-          <h2 className="font-display text-xl font-semibold">Stammdaten</h2>
+          <h2 className="text-xl font-medium md:text-2xl">Stammdaten</h2>
           <dl className="grid gap-4 sm:grid-cols-2">
             <Field label="Slug" value={clinic.slug} mono />
             <Field
@@ -134,7 +132,7 @@ function Field({
 }) {
   return (
     <div>
-      <dt className="font-mono text-[0.6875rem] uppercase tracking-[0.18em] text-fg-secondary">
+      <dt className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
         {label}
       </dt>
       <dd

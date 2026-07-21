@@ -1,169 +1,71 @@
 import Link from "next/link";
-import { Card, CardContent, Badge, MetricTile, TrendChart } from "@eins/ui";
+import { Card, CardContent, Badge } from "@eins/ui";
 import { requireAdmin } from "@/auth/admin-guards";
 import {
-  formatClinicAggregate,
   formatEuro,
   formatMoney,
   formatNumber,
   formatRelative,
 } from "@/lib/formatting";
+import { platformMix, syncErrorList, topCampaigns } from "@/server/queries/admin";
 import {
-  KPI_THRESHOLDS,
-  toneForHigherBetter,
-  toneForLowerBetter,
-} from "@/server/constants/admin";
-import {
-  platformOverviewMetrics,
-  platformMix,
-  spendRevenueSeries,
-  syncErrorList,
-  topCampaigns,
-} from "@/server/queries/admin";
+  ADMIN_RANGE_KEYS,
+  dashboardRangeDays,
+  parseDashboardRange,
+} from "@/lib/dashboard-range";
+import { TimeRangeToggle } from "@/app/_components/TimeRangeToggle";
 import { AdminPageHeader } from "../_components/AdminPageHeader";
 import { Brand } from "@/app/_components/Brand";
 
 export const metadata = { title: "Leistung · Admin" };
 
-const GLOW_CARD = "!bg-bg-secondary";
-
 interface PageProps {
-  searchParams: Promise<{ period?: string }>;
+  searchParams: Promise<Record<string, string | undefined>>;
 }
 
-const PERIODS: Record<string, number> = {
-  "30d": 30,
-  "90d": 90,
-  "180d": 180,
-  "365d": 365,
-};
-
+/**
+ * Werbeleistung im Detail. Die Plattform-KPIs und der Budget/Umsatz-Trend
+ * leben auf der Admin-Übersicht (MetricStrip + Werbeleistung-Karte); diese
+ * Seite ergänzt, was dort fehlt: Plattform-Split, Top/Bottom-Kampagnen und
+ * Sync-Health. Der Zeitraum kommt aus dem geteilten TimeRangeToggle
+ * (gleiche Fenster wie überall sonst im Portal).
+ */
 export default async function AdminLeistungPage({ searchParams }: PageProps) {
   await requireAdmin();
-  const params = await searchParams;
-  const periodKey = params.period ?? "90d";
-  const days = PERIODS[periodKey] ?? 90;
+  const sp = await searchParams;
+  const range = parseDashboardRange(sp[ADMIN_RANGE_KEYS.leistung]);
+  const days = dashboardRangeDays(range);
 
-  const [
-    overview,
-    mix,
-    daily,
-    syncs,
-    top,
-    bottom,
-  ] = await Promise.all([
-    platformOverviewMetrics(),
+  const [mix, syncs, top, bottom] = await Promise.all([
     platformMix(days),
-    spendRevenueSeries(days),
     syncErrorList(),
     topCampaigns({ periodDays: days, limit: 10 }),
     topCampaigns({ periodDays: days, limit: 10, ascending: true }),
   ]);
-
-  const totalSpend = mix.reduce((acc, m) => acc + m.spendEur, 0);
-  const totalLeads = mix.reduce((acc, m) => acc + m.leads, 0);
-
-  const cplTone = toneForLowerBetter(overview.avgCpl, KPI_THRESHOLDS.cpl);
-  const roasTone = toneForHigherBetter(overview.avgRoas, KPI_THRESHOLDS.roas);
-
-  const spendPoints = daily.map((d) => ({ date: d.date, value: d.spendEur }));
-  const revenuePoints = daily.map((d) => ({ date: d.date, value: d.revenueEur }));
 
   return (
     <div className="space-y-8">
       <AdminPageHeader
         title="Werbeleistung"
         subtitle="Plattform-Vergleich, Top- und Bottom-Kampagnen, Sync-Health."
+        actions={
+          <TimeRangeToggle
+            value={range}
+            paramKey={ADMIN_RANGE_KEYS.leistung}
+            ariaLabel="Zeitraum für Werbeleistung"
+          />
+        }
       />
-
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono text-[0.6875rem] uppercase tracking-[0.18em] text-fg-secondary">
-          Zeitraum
-        </span>
-        {Object.entries(PERIODS).map(([k, d]) => (
-          <Link
-            key={k}
-            href={{ pathname: "/admin/leistung", query: { period: k } }}
-            className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-              k === periodKey
-                ? "border-accent bg-fg-primary text-bg-primary"
-                : "border-border text-fg-secondary hover:border-accent hover:text-accent"
-            }`}
-          >
-            {d} Tage
-          </Link>
-        ))}
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <MetricTile
-          label="Spend"
-          value={formatEuro(totalSpend)}
-          delta={overview.deltas.spend}
-        />
-        <MetricTile
-          label="Umsatz (Monat)"
-          value={formatClinicAggregate(
-            overview.monthRevenue,
-            overview.revenueCurrencies
-          )}
-          delta={overview.deltas.revenue}
-          tone="accent"
-        />
-        <MetricTile
-          label="Leads"
-          value={formatNumber(totalLeads)}
-          delta={overview.deltas.leads}
-        />
-        <MetricTile
-          label="Ø CPL"
-          value={overview.avgCpl == null ? "–" : formatEuro(overview.avgCpl)}
-          tone={cplTone}
-          delta={overview.deltas.cpl}
-        />
-        <MetricTile
-          label="Ø ROAS"
-          value={
-            overview.avgRoas == null
-              ? "–"
-              : `${overview.avgRoas.toFixed(2)}×`
-          }
-          tone={roasTone}
-          delta={overview.deltas.roas}
-        />
-      </div>
-
-      <Card className={GLOW_CARD}>
-        <CardContent className="space-y-4 pt-6">
-          <h2 className="font-display text-xl font-semibold">
-            Trend · {days} Tage
-          </h2>
-          <div className="rounded-xl border border-border bg-bg-primary p-3">
-            <TrendChart
-              data={spendPoints}
-              series={[
-                { points: spendPoints, tone: "neutral", label: "Werbebudget" },
-                { points: revenuePoints, tone: "accent", label: "Werbeumsatz" },
-              ]}
-              height={240}
-              showAxes
-              showGrid
-              valueFormat="euro"
-              ariaLabel="Werbebudget und Werbeumsatz Trend"
-            />
-          </div>
-        </CardContent>
-      </Card>
 
       <div className="grid gap-5 lg:grid-cols-2">
         {(["meta", "google"] as const).map((platform) => {
           const m = mix.find((x) => x.platform === platform);
           const cpl = m && m.leads > 0 ? m.spendEur / m.leads : null;
           return (
-            <Card key={platform} className={GLOW_CARD}>
-              <CardContent className="space-y-3 pt-6">
+            <Card key={platform}>
+              <CardContent className="space-y-4">
                 <header className="flex items-center justify-between">
-                  <h2 className="font-display text-xl font-semibold">
+                  <h2 className="text-xl font-medium md:text-2xl">
                     {platform === "meta" ? (
                       <Brand brand="meta">Meta / Instagram</Brand>
                     ) : (
@@ -174,17 +76,17 @@ export default async function AdminLeistungPage({ searchParams }: PageProps) {
                     {m ? "Aktiv" : "Keine Daten"}
                   </Badge>
                 </header>
-                <div className="grid grid-cols-3 gap-3 text-sm">
-                  <Stat label="Spend" value={formatEuro(m?.spendEur ?? 0)} />
-                  <Stat label="Leads" value={formatNumber(m?.leads ?? 0)} />
+                <div className="grid grid-cols-3 gap-4">
                   <Stat
-                    label="CPL"
-                    value={cpl == null ? "–" : formatEuro(cpl)}
+                    label="Werbebudget"
+                    value={formatEuro(m?.spendEur ?? 0)}
                   />
+                  <Stat label="Anfragen" value={formatNumber(m?.leads ?? 0)} />
+                  <Stat label="CPL" value={cpl == null ? "–" : formatEuro(cpl)} />
                 </div>
                 <div className="text-xs text-fg-secondary">
-                  Anteil an Gesamt-Spend:{" "}
-                  <span className="font-mono">
+                  Anteil am gesamten Werbebudget:{" "}
+                  <span className="tabular-nums">
                     {(m?.sharePct ?? 0).toFixed(1)} %
                   </span>
                 </div>
@@ -194,37 +96,35 @@ export default async function AdminLeistungPage({ searchParams }: PageProps) {
         })}
       </div>
 
-      <Card className={GLOW_CARD}>
-        <CardContent className="space-y-3 pt-6">
-          <h2 className="font-display text-xl font-semibold">
-            Top-Kampagnen (ROAS, {days} Tage)
+      <Card>
+        <CardContent className="space-y-3">
+          <h2 className="text-xl font-medium md:text-2xl">
+            Top-Kampagnen (ROAS)
           </h2>
           <CampaignTable rows={top} />
         </CardContent>
       </Card>
 
-      <Card className={GLOW_CARD}>
-        <CardContent className="space-y-3 pt-6">
-          <h2 className="font-display text-xl font-semibold">
-            Bottom-Kampagnen
-          </h2>
-          <p className="text-xs text-fg-secondary">
-            Niedrigste ROAS — Kandidaten zum Pausieren oder Optimieren.
+      <Card>
+        <CardContent className="space-y-3">
+          <h2 className="text-xl font-medium md:text-2xl">Bottom-Kampagnen</h2>
+          <p className="text-sm text-fg-secondary">
+            Niedrigste ROAS: Kandidaten zum Pausieren oder Optimieren.
           </p>
           <CampaignTable rows={bottom} />
         </CardContent>
       </Card>
 
-      <Card className={GLOW_CARD}>
-        <CardContent className="space-y-3 pt-6">
-          <h2 className="font-display text-xl font-semibold">Sync-Health</h2>
+      <Card>
+        <CardContent className="space-y-3">
+          <h2 className="text-xl font-medium md:text-2xl">Sync-Health</h2>
           {syncs.length === 0 ? (
             <p className="rounded-md border border-[var(--tone-good-border)] bg-[var(--tone-good-bg)] px-4 py-3 text-sm text-tone-good">
               Alle Plattform-Verbindungen synchronisieren ohne Fehler.
             </p>
           ) : (
             <table className="w-full text-sm">
-              <thead className="text-left text-xs text-fg-secondary">
+              <thead className="text-left text-xs font-medium text-fg-secondary">
                 <tr>
                   <th className="py-2">Praxis</th>
                   <th className="py-2">Plattform</th>
@@ -249,7 +149,7 @@ export default async function AdminLeistungPage({ searchParams }: PageProps) {
                     </td>
                     <td className="py-2 capitalize">{s.platform}</td>
                     <td className="py-2 font-mono text-xs">
-                      {s.accountId ?? "—"}
+                      {s.accountId ?? "–"}
                     </td>
                     <td className="py-2 text-right text-xs text-fg-secondary">
                       {s.lastSyncedAt ? formatRelative(s.lastSyncedAt) : "nie"}
@@ -281,14 +181,14 @@ function CampaignTable({
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
-        <thead className="text-left text-xs text-fg-secondary">
+        <thead className="text-left text-xs font-medium text-fg-secondary">
           <tr>
             <th className="py-2">Praxis</th>
             <th className="py-2">Quelle</th>
             <th className="py-2">Kampagne</th>
-            <th className="py-2 text-right">Leads</th>
+            <th className="py-2 text-right">Anfragen</th>
             <th className="py-2 text-right">Umsatz</th>
-            <th className="py-2 text-right">Spend</th>
+            <th className="py-2 text-right">Budget</th>
             <th className="py-2 text-right">CPL</th>
             <th className="py-2 text-right">ROAS</th>
           </tr>
@@ -309,21 +209,21 @@ function CampaignTable({
               </td>
               <td className="py-2 capitalize">{r.source}</td>
               <td className="py-2 font-mono text-xs text-fg-secondary">
-                {r.campaignId ?? "—"}
+                {r.campaignId ?? "–"}
               </td>
-              <td className="py-2 text-right font-mono tabular-nums">
+              <td className="py-2 text-right tabular-nums">
                 {formatNumber(r.leads)}
               </td>
-              <td className="py-2 text-right font-mono tabular-nums">
+              <td className="py-2 text-right tabular-nums">
                 {formatMoney(r.revenueEur, r.currency)}
               </td>
-              <td className="py-2 text-right font-mono tabular-nums">
+              <td className="py-2 text-right tabular-nums">
                 {formatEuro(r.spendEur)}
               </td>
-              <td className="py-2 text-right font-mono tabular-nums">
+              <td className="py-2 text-right tabular-nums">
                 {r.cpl == null ? "–" : formatEuro(r.cpl)}
               </td>
-              <td className="py-2 text-right font-mono tabular-nums">
+              <td className="py-2 text-right tabular-nums">
                 {r.roas == null ? "–" : `${r.roas.toFixed(2)}×`}
               </td>
             </tr>
@@ -336,11 +236,11 @@ function CampaignTable({
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-border bg-bg-primary p-2">
-      <div className="font-mono text-[10px] uppercase tracking-wider text-fg-secondary">
+    <div>
+      <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
         {label}
       </div>
-      <div className="mt-0.5 font-mono text-base tabular-nums">{value}</div>
+      <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>
     </div>
   );
 }

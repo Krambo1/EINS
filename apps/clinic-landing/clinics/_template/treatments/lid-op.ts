@@ -6,48 +6,48 @@ export const templateLidOp: Treatment = {
   category: "lid-op",
   city: "[Stadt]",
 
-  h1: "Lidstraffung (Blepharoplastik) in [Stadt]",
+  h1: "Lidstraffung in [Stadt]",
   subline:
-    "Operation der Ober- oder Unterlider — durchgeführt von [Dr. med. Vorname Nachname]. Persönliches Aufklärungsgespräch und gesetzliche Bedenkzeit.",
+    "Für einen wachen, offenen Blick, der immer noch nach Ihnen aussieht. Operation und komplette Nachsorge bei [Dr. med. Vorname Nachname], mit gesetzlicher Bedenkzeit.",
 
   heroImage: {
     src: "/clinics/_template/hero-lid-op.svg",
     alt: "Beratungsgespräch zur Lidstraffung",
   },
 
-  trustMicrocopy: "OP nach gesetzlicher Bedenkzeit · Eingehende Voruntersuchung",
+  trustMicrocopy: "Eingehende Voruntersuchung · OP erst nach gesetzlicher Bedenkzeit",
 
   problem: {
     paragraphs: [
-      "Sie nehmen wahr, dass Ihre Oberlider schwerer geworden sind, das Sichtfeld einschränken oder dass Sie auf Fotos müder wirken, als Sie sind. Sie überlegen seit längerem, ob eine Operation sinnvoll wäre.",
-      "Sie suchen eine Praxis, die Sie ehrlich aufklärt — auch über die Grenzen einer Lidstraffung — und die sich Zeit nimmt, bevor sie operiert.",
+      "Die Oberlider sind schwerer geworden, auf Fotos wirken Sie müder, als Sie sind, und vielleicht drückt die Haut inzwischen sogar aufs Sichtfeld. Das Thema begleitet Sie schon länger.",
+      "Was Sie zögern lässt: die Angst vor sichtbaren Narben und davor, nach der OP verändert auszusehen. Beides gehört in eine ehrliche Beratung, bevor irgendetwas entschieden wird.",
     ],
   },
 
   explainer: {
     indication:
-      "Eine Oberlidstraffung kommt bei Hautüberschuss am Oberlid in Frage, der das Erscheinungsbild oder das Sichtfeld einschränkt. Eine Unterlidstraffung kann bei Tränensäcken oder Hautüberschuss am Unterlid sinnvoll sein. Die Indikation prüfen wir gemeinsam mit Ihnen.",
+      "Eine Oberlidstraffung kommt bei Hautüberschuss am Oberlid in Frage, der das Erscheinungsbild oder das Sichtfeld beeinträchtigt. Eine Unterlidstraffung kann bei Tränensäcken oder Hautüberschuss am Unterlid sinnvoll sein. Die Indikation prüfen wir gemeinsam in der Voruntersuchung.",
     process:
-      "Der Eingriff erfolgt in der Regel ambulant und unter örtlicher Betäubung mit Dämmerschlaf, je nach Befund auch in Vollnarkose. Die Operation dauert etwa 60–90 Minuten.",
+      "Der Eingriff erfolgt in der Regel ambulant, in örtlicher Betäubung mit Dämmerschlaf, je nach Befund auch in Vollnarkose. Die Operation dauert etwa 60 bis 90 Minuten.",
     recovery:
-      "Schwellungen und leichte Blutergüsse sind in den ersten 7–10 Tagen üblich. Fäden werden in der Regel nach 5–7 Tagen entfernt. Gesellschaftsfähig sind die meisten Patientinnen nach 10–14 Tagen.",
+      "Schwellungen und leichte Blutergüsse sind in den ersten 7 bis 10 Tagen üblich. Die Fäden werden nach 5 bis 7 Tagen entfernt. Gesellschaftsfähig sind die meisten Patientinnen nach 10 bis 14 Tagen.",
     duration:
-      "Das Ergebnis einer Lidstraffung hält meist über viele Jahre. Der natürliche Alterungsprozess setzt sich aber fort.",
+      "Das Ergebnis einer Lidstraffung hält meist viele Jahre. Der natürliche Alterungsprozess setzt sich fort, wird durch den Eingriff aber von einem deutlich strafferen Ausgangspunkt fortgeführt.",
     sideEffects:
-      "Mögliche Nebenwirkungen: Schwellungen, Hämatome, vorübergehend trockene Augen, Narbenbildung, Asymmetrien, in seltenen Fällen Wundheilungsstörungen oder Über-/Unterkorrektur.",
+      "Möglich: Schwellungen, Hämatome, vorübergehend trockene Augen, Narbenbildung, Asymmetrien, selten Wundheilungsstörungen oder Über- beziehungsweise Unterkorrektur.",
     riskNotice:
       "Pflichtangabe HWG: Eine Lidstraffung ist eine Operation. Mögliche Nebenwirkungen und Risiken werden im persönlichen Aufklärungsgespräch ausführlich besprochen. Vor einem operativen Eingriff besteht eine gesetzliche Bedenkzeit. Bitte lesen Sie die Aufklärungsunterlagen sorgfältig.",
   },
 
   quiz: {
     treatmentOptions: [
-      { id: "oberlid", label: "Oberlid", hint: "Hautüberschuss / Schweres Lid" },
-      { id: "unterlid", label: "Unterlid", hint: "Tränensäcke / Hautüberschuss" },
+      { id: "oberlid", label: "Oberlid", hint: "Hautüberschuss, schweres Lid" },
+      { id: "unterlid", label: "Unterlid", hint: "Tränensäcke, Hautüberschuss" },
       { id: "beide", label: "Ober- und Unterlid", hint: "Kombiniert" },
-      { id: "unsicher", label: "Bin unsicher", hint: "Empfehlung im Beratungsgespräch" },
+      { id: "unsicher", label: "Bin unsicher", hint: "Empfehlung im Gespräch" },
     ],
-    locationLabel: "Wo wäre Ihr Wunsch-Termin?",
-    askExperience: true,
+    askBudget: true,
+    askDistance: true,
   },
 
   process: {
@@ -56,75 +56,86 @@ export const templateLidOp: Treatment = {
         index: 1,
         title: "Beratung & Voruntersuchung",
         body:
-          "60 Minuten persönliches Gespräch und Untersuchung. Wir prüfen die Indikation, klären über Ablauf und Risiken auf und beantworten Ihre Fragen.",
+          "60 Minuten Gespräch und Untersuchung. Wir prüfen die Indikation, klären über Ablauf, Risiken und die zu erwartende Ausfallzeit auf und beantworten alle Ihre Fragen.",
       },
       {
         index: 2,
         title: "Gesetzliche Bedenkzeit",
         body:
-          "Zwischen Aufklärung und Eingriff liegt eine gesetzlich vorgeschriebene Bedenkzeit. Sie nehmen die Aufklärungsunterlagen mit und entscheiden in Ruhe.",
+          "Zwischen Aufklärung und Eingriff liegt eine gesetzlich vorgeschriebene Bedenkzeit. Sie nehmen die Unterlagen mit nach Hause und entscheiden in Ruhe.",
       },
       {
         index: 3,
         title: "Operation",
         body:
-          "Der Eingriff dauert etwa 60–90 Minuten und erfolgt in der Regel ambulant. Die Anästhesie besprechen wir individuell.",
+          "Der Eingriff dauert etwa 60 bis 90 Minuten und erfolgt in der Regel ambulant. Die passende Anästhesie besprechen wir individuell.",
       },
       {
         index: 4,
         title: "Nachsorge",
         body:
-          "Fadenzug nach 5–7 Tagen, weitere Kontrollen nach 4 und 12 Wochen. Wir begleiten Sie durch den gesamten Heilungsverlauf.",
+          "Fadenzug nach 5 bis 7 Tagen, weitere Kontrollen nach 4 und 12 Wochen. Sie haben durchgehend dieselbe Ansprechpartnerin.",
       },
     ],
   },
 
+  // Reihenfolge = Einwandgewicht: Narben + verändertes Aussehen zuerst,
+  // dann Downtime, Kosten, Krankenkasse, Narkose, Haltbarkeit.
   faq: [
     {
-      q: "Wie lange dauert es, bis ich wieder gesellschaftsfähig bin?",
+      q: "Sind die Narben später sichtbar?",
       a:
-        "Mit dezenter Make-up-Abdeckung sind die meisten Patientinnen nach etwa 10–14 Tagen wieder im Alltag. Die endgültige Verheilung dauert mehrere Wochen.",
+        "Die Schnittführung liegt in der natürlichen Lidfalte und ist nach der Abheilung meist kaum noch zu erkennen. Eine feine Restspur kann individuell sichtbar bleiben; wie Ihre Haut typischerweise vernarbt, besprechen wir in der Voruntersuchung.",
     },
     {
-      q: "Welche Narkose wird verwendet?",
+      q: "Wirke ich nach der OP verändert?",
       a:
-        "In der Regel örtliche Betäubung mit Dämmerschlaf. Bei umfangreicheren Befunden oder auf Wunsch ist auch eine Vollnarkose möglich. Die Wahl besprechen wir individuell.",
+        "Das Ziel ist ein wacherer, erholter Blick, kein anderes Gesicht. Es wird nur so viel Haut entfernt, wie für ein natürliches Ergebnis nötig ist. In der Beratung zeigen wir Ihnen, was das für Ihr Lid konkret bedeutet.",
+    },
+    {
+      q: "Wie lange bin ich raus aus dem Alltag?",
+      a:
+        "Planbar: Fäden nach 5 bis 7 Tagen, gesellschaftsfähig mit dezentem Make-up meist nach 10 bis 14 Tagen. Büroarbeit ist oft nach einer Woche wieder möglich, Sport nach etwa 3 Wochen.",
     },
     {
       q: "Was kostet die Lidstraffung?",
       a:
-        "Die Kosten hängen davon ab, ob Ober-, Unter- oder beide Lider operiert werden, sowie von Anästhesie und Klinik-Aufenthalt. Der Preis beginnt bei etwa 1.800 €. Sie erhalten ein konkretes Angebot.",
+        "Je nachdem, ob Ober-, Unter- oder beide Lider operiert werden, und je nach Anästhesie beginnt der Preis bei etwa 1.800 €. Nach der Voruntersuchung erhalten Sie ein schriftliches Festangebot.",
     },
     {
-      q: "Wann sollte ich nicht operieren lassen?",
+      q: "Zahlt die Krankenkasse etwas dazu?",
       a:
-        "Bei akuten Augenerkrankungen, Schwangerschaft, bestimmten Vorerkrankungen oder Gerinnungsstörungen. Diese Punkte werden im Aufklärungsgespräch erfragt.",
+        "Nur bei medizinischer Indikation, zum Beispiel einer nachgewiesenen Sichtfeldeinschränkung, und nach Begutachtung durch die Kasse. Bei ästhetischer Indikation tragen Sie die Kosten privat; wir sagen Ihnen ehrlich, welcher Fall bei Ihnen vorliegt.",
     },
     {
-      q: "Sind die Narben sichtbar?",
+      q: "Welche Narkose wird verwendet?",
       a:
-        "Die Schnittführung verläuft in der natürlichen Lidfalte und ist nach Abheilung meist kaum noch sichtbar. Eine Restspur kann individuell sichtbar bleiben.",
+        "In der Regel örtliche Betäubung mit Dämmerschlaf: Sie bekommen von der OP nichts mit, sind aber schnell wieder fit. Auf Wunsch oder bei größeren Befunden ist Vollnarkose möglich.",
     },
     {
       q: "Wie lange hält das Ergebnis?",
       a:
-        "Eine Lidstraffung wirkt in der Regel über viele Jahre. Der natürliche Alterungsprozess wird durch den Eingriff nicht aufgehalten.",
-    },
-    {
-      q: "Wird die Operation von der Krankenkasse übernommen?",
-      a:
-        "Nur bei medizinischer Indikation (z.B. Sichtfeldeinschränkung) und nach individueller Begutachtung durch die Krankenkasse. Im ästhetischen Bereich werden die Kosten privat getragen.",
+        "Meist viele Jahre. Der natürliche Alterungsprozess läuft weiter, startet aber von einem strafferen Ausgangspunkt. Eine Wiederholung ist selten vor Ablauf von 10 Jahren ein Thema.",
     },
   ],
 
   priceRange: { fromCents: 180000, toCents: 380000, currency: "EUR" },
 
+  cost: {
+    drivers: [
+      "Oberlid, Unterlid oder beides",
+      "Art der Anästhesie",
+      "Umfang des Befunds",
+    ],
+    financingNote: "Eine Zahlung in Raten ist auf Anfrage möglich.",
+  },
+
   finalCtaPromise:
-    "Sie verlassen die Beratung mit einer klaren Einschätzung — ohne Zeitdruck und ohne Festlegung.",
+    "Sie verlassen die Beratung mit einer klaren Einschätzung. Ohne Zeitdruck, ohne Festlegung.",
 
   seo: {
-    metaTitle: "Lidstraffung in [Stadt] – Blepharoplastik bei [Praxis-Name]",
+    metaTitle: "Lidstraffung in [Stadt] – [Praxis-Name]",
     metaDescription:
-      "Ober- und Unterlidstraffung in [Stadt]. Eingehende Beratung durch [Dr. med. Vorname Nachname], gesetzliche Bedenkzeit, persönliche Begleitung im Heilungsverlauf.",
+      "Ober- und Unterlidstraffung in [Stadt]. Eingehende Voruntersuchung durch [Dr. med. Vorname Nachname], gesetzliche Bedenkzeit, persönliche Nachsorge.",
   },
 };

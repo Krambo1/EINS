@@ -6,127 +6,139 @@ export const templateRhino: Treatment = {
   category: "rhino",
   city: "[Stadt]",
 
-  h1: "Nasenkorrektur (Rhinoplastik) in [Stadt]",
+  h1: "Nasenkorrektur in [Stadt]",
   subline:
-    "Ästhetische und funktionelle Nasenkorrektur — durchgeführt von [Dr. med. Vorname Nachname]. Ausführliche Beratung mit 3D-Visualisierung möglich.",
+    "Eine Nase, die zu Ihrem Gesicht passt, statt einer Nase aus dem Katalog. Beratung mit 3D-Simulation bei [Dr. med. Vorname Nachname], auf Wunsch inklusive Atmungs-Check.",
 
   heroImage: {
     src: "/clinics/_template/hero-rhino.svg",
     alt: "Beratungsraum für die Nasenkorrektur",
   },
 
-  trustMicrocopy: "Funktionelle und ästhetische Beratung · Gesetzliche Bedenkzeit",
+  trustMicrocopy: "3D-Simulation in der Beratung · Ästhetik und Funktion gemeinsam gedacht",
 
   problem: {
     paragraphs: [
-      "Sie haben sich jahrelang an Ihrer Nasenform gestört und überlegen seit längerem, ob eine Korrektur möglich ist. Dabei sind Sie unsicher, was realistisch ist und welche Veränderungen wirklich zu Ihrem Gesicht passen würden.",
-      "Sie suchen eine Praxis, die ehrlich aufklärt — über das, was technisch geht, und über das, was Ihnen am Ende stehen wird.",
+      "Die Nase stört Sie seit Jahren, auf Fotos, im Profil, im Spiegel. Vielleicht kommt eine behinderte Nasenatmung dazu. Und trotzdem zögern Sie, denn es ist Ihr Gesicht.",
+      "Die entscheidende Frage ist nicht, was technisch machbar ist, sondern was zu Ihnen passt. Genau dafür gibt es die Beratung mit Simulation, bevor irgendetwas entschieden wird.",
     ],
   },
 
   explainer: {
     indication:
-      "Eine Rhinoplastik kann ästhetische Anliegen (Höcker, Nasenspitze, Krümmung) sowie funktionelle Probleme (z.B. Atembehinderung durch Nasenscheidewand) adressieren. Häufig werden ästhetische und funktionelle Korrekturen in einem Eingriff kombiniert.",
+      "Eine Nasenkorrektur kann ästhetische Anliegen (Höcker, Nasenspitze, Schiefstand) und funktionelle Probleme wie eine behinderte Nasenatmung adressieren, häufig kombiniert in einem Eingriff. Was bei Ihnen sinnvoll ist, klären Beratung und Untersuchung.",
     process:
-      "Der Eingriff erfolgt in Vollnarkose und dauert in der Regel 2–3 Stunden. Je nach Methode (offen / geschlossen) wird durch kleine Schnitte gearbeitet. Eine kurze Klinik-Übernachtung kann sinnvoll sein.",
+      "Der Eingriff erfolgt in Vollnarkose und dauert in der Regel 2 bis 3 Stunden. Je nach Befund wird offen oder geschlossen operiert. Eine Übernachtung zur Überwachung kann sinnvoll sein.",
     recovery:
-      "Eine Schiene wird etwa 7–10 Tage getragen. Schwellungen und Blutergüsse sind die ersten 2 Wochen üblich. Die Nase entwickelt ihr endgültiges Erscheinungsbild über 6–12 Monate.",
+      "Eine Schiene wird etwa 7 bis 10 Tage getragen. Schwellungen und Blutergüsse sind in den ersten 2 Wochen üblich. Die Nase verfeinert ihr Erscheinungsbild über 6 bis 12 Monate.",
     duration:
-      "Das Ergebnis einer Rhinoplastik ist dauerhaft. Kleine Veränderungen über Jahrzehnte sind durch den natürlichen Alterungsprozess möglich.",
+      "Das Ergebnis einer Nasenkorrektur ist dauerhaft. Kleine Veränderungen über Jahrzehnte durch den natürlichen Alterungsprozess sind möglich.",
     sideEffects:
-      "Mögliche Nebenwirkungen: Schwellungen, Hämatome, vorübergehende Atembehinderung, Sensibilitätsstörungen, Asymmetrien, Narbenbildung, in seltenen Fällen Notwendigkeit einer Korrekturoperation. Vollständige Aufklärung im persönlichen Gespräch.",
+      "Möglich: Schwellungen, Hämatome, vorübergehend behinderte Nasenatmung, Sensibilitätsstörungen, Asymmetrien, Narbenbildung, selten die Notwendigkeit eines Korrektureingriffs.",
     riskNotice:
-      "Pflichtangabe HWG: Die Rhinoplastik ist eine Operation. Sämtliche Risiken — auch seltene — werden im persönlichen Aufklärungsgespräch detailliert erläutert. Vor dem Eingriff besteht eine gesetzliche Bedenkzeit.",
+      "Pflichtangabe HWG: Die Nasenkorrektur ist eine Operation. Sämtliche Risiken, auch seltene, werden im persönlichen Aufklärungsgespräch detailliert erläutert. Vor dem Eingriff besteht eine gesetzliche Bedenkzeit.",
   },
 
   quiz: {
     treatmentOptions: [
       { id: "hoecker", label: "Höckernase", hint: "Profilkorrektur" },
-      { id: "spitze", label: "Nasenspitze", hint: "Form / Position" },
+      { id: "spitze", label: "Nasenspitze", hint: "Form, Position" },
       { id: "schief", label: "Schiefnase", hint: "Geradestellung" },
       { id: "atmung", label: "Atembehinderung", hint: "Funktionell" },
       { id: "zweit-op", label: "Zweit-OP", hint: "Korrektur nach Voroperation" },
-      { id: "kombination", label: "Kombination", hint: "Ästhetik & Funktion" },
+      { id: "kombination", label: "Kombination", hint: "Ästhetik und Funktion" },
     ],
-    locationLabel: "Wo wäre Ihr Wunsch-Termin?",
-    askExperience: true,
+    askBudget: true,
+    askDistance: true,
   },
 
   process: {
     steps: [
       {
         index: 1,
-        title: "Beratung & Analyse",
+        title: "Beratung & 3D-Simulation",
         body:
-          "60–90 Minuten Gespräch und Untersuchung — auf Wunsch mit 3D-Visualisierung möglicher Ergebnisse. Wir besprechen ehrlich, was technisch erreichbar ist.",
+          "60 bis 90 Minuten Gespräch und Untersuchung, auf Wunsch mit 3D-Simulation. Wir besprechen ehrlich, was erreichbar ist und was zu Ihrem Gesicht passt.",
       },
       {
         index: 2,
         title: "Gesetzliche Bedenkzeit",
         body:
-          "Zwischen Aufklärung und OP liegt eine gesetzliche Bedenkzeit. Sie entscheiden ohne Druck.",
+          "Zwischen Aufklärung und OP liegt eine gesetzliche Bedenkzeit. Sie entscheiden ohne Druck, mit allen Unterlagen zu Hause.",
       },
       {
         index: 3,
         title: "Operation",
         body:
-          "Der Eingriff dauert 2–3 Stunden in Vollnarkose. Eine kurze Klinik-Übernachtung wird je nach Befund empfohlen.",
+          "2 bis 3 Stunden in Vollnarkose. Ob offen oder geschlossen operiert wird, hängt vom Befund ab und wird vorab begründet.",
       },
       {
         index: 4,
         title: "Nachsorge",
         body:
-          "Schienenabnahme nach 7–10 Tagen, weitere Kontrollen über 6–12 Monate. Das endgültige Ergebnis zeigt sich nach etwa einem Jahr.",
+          "Schienenabnahme nach 7 bis 10 Tagen, Kontrollen über 12 Monate. Das endgültige Ergebnis beurteilen wir gemeinsam nach etwa einem Jahr.",
       },
     ],
   },
 
+  // Reihenfolge = Einwandgewicht: Identitätsangst zuerst ("erkenne ich mich
+  // noch?"), dann Simulation, Geduld bis zum Endergebnis, Kosten, Kasse.
   faq: [
     {
-      q: "Wann ist das endgültige Ergebnis sichtbar?",
+      q: "Erkenne ich mich nach der OP noch wieder?",
       a:
-        "Die Nase entwickelt ihre endgültige Form über 6–12 Monate. Erste deutliche Veränderungen sind nach Schienenabnahme sichtbar; feine Anpassungen brauchen Zeit.",
+        "Das ist die wichtigste Frage, und das Ziel jeder guten Planung: eine Nase, die zu Ihrem Gesicht passt und nicht auffällt. Die 3D-Simulation in der Beratung zeigt vorab, wohin die Reise realistisch geht. Über das Ergebnis entscheiden Sie mit.",
     },
     {
-      q: "Bin ich danach lange ausgefallen?",
+      q: "Kann ich vorab sehen, was möglich ist?",
       a:
-        "Mit Schiene und sichtbaren Schwellungen sind die ersten 7–10 Tage spürbar. Mit Make-up sind die meisten Patientinnen nach 2–3 Wochen wieder gesellschaftsfähig.",
+        "Ja. In der Beratung erstellen wir auf Wunsch eine 3D-Simulation Ihres Profils. Sie ist keine Ergebnisgarantie, macht aber sichtbar, welche Veränderung zu Ihnen passt, und was wir bewusst nicht empfehlen würden.",
     },
     {
-      q: "Wird die Krankenkasse beteiligt?",
+      q: "Wann sehe ich das endgültige Ergebnis?",
       a:
-        "Bei rein ästhetischen Eingriffen nein. Bei funktionellen Anteilen (z.B. Septum-Korrektur) kann eine Beteiligung möglich sein. Die Klärung erfolgt vor der OP.",
+        "Nach Schienenabnahme sehen Sie die neue Grundform. Die Feinheiten entwickeln sich über 6 bis 12 Monate, während die Schwellung vollständig abklingt. Diese Geduld gehört zur OP dazu.",
     },
     {
-      q: "Was kostet die Nasenkorrektur?",
+      q: "Was kostet eine Nasenkorrektur?",
       a:
-        "Der Preis hängt von Methode, Aufwand, Anästhesie und Klinik-Aufenthalt ab. Die Spanne beginnt bei etwa 5.000 € und kann je nach Befund höher liegen.",
+        "Je nach Umfang, Methode und Klinikaufenthalt beginnt der Preis bei etwa 5.000 €. Nach Beratung und Untersuchung erhalten Sie ein schriftliches Festangebot.",
     },
     {
-      q: "Was, wenn ich mit dem Ergebnis nicht zufrieden bin?",
+      q: "Zahlt die Krankenkasse bei Atemproblemen mit?",
       a:
-        "Eine vollständige Korrektur ist erst nach 12 Monaten zu beurteilen, da die Nase über diesen Zeitraum nachreift. Bei begründeten Anpassungen besprechen wir gemeinsam, was sinnvoll ist.",
+        "Bei funktionellen Anteilen, etwa einer Begradigung der Nasenscheidewand, ist eine Beteiligung möglich. Wir klären das vor der OP verbindlich mit Ihnen und der Kasse.",
     },
     {
-      q: "Wann ist von der Operation abzuraten?",
+      q: "Wie lange bin ich raus aus dem Alltag?",
       a:
-        "Bei akuten Erkrankungen, bestimmten Vorerkrankungen, Gerinnungsstörungen oder wenn die Erwartungen nicht realistisch sind. Diese Punkte werden in der Voruntersuchung besprochen.",
+        "Mit Schiene und sichtbaren Spuren rechnen Sie 7 bis 10 Tage. Gesellschaftsfähig mit dezentem Make-up sind die meisten nach 2 bis 3 Wochen. Sport pausiert etwa 6 Wochen.",
     },
     {
-      q: "Wie wird operiert — offen oder geschlossen?",
+      q: "Offen oder geschlossen, was ist besser?",
       a:
-        "Welches Verfahren in Frage kommt, hängt vom individuellen Befund ab. Wir besprechen die Wahl und ihre Begründung im Aufklärungsgespräch.",
+        "Keines von beiden pauschal. Die Wahl hängt vom Befund ab: was korrigiert werden soll und wie viel Struktur dafür erreichbar sein muss. Wir begründen die Empfehlung im Gespräch.",
     },
   ],
 
   priceRange: { fromCents: 500000, toCents: 990000, currency: "EUR" },
 
+  cost: {
+    drivers: [
+      "Umfang der Korrektur",
+      "Offene oder geschlossene Technik",
+      "Funktioneller Anteil (Kassenbeteiligung möglich)",
+      "Klinikaufenthalt",
+    ],
+    financingNote: "Eine Zahlung in Raten ist auf Anfrage möglich.",
+  },
+
   finalCtaPromise:
-    "Sie verlassen die Beratung mit Klarheit darüber, was möglich ist — und was zu Ihrem Gesicht passt.",
+    "Sie verlassen die Beratung mit Klarheit darüber, was möglich ist und was zu Ihrem Gesicht passt.",
 
   seo: {
-    metaTitle: "Nasenkorrektur in [Stadt] – Rhinoplastik bei [Praxis-Name]",
+    metaTitle: "Nasenkorrektur in [Stadt] – [Praxis-Name]",
     metaDescription:
-      "Ästhetische und funktionelle Nasenkorrektur in [Stadt]. Eingehende Beratung durch [Dr. med. Vorname Nachname], 3D-Visualisierung möglich, gesetzliche Bedenkzeit.",
+      "Nasenkorrektur in [Stadt] mit 3D-Simulation in der Beratung. Ästhetik und Funktion bei [Dr. med. Vorname Nachname], gesetzliche Bedenkzeit, Nachsorge über 12 Monate.",
   },
 };

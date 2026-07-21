@@ -4,9 +4,15 @@ import type {
   AppointmentStatusChangedEvent,
   EncounterCompletedEvent,
   InvoicePaidEvent,
+  InvoiceRefundedEvent,
   PatientUpsertedEvent,
   RecallScheduledEvent,
 } from "../../canonical/types.js";
+import {
+  parseSignedAmountToCents,
+  guardAmountCents,
+} from "../amount.js";
+import { isoUtc } from "../_shared/iso.js";
 import type {
   PabauPatient,
   PabauAppointment,
@@ -38,6 +44,9 @@ export function normalizePatient(
   p: PabauPatient
 ): PatientUpsertedEvent {
   const id = String(p.id);
+  // isoUtc so the id + occurredAt are byte-stable regardless of the offset /
+  // precision Pabau returns; the portal dedups on (id, occurred_at).
+  const modifiedAt = isoUtc(p.modified_at);
   const fullName =
     [p.first_name, p.last_name].filter(Boolean).join(" ").trim() || undefined;
   const phone = p.mobile ?? p.phone ?? undefined;
@@ -45,8 +54,8 @@ export function normalizePatient(
     kind: "PatientUpserted",
     clinicId,
     bridgeSource: "pabau",
-    pvsExternalEventId: `pabau:patient:${id}:${p.modified_at}`,
-    occurredAt: p.modified_at,
+    pvsExternalEventId: `pabau:patient:${id}:${modifiedAt}`,
+    occurredAt: modifiedAt,
     pvsPatientId: id,
     email: p.email ?? undefined,
     phone: phone ?? undefined,
@@ -64,16 +73,23 @@ export function normalizeAppointment(
   const id = String(a.id);
   const clientId = String(a.client_id);
   if (!id || !clientId || !a.start_time) return [];
+  const scheduledAt = isoUtc(a.start_time);
 
+  // H4 note: AppointmentCreated.occurredAt stays start_time (scheduledAt). The
+  // Pabau booking payload carries no creation timestamp (only start_time and
+  // the mutable modified_at), so there is no stable creation instant to key on;
+  // a reschedule that moves start_time re-emits one AppointmentCreated row. We
+  // accept that count impact rather than invent identity (the derive worker
+  // folds by pvsAppointmentId and dedups revenue by pvsInvoiceId).
   const created: AppointmentCreatedEvent = {
     kind: "AppointmentCreated",
     clinicId,
     bridgeSource: "pabau",
     pvsExternalEventId: `pabau:appointment:${id}`,
-    occurredAt: a.start_time,
+    occurredAt: scheduledAt,
     pvsPatientId: clientId,
     pvsAppointmentId: id,
-    scheduledAt: a.start_time,
+    scheduledAt,
     treatmentCode: a.service_id != null ? String(a.service_id) : undefined,
     treatmentLabel: a.service_name ?? undefined,
     locationCode: a.location_id != null ? String(a.location_id) : undefined,
@@ -90,16 +106,17 @@ export function normalizeAppointment(
     // whenever a booking row is touched, including status edits). The
     // pvsExternalEventId includes the status + modified_at so multiple
     // status transitions on the same booking dedupe correctly.
+    const changedAt = isoUtc(a.modified_at);
     const status: AppointmentStatusChangedEvent = {
       kind: "AppointmentStatusChanged",
       clinicId,
       bridgeSource: "pabau",
-      pvsExternalEventId: `pabau:appointment:${id}:status:${newStatus}:${a.modified_at}`,
-      occurredAt: a.modified_at,
+      pvsExternalEventId: `pabau:appointment:${id}:status:${newStatus}:${changedAt}`,
+      occurredAt: changedAt,
       pvsPatientId: clientId,
       pvsAppointmentId: id,
       newStatus,
-      changedAt: a.modified_at,
+      changedAt,
     };
     events.push(status);
   }
@@ -113,18 +130,19 @@ export function normalizeEncounter(
   const id = String(e.id);
   const clientId = String(e.client_id);
   if (!id || !clientId || !e.completed_at) return null;
+  const completedAt = isoUtc(e.completed_at);
   return {
     kind: "EncounterCompleted",
     clinicId,
     bridgeSource: "pabau",
     pvsExternalEventId: `pabau:encounter:${id}`,
-    occurredAt: e.completed_at,
+    occurredAt: completedAt,
     pvsPatientId: clientId,
     pvsEncounterId: id,
     pvsAppointmentId: e.booking_id != null ? String(e.booking_id) : undefined,
     treatmentCode: e.service_id != null ? String(e.service_id) : undefined,
     treatmentLabel: e.service_name ?? undefined,
-    completedAt: e.completed_at,
+    completedAt,
     practitionerLabel: e.practitioner_name ?? undefined,
   };
 }
@@ -132,7 +150,36 @@ export function normalizeEncounter(
 export function normalizeInvoice(
   clinicId: string,
   i: PabauInvoice
-): InvoicePaidEvent | null {
+): InvoicePaidEvent | InvoiceRefundedEvent | null {
+  const id = String(i.id);
+  const clientId = String(i.client_id);
+  if (!id || !clientId) return null;
+
+  const amountCents = coerceSignedCents(i);
+  if (amountCents == null) return null;
+
+  // H1: a negative total is a Storno / Gutschrift. Emit InvoiceRefunded with
+  // the positive magnitude and a dedicated id namespace (pabau:invoice-refund:)
+  // so it can never collide with the paid event of the same invoice. This is
+  // evaluated BEFORE the paid gate: a credit note is revenue-relevant even
+  // when its status is not "paid".
+  if (amountCents < 0) {
+    const refundedAt = isoUtc(i.paid_at ?? i.modified_at);
+    return {
+      kind: "InvoiceRefunded",
+      clinicId,
+      bridgeSource: "pabau",
+      pvsExternalEventId: `pabau:invoice-refund:${id}`,
+      occurredAt: refundedAt,
+      pvsPatientId: clientId,
+      pvsInvoiceId: id,
+      pvsAppointmentId: i.booking_id != null ? String(i.booking_id) : undefined,
+      refundedAmountCents: Math.abs(amountCents),
+      currency: "EUR",
+      refundedAt,
+    };
+  }
+
   // Only "paid" invoices advance Werbebudget ROI. Pabau marks paid invoices
   // either via status='paid' or via a non-null paid_at timestamp. We accept
   // either signal; if neither is set, skip.
@@ -140,14 +187,7 @@ export function normalizeInvoice(
   const isPaid = status === "paid" || !!i.paid_at;
   if (!isPaid) return null;
 
-  const id = String(i.id);
-  const clientId = String(i.client_id);
-  if (!id || !clientId) return null;
-
-  const amountCents = coerceAmountCents(i);
-  if (amountCents == null) return null;
-
-  const paidAt = i.paid_at ?? i.modified_at;
+  const paidAt = isoUtc(i.paid_at ?? i.modified_at);
 
   return {
     kind: "InvoicePaid",
@@ -178,10 +218,10 @@ export function normalizeRecall(
     clinicId,
     bridgeSource: "pabau",
     pvsExternalEventId: `pabau:recall:${id}`,
-    occurredAt: r.modified_at ?? r.recall_at,
+    occurredAt: isoUtc(r.modified_at ?? r.recall_at),
     pvsPatientId: clientId,
     pvsRecallId: id,
-    recallAt: r.recall_at,
+    recallAt: isoUtc(r.recall_at),
     treatmentCode: r.service_id != null ? String(r.service_id) : undefined,
     treatmentLabel: r.service_name ?? undefined,
   };
@@ -251,26 +291,18 @@ function mapGender(input?: string | null): "f" | "m" | "d" | "x" | undefined {
  * config:
  *   1) `amount_cents` (already integer cents)
  *   2) `total` or `total_amount` as a number (major units, e.g. 199.50)
- *   3) the same string-encoded (e.g. "199.50" or "199,50")
- * We accept all three and normalize to integer cents.
+ *   3) the same string-encoded (e.g. "199.50", "199,50", "1.234,50")
+ * We accept all three and normalize to SIGNED integer cents (negatives are
+ * preserved so normalizeInvoice can route a Storno to InvoiceRefunded).
  */
-function coerceAmountCents(i: PabauInvoice): number | null {
+function coerceSignedCents(i: PabauInvoice): number | null {
   if (typeof i.amount_cents === "number" && Number.isFinite(i.amount_cents)) {
-    return Math.round(i.amount_cents);
+    return guardAmountCents(Math.round(i.amount_cents), i.amount_cents);
   }
   const raw =
     typeof i.total === "number" || typeof i.total === "string"
       ? i.total
       : i.total_amount;
   if (raw == null) return null;
-  let n: number;
-  if (typeof raw === "number") {
-    n = raw;
-  } else {
-    // Accept both `.` and `,` decimal separators (DACH locale exports).
-    const cleaned = raw.replace(/[^0-9,.-]/g, "").replace(",", ".");
-    n = Number.parseFloat(cleaned);
-  }
-  if (!Number.isFinite(n) || n < 0) return null;
-  return Math.round(n * 100);
+  return parseSignedAmountToCents(raw);
 }

@@ -137,7 +137,16 @@ function patientToEvents(
       undefined
     : undefined;
   const bemerkung = p.note?.map((n) => n.text ?? "").join(" ").trim() || undefined;
-  const occurredAt = p.meta?.lastUpdated ?? new Date().toISOString();
+  // occurredAt must be deterministic across webhook redeliveries (H4). A Patient
+  // resource carries no clinical date, so meta.lastUpdated is the only stable
+  // key: it is identical across redeliveries of the same resource version and
+  // changes only on a real update (which SHOULD produce a distinguishable
+  // event). The wall-clock fallback is gone: it duplicated on every redelivery.
+  // When a resource lacks lastUpdated (pathological for FHIR R4, where the
+  // server populates it) we reject rather than fabricate identity, matching the
+  // return-[] convention used elsewhere in this file.
+  const occurredAt = p.meta?.lastUpdated;
+  if (!occurredAt) return [];
   const event: PatientUpsertedEvent = {
     kind: "PatientUpserted",
     clinicId,
@@ -168,6 +177,14 @@ function appointmentToEvents(
 
   const treatment = a.serviceType?.[0]?.coding?.[0];
   const occurredAt = a.meta?.lastUpdated ?? a.start;
+  // H4 note: AppointmentCreated.occurredAt stays a.start (scheduledAt). The FHIR
+  // R4 Appointment resource carries no creation timestamp (only the mutable
+  // start and meta.lastUpdated), so there is no stable creation instant to key
+  // on; a reschedule that moves start therefore re-emits one AppointmentCreated
+  // row. We accept that count impact rather than invent identity: the portal
+  // derive worker folds appointments by pvsAppointmentId and dedups revenue by
+  // pvsInvoiceId, so the duplicate does not corrupt money. Using meta.lastUpdated
+  // here would be strictly worse (it changes on ANY edit, not only reschedules).
   const created: AppointmentCreatedEvent = {
     kind: "AppointmentCreated",
     clinicId,
@@ -214,7 +231,11 @@ function encounterToEvents(
   const apptRef = e.appointment?.[0]?.reference;
   const pvsAppointmentId = apptRef?.replace(/^Appointment\//, "");
   const treatment = e.type?.[0]?.coding?.[0];
-  const completedAt = e.period?.end ?? e.meta?.lastUpdated ?? new Date().toISOString();
+  // Deterministic occurredAt (H4): the clinical end date wins; else the stable
+  // meta.lastUpdated; never the wall clock, which duplicated on every webhook
+  // redelivery. Reject when the resource carries neither.
+  const completedAt = e.period?.end ?? e.meta?.lastUpdated;
+  if (!completedAt) return [];
   const event: EncounterCompletedEvent = {
     kind: "EncounterCompleted",
     clinicId,
@@ -243,7 +264,11 @@ function invoiceToEvents(
   const grossValue = inv.totalGross?.value ?? inv.totalNet?.value;
   if (typeof grossValue !== "number") return [];
   const amountCents = Math.round(grossValue * 100);
-  const paidAt = inv.date ?? inv.meta?.lastUpdated ?? new Date().toISOString();
+  // Deterministic occurredAt (H4): the invoice date wins; else the stable
+  // meta.lastUpdated; never the wall clock, which duplicated on every webhook
+  // redelivery. Reject when the resource carries neither.
+  const paidAt = inv.date ?? inv.meta?.lastUpdated;
+  if (!paidAt) return [];
   const event: InvoicePaidEvent = {
     kind: "InvoicePaid",
     clinicId,

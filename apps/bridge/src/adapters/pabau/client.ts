@@ -1,4 +1,5 @@
 import type { PvsLinkRow } from "../../db/client.js";
+import { fetchWithTimeout } from "../../http.js";
 
 /**
  * Pabau REST client wrapper.
@@ -40,6 +41,12 @@ import type { PvsLinkRow } from "../../db/client.js";
 const PAGE_SIZE = 100;
 const DEFAULT_API_PATH = "api/v1";
 const DEFAULT_BASE = "https://api.oauth.pabau.com";
+/** Upper bound on a single 429 back-off, so a bogus Retry-After can't park the
+ *  sequential scheduler for hours. */
+const MAX_RETRY_AFTER_MS = 5 * 60_000;
+/** Cap on consecutive 429 retries for one request; on the cap we throw and let
+ *  recordFailure back the link off instead of looping forever. */
+const MAX_RETRIES = 5;
 
 interface PabauConfig {
   /** Full base URL with the API segment. e.g. "https://api.oauth.pabau.com/api/v1". */
@@ -205,9 +212,16 @@ export class PabauClient {
   private async get(pathAndQuery: string): Promise<Response> {
     await this.ensureToken();
     const url = `${this.cfg.endpoint.replace(/\/$/, "")}${pathAndQuery}`;
+    let retries = 0;
     for (;;) {
-      const res = await fetch(url, { headers: await this.authHeaders() });
+      const res = await fetchWithTimeout(url, { headers: await this.authHeaders() });
       if (res.status !== 429) return res;
+      if (retries >= MAX_RETRIES) {
+        throw new Error(
+          `pabau GET ${pathAndQuery} rate-limited: exceeded ${MAX_RETRIES} retries`
+        );
+      }
+      retries += 1;
       const retryAfter = parseRetryAfter(res.headers.get("retry-after"));
       await sleep(retryAfter);
       // After waiting we may need to re-mint a token if it has lapsed.
@@ -229,9 +243,31 @@ export class PabauClient {
         throw new Error(`pabau GET ${path} page=${page} ${res.status}: ${await safeText(res)}`);
       }
       const body = (await res.json()) as PageEnvelope<T>;
-      const items = body.data ?? body.items ?? [];
+      // A 200 whose body carries neither a `data` nor an `items` array is an
+      // error envelope (changed shape, auth notice), NOT a healthy empty page.
+      // Treating it as `[]` would silently mark the stream permanently drained,
+      // the likeliest onboarding silent-death mode. Fail loudly instead.
+      const items = Array.isArray(body.data)
+        ? body.data
+        : Array.isArray(body.items)
+          ? body.items
+          : null;
+      if (items === null) {
+        throw new Error(
+          `pabau GET ${path} page=${page} ${res.status}: response envelope missing 'data'/'items' array: ${truncate(
+            JSON.stringify(body)
+          )}`
+        );
+      }
       for (const item of items) yield item;
-      if (items.length < PAGE_SIZE) return;
+      // H17: stop on an EMPTY page, not on a short one. If the server clamps
+      // per_page below what we request it returns a "short" page that is not
+      // the end; the old `< PAGE_SIZE` check dropped everything after it.
+      // Page-number paging stays consistent under a clamp (the server uses
+      // its own effective page size), so incrementing page until an empty
+      // page is safe. The result set can mutate between requests; poll
+      // overlap plus portal-side dedup absorb that window.
+      if (items.length === 0) return;
       page += 1;
     }
   }
@@ -245,7 +281,7 @@ export class PabauClient {
     }
     if (this.oauthToken && this.oauthExpiresAt > Date.now() + 60_000) return;
     const tokenUrl = `${this.cfg.endpoint.replace(/\/$/, "")}/oauth/token`;
-    const res = await fetch(tokenUrl, {
+    const res = await fetchWithTimeout(tokenUrl, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
@@ -288,13 +324,20 @@ export class PabauClient {
 function parseRetryAfter(raw: string | null): number {
   if (!raw) return 5_000;
   const asInt = Number.parseInt(raw, 10);
-  if (Number.isFinite(asInt) && asInt > 0) return asInt * 1000;
+  if (Number.isFinite(asInt) && asInt > 0) {
+    return Math.min(asInt * 1000, MAX_RETRY_AFTER_MS);
+  }
   const asDate = Date.parse(raw);
   if (Number.isFinite(asDate)) {
     const delta = asDate - Date.now();
-    return delta > 0 ? delta : 5_000;
+    return delta > 0 ? Math.min(delta, MAX_RETRY_AFTER_MS) : 5_000;
   }
   return 5_000;
+}
+
+/** Cap a string for safe inclusion in an error/log line. */
+function truncate(s: string, max = 200): string {
+  return s.length > max ? `${s.slice(0, max)}...` : s;
 }
 
 function sleep(ms: number): Promise<void> {

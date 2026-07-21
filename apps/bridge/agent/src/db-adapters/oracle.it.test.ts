@@ -141,10 +141,24 @@ runStandardHarness("Oracle (cgm-m1pro-oracle)", async () => {
       options: vendor.connection.options,
     }),
     async seedPatients(rows) {
+      // Unlike the other engines this reseed never drops the table: recreating
+      // it right before the framework's next SELECT raises ORA-01466 ("table
+      // definition has changed") on the freshly booted faststart image, a
+      // test-only artifact with no production analogue (Praxis tables are not
+      // dropped mid-poll). Instead undo the drift test's rename, create the
+      // table only when missing, and reset the DATA with a DELETE.
       const c = await open();
       try {
-        await execIgnore(c, "DROP TABLE patient", /ORA-00942/);
-        await c.execute(
+        // ORA-00942 = no table yet; ORA-00904/-00957 = email_v2 absent /
+        // email already present (nothing to undo).
+        await execIgnore(
+          c,
+          "ALTER TABLE patient RENAME COLUMN email_v2 TO email",
+          /ORA-00942|ORA-00904|ORA-00957/
+        );
+        // ORA-00955 = table already exists from a previous test.
+        await execIgnore(
+          c,
           `CREATE TABLE patient (
             patient_id NUMBER NOT NULL PRIMARY KEY,
             vorname VARCHAR2(100),
@@ -157,12 +171,22 @@ runStandardHarness("Oracle (cgm-m1pro-oracle)", async () => {
             bemerkung VARCHAR2(400),
             modified_at TIMESTAMP
           )`,
-          [],
-          { autoCommit: true }
+          /ORA-00955/
         );
+        await c.execute("DELETE FROM patient", [], { autoCommit: true });
         for (const p of rows) {
           await c.execute(INSERT, rowBinds(p), { autoCommit: true });
         }
+        // Oracle compares a query's snapshot against the table's DDL time at
+        // second granularity, so SELECTs in the first ~2s after the CREATE
+        // above still raise ORA-01466. Hold the seed until a probe read goes
+        // through, so the framework's first poll sees a settled table.
+        await withRetry(
+          async () => {
+            await c.execute("SELECT COUNT(*) FROM patient", [], {});
+          },
+          { timeoutMs: 30_000, intervalMs: 500, label: "oracle table settle" }
+        );
       } finally {
         await c.close();
       }

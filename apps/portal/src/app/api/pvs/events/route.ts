@@ -205,12 +205,20 @@ export async function POST(request: NextRequest) {
       // for this bridge_source yet (the agent reports it on the next ~60s
       // heartbeat). Map it to 409 like link_not_ready so the agent retries
       // instead of permanently dropping the event on a 400.
+      //
+      // billing_conflict (M-D6) is the opposite: a STANDING configuration
+      // state (this source is not the clinic's authoritative billing path).
+      // 403 is deliberately non-retryable — the agent dead-letters the row
+      // (visible in its failure summary) instead of retrying hourly forever,
+      // and applyPvsEvent already raised a standing dashboard alert.
       const status =
         result.reason === "clinic_not_found"
           ? 404
           : result.reason === "link_not_ready" ||
             result.reason === "vendor_mismatch"
           ? 409
+          : result.reason === "billing_conflict"
+          ? 403
           : result.reason === "internal_error"
           ? 500
           : 400;

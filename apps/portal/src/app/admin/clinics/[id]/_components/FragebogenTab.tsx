@@ -14,8 +14,6 @@ import {
   type DiscoveryAnswers,
 } from "@/app/(portal)/onboarding/fragebogen/content";
 
-const GLOW_CARD = "!bg-bg-secondary";
-
 export interface FragebogenTabData {
   status: "entwurf" | "eingereicht";
   answers: DiscoveryAnswers;
@@ -34,7 +32,7 @@ export interface FragebogenTabData {
 export function FragebogenTab({ data }: { data: FragebogenTabData | null }) {
   if (!data) {
     return (
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardContent className="py-10">
           <EmptyState
             icon={<ClipboardList className="h-8 w-8" />}
@@ -57,7 +55,7 @@ export function FragebogenTab({ data }: { data: FragebogenTabData | null }) {
 
   return (
     <div className="space-y-6">
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardContent className="flex flex-wrap items-center justify-between gap-4 p-5">
           <div className="flex flex-wrap items-center gap-3">
             {submitted ? (
@@ -114,7 +112,7 @@ export function FragebogenTab({ data }: { data: FragebogenTabData | null }) {
       </Card>
 
       {DISCOVERY_BLOCKS.map((block) => (
-        <Card key={block.key} className={GLOW_CARD}>
+        <Card key={block.key}>
           <CardHeader>
             <CardTitle>{block.title}</CardTitle>
             {block.why && <CardDescription>{block.why}</CardDescription>}

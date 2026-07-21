@@ -10,6 +10,10 @@ pnpm-workspaces monorepo for **EINS**, an acquisition system for **Praxen für �
 
 **Not targeted yet:** Zahnärzte.
 
+## Session Start Protocol
+
+At the start of every session on this project, read `C:\Users\karam\Documents\Claude\Projects\EINS\context\01-offer-wachstumssystem.md` (core offer / Wachstumssystem doc, ~3k tokens) before tackling any task. The other context files under that folder (`02-icp.md`, `03-avatar.md`, `04-pain-register.md`, `05-niche-dictionary.md`, `06-garantie.md`) stay manual-lookup only, read on demand, not auto-loaded.
+
 ## Apps
 
 | Path | What |
@@ -73,7 +77,7 @@ card-glow rounded-2xl border border-border bg-bg-secondary/60 p-6 backdrop-blur-
 ## Offer / avatar / guarantee context
 
 Local mirrors of the Notion source-of-truth at `C:\Users\karam\Documents\Claude\Projects\EINS\context\`:
-- `01-offer-wachstumssystem.md`, `02-icp.md`, `03-avatar.md`, `04-pain-register.md`, `05-niche-dictionary.md`, `06-garantie.md`
+- `01-offer-wachstumssystem.md` (auto-loaded, see Session Start Protocol), `02-icp.md`, `03-avatar.md`, `04-pain-register.md`, `05-niche-dictionary.md`, `06-garantie.md` (all manual-read only)
 
 If Notion conflicts with these, trust Notion.
 

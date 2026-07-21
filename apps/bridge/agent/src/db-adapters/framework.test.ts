@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import Database from "better-sqlite3";
 import {
   _setStateDbForTesting,
@@ -9,6 +9,8 @@ import {
   recordDrift,
   pendingDriftReports,
   markDriftReported,
+  withDeadline,
+  DeadlineExceededError,
 } from "./framework.js";
 import { loadVendorConfigFromString } from "./vendor-config.js";
 import type {
@@ -16,6 +18,7 @@ import type {
   DbDriver,
   DbConnectionParams,
   QueryResult,
+  StreamConfig,
   VendorConfig,
 } from "./types.js";
 
@@ -200,6 +203,51 @@ describe("framework: integer cursor comparison (Phase 10)", () => {
 
   it("integer cursor advances from an empty starting cursor (first poll)", () => {
     expect(adv("1", "", "", "", "integer")).toBe(true);
+  });
+});
+
+describe("framework: query deadline (reliability review C4)", () => {
+  it("withDeadline rejects with DeadlineExceededError when fn never settles", async () => {
+    vi.useFakeTimers();
+    try {
+      const p = withDeadline("test call", 1_000, () => new Promise<never>(() => void 0));
+      const assertion = expect(p).rejects.toBeInstanceOf(DeadlineExceededError);
+      await vi.advanceTimersByTimeAsync(1_001);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("withDeadline passes the value through when fn settles in time", async () => {
+    await expect(withDeadline("t", 1_000, async () => 42)).resolves.toBe(42);
+  });
+
+  it("a hung driver.query records a backoff failure and discards the connection", async () => {
+    vi.useFakeTimers();
+    try {
+      const { vendor, driver } = await vendorAndDriver();
+      let closed = false;
+      // A query that never settles: the DB-lock / half-dead-TCP shape that
+      // used to wedge the entire tick loop forever.
+      driver.query = () => new Promise<never>(() => void 0);
+      driver.close = async () => {
+        closed = true;
+      };
+      const stream = vendor.streams[0];
+      const p = pollOnce({ clinicId: "clinic-1", vendor, stream, driver });
+      await vi.advanceTimersByTimeAsync(150_001);
+      const outcome = await p;
+      expect(outcome.emitted).toBe(0);
+      const state = loadState(vendor.vendor, stream.kind);
+      expect(state.consecutiveFailures).toBe(1);
+      expect(state.lastError).toContain("deadline");
+      expect(state.nextRunAt).toBeGreaterThan(Date.now());
+      // The wedged connection must be discarded so the next poll reconnects.
+      expect(closed).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -685,5 +733,779 @@ describe("framework: drift records", () => {
     expect(pending[0].missing).toEqual(["b"]);
     markDriftReported(pending[0].id);
     expect(pendingDriftReports()).toHaveLength(0);
+  });
+});
+
+// ---------- H5 / H6 / H8 reliability-review regressions -------------------
+
+function apptRow(id: string, ts: string): Record<string, unknown> {
+  return {
+    id,
+    patient_id: `PAT-${id}`,
+    termin_zeit: new Date(ts),
+    modified_at: new Date(ts),
+  };
+}
+
+const APPT_COLUMNS = ["id", "patient_id", "termin_zeit", "modified_at"];
+
+/** Seed a steady-state (post-first-poll) StreamState so a poll skips the
+ *  first-poll config validator and exercises the row loop directly. */
+function seedSteadyState(cursor: string): void {
+  saveState({
+    vendorId: "tomedo-db",
+    streamKind: "AppointmentCreated",
+    cursor,
+    cursorTiebreak: "",
+    status: "idle",
+    lastRunAt: 1,
+    lastError: null,
+    consecutiveFailures: 0,
+    nextRunAt: 0,
+    columnSnapshot: APPT_COLUMNS,
+  });
+}
+
+describe("framework: outbox enqueue failure aborts the batch (review finding H5)", () => {
+  it("does NOT advance the cursor past the failed row and records a backoff failure", async () => {
+    const { vendor, driver } = await vendorAndDriver();
+    driver.setNext({
+      columns: APPT_COLUMNS,
+      rows: [
+        apptRow("1", "2026-05-20T10:00:00Z"),
+        apptRow("2", "2026-05-20T10:01:00Z"),
+        apptRow("3", "2026-05-20T10:02:00Z"),
+      ],
+    });
+    // The outbox (SQLite) hits a transient SQLITE_BUSY on the second row.
+    let seen = 0;
+    const flakySink = () => {
+      seen += 1;
+      if (seen === 2) throw new Error("SQLITE_BUSY: database is locked");
+    };
+    let now = 1_000_000;
+    const outcome = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: vendor.streams[0],
+      driver,
+      sink: flakySink,
+      now: () => now,
+    });
+    expect(outcome.emitted).toBe(0);
+
+    const state = loadState("tomedo-db", "AppointmentCreated");
+    // The whole batch aborted cursor-untouched: nothing was permanently lost.
+    expect(state.cursor).toBe("");
+    expect(state.consecutiveFailures).toBe(1);
+    expect(state.lastError).toContain("enqueue failed");
+    // Escaping failure goes through recordFailure -> backoff (nextRunAt pushed).
+    expect(state.nextRunAt).toBeGreaterThan(now);
+
+    // Retry once the outbox recovers: the cursor was left untouched, so the poll
+    // RE-READS all three rows (the outbox UNIQUE dedup would collapse the two
+    // that made it the first time; here the sink just re-collects them).
+    driver.setNext({
+      columns: APPT_COLUMNS,
+      rows: [
+        apptRow("1", "2026-05-20T10:00:00Z"),
+        apptRow("2", "2026-05-20T10:01:00Z"),
+        apptRow("3", "2026-05-20T10:02:00Z"),
+      ],
+    });
+    const collected: CanonicalEventBase[] = [];
+    const retry = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: vendor.streams[0],
+      driver,
+      sink: (e) => collected.push(e),
+      now: () => now,
+    });
+    expect(retry.emitted).toBe(3);
+    expect(collected.map((e) => e.pvsAppointmentId)).toEqual(["1", "2", "3"]);
+    expect(loadState("tomedo-db", "AppointmentCreated").cursor).toBe(
+      "2026-05-20T10:02:00.000Z"
+    );
+  });
+});
+
+describe("framework: bad-row normalization is skipped, not fatal (review finding H6)", () => {
+  it("skips + counts a row whose required field fails to normalize and continues the poll", async () => {
+    const { vendor, driver } = await vendorAndDriver();
+    seedSteadyState("2026-05-20T09:00:00.000Z");
+    driver.setNext({
+      columns: APPT_COLUMNS,
+      rows: [
+        apptRow("1", "2026-05-20T10:00:00Z"),
+        // A legacy MySQL zero-date arrives as an Invalid Date; termin_zeit is
+        // the occurredAt source, so isoDateTime yields undefined -> the required
+        // occurredAt is missing -> normalizeRow returns null for this row.
+        {
+          id: "2",
+          patient_id: "PAT-2",
+          termin_zeit: new Date(NaN),
+          modified_at: new Date("2026-05-20T10:01:00Z"),
+        },
+        apptRow("3", "2026-05-20T10:02:00Z"),
+      ],
+    });
+    const collected: CanonicalEventBase[] = [];
+    const outcome = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: vendor.streams[0],
+      driver,
+      sink: (e) => collected.push(e),
+    });
+    expect(outcome.emitted).toBe(2);
+    expect(outcome.skippedRows).toBe(1);
+    expect(collected.map((e) => e.pvsAppointmentId)).toEqual(["1", "3"]);
+
+    const state = loadState("tomedo-db", "AppointmentCreated");
+    // The valid later row advances the cursor past the skipped one; the stream
+    // stays healthy (no backoff, no halt) so it never hot-loops.
+    expect(state.cursor).toBe("2026-05-20T10:02:00.000Z");
+    expect(state.status).toBe("idle");
+    expect(state.consecutiveFailures).toBe(0);
+  });
+
+  it("skips + counts a row that THROWS during normalization and stays healthy", async () => {
+    const { vendor, driver } = await vendorAndDriver();
+    seedSteadyState("2026-05-20T09:00:00.000Z");
+    // A value whose String() throws makes the template expansion (and thus
+    // normalizeRow) throw for this row only.
+    const poison = {
+      toString() {
+        throw new Error("boom during String()");
+      },
+    };
+    driver.setNext({
+      columns: APPT_COLUMNS,
+      rows: [
+        apptRow("1", "2026-05-20T10:00:00Z"),
+        {
+          id: poison,
+          patient_id: "PAT-X",
+          termin_zeit: new Date("2026-05-20T10:01:00Z"),
+          modified_at: new Date("2026-05-20T10:01:30Z"),
+        },
+        apptRow("3", "2026-05-20T10:02:00Z"),
+      ],
+    });
+    const collected: CanonicalEventBase[] = [];
+    const outcome = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: vendor.streams[0],
+      driver,
+      sink: (e) => collected.push(e),
+    });
+    expect(outcome.emitted).toBe(2);
+    expect(outcome.skippedRows).toBe(1);
+    expect(collected.map((e) => e.pvsAppointmentId)).toEqual(["1", "3"]);
+    const state = loadState("tomedo-db", "AppointmentCreated");
+    expect(state.status).toBe("idle");
+    expect(state.consecutiveFailures).toBe(0);
+    // The thrown row had a VALID cursor value, so the cursor may step past it;
+    // the later valid row (3) is the true max.
+    expect(state.cursor).toBe("2026-05-20T10:02:00.000Z");
+  });
+
+  it("a row that THROWS during first-poll validation does not escape pollOnce (counts as non-passing)", async () => {
+    // First poll (no snapshot yet) runs validateFirstPoll. A poisoned value
+    // would previously throw out of pollOnce to the runner's bare-log catch,
+    // hot-looping the first poll with no backoff. It must instead count as a
+    // failing sample and route to a config_invalid halt, never crash.
+    const { vendor, driver } = await vendorAndDriver();
+    const poison = {
+      toString() {
+        throw new Error("boom during first-poll String()");
+      },
+    };
+    driver.setNext({
+      columns: APPT_COLUMNS,
+      rows: [
+        { id: poison, patient_id: "PAT-1", termin_zeit: poison, modified_at: new Date("2026-05-20T10:00:00Z") },
+        { id: poison, patient_id: "PAT-2", termin_zeit: poison, modified_at: new Date("2026-05-20T10:01:00Z") },
+      ],
+    });
+    // Must resolve (not reject) and halt the stream rather than throwing.
+    const outcome = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: vendor.streams[0],
+      driver,
+      sink: () => void 0,
+    });
+    expect(outcome.emitted).toBe(0);
+    expect(loadState("tomedo-db", "AppointmentCreated").status).toBe(
+      "config_invalid"
+    );
+  });
+
+  it("stringifyCursor returns '' for an Invalid Date instead of throwing", () => {
+    const stream = { cursorType: "timestamp" } as unknown as StreamConfig;
+    expect(_internal.stringifyCursor(new Date(NaN), stream)).toBe("");
+    expect(
+      _internal.stringifyCursor(new Date("2026-05-20T10:00:00Z"), stream)
+    ).toBe("2026-05-20T10:00:00.000Z");
+  });
+});
+
+// A keyset (tiebreak) config with a tiny batch so a full batch is easy to force
+// and the tiebreak reset is observable.
+const KEYSET_CONFIG_YAML = `
+vendor: keyset-db
+driver: postgres
+bridgeSource: tomedo
+defaultIntervalSeconds: 60
+batchSize: 2
+connection:
+  credentialId: keyset-default
+streams:
+  - kind: AppointmentCreated
+    cursorColumn: modified_at
+    cursorType: timestamp
+    tiebreakColumn: id
+    query: |
+      SELECT id, patient_id, termin_zeit, modified_at FROM termin
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND id > :cursorTiebreak))
+      ORDER BY modified_at ASC, id ASC LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "ks:appt:{id}" }
+      occurredAt: { from: termin_zeit, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      scheduledAt: { from: termin_zeit, transform: isoDateTime }
+`;
+
+describe("framework: overlap window (review finding H8)", () => {
+  async function keysetVendorAndDriver(): Promise<{
+    vendor: VendorConfig;
+    driver: StubDriver;
+  }> {
+    const vendor = await loadVendorConfigFromString(
+      KEYSET_CONFIG_YAML,
+      "keyset.yaml"
+    );
+    return { vendor, driver: new StubDriver() };
+  }
+
+  it("first poll binds the epoch sentinel with no lookback", async () => {
+    const { vendor, driver } = await keysetVendorAndDriver();
+    driver.setNext({
+      columns: APPT_COLUMNS,
+      rows: [apptRow("5", "2026-05-20T10:00:00Z")],
+    });
+    await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: vendor.streams[0],
+      driver,
+      sink: () => void 0,
+    });
+    expect((driver.calls[0].params.cursor as Date).getTime()).toBe(0);
+    expect(driver.calls[0].params.cursorTiebreak).toBe(0);
+  });
+
+  it("a CAUGHT-UP poll re-binds the cursor a lookback earlier and resets the tiebreak", async () => {
+    const { vendor, driver } = await keysetVendorAndDriver();
+    // First poll: one row (< batchSize 2) => caught up.
+    driver.setNext({
+      columns: APPT_COLUMNS,
+      rows: [apptRow("5", "2026-05-20T10:00:00Z")],
+    });
+    await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: vendor.streams[0],
+      driver,
+      sink: () => void 0,
+    });
+    // Second poll: caught up => overlap applies.
+    driver.setNext({ columns: APPT_COLUMNS, rows: [] });
+    await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: vendor.streams[0],
+      driver,
+      sink: () => void 0,
+    });
+    const hwmMs = new Date("2026-05-20T10:00:00.000Z").getTime();
+    const lookback = _internal.lookbackMs(vendor, vendor.streams[0]);
+    expect((driver.calls[1].params.cursor as Date).getTime()).toBe(
+      hwmMs - lookback
+    );
+    // The tiebreak is reset to 0 so a same-timestamp lower-id late row is
+    // re-fetched (the whole point of the overlap).
+    expect(driver.calls[1].params.cursorTiebreak).toBe(0);
+  });
+
+  it("a MID-DRAIN poll (previous batch full) keeps the STRICT keyset, no lookback", async () => {
+    const { vendor, driver } = await keysetVendorAndDriver();
+    // First poll returns a FULL batch (2 == batchSize 2) => still draining.
+    driver.setNext({
+      columns: APPT_COLUMNS,
+      rows: [
+        apptRow("5", "2026-05-20T10:00:00Z"),
+        apptRow("6", "2026-05-20T10:00:00Z"),
+      ],
+    });
+    await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: vendor.streams[0],
+      driver,
+      sink: () => void 0,
+    });
+    driver.setNext({ columns: APPT_COLUMNS, rows: [] });
+    await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: vendor.streams[0],
+      driver,
+      sink: () => void 0,
+    });
+    const hwmMs = new Date("2026-05-20T10:00:00.000Z").getTime();
+    // Cursor NOT reduced (strict keyset) and tiebreak carries the real
+    // high-water mark id (6), so the large same-timestamp cluster pages forward
+    // instead of re-fetching its own head.
+    expect((driver.calls[1].params.cursor as Date).getTime()).toBe(hwmMs);
+    expect(driver.calls[1].params.cursorTiebreak).toBe(6);
+  });
+
+  it("lookbackMs is the larger of the floor and 2x the poll interval", () => {
+    const lb = _internal.lookbackMs(
+      { defaultIntervalSeconds: 60, batchSize: 1 } as unknown as VendorConfig,
+      {} as unknown as StreamConfig
+    );
+    expect(lb).toBe(_internal.LOOKBACK_FLOOR_MS);
+    const lbLong = _internal.lookbackMs(
+      { defaultIntervalSeconds: 600, batchSize: 1 } as unknown as VendorConfig,
+      {} as unknown as StreamConfig
+    );
+    expect(lbLong).toBe(2 * 600 * 1000);
+  });
+});
+
+// ---------- L11 / L13 reliability-review regressions ----------------------
+
+function uuidRow(uuid: string, ts: string): Record<string, unknown> {
+  return {
+    id: uuid,
+    patient_id: `PAT-${uuid.slice(0, 4)}`,
+    termin_zeit: new Date(ts),
+    modified_at: new Date(ts),
+  };
+}
+
+// A keyset config whose tiebreak is declared STRING (UUID primary key, L11).
+const STRING_KEYSET_CONFIG_YAML = `
+vendor: uuid-db
+driver: postgres
+bridgeSource: tomedo
+defaultIntervalSeconds: 60
+batchSize: 500
+connection:
+  credentialId: uuid-default
+streams:
+  - kind: AppointmentCreated
+    cursorColumn: modified_at
+    cursorType: timestamp
+    tiebreakColumn: id
+    tiebreakType: string
+    query: |
+      SELECT id, patient_id, termin_zeit, modified_at FROM termin
+      WHERE (modified_at > :cursor OR (modified_at = :cursor AND id > :cursorTiebreak))
+      ORDER BY modified_at ASC, id ASC LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "uuid:appt:{id}" }
+      occurredAt: { from: termin_zeit, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      scheduledAt: { from: termin_zeit, transform: isoDateTime }
+`;
+
+describe("framework: non-numeric tiebreak handling (finding L11)", () => {
+  const adv = _internal.cursorAdvances;
+
+  it("compares a string-typed tiebreak LEXICALLY, not numerically", () => {
+    // With tiebreakType string the raw text order wins: 'b' after 'a', and
+    // "10" is BEFORE "9" lexically (the opposite of the integer default).
+    expect(adv("2026-05-01", "b", "2026-05-01", "a", "timestamp", "string")).toBe(true);
+    expect(adv("2026-05-01", "a", "2026-05-01", "b", "timestamp", "string")).toBe(false);
+    expect(adv("2026-05-01", "10", "2026-05-01", "9", "timestamp", "string")).toBe(false);
+  });
+
+  it("keeps numeric tiebreak comparison when the type is unset (integer default)", () => {
+    expect(adv("2026-05-01", "10", "2026-05-01", "9", "timestamp")).toBe(true);
+    expect(adv("2026-05-01", "10", "2026-05-01", "9", "timestamp", "integer")).toBe(true);
+  });
+
+  it("halts as config_invalid when an integer-typed tiebreak returns a UUID value", async () => {
+    // KEYSET_CONFIG_YAML declares tiebreakColumn id but NO tiebreakType, so it
+    // defaults to integer. A UUID id would silently compare as NaN; the guard
+    // must halt loudly instead.
+    const vendor = await loadVendorConfigFromString(
+      KEYSET_CONFIG_YAML,
+      "keyset.yaml"
+    );
+    const driver = new StubDriver();
+    driver.setNext({
+      columns: APPT_COLUMNS,
+      rows: [
+        uuidRow("550e8400-e29b-41d4-a716-446655440000", "2026-05-20T10:00:00Z"),
+      ],
+    });
+    const collected: CanonicalEventBase[] = [];
+    const outcome = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: vendor.streams[0],
+      driver,
+      sink: (e) => collected.push(e),
+    });
+    expect(outcome.emitted).toBe(0);
+    expect(collected).toHaveLength(0);
+
+    const state = loadState("keyset-db", "AppointmentCreated");
+    expect(state.status).toBe("config_invalid");
+    expect(state.lastError).toContain("tiebreak not numeric");
+
+    const pending = pendingDriftReports();
+    expect(pending).toHaveLength(1);
+    expect(pending[0].reportKind).toBe("config_invalid");
+    expect(pending[0].configInvalidDetail!.issues[0].field).toBe("id");
+  });
+
+  it("a string-typed tiebreak (UUID key) polls, advances lexically, and does NOT halt", async () => {
+    const vendor = await loadVendorConfigFromString(
+      STRING_KEYSET_CONFIG_YAML,
+      "uuid.yaml"
+    );
+    const driver = new StubDriver();
+    const ts = "2026-05-20T10:00:00Z";
+    driver.setNext({
+      columns: APPT_COLUMNS,
+      rows: [
+        uuidRow("aaaaaaaa-0000-0000-0000-000000000001", ts),
+        uuidRow("bbbbbbbb-0000-0000-0000-000000000002", ts),
+      ],
+    });
+    const collected: CanonicalEventBase[] = [];
+    const outcome = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: vendor.streams[0],
+      driver,
+      sink: (e) => collected.push(e),
+    });
+    expect(outcome.emitted).toBe(2);
+
+    const state = loadState("uuid-db", "AppointmentCreated");
+    expect(state.status).toBe("idle");
+    // Advanced to the lexically-greatest id (the "bbbb" one), not corrupted.
+    expect(state.cursorTiebreak).toBe(
+      "bbbbbbbb-0000-0000-0000-000000000002"
+    );
+    // First poll binds the STRING sentinel "" (not the numeric 0).
+    expect(driver.calls[0].params.cursorTiebreak).toBe("");
+  });
+});
+
+describe("framework: catch-up scheduling (finding L13)", () => {
+  it("schedules a short next run after a FULL batch (drain the backlog)", async () => {
+    const { vendor, driver } = await vendorAndDriver();
+    seedSteadyState("2026-05-20T09:00:00.000Z");
+    const smallBatch = { ...vendor, batchSize: 1 };
+    driver.setNext({
+      columns: APPT_COLUMNS,
+      rows: [apptRow("1", "2026-05-20T10:00:00Z")],
+    });
+    const T = 5_000_000;
+    await pollOnce({
+      clinicId: "c1",
+      vendor: smallBatch,
+      stream: smallBatch.streams[0],
+      driver,
+      sink: () => void 0,
+      now: () => T,
+    });
+    const state = loadState("tomedo-db", "AppointmentCreated");
+    // Full batch (1 row == batchSize 1) => re-poll after the short catch-up
+    // delay, NOT the full 60s interval.
+    expect(state.nextRunAt).toBe(T + 1_000);
+  });
+
+  it("schedules the full interval after a SHORT batch (caught up)", async () => {
+    const { vendor, driver } = await vendorAndDriver();
+    seedSteadyState("2026-05-20T09:00:00.000Z");
+    const bigBatch = { ...vendor, batchSize: 5 };
+    driver.setNext({
+      columns: APPT_COLUMNS,
+      rows: [apptRow("1", "2026-05-20T10:00:00Z")],
+    });
+    const T = 5_000_000;
+    await pollOnce({
+      clinicId: "c1",
+      vendor: bigBatch,
+      stream: bigBatch.streams[0],
+      driver,
+      sink: () => void 0,
+      now: () => T,
+    });
+    const state = loadState("tomedo-db", "AppointmentCreated");
+    // Short batch (1 < batchSize 5) => normal cadence (60s).
+    expect(state.nextRunAt).toBe(T + 60_000);
+  });
+});
+
+const STATUS_YAML = `
+vendor: tomedo-db
+driver: postgres
+bridgeSource: tomedo
+defaultIntervalSeconds: 60
+batchSize: 500
+connection:
+  credentialId: tomedo-db-default
+streams:
+  - kind: AppointmentCreated
+    cursorColumn: modified_at
+    cursorType: timestamp
+    query: |
+      SELECT id, patient_id, termin_zeit, status_code, modified_at FROM termin
+      WHERE modified_at > :cursor LIMIT :limit
+    map:
+      pvsExternalEventId: { template: "tomedo:appointment:{id}" }
+      occurredAt: { from: termin_zeit, transform: isoDateTime }
+      pvsPatientId: patient_id
+      pvsAppointmentId: id
+      scheduledAt: { from: termin_zeit, transform: isoDateTime }
+      newStatus: { from: status_code, transform: appointmentStatus }
+`;
+
+describe("framework: post-baseline value drift (M-D2)", () => {
+  const STATUS_COLS = [
+    "id",
+    "patient_id",
+    "termin_zeit",
+    "status_code",
+    "modified_at",
+  ];
+
+  it("counts emitted events that dropped a key-transform field for an unmapped value", async () => {
+    const vendor = await loadVendorConfigFromString(STATUS_YAML, "status.yaml");
+    const driver = new StubDriver();
+    // Poll 1: a recognised status baselines the stream.
+    driver.setNext({
+      columns: STATUS_COLS,
+      rows: [
+        {
+          id: "A1",
+          patient_id: "P1",
+          termin_zeit: "2026-05-20T10:00:00Z",
+          status_code: "geplant",
+          modified_at: new Date("2026-05-20T10:00:00Z"),
+        },
+      ],
+    });
+    const first: CanonicalEventBase[] = [];
+    const o1 = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: vendor.streams[0],
+      driver,
+      sink: (e) => first.push(e),
+    });
+    expect(o1.emitted).toBe(1);
+    expect(o1.unmappedValues ?? 0).toBe(0);
+    expect(first[0].newStatus).toBe("scheduled");
+
+    // Poll 2: a status code a vendor update introduced that the map does not
+    // recognise. The event still ships (envelope + required fields resolve), but
+    // newStatus is dropped; the value-drift watch counts it.
+    driver.setNext({
+      columns: STATUS_COLS,
+      rows: [
+        {
+          id: "A2",
+          patient_id: "P2",
+          termin_zeit: "2026-05-21T10:00:00Z",
+          status_code: "teilbehandelt",
+          modified_at: new Date("2026-05-21T10:00:00Z"),
+        },
+      ],
+    });
+    const second: CanonicalEventBase[] = [];
+    const o2 = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: vendor.streams[0],
+      driver,
+      sink: (e) => second.push(e),
+    });
+    expect(o2.emitted).toBe(1);
+    expect(o2.unmappedValues).toBe(1);
+    // The event shipped without the unrecognised status (portal would drop it).
+    expect(second[0].newStatus).toBeUndefined();
+    // The stream stays healthy: value drift never halts it.
+    expect(loadState("tomedo-db", "AppointmentCreated").status).toBe("idle");
+  });
+
+  it("does not flag a genuinely empty (NULL) key-transform source", async () => {
+    const vendor = await loadVendorConfigFromString(STATUS_YAML, "status.yaml");
+    const driver = new StubDriver();
+    driver.setNext({
+      columns: STATUS_COLS,
+      rows: [
+        {
+          id: "A1",
+          patient_id: "P1",
+          termin_zeit: "2026-05-20T10:00:00Z",
+          status_code: "geplant",
+          modified_at: new Date("2026-05-20T10:00:00Z"),
+        },
+      ],
+    });
+    await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: vendor.streams[0],
+      driver,
+      sink: () => void 0,
+    });
+    driver.setNext({
+      columns: STATUS_COLS,
+      rows: [
+        {
+          id: "A2",
+          patient_id: "P2",
+          termin_zeit: "2026-05-21T10:00:00Z",
+          status_code: null,
+          modified_at: new Date("2026-05-21T10:00:00Z"),
+        },
+      ],
+    });
+    const o = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: vendor.streams[0],
+      driver,
+      sink: () => void 0,
+    });
+    expect(o.emitted).toBe(1);
+    // A NULL optional status is an empty field, not an unmapped value.
+    expect(o.unmappedValues ?? 0).toBe(0);
+  });
+});
+
+describe("framework: first-poll validation samples the newest rows (M-D7)", () => {
+  function apptRow(i: number, valid: boolean): Record<string, unknown> {
+    return valid
+      ? {
+          id: `A${i}`,
+          patient_id: `P${i}`,
+          termin_zeit: "2026-05-20T10:00:00Z",
+          modified_at: `2026-05-20T10:00:00Z`,
+        }
+      : {
+          // Legacy-format row: no appointment time / patient id resolves, so the
+          // envelope + required fields fail (the shape 20-year-old data has).
+          id: `A${i}`,
+          patient_id: null,
+          termin_zeit: null,
+          modified_at: `2026-05-20T10:00:00Z`,
+        };
+  }
+
+  it("accepts a config whose OLD rows are legacy-invalid but whose NEWEST rows are valid", async () => {
+    const { vendor } = await vendorAndDriver();
+    const ctx = { clinicId: "c1", vendor, stream: vendor.streams[0] };
+    // 50 rows in ASC (cursor) order: the first 25 (oldest) are legacy-invalid,
+    // the last 25 (newest) are current-format valid. Head-sampling would halt
+    // this healthy config as config_invalid; newest-sampling accepts it.
+    const rows = [
+      ...Array.from({ length: 25 }, (_, i) => apptRow(i, false)),
+      ...Array.from({ length: 25 }, (_, i) => apptRow(100 + i, true)),
+    ];
+    const v = _internal.validateFirstPoll(rows, ctx);
+    expect(v.ok).toBe(true);
+    expect(v.sampleSize).toBe(25);
+    expect(v.passingRows).toBe(25);
+  });
+
+  it("rejects a config whose NEWEST rows are the broken ones (proves it samples the tail, not the head)", async () => {
+    const { vendor } = await vendorAndDriver();
+    const ctx = { clinicId: "c1", vendor, stream: vendor.streams[0] };
+    const rows = [
+      ...Array.from({ length: 25 }, (_, i) => apptRow(i, true)),
+      ...Array.from({ length: 25 }, (_, i) => apptRow(100 + i, false)),
+    ];
+    const v = _internal.validateFirstPoll(rows, ctx);
+    expect(v.ok).toBe(false);
+  });
+});
+
+describe("framework: an envelope-invalid batch advances the cursor (M-D1)", () => {
+  it("skips envelope-invalid rows but steps the cursor past them so the stream never re-polls the same batch forever", async () => {
+    const { vendor, driver } = await vendorAndDriver();
+    const cols = ["id", "patient_id", "termin_zeit", "modified_at"];
+    // Poll 1: a valid row baselines the stream (validateFirstPoll must pass so
+    // the batch below reaches the normal poll path, not the first-poll halt).
+    driver.setNext({
+      columns: cols,
+      rows: [
+        {
+          id: "A1",
+          patient_id: "P1",
+          termin_zeit: "2026-05-20T10:00:00Z",
+          modified_at: new Date("2026-05-20T10:00:00Z"),
+        },
+      ],
+    });
+    await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: vendor.streams[0],
+      driver,
+      sink: () => void 0,
+    });
+
+    // Poll 2: a full batch of envelope-invalid rows (termin_zeit NULL =>
+    // occurredAt missing => normalizeRow returns null), each with a VALID
+    // modified_at cursor value. Nothing emits, but the cursor MUST advance past
+    // them; otherwise the same batch re-polls forever at idle (the M-D1 wedge).
+    driver.setNext({
+      columns: cols,
+      rows: [
+        {
+          id: "B1",
+          patient_id: null,
+          termin_zeit: null,
+          modified_at: new Date("2026-05-21T09:00:00Z"),
+        },
+        {
+          id: "B2",
+          patient_id: null,
+          termin_zeit: null,
+          modified_at: new Date("2026-05-21T10:00:00Z"),
+        },
+      ],
+    });
+    const o = await pollOnce({
+      clinicId: "c1",
+      vendor,
+      stream: vendor.streams[0],
+      driver,
+      sink: () => void 0,
+    });
+    expect(o.emitted).toBe(0);
+    expect(o.skippedRows).toBe(2);
+    const state = loadState("tomedo-db", "AppointmentCreated");
+    // Cursor advanced to the newest invalid row rather than staying frozen at
+    // poll 1's cursor.
+    expect(state.cursor).toBe("2026-05-21T10:00:00.000Z");
+    expect(state.status).toBe("idle");
   });
 });

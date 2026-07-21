@@ -92,6 +92,17 @@ export class MysqlDriver implements DbDriver {
   private async doConnect(): Promise<void> {
     const params = this.params;
     if (!params) throw new Error("mysql: connect called without params");
+    // M-D5: release the previous connection before reconnecting. A flapping LAN
+    // drives repeated doConnect() calls (query() reconnects whenever `healthy`
+    // is false while `conn` is still set); without closing the old handle each
+    // rebuild leaks a dead MariaDB/MySQL session that accumulates over days.
+    // Best-effort and fire-and-forget so a hung end() on a half-dead socket
+    // cannot stall the reconnect.
+    if (this.conn) {
+      const stale = this.conn;
+      this.conn = null;
+      void stale.end().catch(() => void 0);
+    }
     const mod = await getModule();
     const conn = await mod.createConnection({
       host: params.host,

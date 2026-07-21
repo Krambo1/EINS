@@ -153,7 +153,7 @@ export function FunnelBar({ stages }: { stages: FunnelStage[] }) {
                 aria-hidden
               />
               <span className="truncate text-fg-secondary">{s.label}</span>
-              <span className="ml-auto font-mono tabular-nums text-fg-primary">
+              <span className="ml-auto tabular-nums text-fg-primary">
                 {s.count}
               </span>
               <span className="text-fg-tertiary">{pct}%</span>

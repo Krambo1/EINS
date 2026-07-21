@@ -40,7 +40,7 @@ export function AnimationenQueue({ rows }: { rows: AnimationRow[] }) {
           >
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
-                <h3 className="font-medium">{r.libraryTitle ?? "—"}</h3>
+                <h3 className="font-medium">{r.libraryTitle ?? "–"}</h3>
                 <p className="text-xs text-fg-secondary">
                   <Link
                     href={`/admin/clinics/${r.clinicId}`}
@@ -49,7 +49,7 @@ export function AnimationenQueue({ rows }: { rows: AnimationRow[] }) {
                     {r.clinicName}
                   </Link>{" "}
                   · {r.libraryTreatment ?? "ohne Kategorie"} · angefragt{" "}
-                  {r.requestedAt ? formatRelative(r.requestedAt) : "—"} von{" "}
+                  {r.requestedAt ? formatRelative(r.requestedAt) : "–"} von{" "}
                   {r.requesterName ?? r.requesterEmail ?? "?"}
                 </p>
               </div>

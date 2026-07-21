@@ -149,16 +149,25 @@ export async function publishPendingDrift(
     }
 
     // 429 / 5xx are transient: leave the row in the queue. Next tick
-    // retries.
-    if (res.status === 429 || res.status >= 500) {
+    // retries. 401 / 403 are auth-class: almost always a misconfigured or
+    // not-yet-rotated PVS secret / clinic binding on this agent, which an
+    // operator will fix, after which the drift signal must still reach the
+    // portal. So treat them as retryable (deferred) too, rather than
+    // permanently discarding the signal the moment the secret is wrong.
+    if (
+      res.status === 429 ||
+      res.status === 401 ||
+      res.status === 403 ||
+      res.status >= 500
+    ) {
       deferred++;
       continue;
     }
 
-    // 4xx (other than 429) is non-recoverable from the agent's side
-    // (bad envelope, vendor mismatch with portal pvs_link, clinic not
-    // found). Mark reported so we don't loop on it; the row sits in
-    // `db_adapter_drift` with reported_to_portal=1 for forensic value.
+    // Remaining 4xx genuinely mean "this report is unprocessable": bad
+    // envelope, vendor mismatch with portal pvs_link, clinic not found. Mark
+    // reported so we don't loop on it; the row sits in `db_adapter_drift` with
+    // reported_to_portal=1 for forensic value.
     console.error(
       `[drift-publisher] non-retryable error ${res.status} for ${report.vendorId}/${report.streamKind}; marking reported.`
     );

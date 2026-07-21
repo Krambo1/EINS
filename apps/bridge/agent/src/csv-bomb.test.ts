@@ -176,28 +176,20 @@ describe("GDT bomb / length-lie defence (P3-1 / Section 5)", () => {
     const lyingPrefix = "999"; // claims a 999-byte line
     const tail = realLine.slice(3);
     const malformed = Buffer.from(lyingPrefix + tail, "latin1");
-    // parseGdtFile may either reject the input outright or partially
-    // parse it; the contract is that it does not THROW unsafely and
-    // does not read past the buffer end (which would surface as a
-    // RangeError from Buffer slicing on some Node versions).
+    // L6: the LLL prefix is now validated against the actual line bytes. A line
+    // that claims 999 bytes but holds ~10 is treated as a truncated line: its
+    // value is DROPPED (never emitted as a silently truncated record) and the
+    // occurrence is counted on suspectLineCount so the parser + watcher can warn
+    // loudly. The parse must not THROW unsafely (no RangeError buffer overrun).
     const result = await parseGdtFile(malformed).catch((err) => ({
       __error: true,
       err,
     }));
-    // Either outcome is fine:
-    //   (a) the parser returns a result with zero records (everything
-    //       was rejected at the line-format layer); OR
-    //   (b) the parser throws a clear domain error, not a RangeError.
-    if ("__error" in result) {
-      // Should NOT be a RangeError (buffer overrun).
-      const msg = String(result.err);
-      expect(msg).not.toMatch(/RangeError/);
-    } else {
-      // Partial parse is acceptable; the lying line was skipped.
-      // No assertion on the exact record count; what matters is
-      // that we did not crash.
-      expect(result).toBeDefined();
-    }
+    expect("__error" in result).toBe(false);
+    if ("__error" in result) return;
+    // The lying line was detected and dropped, not accepted as a record.
+    expect(result.suspectLineCount).toBeGreaterThanOrEqual(1);
+    expect(result.records).toHaveLength(0);
   });
 
   it("binary garbage (image bytes pretending to be GDT) fails cleanly", async () => {

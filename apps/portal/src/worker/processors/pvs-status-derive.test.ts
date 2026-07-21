@@ -203,3 +203,124 @@ describe("foldEvents · #10 refund / storno netting", () => {
     expect(b.invoiceTotalsCents).toBe(0);
   });
 });
+
+describe("foldEvents · H4 per-invoice-id dedup (no double-counting on re-emission)", () => {
+  it("counts a re-emitted invoice ONCE, taking the amount from the latest occurredAt", () => {
+    // Same pvsInvoiceId emitted twice (e.g. corrected payment date on re-export
+    // shifts occurredAt into a new event-log row). The later row carries a
+    // corrected amount and must win; the invoice is counted once, not summed.
+    const events = [
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 50000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e1"),
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 60000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-22T09:00:00.000Z", "e2"),
+    ];
+    const b = foldEvents(events);
+    expect(b.invoiceTotalsCents).toBe(60000); // latest amount, not 110000
+    expect(b.byAppt.get("A1")?.invoiceCents).toBe(60000);
+    // Only one ads-conversion event survives (no duplicate Purchase upload).
+    expect(b.byAppt.get("A1")?.invoiceEvents.length).toBe(1);
+  });
+
+  it("takes the latest occurredAt even when the re-emission sorts earlier in the input", () => {
+    // Dedup keys on occurredAt, not array order, so an out-of-order replay still
+    // resolves to the newest row.
+    const events = [
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 60000, paidAt: "2026-05-22T10:00:00.000Z" }, "2026-05-22T09:00:00.000Z", "e2"),
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 50000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e1"),
+    ];
+    const b = foldEvents(events);
+    expect(b.invoiceTotalsCents).toBe(60000);
+  });
+
+  it("sums two DIFFERENT invoice ids normally (installments, not a re-emission)", () => {
+    const events = [
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 50000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e1"),
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I2", pvsAppointmentId: "A1", amountCents: 30000, paidAt: "2026-05-25T10:00:00.000Z" }, "2026-05-25T10:00:00.000Z", "e2"),
+    ];
+    const b = foldEvents(events);
+    expect(b.invoiceTotalsCents).toBe(80000);
+    expect(b.byAppt.get("A1")?.invoiceCents).toBe(80000);
+    expect(b.byAppt.get("A1")?.invoiceEvents.length).toBe(2);
+  });
+
+  it("keys the dedup per source system: same id from different bridgeSources stays distinct", () => {
+    // pvsInvoiceId is only unique per PVS, so an identical id from two source
+    // systems must NOT collapse into one invoice.
+    const events = [
+      ev({ kind: "InvoicePaid", bridgeSource: "tomedo", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 50000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e1"),
+      ev({ kind: "InvoicePaid", bridgeSource: "pabau", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 30000, paidAt: "2026-05-25T10:00:00.000Z" }, "2026-05-25T10:00:00.000Z", "e2"),
+    ];
+    const b = foldEvents(events);
+    expect(b.invoiceTotalsCents).toBe(80000);
+  });
+
+  it("treats invoices without a pvsInvoiceId as unique (summed per row)", () => {
+    // The schema requires pvsInvoiceId, but foldEvents doesn't re-validate; a
+    // stripped id must fall back to per-row summing, never collapse to one.
+    const events = [
+      ev({ kind: "InvoicePaid", pvsAppointmentId: "A1", amountCents: 50000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e1"),
+      ev({ kind: "InvoicePaid", pvsAppointmentId: "A1", amountCents: 30000, paidAt: "2026-05-25T10:00:00.000Z" }, "2026-05-25T10:00:00.000Z", "e2"),
+    ];
+    const b = foldEvents(events);
+    expect(b.invoiceTotalsCents).toBe(80000);
+    expect(b.byAppt.get("A1")?.invoiceCents).toBe(80000);
+    expect(b.byAppt.get("A1")?.invoiceEvents.length).toBe(2);
+  });
+
+  it("dedups a re-emitted refund and still nets the invoice once (refund netting intact)", () => {
+    // Both the paid and the refund get re-emitted with shifted occurredAt. The
+    // paid counts once at its latest amount, the refund subtracts once.
+    const events = [
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 50000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e1"),
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 50000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-21T10:00:00.000Z", "e2"),
+      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "I1", refundedAmountCents: 20000, refundedAt: "2026-05-25T10:00:00.000Z" }, "2026-05-25T10:00:00.000Z", "e3"),
+      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "I1", refundedAmountCents: 20000, refundedAt: "2026-05-25T10:00:00.000Z" }, "2026-05-26T10:00:00.000Z", "e4"),
+    ];
+    const b = foldEvents(events);
+    expect(b.invoiceTotalsCents).toBe(30000); // 50000 paid once - 20000 refunded once
+    expect(b.byAppt.get("A1")?.invoiceCents).toBe(30000);
+    expect(deriveStatusForBucket(b.byAppt.get("A1")!)).toBe("gewonnen");
+  });
+});
+
+describe("foldEvents · M-D6 dual-path revenue detection (defense in depth)", () => {
+  it("collects the distinct continuous sources that contributed counted revenue, without suppressing either", () => {
+    // The same treatment paid once, seen via both the GDT watcher and a DB
+    // adapter: different bridge_source, different invoice keys, so neither
+    // the event-log dedup nor the H4 per-invoice dedup can collapse them.
+    // The fold must SURFACE this (revenueSources) but not guess which row
+    // to drop — that is the operator's call via the dashboard alert.
+    const events = [
+      ev({ kind: "InvoicePaid", bridgeSource: "gdt_agent", pvsInvoiceId: "sha-abc", amountCents: 45000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e1"),
+      ev({ kind: "InvoicePaid", bridgeSource: "medatixx", pvsInvoiceId: "R-2026-77", amountCents: 45000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:05:00.000Z", "e2"),
+    ];
+    const b = foldEvents(events);
+    expect(b.revenueSources).toEqual(new Set(["gdt_agent", "medatixx"]));
+    expect(b.invoiceTotalsCents).toBe(90000); // detection, not suppression
+  });
+
+  it("ignores universal sources — a CSV backfill next to a live adapter is legitimate", () => {
+    const events = [
+      ev({ kind: "InvoicePaid", bridgeSource: "csv_upload", pvsInvoiceId: "u1:12", amountCents: 30000, paidAt: "2025-11-02T10:00:00.000Z" }, "2025-11-02T10:00:00.000Z", "e1"),
+      ev({ kind: "InvoicePaid", bridgeSource: "medatixx", pvsInvoiceId: "R-2026-78", amountCents: 45000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e2"),
+    ];
+    const b = foldEvents(events);
+    expect(b.revenueSources).toEqual(new Set(["medatixx"]));
+  });
+
+  it("a single-path patient yields at most one source (never alerts)", () => {
+    const events = [
+      ev({ kind: "InvoicePaid", bridgeSource: "medatixx", pvsInvoiceId: "R-1", amountCents: 10000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e1"),
+      ev({ kind: "InvoicePaid", bridgeSource: "medatixx", pvsInvoiceId: "R-2", amountCents: 20000, paidAt: "2026-05-22T10:00:00.000Z" }, "2026-05-22T10:00:00.000Z", "e2"),
+    ];
+    const b = foldEvents(events);
+    expect(b.revenueSources).toEqual(new Set(["medatixx"]));
+  });
+
+  it("payloads without a bridgeSource (older test fixtures / stripped rows) contribute no source", () => {
+    const events = [
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", amountCents: 10000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e1"),
+    ];
+    const b = foldEvents(events);
+    expect(b.revenueSources.size).toBe(0);
+  });
+});

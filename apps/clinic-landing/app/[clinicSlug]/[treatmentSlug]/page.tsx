@@ -9,13 +9,14 @@ import { treatmentMetadata } from "@/lib/seo";
 import { buildJsonLd } from "@/lib/jsonld";
 import { StickyNav } from "@/components/sections/sticky-nav";
 import { Hero } from "@/components/sections/hero";
-import { TrustStrip } from "@/components/sections/trust-strip";
+import { TrustBar } from "@/components/sections/trust-bar";
 import { ProblemMirror } from "@/components/sections/problem-mirror";
+import { DoctorSection } from "@/components/sections/doctor-section";
 import { TreatmentExplainer } from "@/components/sections/treatment-explainer";
-import { PreQualifier } from "@/components/sections/pre-qualifier";
-import { DoctorIntro } from "@/components/sections/doctor-intro";
+import { ResultsTease } from "@/components/sections/results-tease";
 import { Testimonials } from "@/components/sections/testimonials";
 import { ProcessSteps } from "@/components/sections/process-steps";
+import { CostSection } from "@/components/sections/cost-section";
 import { FAQ } from "@/components/sections/faq";
 import { FinalCta } from "@/components/sections/final-cta";
 import { StickyBottomCta } from "@/components/sections/sticky-bottom-cta";
@@ -77,14 +78,17 @@ export default function TreatmentPage({ params }: PageProps) {
 
       <StickyNav clinic={clinic} treatment={treatment} />
       <main>
-        <Hero clinic={clinic} treatment={treatment} />
-        <TrustStrip clinic={clinic} />
+        {/* Section order = conversion order: quiz in the hero, authority
+            before the ask, proof + cost transparency for the scrollers. */}
+        <Hero clinic={clinic} treatment={treatment} privacyHref={privacyHref} />
+        <TrustBar clinic={clinic} />
         <ProblemMirror treatment={treatment} />
+        <DoctorSection clinic={clinic} />
         <TreatmentExplainer treatment={treatment} />
-        <PreQualifier clinic={clinic} treatment={treatment} privacyHref={privacyHref} />
-        <DoctorIntro clinic={clinic} />
+        <ResultsTease clinic={clinic} />
         <Testimonials clinic={clinic} />
         <ProcessSteps treatment={treatment} />
+        <CostSection clinic={clinic} treatment={treatment} />
         <FAQ treatment={treatment} />
         <FinalCta clinic={clinic} treatment={treatment} />
       </main>

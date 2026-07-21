@@ -12,6 +12,15 @@ export function formatPriceRange(range: PriceRange): string {
   return `${from} – ${to}`;
 }
 
+/** Just the entry price, e.g. "5.500 €" — used as the investment-gate anchor. */
+export function formatFromPrice(range: PriceRange): string {
+  return new Intl.NumberFormat("de-DE", {
+    style: "currency",
+    currency: range.currency,
+    maximumFractionDigits: 0,
+  }).format(range.fromCents / 100);
+}
+
 export function formatAddress(addr: Address): string {
   return `${addr.street}, ${addr.zip} ${addr.city}`;
 }

@@ -3,6 +3,8 @@ import { createReadStream } from "node:fs";
 import { realpath, stat } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { getSession } from "@/auth/session";
+import { documentByStorageKey } from "@/server/queries/documents";
+import { documentVisibleToRole } from "@/lib/roles";
 
 /**
  * Dev-only passthrough for locally stored assets.
@@ -38,6 +40,28 @@ export async function GET(
   // Enforce tenancy — clinic-owned assets are namespaced by clinic id.
   if (!key.startsWith("global/") && !key.startsWith(`${session.clinicId}/`)) {
     return new NextResponse("Forbidden", { status: 403 });
+  }
+
+  // Per-document role visibility (defense in depth). Contract/AVV documents are
+  // inhaber-only via `documents.visible_to_roles`; tenancy alone would still let
+  // a marketing/frontdesk user who learns a contract's storage key fetch the
+  // PDF here. If the key belongs to a document row, enforce its role visibility
+  // and return 404 (not 403 — we don't confirm the object exists) when the
+  // caller may not see it. Keys with no document row (clinic uploads, animation
+  // library, avatars, reports not modeled as documents) keep tenancy-only
+  // behavior. Global assets carry no document row, so they short-circuit.
+  if (!key.startsWith("global/")) {
+    const ownerDoc = await documentByStorageKey(
+      session.clinicId,
+      session.userId,
+      key
+    );
+    if (
+      ownerDoc &&
+      !documentVisibleToRole(ownerDoc.visibleToRoles, session.role)
+    ) {
+      return new NextResponse("Not Found", { status: 404 });
+    }
   }
 
   const full = join(STORAGE_ROOT, key);

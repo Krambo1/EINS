@@ -357,6 +357,31 @@ function validateStream(
     );
   }
 
+  // Keyset tiebreak comparison type (review finding L11). Defaults to integer.
+  // Declaring "string" opts a UUID / non-numeric primary key into lexical
+  // comparison; without it, a non-numeric tiebreak halts the stream loudly at
+  // runtime rather than silently comparing NaN.
+  let tiebreakType: StreamConfig["tiebreakType"];
+  if (raw.tiebreakType !== undefined && raw.tiebreakType !== null) {
+    if (raw.tiebreakType !== "integer" && raw.tiebreakType !== "string") {
+      throw new VendorConfigError(
+        vendor,
+        path,
+        `${where}: tiebreakType '${String(
+          raw.tiebreakType
+        )}' must be one of integer|string`
+      );
+    }
+    if (!tiebreakColumn) {
+      throw new VendorConfigError(
+        vendor,
+        path,
+        `${where}: tiebreakType is set but no tiebreakColumn is declared`
+      );
+    }
+    tiebreakType = raw.tiebreakType;
+  }
+
   return {
     kind,
     cursorColumn,
@@ -364,6 +389,7 @@ function validateStream(
     query,
     map,
     tiebreakColumn,
+    tiebreakType,
     intervalSeconds,
   };
 }

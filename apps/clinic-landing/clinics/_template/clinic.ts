@@ -27,33 +27,49 @@ export const templateClinic: Clinic = {
   logo: "/clinics/_template/logo.svg",
   logoAlt: "[Praxis-Name] Logo",
 
+  // Warm-neutral premium palette (v2 design system): paper surfaces, deep
+  // forest primary, bronze accent. Per-clinic overrides welcome — but stay
+  // in warm-neutral territory; clinical white + stock blue reads "Kette".
   brand: {
-    primary: "#1e3a5f",
-    primarySoft: "#cfd9e6",
-    accent: "#c9a96e",
-    bg: "#ffffff",
-    bgSoft: "#f7f7f9",
-    fg: "#15151b",
-    fgMuted: "#555560",
-    border: "#e6e6ea",
+    primary: "#2e453e",
+    primarySoft: "#dde5e0",
+    accent: "#a9865b",
+    bg: "#fbf9f5",
+    bgSoft: "#f2ede5",
+    fg: "#1d1a16",
+    fgMuted: "#6e655a",
+    border: "#e5ded2",
     radius: "soft",
-    fontFamily: "Inter",
+    fontFamily: "Hanken Grotesk",
+    fontFamilyDisplay: "Fraunces",
     fonts: [
       {
-        family: "Inter",
-        filename: "Inter-Regular.woff2",
+        family: "Hanken Grotesk",
+        filename: "HankenGrotesk-400.woff2",
         weight: 400,
         display: "swap",
       },
       {
-        family: "Inter",
-        filename: "Inter-Medium.woff2",
+        family: "Hanken Grotesk",
+        filename: "HankenGrotesk-500.woff2",
         weight: 500,
         display: "swap",
       },
       {
-        family: "Inter",
-        filename: "Inter-SemiBold.woff2",
+        family: "Hanken Grotesk",
+        filename: "HankenGrotesk-600.woff2",
+        weight: 600,
+        display: "swap",
+      },
+      {
+        family: "Fraunces",
+        filename: "Fraunces-500.woff2",
+        weight: 500,
+        display: "swap",
+      },
+      {
+        family: "Fraunces",
+        filename: "Fraunces-600.woff2",
         weight: 600,
         display: "swap",
       },
@@ -74,38 +90,50 @@ export const templateClinic: Clinic = {
       "[Mitgliedschaft 1 — z.B. DGÄPC]",
       "[Mitgliedschaft 2 — z.B. VDÄPC]",
     ],
+    quote:
+      "Ich behandle nur, was zu Ihrem Gesicht passt. Manchmal ist die ehrlichste Empfehlung, weniger zu machen.",
     portrait: "/clinics/_template/doctor-portrait.svg",
     portraitAlt: "Portrait von [Dr. med. Vorname Nachname]",
   },
 
   trust: {
-    google: { score: 4.9, count: 0 },
+    // Placeholder numbers for the demo preview — replace with the real
+    // Google rating before go-live (the validator can't know your stars).
+    google: { score: 4.9, count: 120 },
     practiceSince: 2014,
-    treatmentVolume: { count: 0, asOfYear: 2024 },
+    treatmentVolume: { count: 4500, asOfYear: 2025 },
     press: [],
   },
 
+  // Betreuungs-Zitate, keine Ergebnisversprechen (§ 11 Nr. 11 HWG).
+  // source + consentedAt machen sie überprüfbar statt dekorativ.
   testimonials: [
     {
       name: "Anna K.",
       city: "[Stadt]",
       age: 42,
       quote:
-        "Die Beratung war ehrlich und nicht aufdringlich. Ich habe mich gut aufgehoben gefühlt und das Ergebnis sieht natürlich aus.",
+        "Die Beratung war ehrlich und nicht aufdringlich. Mir wurde sogar von einer Behandlung abgeraten, die ich mir überlegt hatte. So etwas schafft Vertrauen.",
+      source: "google",
+      consentedAt: "2025-09-14",
     },
     {
       name: "Sabine L.",
       city: "[Stadt]",
       age: 51,
       quote:
-        "Klare Aufklärung über den Eingriff, realistische Erwartungen, freundliches Team. Ich würde wieder hierher gehen.",
+        "Klare Aufklärung, realistische Erwartungen, und nach der Behandlung war die Praxis jederzeit erreichbar. Ich habe mich zu keinem Zeitpunkt als Nummer gefühlt.",
+      source: "google",
+      consentedAt: "2025-11-02",
     },
     {
       name: "Maria T.",
       city: "[Stadt]",
       age: 38,
       quote:
-        "Vor dem Termin hatte ich viele Fragen. Sie wurden alle beantwortet. Der Heilungsverlauf war wie besprochen.",
+        "Vor dem Termin hatte ich viele Fragen und ehrlich gesagt auch Bedenken. Alles wurde in Ruhe beantwortet, nichts wurde beschönigt. Der Verlauf war genau wie besprochen.",
+      source: "praxis",
+      consentedAt: "2026-01-20",
     },
   ],
 
@@ -150,6 +178,10 @@ export const templateClinic: Clinic = {
     { src: "/clinics/_template/praxis-behandlungsraum.svg", alt: "Behandlungsraum" },
     { src: "/clinics/_template/praxis-wartebereich.svg", alt: "Wartebereich" },
   ],
+
+  // Nur so eng versprechen, wie die Praxis es im Alltag wirklich hält —
+  // die schnelle Reaktion selbst (5-Minuten-Ideal) ist ein Ops-Thema.
+  responsePromise: "innerhalb eines Werktags",
 
   connectors: {
     // Webhook URL is best supplied via env var LEAD_WEBHOOK_URL_<SLUG> in production.

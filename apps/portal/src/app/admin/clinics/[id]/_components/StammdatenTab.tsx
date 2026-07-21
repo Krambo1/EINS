@@ -12,15 +12,13 @@ import {
 import type { schema } from "@/db/client";
 import { updateClinicAction } from "../actions";
 
-const GLOW_CARD = "!bg-bg-secondary";
-
 export function StammdatenTab({
   clinic,
 }: {
   clinic: typeof schema.clinics.$inferSelect;
 }) {
   return (
-    <Card className={GLOW_CARD}>
+    <Card>
       <CardHeader>
         <CardTitle>Stammdaten</CardTitle>
         <CardDescription>

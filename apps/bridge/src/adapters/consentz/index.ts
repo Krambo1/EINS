@@ -2,6 +2,7 @@ import type { Adapter, AdapterPollResult } from "../Adapter.js";
 import type { PvsLinkRow } from "../../db/client.js";
 import type { CanonicalEvent } from "../../canonical/types.js";
 import { ConsentzClient } from "./client.js";
+import { pickMaxIso } from "../_shared/iso.js";
 import {
   normalizePatient,
   normalizeAppointment,
@@ -71,26 +72,26 @@ export const consentzAdapter: Adapter = {
 
     for await (const p of client.streamPatients(cursors.patients)) {
       events.push(normalizePatient(link.clinicId, p));
-      newCursors.patients = pickMax(newCursors.patients, p.updated_at);
+      newCursors.patients = pickMaxIso(newCursors.patients, p.updated_at);
     }
     for await (const a of client.streamAppointments(cursors.appointments)) {
       for (const event of normalizeAppointment(link.clinicId, a)) events.push(event);
-      newCursors.appointments = pickMax(newCursors.appointments, a.updated_at);
+      newCursors.appointments = pickMaxIso(newCursors.appointments, a.updated_at);
     }
     for await (const e of client.streamEncounters(cursors.encounters)) {
       const event = normalizeEncounter(link.clinicId, e);
       if (event) events.push(event);
-      newCursors.encounters = pickMax(newCursors.encounters, e.updated_at);
+      newCursors.encounters = pickMaxIso(newCursors.encounters, e.updated_at);
     }
     for await (const i of client.streamPayments(cursors.invoices)) {
       const event = normalizePayment(link.clinicId, i);
       if (event) events.push(event);
-      newCursors.invoices = pickMax(newCursors.invoices, i.updated_at);
+      newCursors.invoices = pickMaxIso(newCursors.invoices, i.updated_at);
     }
     for await (const r of client.streamRecalls(cursors.recalls)) {
       const event = normalizeRecall(link.clinicId, r);
       if (event) events.push(event);
-      newCursors.recalls = pickMax(
+      newCursors.recalls = pickMaxIso(
         newCursors.recalls,
         r.updated_at ?? r.recall_at
       );
@@ -101,6 +102,18 @@ export const consentzAdapter: Adapter = {
       nextCursor: serializeCursor(newCursors),
       recommendedDelayMs: events.length === 0 ? 5 * 60_000 : 60_000,
     };
+  },
+
+  seedCursor(syncStartIso: string): string {
+    // Initial-sync watermark handoff (C7); see tomedo/index.ts for the
+    // rationale.
+    return serializeCursor({
+      patients: syncStartIso,
+      appointments: syncStartIso,
+      encounters: syncStartIso,
+      invoices: syncStartIso,
+      recalls: syncStartIso,
+    });
   },
 };
 
@@ -142,8 +155,4 @@ function serializeCursor(c: Cursors): string {
     c.invoices,
     c.recalls,
   ].join(",");
-}
-
-function pickMax(a: string, b: string): string {
-  return a >= b ? a : b;
 }

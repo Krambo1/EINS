@@ -49,6 +49,12 @@ export interface BrandTokens {
   /** CSS font-family value (single name, no fallbacks — those are appended in layout). */
   fontFamily: string;
   /**
+   * Optional display font for headlines / pull-quotes (e.g. a serif like
+   * "Fraunces"). Falls back to `fontFamily` when omitted, so existing clinic
+   * configs stay valid.
+   */
+  fontFamilyDisplay?: string;
+  /**
    * Optional self-hosted font stack. WOFF2 files live under
    * `public/clinics/<slug>/fonts/`. The clinic layout emits a `<style>` block
    * with one `@font-face` per entry.
@@ -80,6 +86,11 @@ export interface Doctor {
   cv: string[];
   /** Society memberships — only those actually held. */
   memberships?: string[];
+  /**
+   * Optional 1-sentence philosophy pull-quote, rendered in the authority
+   * block. Sachlich — no outcome promises (HWG-linted like all copy).
+   */
+  quote?: string;
   /** Path under /public, e.g. "/clinics/<slug>/doctor-portrait.webp" */
   portrait: string;
   portraitAlt: string;
@@ -104,6 +115,8 @@ export interface Testimonial {
   age?: number | string;
   /** Sachlich, kein Heilversprechen, kein "endlich glücklich". */
   quote: string;
+  /** Where the quote was published — renders as a source line ("Google, 2026"). */
+  source?: "google" | "jameda" | "praxis";
   /** When the patient consented in writing (Art. 9 DSGVO + § 22 KUG). ISO date. */
   consentedAt?: string;
 }
@@ -192,6 +205,13 @@ export interface Clinic {
   contact: Contact;
   /** Optional praxis ambient photos (NOT before/after, NOT patient faces). */
   practiceImages?: { src: string; alt: string }[];
+  /**
+   * Callback-window copy shown under CTAs and on the confirmation screen,
+   * e.g. "innerhalb eines Werktags". Only tighten ("innerhalb von 2 Stunden")
+   * when the Praxis can actually honor it — speed-to-lead is an ops SLA,
+   * not page copy. Default: "innerhalb eines Werktags".
+   */
+  responsePromise?: string;
   connectors: Connectors;
   /**
    * Datenschutz copy — Markdown allowed. The template carries a Pflicht-Boilerplate
@@ -222,13 +242,17 @@ export interface QuizTreatmentOption {
 export interface TreatmentQuiz {
   /** Step 1 — clarify which sub-treatment / area the patient wants. */
   treatmentOptions: QuizTreatmentOption[];
-  /** Headline shown in step 3 / 4 above the city confirmation. */
-  locationLabel: string;
   /**
-   * Toggle the optional "experience" step (step 3 in OP flows).
-   * Default false for injectables; true for surgical procedures.
+   * OP-level flows only: adds the investment-gate step. The price anchor is
+   * derived from `priceRange.fromCents`; "erst mehr erfahren" routes to the
+   * info-only branch. Default false (injectables skip it).
    */
-  askExperience?: boolean;
+  askBudget?: boolean;
+  /**
+   * OP-level flows only: adds the service-framed distance step
+   * ("in der Nähe / bis 1 Stunde / weiter entfernt"). Default false.
+   */
+  askDistance?: boolean;
 }
 
 export interface ProcessStep {
@@ -295,6 +319,17 @@ export interface Treatment {
   /** Used to answer "Was kostet ..." truthfully in FAQ. */
   priceRange: PriceRange;
 
+  /**
+   * Optional data for the cost-transparency section. `drivers` lists what
+   * moves the price (Areal, Anästhesie, Umfang, ...). `financingNote` is a
+   * factual one-liner ("Ratenzahlung auf Anfrage möglich") — never promote
+   * credit terms (HWG/UWG risk).
+   */
+  cost?: {
+    drivers?: string[];
+    financingNote?: string;
+  };
+
   /** Closing promise sentence, e.g. "Sie wissen heute, ob es zu Ihnen passt." */
   finalCtaPromise: string;
 
@@ -318,8 +353,14 @@ export interface QuizSubmissionPayload {
   branch: QuizBranch;
   treatment: string;
   timeframe?: string;
+  /** Legacy (quiz v1) — kept optional for wire-compat, no longer collected. */
   experience?: string;
+  /** Legacy (quiz v1) — kept optional for wire-compat, no longer collected. */
   city?: string;
+  /** Investment-gate answer (OP flows): "ja" | "unsicher" | "erst-informieren". */
+  budget?: string;
+  /** Distance answer (OP flows): "in-der-naehe" | "bis-1-stunde" | "weiter-entfernt". */
+  distance?: string;
   /** Patient contact (collected last). */
   firstName?: string;
   email: string;

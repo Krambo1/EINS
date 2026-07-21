@@ -39,6 +39,7 @@ import {
   ChecklisteTab,
   type ChecklisteTabData,
 } from "./_components/ChecklisteTab";
+import { DateienTab, type DateienTabData } from "./_components/DateienTab";
 import type { DiscoveryAnswers } from "@/app/(portal)/onboarding/fragebogen/content";
 import {
   ALL_CHECKLIST_ITEMS,
@@ -51,11 +52,12 @@ export const metadata = { title: "Praxis-Details" };
 const TABS = [
   { key: "uebersicht", label: "Übersicht" },
   { key: "leistung", label: "Leistung" },
-  { key: "leads", label: "Leads" },
+  { key: "leads", label: "Anfragen" },
   { key: "aktivitaet", label: "Aktivität" },
   { key: "fortschritt", label: "Fortschritt" },
   { key: "fragebogen", label: "Fragebogen" },
   { key: "checkliste", label: "Checkliste" },
+  { key: "dateien", label: "Dateien" },
   { key: "team", label: "Team" },
   { key: "stammdaten", label: "Stammdaten" },
   { key: "integrationen", label: "Integrationen" },
@@ -235,6 +237,43 @@ export default async function AdminClinicDetailPage({
     renderedTab = (
       <ChecklisteTab data={{ clinicId: clinic.id, states }} />
     );
+  } else if (tab === "dateien") {
+    const uploadRows = await db
+      .select({
+        id: schema.clientUploads.id,
+        storageKey: schema.clientUploads.storageKey,
+        originalFilename: schema.clientUploads.originalFilename,
+        sizeBytes: schema.clientUploads.sizeBytes,
+        note: schema.clientUploads.note,
+        createdAt: schema.clientUploads.createdAt,
+        seenAt: schema.clientUploads.seenAt,
+        seenBy: schema.clientUploads.seenBy,
+        uploaderName: schema.clinicUsers.fullName,
+        uploaderEmail: schema.clinicUsers.email,
+      })
+      .from(schema.clientUploads)
+      .leftJoin(
+        schema.clinicUsers,
+        eq(schema.clientUploads.uploadedBy, schema.clinicUsers.id)
+      )
+      .where(eq(schema.clientUploads.clinicId, clinic.id))
+      .orderBy(desc(schema.clientUploads.createdAt));
+    const data: DateienTabData = {
+      clinicId: clinic.id,
+      uploads: uploadRows.map((r) => ({
+        id: r.id,
+        name: r.originalFilename,
+        sizeBytes: r.sizeBytes,
+        // Admin-scoped passthrough (redirects to a signed URL under R2).
+        url: `/api/admin/files/${encodeURI(r.storageKey)}`,
+        note: r.note,
+        createdAt: r.createdAt,
+        seenAt: r.seenAt,
+        seenBy: r.seenBy,
+        uploaderName: r.uploaderName ?? r.uploaderEmail,
+      })),
+    };
+    renderedTab = <DateienTab data={data} />;
   } else if (tab === "team") {
     const team = await db
       .select()
@@ -333,6 +372,24 @@ export default async function AdminClinicDetailPage({
           failedEvents: agentStatusRow[0].failedEvents,
           oldestFailedAt: agentStatusRow[0].oldestFailedAt,
           lastFailureReason: agentStatusRow[0].lastFailureReason,
+          // 0069: liveness signals. failedEvents only counts dead rows, so
+          // these are what tells "ruhige Woche" apart from "Installation
+          // kaputt": ein steckengebliebenes Outbox-Backlog, ein verschobener
+          // Export-Ordner, ein nie gestarteter Runner, ein toter Stream.
+          pendingEvents: agentStatusRow[0].pendingEvents,
+          stalePendingEvents: agentStatusRow[0].stalePendingEvents,
+          oldestPendingAt: agentStatusRow[0].oldestPendingAt,
+          missingFolders:
+            (agentStatusRow[0].missingFolders as string[] | null) ?? [],
+          dbAdaptersFailed: agentStatusRow[0].dbAdaptersFailed,
+          adapterStatuses:
+            (agentStatusRow[0].adapterStatuses as Array<{
+              vendor: string;
+              stream: string;
+              status: string;
+              lastError?: string | null;
+              connectError?: string | null;
+            }> | null) ?? [],
           recentReasons:
             (agentStatusRow[0].recentReasons as Array<{
               reason: string;
@@ -380,7 +437,7 @@ export default async function AdminClinicDetailPage({
             <span className="mx-1">/</span>
             <span className="font-mono">{clinic.slug}</span>
           </div>
-          <h1 className="display-m">{clinic.displayName}</h1>
+          <h1 className="text-3xl font-semibold md:text-4xl">{clinic.displayName}</h1>
           <p className="text-lg text-fg-primary">{clinic.legalName}</p>
         </div>
         <div className="flex items-center gap-2">

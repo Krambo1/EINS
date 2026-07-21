@@ -90,7 +90,10 @@ export async function saveDiscoveryAction(
     if (missing.length > 0) {
       return {
         kind: "error",
-        message: `Es fehlen noch ${missing.length} Pflichtfragen. Die offenen Fragen sind unten markiert.`,
+        message:
+          missing.length === 1
+            ? "Es fehlt noch 1 Pflichtfrage. Die offene Frage ist unten markiert."
+            : `Es fehlen noch ${missing.length} Pflichtfragen. Die offenen Fragen sind unten markiert.`,
         missingIds: missing,
       };
     }

@@ -33,14 +33,17 @@ import {
   isDelivered,
   itemAcceptsLink,
   itemAcceptsUpload,
+  validateChecklistFields,
   type ChecklistAnswer,
   type ChecklistItem,
   type ChecklistStatus,
 } from "./content";
+import { uploadFileToTarget } from "@/lib/upload-client";
 import {
+  createChecklistUploadTargetAction,
+  finalizeChecklistFileAction,
   removeChecklistFile,
   saveChecklistItem,
-  uploadChecklistFile,
 } from "./actions";
 
 export interface ClientChecklistFile {
@@ -158,12 +161,24 @@ function ItemCard({
   const entfaellt = state.status === "entfaellt";
   const selfChecked = state.status === "geliefert" || state.status === "geprueft";
 
+  // Inline email/phone validation, mirrored on the server. Blocks save while
+  // any contact field holds a malformed value.
+  const fieldErrors = validateChecklistFields(item, answer);
+  const hasFieldErrors = Object.keys(fieldErrors).length > 0;
+
   function persist(opts: {
     answer?: ChecklistAnswer;
     selfChecked?: boolean;
     nichtVorhanden?: boolean;
   }) {
     setError(null);
+    const toValidate = opts.answer ?? answer;
+    const errs = validateChecklistFields(item, toValidate);
+    const firstErr = Object.values(errs)[0];
+    if (firstErr) {
+      setError(firstErr);
+      return;
+    }
     start(async () => {
       const res = await saveChecklistItem({
         itemId: item.id,
@@ -184,15 +199,40 @@ function ItemCard({
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
+    if (file.size === 0) {
+      setError(uploadErrorText("empty_file"));
+      return;
+    }
     if (file.size > MAX_CHECKLIST_UPLOAD_BYTES) {
       setError("Datei zu groß (max. 25 MB). Große Sets bitte als Link liefern.");
       return;
     }
     start(async () => {
-      const fd = new FormData();
-      fd.append("itemId", item.id);
-      fd.append("file", file);
-      const res = await uploadChecklistFile(fd);
+      // Direct-to-storage: mint a target, upload the bytes straight to
+      // object storage, then register the file. The bytes never pass
+      // through a server action (serverless request caps).
+      const minted = await createChecklistUploadTargetAction({
+        itemId: item.id,
+        filename: file.name,
+        size: file.size,
+        contentType: file.type || undefined,
+      });
+      if (!minted.ok) {
+        setError(uploadErrorText(minted.error));
+        return;
+      }
+      try {
+        await uploadFileToTarget(minted.target, file);
+      } catch {
+        setError(uploadErrorText("upload_failed"));
+        return;
+      }
+      const res = await finalizeChecklistFileAction({
+        itemId: item.id,
+        key: minted.target.key,
+        filename: file.name,
+        contentType: file.type || undefined,
+      });
       if (!res.ok) {
         setError(uploadErrorText(res.error));
         return;
@@ -402,6 +442,7 @@ function ItemCard({
                       typeof answer[field.key] === "string"
                         ? (answer[field.key] as string)
                         : "";
+                    const fieldError = fieldErrors[field.key];
                     return (
                       <div key={field.key} className="space-y-1">
                         <Label htmlFor={fid} className="text-sm">
@@ -424,12 +465,26 @@ function ItemCard({
                         ) : (
                           <Input
                             id={fid}
-                            type="text"
+                            type={field.format === "email" ? "email" : "text"}
+                            inputMode={
+                              field.format === "tel"
+                                ? "tel"
+                                : field.format === "email"
+                                  ? "email"
+                                  : undefined
+                            }
+                            aria-invalid={fieldError ? true : undefined}
                             maxLength={8000}
                             placeholder={field.placeholder}
                             value={val}
                             onChange={(e) => setField(field.key, e.target.value)}
                           />
+                        )}
+                        {fieldError && (
+                          <p className="flex items-start gap-1.5 text-sm text-tone-bad">
+                            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                            {fieldError}
+                          </p>
                         )}
                       </div>
                     );
@@ -461,7 +516,7 @@ function ItemCard({
               <Button
                 type="button"
                 size="sm"
-                disabled={pending}
+                disabled={pending || hasFieldErrors}
                 onClick={() => persist({ selfChecked })}
               >
                 <Check className="h-4 w-4" />

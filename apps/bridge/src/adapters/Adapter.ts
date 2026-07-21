@@ -62,6 +62,16 @@ export interface Adapter {
   ): Promise<AdapterPollResult>;
 
   /**
+   * Build the adapter's cursor token representing "everything before
+   * syncStartIso has been seen". Called once when an initial sync
+   * completes (C7): the scheduler seeds pvs_sync_status with this value so
+   * the first incremental poll picks up at the initial-sync watermark
+   * instead of re-downloading history from the epoch. Polling adapters
+   * must implement this; push adapters may omit it.
+   */
+  seedCursor?(syncStartIso: string): string;
+
+  /**
    * Decode an inbound push webhook (HealthHub, RED). The Fastify route
    * has already verified the vendor-side signature; this method just
    * translates the FHIR Bundle into canonical events.

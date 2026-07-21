@@ -27,8 +27,6 @@ import {
 } from "@/app/(portal)/onboarding/checkliste/content";
 import { setChecklistItemVerifiedAction } from "../actions";
 
-const GLOW_CARD = "!bg-bg-secondary";
-
 export interface ChecklisteTabItemState {
   status: ChecklistStatus;
   answer: ChecklistAnswer;
@@ -64,7 +62,7 @@ export function ChecklisteTab({ data }: { data: ChecklisteTabData }) {
 
   return (
     <div className="space-y-6">
-      <Card className={GLOW_CARD}>
+      <Card>
         <CardContent className="flex flex-wrap items-center gap-x-8 gap-y-3 p-5">
           <Metric
             label="Pflichtpunkte geliefert"
@@ -84,7 +82,7 @@ export function ChecklisteTab({ data }: { data: ChecklisteTabData }) {
       </Card>
 
       {CHECKLIST_BLOCKS.map((block) => (
-        <Card key={block.key} className={GLOW_CARD}>
+        <Card key={block.key}>
           <CardHeader>
             <CardTitle>
               Block {block.key}: {block.title}

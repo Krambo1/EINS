@@ -223,3 +223,35 @@ describe("expandTemplate", () => {
     expect(warnings.some((w) => w.includes("unknown column 'y'"))).toBe(true);
   });
 });
+
+// Review finding H6: a legacy MySQL / MariaDB zero-date (0000-00-00) arrives as
+// an Invalid Date under mysql2's dateStrings:false. toISOString() on one throws
+// RangeError; unguarded that crashed the whole poll and (via the runner's
+// swallow) hot-looped the stream every 5s. The transforms and coerceScalar now
+// treat an unrepresentable Date like a NULL: the field is dropped, the row is
+// not crashed.
+describe("normalizer: Invalid Date (legacy zero-date) is dropped, not thrown (H6)", () => {
+  const invalid = new Date(NaN);
+
+  it("coerceScalar returns undefined for an Invalid Date", () => {
+    expect(_internal.coerceScalar(invalid)).toBeUndefined();
+    // A valid Date still round-trips to ISO.
+    expect(_internal.coerceScalar(new Date("2026-05-20T10:00:00Z"))).toBe(
+      "2026-05-20T10:00:00.000Z"
+    );
+  });
+
+  it("isoDateTime returns undefined for an Invalid Date", () => {
+    expect(_internal.isoDateTime(invalid)).toBeUndefined();
+    expect(_internal.isoDateTime(new Date("2026-05-20T10:00:00Z"))).toBe(
+      "2026-05-20T10:00:00.000Z"
+    );
+  });
+
+  it("isoDate returns undefined for an Invalid Date", () => {
+    expect(_internal.isoDate(invalid)).toBeUndefined();
+    expect(_internal.isoDate(new Date("2026-05-20T10:00:00Z"))).toBe(
+      "2026-05-20"
+    );
+  });
+});

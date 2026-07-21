@@ -63,6 +63,13 @@ const subDays = (d: Date, days: number) => {
 export interface MetricDelta {
   value: number;
   tone: ToneKey;
+  /**
+   * When true the delta is not meaningful (the current period has no data at
+   * all) and should render as a neutral "–" rather than a computed figure.
+   * Prevents an empty window from showing a misleading "-100 %" on every
+   * metric. See `pctDelta`.
+   */
+  suppressed?: boolean;
 }
 
 export interface PlatformOverviewMetrics {
@@ -247,6 +254,13 @@ type DeltaKind = "higher" | "lower" | "neutral";
 function pctDelta(current: number, prior: number, kind: DeltaKind): MetricDelta {
   if (!Number.isFinite(prior) || prior === 0) {
     return { value: 0, tone: "neutral" };
+  }
+  // Current period is empty (e.g. a stale seed window, or before the first
+  // sync of the month). The arithmetic would yield exactly -100 % on every
+  // metric, which reads as a catastrophic decline rather than "no data yet".
+  // Show a neutral "–" instead. Genuine declines (current > 0) are untouched.
+  if (current === 0) {
+    return { value: 0, tone: "neutral", suppressed: true };
   }
   const value = ((current - prior) / Math.abs(prior)) * 100;
   let tone: ToneKey = "neutral";

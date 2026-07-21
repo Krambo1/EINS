@@ -2,11 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { and, eq, sql } from "drizzle-orm";
-import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { requireSession } from "@/auth/guards";
 import { schema, withClinicContext } from "@/db/client";
 import { getStorage } from "@/server/storage";
+import {
+  createUploadTarget,
+  verifyUploadedObject,
+  type UploadTarget,
+} from "@/server/uploads";
 import { writeAudit } from "@/server/audit";
 import { can, ForbiddenError } from "@/lib/roles";
 import {
@@ -15,6 +19,7 @@ import {
   UPLOAD_PROFILES,
   itemAcceptsLink,
   itemAcceptsUpload,
+  validateChecklistFields,
   type ChecklistAnswer,
   type ChecklistItem,
   type ChecklistStatus,
@@ -36,7 +41,7 @@ const RESULT_OK = { ok: true } as const;
 
 export type ChecklistActionResult =
   | { ok: true; status?: ChecklistStatus }
-  | { ok: false; error: string };
+  | { ok: false; error: string; field?: string };
 
 // ---------------------------------------------------------------
 // Pure status logic
@@ -134,6 +139,16 @@ export async function saveChecklistItem(
   if (!item) return { ok: false, error: "unknown_item" };
 
   const answer = sanitizeAnswer(item, parsed.data.answer);
+
+  // Source of truth for contact-field quality: reject malformed email/phone
+  // values before anything persists, so garbage never reaches the admin verify
+  // view or EINS's downstream outreach. Field-level German error.
+  const fieldErrors = validateChecklistFields(item, answer);
+  const firstError = Object.entries(fieldErrors)[0];
+  if (firstError) {
+    return { ok: false, error: firstError[1], field: firstError[0] };
+  }
+
   const selfChecked = parsed.data.selfChecked ?? false;
   const nichtVorhanden = parsed.data.nichtVorhanden ?? false;
 
@@ -225,54 +240,121 @@ export async function saveChecklistItem(
 }
 
 // ---------------------------------------------------------------
-// uploadChecklistFile — one file per call, appended to the item
+// Checklist file uploads — direct-to-storage in two steps.
+//
+// The bytes never transit a server action: Vercel caps request bodies at
+// ~4.5 MB, so the old FormData upload silently broke for anything bigger
+// than a screenshot. createChecklistUploadTargetAction validates and mints
+// a storage target (R2 presigned PUT in prod, /api/uploads locally); the
+// browser uploads directly; finalizeChecklistFileAction verifies the object
+// landed and writes the DB row + delivery status.
 // ---------------------------------------------------------------
 
-export async function uploadChecklistFile(
-  formData: FormData
-): Promise<ChecklistActionResult> {
+const TargetInput = z.object({
+  itemId: z.string().max(8),
+  filename: z.string().min(1).max(300),
+  size: z.number().int().positive(),
+  contentType: z.string().max(200).optional(),
+});
+
+export type ChecklistTargetResult =
+  | { ok: true; target: UploadTarget }
+  | { ok: false; error: string };
+
+export async function createChecklistUploadTargetAction(
+  input: z.infer<typeof TargetInput>
+): Promise<ChecklistTargetResult> {
   const session = await requireSession();
   if (!can(session.role, "onboarding.complete")) {
     throw new ForbiddenError("onboarding.complete");
   }
+  const parsed = TargetInput.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "invalid" };
 
-  const itemId = String(formData.get("itemId") ?? "");
-  const item = CHECKLIST_ITEMS_BY_ID.get(itemId);
+  const item = CHECKLIST_ITEMS_BY_ID.get(parsed.data.itemId);
   if (!item || !itemAcceptsUpload(item.deliveryType)) {
     return { ok: false, error: "unknown_item" };
   }
-
-  const file = formData.get("file");
-  if (!(file instanceof File)) return { ok: false, error: "no_file" };
-  if (file.size === 0) return { ok: false, error: "empty_file" };
-  if (file.size > MAX_CHECKLIST_UPLOAD_BYTES) {
+  if (parsed.data.size > MAX_CHECKLIST_UPLOAD_BYTES) {
     return { ok: false, error: "file_too_large" };
   }
 
   const profile = item.uploadProfile
     ? UPLOAD_PROFILES[item.uploadProfile]
     : null;
-  const ext = (file.name.split(".").pop() ?? "").toLowerCase();
+  const ext = (parsed.data.filename.split(".").pop() ?? "").toLowerCase();
   if (profile && (!ext || !profile.extensions.includes(ext))) {
     return { ok: false, error: "bad_type" };
   }
 
-  const safeExt = ext.replace(/[^a-z0-9]/g, "").slice(0, 8) || "bin";
-  const buffer = Buffer.from(await file.arrayBuffer());
-  // Clinic-scoped, un-guessable key. The `${clinicId}/` prefix is what the
-  // /api/files passthrough checks for tenant access in dev.
-  const storageKey = `${session.clinicId}/checklist/${item.id}/${randomUUID()}.${safeExt}`;
-  await getStorage().put(storageKey, buffer, {
-    contentType: file.type || undefined,
+  const target = await createUploadTarget({
+    clinicId: session.clinicId,
+    scope: `checklist/${item.id}`,
+    extension: ext,
+    contentType: parsed.data.contentType,
   });
+  return { ok: true, target };
+}
+
+const FinalizeInput = z.object({
+  itemId: z.string().max(8),
+  key: z.string().min(1).max(500),
+  filename: z.string().min(1).max(300),
+  contentType: z.string().max(200).optional(),
+});
+
+export async function finalizeChecklistFileAction(
+  input: z.infer<typeof FinalizeInput>
+): Promise<ChecklistActionResult> {
+  const session = await requireSession();
+  if (!can(session.role, "onboarding.complete")) {
+    throw new ForbiddenError("onboarding.complete");
+  }
+  const parsed = FinalizeInput.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "invalid" };
+
+  const item = CHECKLIST_ITEMS_BY_ID.get(parsed.data.itemId);
+  if (!item || !itemAcceptsUpload(item.deliveryType)) {
+    return { ok: false, error: "unknown_item" };
+  }
+
+  // The client may only finalize keys inside its own namespace for this item.
+  const prefix = `${session.clinicId}/checklist/${item.id}/`;
+  const storageKey = parsed.data.key;
+  if (!storageKey.startsWith(prefix) || storageKey.includes("..")) {
+    return { ok: false, error: "invalid" };
+  }
+  // Never trust the client that bytes arrived — check storage.
+  const head = await verifyUploadedObject(storageKey);
+  if (!head) return { ok: false, error: "no_file" };
+  if (head.size > MAX_CHECKLIST_UPLOAD_BYTES) {
+    // Belt & braces: the target minting capped size, but the object is
+    // what counts. Drop an oversized stray instead of registering it.
+    await getStorage().remove(storageKey);
+    return { ok: false, error: "file_too_large" };
+  }
+
+  const file = {
+    name: parsed.data.filename,
+    type: head.contentType ?? parsed.data.contentType ?? null,
+    size: head.size,
+  };
 
   await withClinicContext(session.clinicId, session.userId, async (tx) => {
+    // Idempotent against a double-finalize (retry, double-click).
+    const [dupe] = await tx
+      .select({ id: schema.checklistFiles.id })
+      .from(schema.checklistFiles)
+      .where(eq(schema.checklistFiles.storageKey, storageKey))
+      .limit(1);
+    if (dupe) return;
+
     await tx.insert(schema.checklistFiles).values({
       clinicId: session.clinicId,
       itemId: item.id,
       storageKey,
       originalFilename: file.name.slice(0, 300),
-      contentType: file.type || null,
+      contentType: file.type,
       sizeBytes: file.size,
       uploadedBy: session.userId,
     });

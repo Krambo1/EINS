@@ -1,0 +1,23 @@
+{
+  "name": "eins-bridge-soak",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Praxis-Simulator + Soak-Test-Harness für den PVS-Bridge-Agenten. Spielt 'MFA am Empfang' gegen eine tomedo-Schema-Datenbank und einen GDT/CSV-Export-Ordner, lässt den echten Agenten dagegen laufen und prüft am Ende centgenau gegen das Portal.",
+  "scripts": {
+    "setup": "tsx src/setup.ts",
+    "reset": "tsx src/setup.ts --reset",
+    "soak": "tsx src/run-soak.ts",
+    "smoke": "tsx src/run-soak.ts --minutes 8 --smoke",
+    "reconcile": "tsx src/reconcile.ts"
+  },
+  "dependencies": {
+    "pg": "^8.11.3"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.5",
+    "@types/pg": "^8.11.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.5"
+  }
+}

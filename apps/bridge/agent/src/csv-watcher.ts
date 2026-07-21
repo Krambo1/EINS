@@ -1,6 +1,7 @@
 import chokidar from "chokidar";
+import type { Stats } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { parseCsv } from "./csv-parser.js";
 import {
   mapCsvRow,
@@ -65,24 +66,72 @@ export function watchHonorarFolder(opts: {
     ignoreInitial: true,
   });
 
+  // M-P9 part 3: serialize live file processing through a single promise chain.
+  // chokidar fires add/change concurrently; running process() concurrently made
+  // the per-file mtime cursor race, so after a crash a slower older file could
+  // be skipped (its newer sibling had already advanced the cursor past it).
+  // Chaining guarantees each file is fully processed, and its cursor advanced,
+  // before the next one starts.
+  let processingChain: Promise<void> = Promise.resolve();
+  function enqueueProcessing(path: string): void {
+    processingChain = processingChain
+      .then(() => process(path))
+      .catch((err) => {
+        // process() has its own try/catch; this is a belt-and-suspenders guard
+        // so one rejected link cannot break the chain for every later file.
+        console.error(
+          `[csv-watcher] queued processing failed for ${basename(path)}:`,
+          err
+        );
+      });
+  }
+
   watcher.on("add", (path) => {
     if (!isCsvFile(path)) return;
-    void process(path);
+    enqueueProcessing(path);
   });
   watcher.on("change", (path) => {
     if (!isCsvFile(path)) return;
-    void process(path);
+    enqueueProcessing(path);
   });
 
+  /**
+   * L22: log the file BASENAME only, never the full path. Some PVS write
+   * patient identifiers into the export filename; the containing folder
+   * (a config value) stays loggable elsewhere, but per-file log lines must
+   * not carry the filename verbatim into logs that may be shipped for support.
+   */
   async function process(path: string): Promise<void> {
+    const base = basename(path);
+    /**
+     * L4/L5: ONE rule for "this file produced zero events" (empty file, no
+     * usable column mapping, or every row failed to map). The rule:
+     *   1. Never silently lose data: emit a LOUD per-file summary (warn level)
+     *      with counts so an operator can see it in the log.
+     *   2. Never warn forever: advance the mtime cursor past the file so it is
+     *      not re-processed on every restart. Because the cursor keys on mtime,
+     *      a genuinely new content version (rewrite) gets a fresh mtime and is
+     *      re-processed, so this is effectively "warn once per content version".
+     * The torn-write guard (droppedSuspectLastRow) is the ONE exception that
+     * deliberately does NOT advance the cursor; it is handled separately below.
+     */
+    async function advanceCursorPastFile(): Promise<void> {
+      try {
+        const st = (await stat(path).catch(() => null)) ?? preStat;
+        if (st) setWatcherCursor(opts.folder, st.mtimeMs);
+      } catch {
+        // cursor advance failure is non-fatal; next restart re-attempts.
+      }
+    }
+    let preStat: Stats | null = null;
     try {
       // P3-1 byte-size guard: stat first, skip before reading if the
       // file is past the cap. Same rationale as watcher.ts; defends
       // the Praxis workstation against allocation explosion.
-      const preStat = await stat(path).catch(() => null);
+      preStat = await stat(path).catch(() => null);
       if (preStat && preStat.size > CSV_MAX_BYTES) {
         console.warn(
-          `[csv-watcher] ${path} exceeds CSV_MAX_BYTES (${preStat.size} > ${CSV_MAX_BYTES}); skipped`
+          `[csv-watcher] ${base} exceeds CSV_MAX_BYTES (${preStat.size} > ${CSV_MAX_BYTES}); skipped`
         );
         try {
           setWatcherCursor(opts.folder, preStat.mtimeMs);
@@ -93,16 +142,30 @@ export function watchHonorarFolder(opts: {
       }
 
       const bytes = await readFile(path);
-      const parsed = parseCsv(bytes);
+      // M-P9 parts 1+2: pass the caps INTO the parser. maxBytes gates the
+      // multi-candidate decode before it runs three passes over the buffer;
+      // maxRows stops row-object allocation early instead of building millions
+      // of rows first and checking afterwards.
+      const parsed = parseCsv(bytes, {
+        maxRows: CSV_MAX_ROWS,
+        maxBytes: CSV_MAX_BYTES,
+      });
       if (parsed.headers.length === 0) {
-        console.log(`[csv-watcher] ${path} empty — skipped`);
+        // L4: zero-byte / empty file produced zero events. Warn once, then
+        // advance the cursor so it never re-warns on restart (was: return
+        // without advancing -> re-warn forever).
+        console.warn(
+          `[csv-watcher] ${base} produced ZERO events: file is empty (no header row). Cursor advanced; will retry only if the file content changes.`
+        );
+        await advanceCursorPastFile();
         return;
       }
-      // P3-1 row-count guard: a CSV under the byte cap but with
-      // pathologically many rows is still a memory-pressure risk.
-      if (parsed.rows.length > CSV_MAX_ROWS) {
+      // P3-1 / M-P9 row-count guard: the parser stopped building rows once the
+      // cap was reached (parsed.rowCapExceeded), so a CSV with pathologically
+      // many rows never fully materialises. Skip it loudly.
+      if (parsed.rowCapExceeded) {
         console.warn(
-          `[csv-watcher] ${path} row count ${parsed.rows.length} exceeds CSV_MAX_ROWS (${CSV_MAX_ROWS}); skipped`
+          `[csv-watcher] ${base} exceeds CSV_MAX_ROWS (${CSV_MAX_ROWS}); parsing stopped early and file skipped`
         );
         try {
           if (preStat) setWatcherCursor(opts.folder, preStat.mtimeMs);
@@ -114,14 +177,95 @@ export function watchHonorarFolder(opts: {
 
       const mapping = opts.mapping ?? autoDetectMapping(parsed.headers);
       if (!mapping) {
+        // L5: "no usable header mapping" is a zero-events outcome. Apply the
+        // single rule (see advanceCursorPastFile): loud warn with the headers
+        // that failed to map, THEN advance the cursor so we do not re-warn on
+        // every restart (was: return without advancing -> warn forever, while
+        // the "all rows failed" case below advanced -> inconsistent drift).
         console.warn(
-          `[csv-watcher] ${path} no usable mapping (headers: ${parsed.headers.join(", ")}) — skipped`
+          `[csv-watcher] ${base} produced ZERO events: no usable column mapping (headers: ${parsed.headers.join(", ")}). Cursor advanced; will retry only if the file content changes.`
+        );
+        await advanceCursorPastFile();
+        return;
+      }
+
+      // M-P3: duplicate headers. A duplicate collides in the per-row record
+      // (last column wins), which silently swaps meaning. If a duplicated
+      // header is one the resolved mapping actually maps (e.g. two "Betrag"
+      // columns → a netto/brutto swap), the file is ambiguous at the data
+      // level: fail it loudly as a config/format error rather than guess which
+      // column is authoritative. Harmless unmapped duplicates only warn.
+      if (parsed.duplicateHeaders.length > 0) {
+        const mappedHeaders = new Set(
+          Object.values(mapping.columns).filter(
+            (h): h is string => typeof h === "string" && h.length > 0
+          )
+        );
+        const ambiguous = parsed.duplicateHeaders.filter((h) =>
+          mappedHeaders.has(h)
+        );
+        if (ambiguous.length > 0) {
+          console.error(
+            `[csv-watcher] ${base} has duplicate mapped column(s): ${ambiguous.join(", ")}. ` +
+              `Ambiguous meaning (e.g. netto vs brutto Betrag); file skipped as a config/format error. ` +
+              `Fix the PVS export to emit each column once.`
+          );
+          await advanceCursorPastFile();
+          return;
+        }
+        console.warn(
+          `[csv-watcher] ${base} has duplicate header(s) not used by the mapping: ` +
+            `${parsed.duplicateHeaders.join(", ")}; continuing.`
+        );
+      }
+
+      // M-P3: ragged rows (cell count != header count). Tolerated as before
+      // (extra cells dropped, missing cells blanked) but surfaced as one
+      // rate-limited per-file warning so a systematic column shift is visible.
+      if (parsed.raggedRowCount > 0) {
+        console.warn(
+          `[csv-watcher] ${base} has ${parsed.raggedRowCount} ragged row(s) whose column count ` +
+            `did not match the ${parsed.headers.length}-column header; extra cells dropped, missing cells blanked.`
+        );
+      }
+
+      // Torn-write guard (C1): the parser dropped the last physical row
+      // because the file did not end with a line terminator. Warn loudly;
+      // the cursor is NOT advanced below, so the completed file (or a
+      // legitimately newline-less export, until the export setting is
+      // fixed) is re-processed on the next change event or restart.
+      if (parsed.droppedSuspectLastRow) {
+        console.warn(
+          `[csv-watcher] ${base} does not end with a line terminator; last row skipped as a torn-write guard. ` +
+            `If this export legitimately omits the final newline, configure the PVS export to terminate the last line.`
+        );
+      }
+
+      // Torn-write guard, part 2 (C1): if the file changed while we were
+      // parsing, the exporter is still writing. Enqueue nothing: a partial
+      // parse would win the per-event-id outbox dedup and the corrected
+      // re-parse would be silently discarded.
+      const postStat = await stat(path).catch(() => null);
+      if (
+        preStat &&
+        postStat &&
+        (postStat.size !== preStat.size || postStat.mtimeMs !== preStat.mtimeMs)
+      ) {
+        console.warn(
+          `[csv-watcher] ${base} changed while being processed; skipping this pass (will re-process on the next change event)`
         );
         return;
       }
 
       let emitted = 0;
       let skipped = 0;
+      // H4: one deterministic occurredAt fallback for every row of this file,
+      // from the PRE-read stat mtime (matching the parsed bytes). Re-processing
+      // the same file after watcher-state loss then yields byte-identical
+      // events the portal dedups. Null preStat → undefined → wall-clock path.
+      const fileModifiedAtIso = preStat
+        ? new Date(preStat.mtimeMs).toISOString()
+        : undefined;
       for (let i = 0; i < parsed.rows.length; i++) {
         const result = mapCsvRow({
           clinicId: opts.clinicId,
@@ -129,6 +273,7 @@ export function watchHonorarFolder(opts: {
           rowIndex: i,
           row: parsed.rows[i],
           mapping,
+          fileModifiedAtIso,
         });
         if (!result.ok) {
           skipped++;
@@ -136,7 +281,7 @@ export function watchHonorarFolder(opts: {
           // five and a summary.
           if (skipped <= 5) {
             console.warn(
-              `[csv-watcher] ${path} row ${i + 2}: ${result.reason}`
+              `[csv-watcher] ${base} row ${i + 2}: ${result.reason}`
             );
           }
           continue;
@@ -148,18 +293,33 @@ export function watchHonorarFolder(opts: {
       }
       // P1-5: advance the cursor AFTER successful enqueue so a parse-or-
       // mapping failure doesn't strand the cursor past an unprocessed file.
-      try {
-        const st = await stat(path);
-        setWatcherCursor(opts.folder, st.mtimeMs);
-      } catch {
-        // stat failed; events are enqueued — let the outbox dedup catch
-        // the re-process on next restart.
+      // C1: when the torn-write guard dropped the last row, leave the cursor
+      // where it is so the file is re-processed once the write completes.
+      if (!parsed.droppedSuspectLastRow) {
+        try {
+          const st = await stat(path);
+          setWatcherCursor(opts.folder, st.mtimeMs);
+        } catch {
+          // stat failed; events are enqueued: let the outbox dedup catch
+          // the re-process on next restart.
+        }
       }
-      console.log(
-        `[csv-watcher] ${path} rows=${parsed.rows.length} emitted=${emitted} skipped=${skipped}`
-      );
+      // L5: consistent, loud per-file summary. When a file mapped fine but
+      // produced ZERO events (every row failed to map), warn instead of the
+      // quiet info line: same loudness as the no-mapping / empty cases above,
+      // and the cursor already advanced (see !droppedSuspectLastRow) so it will
+      // not re-warn until the content changes. A file that emitted at least one
+      // event logs at info level as before.
+      const summary = `[csv-watcher] ${base} rows=${parsed.rows.length} emitted=${emitted} skipped=${skipped}`;
+      if (emitted === 0 && parsed.rows.length > 0) {
+        console.warn(
+          `${summary}: produced ZERO events (all rows failed to map). Cursor advanced; will retry only if the file content changes.`
+        );
+      } else {
+        console.log(summary);
+      }
     } catch (err) {
-      console.error(`[csv-watcher] failed for ${path}:`, err);
+      console.error(`[csv-watcher] failed for ${base}:`, err);
     }
   }
 
@@ -182,8 +342,11 @@ export function watchHonorarFolder(opts: {
       console.log(
         `[csv-watcher] startup catch-up: ${toProcess.length} file(s) newer than cursor=${cursor}`
       );
+      // M-P9 part 3: feed catch-up files through the same serialization chain
+      // as live events, so a live add/change that arrives mid-catch-up cannot
+      // interleave and advance the cursor out of mtime order.
       for (const f of toProcess) {
-        await process(f.path);
+        enqueueProcessing(f.path);
       }
     } catch (err) {
       console.error(`[csv-watcher] startup catch-up failed:`, err);

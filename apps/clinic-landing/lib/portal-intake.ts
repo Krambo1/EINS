@@ -28,7 +28,12 @@ interface IntakeQuiz {
   /** Floor of priceRange.fromCents from the treatment config. */
   treatmentValueCents?: number;
   timeframe?: string;
+  /** Legacy (quiz v1) — kept for wire-compat, no longer collected. */
   experience?: string;
+  /** Investment-gate answer (quiz v2, OP flows): ja | unsicher | erst-informieren. */
+  budget?: string;
+  /** Distance answer (quiz v2, OP flows): in-der-naehe | bis-1-stunde | weiter-entfernt. */
+  distance?: string;
   branch: "qualified" | "info-only";
   city?: string;
   notes?: string;
@@ -73,6 +78,8 @@ interface IntakeBody {
   contactEmail?: string;
   contactPhone?: string;
   treatmentWish?: string;
+  /** Human-readable investment-gate summary, shown in the portal lead view. */
+  budgetIndication?: string;
   message?: string;
   dsgvoConsent: true;
   quiz: IntakeQuiz;
@@ -108,6 +115,13 @@ function buildAttribution(
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/** Investment-gate answer → human-readable line for the portal lead view. */
+const BUDGET_LABELS: Record<string, string> = {
+  ja: "Investitionsrahmen passt",
+  unsicher: "Investitionsrahmen unsicher",
+  "erst-informieren": "Möchte erst Informationen",
+};
+
 export function mapToIntake(
   payload: QuizSubmissionPayload,
   clinic: Clinic,
@@ -122,6 +136,7 @@ export function mapToIntake(
     contactEmail: payload.email,
     contactPhone: payload.phone,
     treatmentWish: payload.treatment,
+    budgetIndication: payload.budget ? BUDGET_LABELS[payload.budget] ?? payload.budget : undefined,
     message: payload.notes,
     dsgvoConsent: true,
     quiz: {
@@ -131,6 +146,8 @@ export function mapToIntake(
       treatmentValueCents: treatment.priceRange.fromCents,
       timeframe: payload.timeframe,
       experience: payload.experience,
+      budget: payload.budget,
+      distance: payload.distance,
       branch: payload.branch,
       city: payload.city,
       notes: payload.notes,

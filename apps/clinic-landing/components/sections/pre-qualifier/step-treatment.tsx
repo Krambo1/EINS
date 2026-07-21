@@ -2,29 +2,26 @@
 
 import { RadioCardGroup } from "@/components/ui/radio-card-group";
 import type { Treatment } from "@/lib/types";
-import type { QuizAction, QuizState } from "./types";
+import type { QuizState } from "./types";
 
 interface Props {
   treatment: Treatment;
   state: QuizState;
-  dispatch: React.Dispatch<QuizAction>;
+  onSelect: (value: string) => void;
 }
 
-export function StepTreatment({ treatment, state, dispatch }: Props) {
+export function StepTreatment({ treatment, state, onSelect }: Props) {
   return (
     <div className="step-enter">
-      <h3 className="text-xl font-semibold text-brand-fg sm:text-2xl">
+      <h3 className="text-lg font-semibold text-brand-fg sm:text-xl">
         Was möchten Sie behandeln lassen?
       </h3>
-      <p className="mt-1 text-brand-fg-muted">
-        Bitte wählen Sie aus — Mehrfachauswahl besprechen wir gerne im Beratungsgespräch.
-      </p>
-      <div className="mt-5">
+      <div className="mt-4">
         <RadioCardGroup
           name="treatment"
           ariaLabel="Behandlungsbereich auswählen"
           value={state.treatment}
-          onValueChange={(v) => dispatch({ type: "set", field: "treatment", value: v })}
+          onValueChange={onSelect}
           options={treatment.quiz.treatmentOptions}
           cols={2}
         />

@@ -1,10 +1,18 @@
 import { NextResponse, after, type NextRequest } from "next/server";
 import { z } from "zod";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { rateLimit } from "@/server/rate-limit";
 import { writeAudit } from "@/server/audit";
 import { verifyClinicSignature } from "@/server/clinic-signature";
 import { db, schema } from "@/db/client";
+import {
+  evaluateHeartbeatHealth,
+  healthSignature,
+  reconcileAgentHealthAlerts,
+  HEARTBEAT_SCOPE_KEYS,
+  type AdapterStatusSnapshot,
+  type AgentHeartbeatHealth,
+} from "@/server/pvs-agent-health";
 
 /**
  * PVS Bridge: GDT-Agent heartbeat ingest (P2-2).
@@ -49,29 +57,174 @@ const BridgeSourceEnum = z.enum([
   "pixelmedics",
 ]);
 
+/**
+ * A telemetry counter that can never reject the heartbeat.
+ *
+ * `.catch(0)` absorbs a NaN or a wrong type; the clamp keeps the value inside
+ * a Postgres `integer` (and inside anything an operator would act on) without
+ * a `.max()` that would 400 the whole envelope. A backlog past a million rows
+ * is precisely the incident this endpoint exists to report, so refusing the
+ * report over its size is the one behaviour we must not have.
+ */
+const clampedCount = z
+  .number()
+  .int()
+  .nonnegative()
+  .transform((n) => Math.min(n, 1_000_000));
+
+/**
+ * The same counter for REQUIRED fields, where we must produce a value and 0 is
+ * the only sane one. Optional health counters must NOT use this: see
+ * `preserveOnGarbage` for why degrading them to 0 is the bug, not the fix.
+ */
+const countField = clampedCount.catch(0);
+
+/**
+ * A telemetry string that truncates instead of rejecting. Same reasoning.
+ * `fallback` is what a missing or wrong-typed value degrades to; identity-ish
+ * fields pass a readable placeholder so the admin card does not render a blank.
+ */
+const textField = (max: number, fallback = "") =>
+  z
+    .string()
+    .catch(fallback)
+    .transform((s) => s.slice(0, max));
+
+/**
+ * Largest epoch-ms `new Date()` can represent. Anything past it yields an
+ * Invalid Date, which then throws `RangeError` the moment the driver
+ * serializes it, and the handler answers 500. The agent retries a 500 forever,
+ * so an agent that ever reported a microsecond timestamp would be dark
+ * permanently. Clamp instead.
+ */
+const MAX_EPOCH_MS = 8_640_000_000_000_000;
+
+/** An epoch-ms field that can never produce an Invalid Date. */
+const epochField = z
+  .number()
+  .int()
+  .positive()
+  .transform((n) => Math.min(n, MAX_EPOCH_MS));
+
+/**
+ * An OPTIONAL health field degrades to ABSENT, never to a healthy-looking
+ * empty value.
+ *
+ * This is the same invariant the upsert relies on. If a wrong-typed
+ * `dbAdaptersFailed` degraded to `""` and a wrong-typed `missingFolders` to
+ * `[]`, the evaluator would read "no failure", the stored values would be
+ * overwritten, and the live alert would be auto-resolved: a malformed payload
+ * would silently recreate the exact blind spot this endpoint exists to close.
+ * Degrading to `undefined` means "this heartbeat cannot report it", so the
+ * stored value and the alert both survive untouched.
+ */
+const preserveOnGarbage = <T extends z.ZodTypeAny>(inner: T) =>
+  inner.optional().catch(undefined);
+
+/**
+ * ENVELOPE POLICY: this schema rejects on IDENTITY, never on SIZE.
+ *
+ * clinicId and sentAt decide whether we can attribute and order the heartbeat
+ * at all, so those stay strict. Everything else is telemetry, and every
+ * size-based `.max()` on telemetry is a trap: the values that trip it (a
+ * 10 000-char Oracle error chain, a million-row backlog) are exactly the
+ * incidents this endpoint exists to report. Worse, the trigger value is
+ * persistent, so a rejecting bound does not drop one heartbeat, it drops every
+ * future one, and the agent's only complaint is a console warning rate-limited
+ * to one line per ten minutes on a machine in a Praxis back office. The Praxis
+ * would go from partially blind to fully dark at the exact moment something
+ * broke. So: clamp and truncate, never reject.
+ */
 const HeartbeatSchema = z.object({
   clinicId: z.string().uuid(),
-  agentVersion: z.string().max(50),
-  failedCount: z.number().int().nonnegative().max(1_000_000),
-  oldestFailedAt: z.number().int().positive().nullable(),
-  lastFailureReason: z.string().max(500).nullable(),
+  agentVersion: textField(50),
+  failedCount: countField,
+  oldestFailedAt: epochField.nullable().catch(null),
+  lastFailureReason: textField(500).nullable().catch(null),
   recentReasons: z
     .array(
       z.object({
-        reason: z.string().max(500),
-        count: z.number().int().nonnegative().max(1_000_000),
+        reason: textField(500),
+        count: countField,
       })
     )
-    .max(20),
+    .catch([])
+    .transform((a) => a.slice(0, 20)),
   /**
    * Phase 7: the bridge_sources this agent currently runs (db-adapter vendors
    * via bridgeSourceForVendor, plus gdt_agent when a watchFolder is set). The
    * portal upserts each into pvs_link_source so the clinic is allowed to emit
    * them. Optional + back-compat: an older agent that omits it keeps working
    * (its events still match via the fast path or the 0055 backfill row).
+   *
+   * Unknown entries are DROPPED, they do not reject the heartbeat. Version
+   * skew makes that reachable: roll an agent that knows a new vendor out
+   * before the portal migration that widens this enum and, with a rejecting
+   * bound, every heartbeat from that Praxis 400s forever, taking the backlog
+   * and failure telemetry down with it. Dropping keeps the known sources
+   * enrolling and loses only the one value the portal cannot store anyway
+   * (pvs_link_source.bridge_source has its own CHECK constraint, so an
+   * unknown value could never be written regardless).
    */
-  enrolledVendors: z.array(BridgeSourceEnum).max(20).optional(),
-  sentAt: z.number().int().positive(),
+  enrolledVendors: z
+    .array(BridgeSourceEnum.nullable().catch(null))
+    .catch([])
+    .transform((a) =>
+      a.filter((v): v is z.infer<typeof BridgeSourceEnum> => v !== null).slice(0, 20)
+    )
+    .optional(),
+  sentAt: epochField,
+
+  /**
+   * 0069: operational-health fields. The agent has emitted these since the
+   * H10c/H13/M-A2/M-D4 work; this envelope used to omit them, and Zod's
+   * default object mode strips unknown keys silently, so they were parsed
+   * and thrown away with a 200 ok.
+   *
+   * They matter because `failedCount` is a DEAD-LETTER counter. A moved
+   * export folder, a runner that never started, a halted stream and a
+   * forever-retrying outbox all report failedCount = 0 while delivering
+   * zero events, which is indistinguishable from a quiet week at the Praxis.
+   *
+   * All optional: an older agent that omits them keeps working, and the
+   * upsert below leaves the stored values untouched rather than resetting
+   * them to a healthy-looking zero.
+   */
+  pendingCount: preserveOnGarbage(clampedCount),
+  oldestPendingAt: preserveOnGarbage(epochField.nullable()),
+  stalePendingCount: preserveOnGarbage(clampedCount),
+  missingFolders: preserveOnGarbage(
+    z.array(textField(500)).transform((a) => a.slice(0, 50))
+  ),
+  dbAdaptersFailed: preserveOnGarbage(
+    // Deliberately NOT textField: its "" fallback would read as "no failure"
+    // to the evaluator and auto-resolve a live alert.
+    z
+      .string()
+      .transform((s) => s.slice(0, 2_000))
+      .nullable()
+  ),
+  adapterStatuses: preserveOnGarbage(
+    z
+      .array(
+        z.object({
+          vendor: textField(100, "unbekannt"),
+          stream: textField(100, "unbekannt"),
+          status: textField(50, "unbekannt"),
+          lastError: textField(1_000).nullable().catch(null).default(null),
+          connectError: textField(1_000).nullable().catch(null).default(null),
+          consecutiveFailures: countField.optional(),
+          lastRunAt: z
+            .number()
+            .int()
+            .nonnegative()
+            .nullable()
+            .catch(null)
+            .optional(),
+        })
+      )
+      .transform((a) => a.slice(0, 200))
+  ),
 });
 
 export async function POST(request: NextRequest) {
@@ -166,6 +319,76 @@ export async function POST(request: NextRequest) {
       ? new Date(event.oldestFailedAt)
       : null;
 
+    // 0069: read the stored health slice first, for two reasons. It lets an
+    // older agent that omits the health fields keep its last known values
+    // instead of having them reset to a healthy-looking zero, and it lets us
+    // skip the alert reconcile entirely while nothing has changed (the steady
+    // state is one heartbeat per clinic per minute, forever).
+    const [prior] = await db
+      .select({
+        stalePendingEvents: schema.pvsAgentStatus.stalePendingEvents,
+        missingFolders: schema.pvsAgentStatus.missingFolders,
+        dbAdaptersFailed: schema.pvsAgentStatus.dbAdaptersFailed,
+        adapterStatuses: schema.pvsAgentStatus.adapterStatuses,
+      })
+      .from(schema.pvsAgentStatus)
+      .where(eq(schema.pvsAgentStatus.clinicId, event.clinicId))
+      .limit(1);
+
+    const priorHealth: AgentHeartbeatHealth = {
+      stalePendingEvents: prior?.stalePendingEvents ?? 0,
+      missingFolders: (prior?.missingFolders as string[] | undefined) ?? [],
+      dbAdaptersFailed: prior?.dbAdaptersFailed ?? null,
+      adapterStatuses:
+        (prior?.adapterStatuses as AdapterStatusSnapshot[] | undefined) ?? [],
+    };
+    // Absent field == "this agent build cannot report it", NOT "all clear".
+    const nextHealth: AgentHeartbeatHealth = {
+      stalePendingEvents:
+        event.stalePendingCount ?? priorHealth.stalePendingEvents,
+      missingFolders: event.missingFolders ?? priorHealth.missingFolders,
+      dbAdaptersFailed:
+        event.dbAdaptersFailed !== undefined
+          ? event.dbAdaptersFailed
+          : priorHealth.dbAdaptersFailed,
+      adapterStatuses: event.adapterStatuses ?? priorHealth.adapterStatuses,
+    };
+
+    const healthValues = {
+      ...(event.pendingCount !== undefined
+        ? { pendingEvents: event.pendingCount }
+        : {}),
+      ...(event.stalePendingCount !== undefined
+        ? { stalePendingEvents: event.stalePendingCount }
+        : {}),
+      ...(event.oldestPendingAt !== undefined
+        ? {
+            oldestPendingAt: event.oldestPendingAt
+              ? new Date(event.oldestPendingAt)
+              : null,
+          }
+        : {}),
+      ...(event.missingFolders !== undefined
+        ? {
+            missingFolders: event.missingFolders as unknown as Record<
+              string,
+              unknown
+            >,
+          }
+        : {}),
+      ...(event.dbAdaptersFailed !== undefined
+        ? { dbAdaptersFailed: event.dbAdaptersFailed }
+        : {}),
+      ...(event.adapterStatuses !== undefined
+        ? {
+            adapterStatuses: event.adapterStatuses as unknown as Record<
+              string,
+              unknown
+            >,
+          }
+        : {}),
+    };
+
     await db
       .insert(schema.pvsAgentStatus)
       .values({
@@ -176,6 +399,7 @@ export async function POST(request: NextRequest) {
         oldestFailedAt,
         lastFailureReason: event.lastFailureReason,
         recentReasons: event.recentReasons as unknown as Record<string, unknown>,
+        ...healthValues,
       })
       .onConflictDoUpdate({
         target: schema.pvsAgentStatus.clinicId,
@@ -187,8 +411,32 @@ export async function POST(request: NextRequest) {
           lastFailureReason: event.lastFailureReason,
           recentReasons:
             event.recentReasons as unknown as Record<string, unknown>,
+          ...healthValues,
         },
       });
+
+    // 0069: raise/resolve the heartbeat-derived health alerts, but only when
+    // the health picture actually changed. `after()` keeps the alert writes
+    // off the response path: a failed alert write must never fail a heartbeat.
+    if (
+      prior === undefined ||
+      healthSignature(priorHealth) !== healthSignature(nextHealth)
+    ) {
+      after(() =>
+        reconcileAgentHealthAlerts(
+          event.clinicId,
+          evaluateHeartbeatHealth(nextHealth),
+          HEARTBEAT_SCOPE_KEYS
+        ).catch((err) =>
+          // Swallowed on purpose: a failed alert write must never turn a
+          // healthy heartbeat into an error the agent will retry forever.
+          console.error(
+            `[pvs-agent-heartbeat] alert reconcile failed (clinic=${event.clinicId}):`,
+            err
+          )
+        )
+      );
+    }
 
     // Phase 7: record the bridge_sources this agent runs so the clinic is
     // allowed to emit them (pvs_link_source membership). One batched upsert;
