@@ -6,6 +6,7 @@ import { Hero } from "@/components/sections/hero";
 import { StatsShowcase } from "@/components/sections/stats-showcase";
 import { System } from "@/components/sections/system";
 import { Offer } from "@/components/sections/offer";
+import { PortalShowcase } from "@/components/sections/portal-showcase";
 import { Guarantee } from "@/components/sections/guarantee";
 import { Timeline } from "@/components/sections/timeline";
 import { FitCheck } from "@/components/sections/fit-check";
@@ -90,6 +91,7 @@ export default function Page() {
       <Nav />
       <main>
         <Hero />
+        <PortalShowcase />
         <Pains />
         <System />
         <Offer />

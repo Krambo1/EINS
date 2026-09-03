@@ -15,7 +15,7 @@ const VIDEO_HEIGHT = 1080;
 // playback pauses when it scrolls back out so it never burns CPU off-screen.
 // This keeps the video off the critical path entirely — initial load is
 // unaffected. Replaces the old PortalTabShowcase visual; the heading, copy and
-// card framing around it stay in offer.tsx.
+// card framing around it stay in portal-showcase.tsx.
 export function PortalVideoShowcase() {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
