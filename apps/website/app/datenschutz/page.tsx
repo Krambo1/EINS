@@ -209,6 +209,38 @@ export default function Datenschutz() {
         </p>
       </Section>
 
+      <Section label="Art. 6 Abs. 1 lit. f DSGVO" heading="Persönliche Video-Seiten">
+        <p>
+          Einzelnen Praxen schicken wir einen persönlichen Link auf ein Video unter
+          eins.ag/v/…. Diese Seiten setzen keine Cookies, speichern nichts in
+          Ihrem Browser und laden weder Vercel Analytics noch andere Dienste von
+          Dritten.
+        </p>
+        <p>
+          Damit wir wissen, ob das Video angekommen ist, erfassen wir beim Aufruf:
+          dass die Seite geöffnet wurde, ob und wie weit das Video abgespielt wurde
+          (in Stufen von 10 bis 100 %), ob der Button zur Terminbuchung geklickt
+          wurde, die grobe Geräteart (Handy, Tablet, Computer) und den Zeitpunkt.
+          Ihre IP-Adresse speichern wir dabei nicht. Aus IP-Adresse und
+          Browserkennung bilden wir lediglich eine verschlüsselte Kennung, die
+          jeden Tag wechselt und sich nicht auf Sie zurückführen lässt. Sie dient
+          nur dazu, mehrere Aufrufe desselben Geräts an einem Tag zusammenzufassen.
+        </p>
+        <p>
+          Rechtsgrundlage ist unser berechtigtes Interesse nach Art. 6 Abs. 1
+          lit. f DSGVO, zu erfahren, ob eine angefragte Video-Analyse gesehen
+          wurde. Das Video selbst wird aus dem Objektspeicher R2 der Cloudflare,
+          Inc. (101 Townsend St, San Francisco, CA 94107, USA) ausgeliefert, die
+          dabei technisch notwendig Ihre IP-Adresse verarbeitet. Cloudflare ist
+          unter dem EU-U.S. Data Privacy Framework zertifiziert. Sie können der
+          Auswertung jederzeit per E-Mail an{" "}
+          <a href={`mailto:${CONTACT_EMAIL}`} className="text-accent underline-offset-4 hover:underline">
+            {CONTACT_EMAIL}
+          </a>{" "}
+          widersprechen.
+        </p>
+      </Section>
+
       <Section label="Art. 15-21 DSGVO" heading="Ihre Rechte">
         <p>Ihnen stehen folgende Rechte gegenüber uns zu:</p>
         <ul className="list-disc space-y-2 pl-5">

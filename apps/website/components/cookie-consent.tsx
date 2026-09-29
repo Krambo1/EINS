@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Analytics } from "@vercel/analytics/next";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 
@@ -38,6 +39,10 @@ export function CookieConsent() {
   const [mounted, setMounted] = useState(false);
   const [decision, setDecision] = useState<Decision>(null);
   const [open, setOpen] = useState(false);
+  // The personal video pages (/v/<slug>) set no cookies and load no
+  // third-party script, so there is nothing to consent to and the banner
+  // would only sit on top of the video.
+  const onVideoPage = usePathname()?.startsWith("/v/") ?? false;
 
   useEffect(() => {
     setMounted(true);
@@ -56,7 +61,7 @@ export function CookieConsent() {
     setOpen(false);
   };
 
-  if (!mounted) return null;
+  if (!mounted || onVideoPage) return null;
 
   const consentGranted = decision === "all";
 

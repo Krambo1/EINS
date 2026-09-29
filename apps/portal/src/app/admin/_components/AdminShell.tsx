@@ -19,6 +19,7 @@ import {
   Users,
   ScrollText,
   Menu,
+  Film,
 } from "lucide-react";
 import { TopProgressBar } from "@/app/(portal)/_components/TopProgressBar";
 import { GlobalSearch } from "@/app/(portal)/_components/GlobalSearch";
@@ -59,6 +60,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/admin/leads", label: "Anfragen", icon: Inbox },
       { href: "/admin/leistung", label: "Leistung", icon: TrendingUp },
+      { href: "/admin/videos", label: "Videos", icon: Film },
     ],
   },
   {

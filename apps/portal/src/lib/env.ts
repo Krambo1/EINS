@@ -76,6 +76,16 @@ export const env = createEnv({
     R2_ENDPOINT: z.string().optional(),
     R2_PUBLIC_BASE: z.string().optional(),
 
+    /**
+     * Outreach videos (0073). VIDEO_PUBLIC_ORIGIN is where the watch page is
+     * served (the website app renders /v/<slug>); links shown in the admin
+     * and returned by the API are built from it. VIDEO_API_TOKEN guards the
+     * token API (/api/videos) that the outreach tooling uses to upload and to
+     * read stats; unset means that API answers 404.
+     */
+    VIDEO_PUBLIC_ORIGIN: z.string().url().default("https://eins.ag"),
+    VIDEO_API_TOKEN: z.string().min(32).optional(),
+
     // OpenAI
     OPENAI_API_KEY: z.string().optional(),
     OPENAI_MODEL: z.string().default("gpt-4o-mini"),
@@ -200,6 +210,8 @@ export const env = createEnv({
     R2_BUCKET: process.env.R2_BUCKET,
     R2_ENDPOINT: process.env.R2_ENDPOINT,
     R2_PUBLIC_BASE: process.env.R2_PUBLIC_BASE,
+    VIDEO_PUBLIC_ORIGIN: process.env.VIDEO_PUBLIC_ORIGIN,
+    VIDEO_API_TOKEN: process.env.VIDEO_API_TOKEN,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     OPENAI_MODEL: process.env.OPENAI_MODEL,
     OPENAI_PROMPT_VERSION: process.env.OPENAI_PROMPT_VERSION,

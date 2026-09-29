@@ -3,8 +3,10 @@ import { createWriteStream } from "node:fs";
 import { mkdir, unlink } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
+import { getAdminSession } from "@/auth/admin";
 import { getSession } from "@/auth/session";
 import { hasR2 } from "@/lib/env";
+import { VIDEO_KEY_PREFIX } from "@/lib/outreach-video";
 import {
   GENERAL_UPLOAD_EXTENSIONS,
   MAX_VIDEO_UPLOAD_BYTES,
@@ -40,15 +42,22 @@ const ALLOWED_EXTENSIONS = new Set([
 export async function POST(req: NextRequest) {
   if (hasR2()) return new NextResponse("Not Found", { status: 404 });
 
-  const session = await getSession();
-  if (!session) return new NextResponse("Unauthorized", { status: 401 });
-
   const key = req.nextUrl.searchParams.get("key") ?? "";
   if (!key || key.includes("..") || key.startsWith("/") || key.includes("\\")) {
     return new NextResponse("Bad Request", { status: 400 });
   }
-  if (!key.startsWith(`${session.clinicId}/`)) {
-    return new NextResponse("Forbidden", { status: 403 });
+  if (key.startsWith(VIDEO_KEY_PREFIX)) {
+    // Outreach videos (admin upload, server/outreach-videos.ts) are EINS-owned,
+    // not clinic-scoped: an admin session instead of the clinic-prefix rule.
+    if (!(await getAdminSession())) {
+      return new NextResponse("Unauthorized", { status: 401 });
+    }
+  } else {
+    const session = await getSession();
+    if (!session) return new NextResponse("Unauthorized", { status: 401 });
+    if (!key.startsWith(`${session.clinicId}/`)) {
+      return new NextResponse("Forbidden", { status: 403 });
+    }
   }
   const ext = fileExtension(key);
   if (!ALLOWED_EXTENSIONS.has(ext)) {
