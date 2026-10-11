@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getAdminSession, isAllowedAdminIp } from "@/auth/admin";
 import { getTrustedClientIp } from "@/lib/client-ip";
@@ -47,10 +48,21 @@ export default async function AdminLayout({
   const session = await getAdminSession();
 
   // No session => bare surface (matches the login card's clean background).
+  // The <Suspense> keeps `children` from being the direct child of a DOM
+  // element. `children` can arrive from the RSC stream as a lazy element while
+  // a client chunk it needs is still loading (dev: about 1 in 3 loads;
+  // production: on a slow connection). React then suspends inside the parent
+  // <div>, replays it and tries to claim that DOM node again with a hydration
+  // cursor that already points inside it: "Hydration failed" (React #418).
+  // Under a Suspense boundary the replay happens on a fiber that claims no
+  // DOM. Adds only comment markers; the loading.tsx boundaries below still
+  // catch the wait.
   if (!session) {
     return (
       <div className="relative min-h-dvh bg-bg-primary">
-        <div className="p-6 md:p-12">{children}</div>
+        <div className="p-6 md:p-12">
+          <Suspense>{children}</Suspense>
+        </div>
       </div>
     );
   }
