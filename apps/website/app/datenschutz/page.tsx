@@ -166,8 +166,8 @@ export default function Datenschutz() {
         <p>
           Eingehende E-Mails an {CONTACT_EMAIL} verarbeitet unser E-Mail-Anbieter
           Migadu (Migadu-Mail GmbH, Schachen, Schweiz) auf Servern in
-          Frankreich (EU); eine Übermittlung in ein Drittland findet dafür
-          nicht statt. Ihre Daten werden
+          Frankreich (EU). Für Zugriffe aus der Schweiz gilt der
+          Angemessenheitsbeschluss der EU-Kommission (Art. 45 DSGVO). Ihre Daten werden
           gelöscht, sobald der Zweck der Verarbeitung entfallen ist und keine
           gesetzlichen Aufbewahrungspflichten entgegenstehen.
         </p>
@@ -325,7 +325,8 @@ export default function Datenschutz() {
         </ul>
         <p>
           Eingehende E-Mails verarbeitet Migadu (Migadu-Mail GmbH, Schweiz) auf
-          Servern in Frankreich (EU), also ohne Übermittlung in ein Drittland.
+          Servern in Frankreich (EU); für die Schweiz besteht ein
+          Angemessenheitsbeschluss.
         </p>
         <p>
           Eine aktuelle Übersicht der unter dem Data Privacy Framework

@@ -233,7 +233,8 @@ export default function DatenschutzPraxen() {
             <strong>Migadu</strong> (Migadu-Mail GmbH, Schachen, Schweiz): das
             Postfach {CONTACT_EMAIL}, in dem Ihre Antworten eingehen und aus dem
             wir antworten, auch mit dem angefragten Video als Anhang. Server in
-            Frankreich (EU), keine Übermittlung in ein Drittland.
+            Frankreich (EU); für Zugriffe aus der Schweiz gilt der
+            Angemessenheitsbeschluss der EU-Kommission.
           </li>
           <li>
             <strong>Cloudflare</strong> (Cloudflare, Inc., San Francisco, USA):
