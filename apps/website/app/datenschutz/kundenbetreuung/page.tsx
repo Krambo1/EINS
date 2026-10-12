@@ -158,7 +158,7 @@ export default function DatenschutzKundenbetreuung() {
           ))}
         </ul>
         <p>
-          Für Störungsalarme an Karam Issa nutzen wir Pushover (Pushover, LLC, USA) und Healthchecks.io. Diese Dienste
+          Für Störungsalarme an Karam Issa nutzen wir PagerDuty (PagerDuty, Inc., USA) oder Pushover (Pushover, LLC, USA) sowie Healthchecks.io. Diese Dienste
           erhalten keine Namen, Adressen oder Inhalte Ihrer Nachrichten. Eine Kopie der Standardvertragsklauseln erhalten
           Sie auf Anfrage.
         </p>
