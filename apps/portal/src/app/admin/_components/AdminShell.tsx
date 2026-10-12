@@ -67,6 +67,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "Betrieb",
     items: [
       { href: "/admin/operations", label: "Operations", icon: ListChecks, badge: "operations" },
+      { href: "/admin/support", label: "Kundenbetreuung", icon: ListChecks },
       { href: "/admin/integrations", label: "Integrationen", icon: Plug },
       { href: "/admin/pvs-bridge", label: "PVS-Bridge", icon: Database },
     ],

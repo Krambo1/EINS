@@ -1,0 +1,5 @@
+import Link from 'next/link';
+import {requireAdmin} from '@/auth/admin-guards';
+import {supportCases,supportEnabled} from '@/server/support';
+export const dynamic='force-dynamic';
+export default async function AdminSupport(){await requireAdmin();const cases=await supportCases();return <div className="space-y-6"><h1 className="text-3xl font-semibold">Kundenbetreuung</h1>{!supportEnabled()&&<p>Die Kundenbetreuung ist noch nicht aktiviert.</p>}<div className="space-y-3">{cases.map(c=><Link href={`/admin/support/${c.id}`} key={c.id} className="block rounded-xl border border-border p-5"><h2 className="font-semibold">{c.practice_name}: {c.subject}</h2><p>{c.status==='RESOLVED'?'Geklärt':'Offen'} · {c.channel==='portal'?'Portal':'E-Mail'} · {c.mode==='manual'?'Persönlich übernommen':'Automatische Antworten'}</p><p className="mt-2">{c.needs_action?'Karam muss handeln.':c.waiting_for==='practice'?'Wartet auf die Praxis.':'Keine persönliche Handlung angefordert.'}</p></Link>)}{cases.length===0&&<p>Keine Vorgänge vorhanden.</p>}</div></div>;}

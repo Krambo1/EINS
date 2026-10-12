@@ -117,6 +117,7 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "System",
     items: [
+      { href: "/support", label: "Nachrichten an EINS", icon: Inbox, permission: "feedback.submit" },
       { href: "/faq", label: "Häufige Fragen", icon: HelpCircle },
       { href: "/feedback", label: "Feedback", icon: MessageSquare, permission: "feedback.submit" },
       { href: "/einstellungen", label: "Einstellungen", icon: Settings, permission: "settings.team" },

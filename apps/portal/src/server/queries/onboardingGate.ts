@@ -86,6 +86,7 @@ const GATE_ALLOWED_PREFIXES = [
   "/einstellungen",
   "/faq",
   "/feedback",
+  "/support",
 ];
 
 export function isGateAllowedPath(pathname: string | null | undefined): boolean {
