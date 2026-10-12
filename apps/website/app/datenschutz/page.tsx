@@ -164,11 +164,25 @@ export default function Datenschutz() {
           der Beantwortung von Anfragen).
         </p>
         <p>
-          Für die Verarbeitung eingehender E-Mails nutzen wir Gmail der Google
-          Ireland Limited (Gordon House, Barrow Street, Dublin 4, Irland). Google
-          ist unter dem EU-U.S. Data Privacy Framework zertifiziert. Ihre Daten
-          werden gelöscht, sobald der Zweck der Verarbeitung entfallen ist und
-          keine gesetzlichen Aufbewahrungspflichten entgegenstehen.
+          Eingehende E-Mails an {CONTACT_EMAIL} verarbeitet unser E-Mail-Anbieter
+          Purelymail (Add Rabbit, LLC, Erie, Pennsylvania, USA) auf Servern in
+          den USA. Der Anbieter ist nicht unter dem EU-U.S. Data Privacy
+          Framework zertifiziert. Für diesen Empfänger besteht kein
+          Angemessenheitsbeschluss der EU-Kommission. Ihre Daten werden
+          gelöscht, sobald der Zweck der Verarbeitung entfallen ist und keine
+          gesetzlichen Aufbewahrungspflichten entgegenstehen.
+        </p>
+      </Section>
+
+      <Section label="Art. 14 DSGVO" heading="Praxen, die wir angeschrieben haben">
+        <p>
+          Haben Sie als Praxis eine E-Mail von uns bekommen, ohne vorher mit uns
+          Kontakt gehabt zu haben? Woher wir Ihre Adresse haben, was wir damit
+          tun und wie Sie jede weitere E-Mail stoppen, steht unter{" "}
+          <Link href="/datenschutz/praxen" className="text-accent underline-offset-4 hover:underline">
+            eins.ag/datenschutz/praxen
+          </Link>
+          .
         </p>
       </Section>
 
@@ -295,8 +309,8 @@ export default function Datenschutz() {
       <Section label="Art. 44 ff. DSGVO" heading="Datenübermittlung in Drittländer">
         <p>
           Im Rahmen des Betriebs dieser Website werden personenbezogene Daten an
-          Anbieter mit Sitz in den USA übermittelt. Die Übermittlung erfolgt
-          jeweils auf Grundlage einer Zertifizierung des Empfängers unter dem
+          Anbieter mit Sitz in den USA übermittelt. Bei den folgenden Empfängern
+          erfolgt die Übermittlung auf Grundlage ihrer Zertifizierung unter dem
           EU-U.S. Data Privacy Framework (Angemessenheitsbeschluss der EU-Kommission
           vom 10. Juli 2023, Art. 45 DSGVO):
         </p>
@@ -306,14 +320,15 @@ export default function Datenschutz() {
             (nach Einwilligung) Web Analytics.
           </li>
           <li>
-            <strong>Google LLC / Google Ireland Limited</strong> – Verarbeitung
-            eingehender E-Mails über Gmail.
-          </li>
-          <li>
             <strong>Calendly, LLC (USA)</strong> – Terminbuchung nach Weiter­leitung
             sowie (nach Einwilligung) Verbindungsvorbereitung.
           </li>
         </ul>
+        <p>
+          Eingehende E-Mails verarbeitet Purelymail (Add Rabbit, LLC, USA). Der
+          Anbieter ist nicht unter dem Data Privacy Framework zertifiziert, für
+          ihn besteht kein Angemessenheitsbeschluss.
+        </p>
         <p>
           Eine aktuelle Übersicht der unter dem Data Privacy Framework
           zertifizierten Unternehmen finden Sie unter{" "}
@@ -335,7 +350,7 @@ export default function Datenschutz() {
           Rahmenbedingungen oder die auf unserer Website eingesetzten Dienste
           ändern. Die jeweils aktuelle Fassung finden Sie auf dieser Seite.
         </p>
-        <p className="font-mono text-sm text-fg-secondary">Stand: Mai 2026</p>
+        <p className="font-mono text-sm text-fg-secondary">Stand: 12.10.2026</p>
       </Section>
 
       {/*
