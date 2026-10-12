@@ -14,15 +14,21 @@ export const metadata = {
   alternates: { canonical: "/datenschutz/kundenbetreuung" },
 };
 
-const STAND = "12.10.2026";
+const STAND = "13.10.2026";
 
 /** Every service that receives support data, with role, place and transfer basis. */
 const PROVIDERS: { name: string; task: string; place: string; basis: string }[] = [
   {
-    name: "Purelymail (Add Rabbit, LLC, Erie, Pennsylvania, USA)",
+    name: "Migadu (Migadu-Mail GmbH, Schachen, Schweiz)",
     task: "E-Mail-Postfach team@eins.ag: Empfang Ihrer E-Mails und Ablage der Korrespondenz",
-    place: "Server in den USA",
-    basis: "Der Anbieter ist nicht unter dem EU-U.S. Data Privacy Framework zertifiziert; für diesen Empfänger besteht kein Angemessenheitsbeschluss der EU-Kommission",
+    place: "Rechenzentren in Frankreich (EU)",
+    basis: "Auftragsverarbeitungsvertrag (die Datenschutzerklärung von Migadu ist zugleich der Auftragsverarbeitungsvertrag); Speicherung in der EU, für die Schweiz besteht ein Angemessenheitsbeschluss der EU-Kommission (Art. 45 DSGVO)",
+  },
+  {
+    name: "Cloudflare (Cloudflare, Inc., San Francisco, USA)",
+    task: "nur wenn Sie an kontakt@eins-wachstum.de oder kontakt@eins-system.de schreiben: Weiterleitung dieser E-Mails an team@eins.ag; Cloudflare speichert die Nachricht nicht",
+    place: "Netz des Anbieters; Anbieter in den USA",
+    basis: "Auftragsverarbeitungsvertrag; Cloudflare ist nach dem EU-U.S. Data Privacy Framework zertifiziert (Angemessenheitsbeschluss, Art. 45 DSGVO)",
   },
   {
     name: "Resend (Plus Five Five, Inc., San Francisco, USA)",
