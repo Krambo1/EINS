@@ -26,8 +26,8 @@ const PROVIDERS: { name: string; task: string; place: string; basis: string }[] 
   },
   {
     name: "Resend (Plus Five Five, Inc., San Francisco, USA)",
-    task: "Versand unserer E-Mail-Antworten und Zustellstatus",
-    place: "Versand aus Irland (EU); Konto- und Versanddaten in den USA",
+    task: "Versand unserer E-Mail-Antworten und Zustellstatus; außerdem erhält Resend eine Kopie jeder persönlich geschriebenen E-Mail an team@eins.ag, damit die Software startet, sobald eine Nachricht eintrifft (die Software liest diese Kopie nicht)",
+    place: "Versand aus Irland (EU); Konto- und Versanddaten sowie die Kopien eingehender E-Mails in den USA",
     basis: "Auftragsverarbeitungsvertrag mit Standardvertragsklauseln (Art. 46 Abs. 2 Buchstabe c DSGVO)",
   },
   {
@@ -63,6 +63,7 @@ const RETENTION: [string, string][] = [
   ["Technisches Bearbeitungsprotokoll ohne Bezug zu einem Vorgang", "30 Tage"],
   ["Nachrichten von Adressen, die noch keiner Praxis zugeordnet sind", "30 Tage nach Klärung, spätestens sechs Monate nach Eingang"],
   ["Protokolle des KI-Anbieters zur Missbrauchserkennung", "bis zu 30 Tage beim Anbieter"],
+  ["Kopien eingehender E-Mails, die die Software starten (bei Resend)", "30 Tage beim Anbieter"],
 ];
 
 function Section({ label, heading, children }: { label: string; heading: string; children: React.ReactNode }) {

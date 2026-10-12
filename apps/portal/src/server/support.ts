@@ -6,6 +6,14 @@ import { sql } from 'drizzle-orm';
 export type SupportCase = {id:string;clinic_id:string;subject:string;channel:string;status:string;mode:string;needs_action:boolean;waiting_for:string;action:string;summary:string;updated_at:Date;practice_name?:string;recipient:string};
 export type SupportMessage = {id:string;direction:string;body:string;received_at:Date;sender:string};
 export function supportEnabled(){return process.env.SUPPORT_PORTAL_ENABLED==='1';}
+// The support service sleeps between messages to cost nothing; a new portal message or an admin action wakes it.
+export async function wakeSupport() {
+ const url=process.env.SUPPORT_WAKE_URL,token=process.env.SUPPORT_WAKE_TOKEN;
+ if(!supportEnabled()||!url||!token)return;
+ try {const r=await fetch(url,{method:'POST',headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(20000)});if(r.status!==202)throw new Error(`HTTP ${r.status}`);}
+ // The hourly run still picks the message up; record the miss so the admin view shows it.
+ catch{await sqlClient`INSERT INTO support.health(component,ok,detail,checked_at) VALUES('portal-wake',false,'Wake call failed',now()) ON CONFLICT(component) DO UPDATE SET ok=false,detail='Wake call failed',checked_at=now()`.catch(()=>{});}
+}
 export async function supportIntakeFailure() {
  await sqlClient`INSERT INTO support.health(component,ok,detail,checked_at) VALUES('portal-intake',false,'Submission failed',now()) ON CONFLICT(component) DO UPDATE SET ok=false,detail='Submission failed',checked_at=now()`;
 }
