@@ -165,10 +165,9 @@ export default function Datenschutz() {
         </p>
         <p>
           Eingehende E-Mails an {CONTACT_EMAIL} verarbeitet unser E-Mail-Anbieter
-          Purelymail (Add Rabbit, LLC, Erie, Pennsylvania, USA) auf Servern in
-          den USA. Der Anbieter ist nicht unter dem EU-U.S. Data Privacy
-          Framework zertifiziert. Für diesen Empfänger besteht kein
-          Angemessenheitsbeschluss der EU-Kommission. Ihre Daten werden
+          Migadu (Migadu-Mail GmbH, Schachen, Schweiz) auf Servern in
+          Frankreich (EU); eine Übermittlung in ein Drittland findet dafür
+          nicht statt. Ihre Daten werden
           gelöscht, sobald der Zweck der Verarbeitung entfallen ist und keine
           gesetzlichen Aufbewahrungspflichten entgegenstehen.
         </p>
@@ -325,9 +324,8 @@ export default function Datenschutz() {
           </li>
         </ul>
         <p>
-          Eingehende E-Mails verarbeitet Purelymail (Add Rabbit, LLC, USA). Der
-          Anbieter ist nicht unter dem Data Privacy Framework zertifiziert, für
-          ihn besteht kein Angemessenheitsbeschluss.
+          Eingehende E-Mails verarbeitet Migadu (Migadu-Mail GmbH, Schweiz) auf
+          Servern in Frankreich (EU), also ohne Übermittlung in ein Drittland.
         </p>
         <p>
           Eine aktuelle Übersicht der unter dem Data Privacy Framework
@@ -350,7 +348,7 @@ export default function Datenschutz() {
           Rahmenbedingungen oder die auf unserer Website eingesetzten Dienste
           ändern. Die jeweils aktuelle Fassung finden Sie auf dieser Seite.
         </p>
-        <p className="font-mono text-sm text-fg-secondary">Stand: 12.10.2026</p>
+        <p className="font-mono text-sm text-fg-secondary">Stand: 13.10.2026</p>
       </Section>
 
       {/*

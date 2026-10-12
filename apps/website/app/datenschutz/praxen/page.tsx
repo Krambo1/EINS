@@ -230,12 +230,16 @@ export default function DatenschutzPraxen() {
             Framework zertifiziert, zusätzlich gelten Standardvertragsklauseln.
           </li>
           <li>
-            <strong>Purelymail</strong> (Add Rabbit, LLC, Erie, Pennsylvania,
-            USA): das Postfach {CONTACT_EMAIL}, in dem Ihre Antworten eingehen
-            und aus dem wir antworten, auch mit dem angefragten Video als
-            Anhang. Server in den USA. Der Anbieter ist nicht unter dem Data Privacy
-            Framework zertifiziert. Für diesen Empfänger besteht kein
-            Angemessenheitsbeschluss der EU-Kommission.
+            <strong>Migadu</strong> (Migadu-Mail GmbH, Schachen, Schweiz): das
+            Postfach {CONTACT_EMAIL}, in dem Ihre Antworten eingehen und aus dem
+            wir antworten, auch mit dem angefragten Video als Anhang. Server in
+            Frankreich (EU), keine Übermittlung in ein Drittland.
+          </li>
+          <li>
+            <strong>Cloudflare</strong> (Cloudflare, Inc., San Francisco, USA):
+            leitet Antworten an unsere Absenderadressen kontakt@eins-wachstum.de
+            und kontakt@eins-system.de an {CONTACT_EMAIL} weiter, ohne den
+            Inhalt zu speichern. Zertifiziert unter dem Data Privacy Framework.
           </li>
           <li>
             <strong>ZeroBounce</strong> (Hertza, L.L.C., Santa Barbara, USA):
@@ -339,7 +343,7 @@ export default function DatenschutzPraxen() {
           Ändert sich etwas an der Recherche, am Versand oder an den Diensten,
           passen wir diese Seite an.
         </p>
-        <p className="font-mono text-sm text-fg-secondary">Stand: 12.10.2026</p>
+        <p className="font-mono text-sm text-fg-secondary">Stand: 13.10.2026</p>
       </Section>
     </main>
   );
