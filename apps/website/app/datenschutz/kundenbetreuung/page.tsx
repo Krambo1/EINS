@@ -40,7 +40,7 @@ const PROVIDERS: { name: string; task: string; place: string; basis: string }[] 
     name: "Fly.io, Inc., Chicago, USA",
     task: "Betrieb der Software, die Nachrichten annimmt, prüft und beantwortet",
     place: "Rechenzentrum Frankfurt am Main; Zugriff des Anbieters aus den USA möglich",
-    basis: "Auftragsverarbeitungsvertrag mit Standardvertragsklauseln (Art. 46 Abs. 2 Buchstabe c DSGVO)",
+    basis: "Auftragsverarbeitungsvertrag; Fly.io ist nach dem EU-US Data Privacy Framework zertifiziert (Angemessenheitsbeschluss, Art. 45 DSGVO)",
   },
   {
     name: "Neon, Teil der Databricks, Inc., San Francisco, USA",
