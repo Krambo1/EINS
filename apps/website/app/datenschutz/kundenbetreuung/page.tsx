@@ -19,10 +19,10 @@ const STAND = "12.10.2026";
 /** Every service that receives support data, with role, place and transfer basis. */
 const PROVIDERS: { name: string; task: string; place: string; basis: string }[] = [
   {
-    name: "mailbox.org (Heinlein Hosting GmbH, Berlin)",
+    name: "Purelymail (Add Rabbit, LLC, Erie, Pennsylvania, USA)",
     task: "E-Mail-Postfach team@eins.ag: Empfang Ihrer E-Mails und Ablage der Korrespondenz",
-    place: "Rechenzentren in Deutschland",
-    basis: "Auftragsverarbeitungsvertrag; keine Übermittlung in Drittländer",
+    place: "Server in den USA",
+    basis: "Der Anbieter ist nicht unter dem EU-U.S. Data Privacy Framework zertifiziert; für diesen Empfänger besteht kein Angemessenheitsbeschluss der EU-Kommission",
   },
   {
     name: "Resend (Plus Five Five, Inc., San Francisco, USA)",
