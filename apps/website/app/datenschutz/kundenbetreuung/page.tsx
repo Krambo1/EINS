@@ -142,8 +142,8 @@ export default function DatenschutzKundenbetreuung() {
         </p>
         <p>
           Wünsche nach Änderungen, Erstattungen, Kündigungen und Beschwerden entscheidet nie die KI, sondern Karam Issa. Es
-          findet keine automatisierte Entscheidung im Sinne von Art. 22 DSGVO statt. Die erste Antwort an Sie je Kanal
-          enthält einen Hinweis, dass sie mit KI erstellt wurde. Die Antwort geht etwa drei Minuten nach Eingang hinaus.
+          findet keine automatisierte Entscheidung im Sinne von Art. 22 DSGVO statt. Die Antwort geht etwa drei Minuten nach
+          Eingang hinaus.
         </p>
         <p>
           Möchten Sie keine Bearbeitung durch KI, schreiben Sie uns das. Ihre Praxis erhält dann als erste Reaktion eine
