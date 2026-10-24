@@ -11,7 +11,7 @@ export interface ClinicTabsNavItem {
 
 /**
  * Client-side nav for clinic-detail tabs. Each tab is a Link, so the URL
- * (and its `?tab=` param) is the source of truth — server components read
+ * (and its `?tab=` param) is the source of truth, server components read
  * it and render the matching panel.
  */
 export function ClinicTabsNav({
@@ -25,7 +25,7 @@ export function ClinicTabsNav({
   const searchParams = useSearchParams();
 
   return (
-    <nav className="-mx-2 flex flex-wrap items-center gap-1 overflow-x-auto px-2">
+    <nav aria-label="Bereiche der Praxis" className="flex min-w-0 flex-wrap items-center gap-1">
       {tabs.map((t) => {
         const params = new URLSearchParams(searchParams.toString());
         if (t.key === "uebersicht") params.delete("tab");

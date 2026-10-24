@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { practiceLegalLinks } from "@/lib/legal/practice-privacy";
 import type { Clinic } from "@/lib/types";
 import { CookieSettingsButton } from "@/components/consent/cookie-consent";
 import { formatAddress, telLink } from "@/lib/format";
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export function Footer({ clinic }: Props) {
+  const legal = practiceLegalLinks(clinic);
   return (
     <footer className="border-t border-brand-border bg-brand-bg">
       <div className="container mx-auto py-10">
@@ -33,13 +35,13 @@ export function Footer({ clinic }: Props) {
           </div>
           <div className="flex flex-col gap-2 text-sm text-brand-fg-muted md:items-end md:text-right">
             <Link
-              href="impressum"
+              href={legal.imprint}
               className="underline-offset-4 hover:text-brand-fg hover:underline"
             >
               Impressum
             </Link>
             <Link
-              href="datenschutz"
+              href={legal.privacy}
               className="underline-offset-4 hover:text-brand-fg hover:underline"
             >
               Datenschutz

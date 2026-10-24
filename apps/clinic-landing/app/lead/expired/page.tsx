@@ -33,7 +33,7 @@ export default function ExpiredPage() {
           </h1>
           <p className="mt-3 text-brand-fg-muted">
             Dieser Bestätigungs-Link ist nicht mehr gültig. Sehr wahrscheinlich ist er älter als
-            48&nbsp;Stunden — aus Datenschutzgründen laufen Double-Opt-In-Links nach Ablauf dieser
+            48&nbsp;Stunden. Aus Datenschutzgründen laufen Bestätigungs-Links nach Ablauf dieser
             Frist automatisch aus.
           </p>
           <p className="mt-3 text-sm text-brand-fg-muted">

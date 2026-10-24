@@ -109,3 +109,53 @@ export function normaliseDecimalString(s: string): string | undefined {
   const trailing = parts[1] ?? "";
   return trailing.length === 3 ? parts[0] + trailing : `${parts[0]}.${trailing}`;
 }
+
+/** Statuses that mean "no money was kept", whatever a paid_at field says. */
+const NOT_PAID_STATUSES: ReadonlySet<string> = new Set([
+  "void",
+  "voided",
+  "cancelled",
+  "canceled",
+  "refunded",
+  "draft",
+  "failed",
+]);
+
+/**
+ * Is this invoice / payment row paid? A void-like status always wins: vendors
+ * keep the old paid_at on an invoice that was voided afterwards, and counting it
+ * would book revenue that was never kept. paid_at decides only when the status
+ * is empty or not one we know.
+ */
+export function isPaidRow(
+  status: string | null | undefined,
+  paidAt: string | null | undefined,
+  paidStatuses: ReadonlySet<string>
+): boolean {
+  const s = (status ?? "").trim().toLowerCase();
+  if (NOT_PAID_STATUSES.has(s)) return false;
+  if (paidStatuses.has(s)) return true;
+  return !!paidAt;
+}
+
+/**
+ * The vendor's currency as read (upper case); a missing one is EUR, the DACH
+ * default. Anything other than EUR or CHF is deliberately NOT mapped to EUR: it
+ * goes on as read and the sanitiser rejects the event (unsupported_currency), so
+ * a USD or GBP amount can never be booked as euros. The cast only exists because
+ * the event type is narrowed to the two supported values.
+ */
+export function vendorCurrency(raw: string | null | undefined): "EUR" | "CHF" {
+  const c = (raw ?? "").trim().toUpperCase();
+  return (c === "" ? "EUR" : c) as "EUR" | "CHF";
+}
+
+/** First non-blank id among the candidates (a credit note's reference to the
+ *  invoice it belongs to), as a string. */
+export function firstRef(...candidates: unknown[]): string | undefined {
+  for (const c of candidates) {
+    if (typeof c === "number" && Number.isFinite(c)) return String(c);
+    if (typeof c === "string" && c.trim() !== "") return c.trim();
+  }
+  return undefined;
+}

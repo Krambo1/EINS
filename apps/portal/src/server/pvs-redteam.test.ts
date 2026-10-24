@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { PvsEventSchema } from "./pvs-events";
+import { PvsEventSchema, scrubStringsDeep } from "./pvs-events";
 
 /**
  * P3-1: portal-side red-team scenarios that are exercisable at the
@@ -259,48 +259,101 @@ describe("PVS · canonical event field caps (P3-1 / Section 5)", () => {
     expect(PvsEventSchema.safeParse(evt).success).toBe(false);
   });
 
-  it("email is capped at 200 chars", () => {
-    // Construct a syntactically-valid email of 201 chars (196 local + "@e.de").
-    // 200 exactly is allowed (.max(200) is inclusive), so the fixture must
-    // exceed it to exercise the cap.
+  // Pass 2: optional demographics and free text are LOSSY instead of fatal.
+  // A malformed or over-long value used to cost the whole PatientUpserted
+  // (non-retryable invalid_envelope), so the patient was never linked to the
+  // lead. The security property (stored payloads stay bounded) is unchanged:
+  // the value is dropped or clipped, never stored at full length.
+  it("an over-long email is dropped, the event survives", () => {
     const localPart = "a".repeat(196);
     const email = `${localPart}@e.de`; // 201 chars total
-    const evt = { ...baseEvent, email };
-    expect(PvsEventSchema.safeParse(evt).success).toBe(false);
+    const r = PvsEventSchema.safeParse({ ...baseEvent, email });
+    expect(r.success).toBe(true);
+    expect(r.success && (r.data as { email?: string }).email).toBeUndefined();
   });
 
-  it("fullName is capped at 200 chars (no smuggling 10 KB demographics)", () => {
-    const evt = { ...baseEvent, fullName: "M".repeat(201) };
-    expect(PvsEventSchema.safeParse(evt).success).toBe(false);
+  it("a malformed email (umlaut local part, placeholder) is dropped, the event survives", () => {
+    for (const email of ["müller@web.de", "n/a", "keine"]) {
+      const r = PvsEventSchema.safeParse({ ...baseEvent, email });
+      expect(r.success, email).toBe(true);
+      expect(r.success && (r.data as { email?: string }).email, email).toBeUndefined();
+    }
   });
 
-  it("phone is capped at 64 chars", () => {
-    const evt = { ...baseEvent, phone: "0".repeat(65) };
-    expect(PvsEventSchema.safeParse(evt).success).toBe(false);
+  it("fullName is clipped to 200 chars (no smuggling 10 KB demographics)", () => {
+    const r = PvsEventSchema.safeParse({ ...baseEvent, fullName: "M".repeat(201) });
+    expect(r.success).toBe(true);
+    expect(r.success && (r.data as { fullName?: string }).fullName).toHaveLength(200);
   });
 
-  it("bemerkung is capped at 4000 chars (the largest legitimate Notiz field we've seen)", () => {
-    const evt = { ...baseEvent, bemerkung: "n".repeat(4001) };
-    expect(PvsEventSchema.safeParse(evt).success).toBe(false);
+  it("clipping never leaves a lone surrogate (jsonb rejects it)", () => {
+    const r = PvsEventSchema.safeParse({ ...baseEvent, fullName: "M".repeat(199) + "😀" });
+    expect(r.success).toBe(true);
+    const name = r.success ? ((r.data as { fullName?: string }).fullName ?? "") : "";
+    expect(name).toHaveLength(199);
   });
 
-  it("a hostile 10 KB string in ANY user-controlled field rejects at validation", () => {
-    const fields: Array<keyof typeof baseEvent | string> = [
-      "pvsPatientId",
-      "fullName",
-      "email",
-      "phone",
-      "bemerkung",
-      "externalId",
-    ];
+  it("an over-long phone is dropped", () => {
+    const r = PvsEventSchema.safeParse({ ...baseEvent, phone: "0".repeat(65) });
+    expect(r.success).toBe(true);
+    expect(r.success && (r.data as { phone?: string }).phone).toBeUndefined();
+  });
+
+  it("an over-long bemerkung keeps only its EINS-Lead token", () => {
+    const r = PvsEventSchema.safeParse({
+      ...baseEvent,
+      bemerkung: "n".repeat(5000) + " EINS-Lead-1a2b3c4d",
+    });
+    expect(r.success).toBe(true);
+    expect(r.success && (r.data as { bemerkung?: string }).bemerkung).toBe("EINS-Lead-1a2b3c4d");
+    const noToken = PvsEventSchema.safeParse({ ...baseEvent, bemerkung: "n".repeat(4001) });
+    expect(noToken.success && (noToken.data as { bemerkung?: string }).bemerkung).toHaveLength(4000);
+  });
+
+  it("an impossible calendar dob is dropped instead of failing the date cast later", () => {
+    for (const dob of ["1980-02-30", "1980-13-01", "2023-02-29"]) {
+      const r = PvsEventSchema.safeParse({ ...baseEvent, dob });
+      expect(r.success, dob).toBe(true);
+      expect(r.success && (r.data as { dob?: string }).dob, dob).toBeUndefined();
+    }
+    const leap = PvsEventSchema.safeParse({ ...baseEvent, dob: "2024-02-29" });
+    expect(leap.success && (leap.data as { dob?: string }).dob).toBe("2024-02-29");
+  });
+
+  it("a hostile 10 KB string is rejected in identity fields and bounded in free text", () => {
     const huge = "X".repeat(10_240);
-    for (const field of fields) {
-      const evt = { ...baseEvent, [field]: huge };
+    for (const field of ["pvsPatientId", "externalId"]) {
       expect(
-        PvsEventSchema.safeParse(evt).success,
-        `field ${field} accepted 10 KB payload; cap missing`
+        PvsEventSchema.safeParse({ ...baseEvent, [field]: huge }).success,
+        `identity field ${field} accepted 10 KB payload; cap missing`
       ).toBe(false);
     }
+    for (const field of ["fullName", "email", "phone", "bemerkung"]) {
+      const r = PvsEventSchema.safeParse({ ...baseEvent, [field]: huge });
+      expect(r.success, field).toBe(true);
+      const stored = r.success ? (r.data as Record<string, unknown>)[field] : undefined;
+      expect(
+        typeof stored === "string" ? stored.length : 0,
+        `free-text field ${field} stored unbounded`
+      ).toBeLessThanOrEqual(4000);
+    }
+  });
+
+  it("InvoiceRefunded accepts an optional pvsRefundId", () => {
+    const r = PvsEventSchema.safeParse({
+      kind: "InvoiceRefunded",
+      clinicId: baseEvent.clinicId,
+      bridgeSource: "gdt_agent",
+      pvsExternalEventId: "r-1",
+      occurredAt: baseEvent.occurredAt,
+      pvsPatientId: "PAT-1",
+      pvsInvoiceId: "INV-1",
+      pvsRefundId: "GS-7",
+      refundedAmountCents: 500,
+      refundedAt: baseEvent.occurredAt,
+    });
+    expect(r.success).toBe(true);
+    expect(r.success && (r.data as { pvsRefundId?: string }).pvsRefundId).toBe("GS-7");
   });
 });
 
@@ -357,5 +410,21 @@ describe("PVS · occurredAt validation (P3-1 / Section 9)", () => {
   it("accepts a far-future occurredAt (same rationale as far-past)", () => {
     const evt = { ...baseEvent, occurredAt: "2099-01-01T00:00:00.000Z" };
     expect(PvsEventSchema.safeParse(evt).success).toBe(true);
+  });
+});
+
+describe("PVS · string scrub before the DB (pass 2)", () => {
+  it("strips NUL and replaces lone surrogates, keeps valid pairs, keeps shape", () => {
+    const lone = String.fromCharCode(0xd83d);
+    const out = scrubStringsDeep({
+      a: "Mül" + String.fromCharCode(0) + "ler",
+      b: ["x" + lone, "ok 😀"],
+      n: 5,
+      z: undefined,
+    });
+    expect(out.a).toBe("Müller");
+    expect(out.b[0]).toBe("x�");
+    expect(out.b[1]).toBe("ok 😀");
+    expect(out.n).toBe(5);
   });
 });

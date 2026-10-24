@@ -22,7 +22,7 @@ export function ChartTooltipCard({
 }) {
   return (
     <div className="pointer-events-none relative z-50 whitespace-nowrap rounded-md border border-border bg-bg-secondary px-3 py-2 shadow-xl">
-      <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
+      <div className="text-sm font-medium text-fg-primary">
         {header}
       </div>
       <div className="mt-1 space-y-0.5">

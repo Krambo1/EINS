@@ -1,4 +1,5 @@
-import { writeFileSync } from "node:fs";
+import { existsSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   CLINIC_A,
@@ -20,6 +21,12 @@ import { fmtEur, log, readJsonl, sqlNumericToCents, ts, warn } from "./lib/util.
  *
  * This is the property the Garantie's revenue attribution depends on and the
  * one thing no unit test can prove.
+ *
+ * GDT carries NO revenue (patient master data only), so Praxis B revenue is
+ * the Honorar-CSV path alone. A separate "GDT inbox" check per clinic verifies
+ * that addressed files were consumed, nothing is stuck in .eins/processing,
+ * foreign-device files stayed untouched, every dropped patient reached the
+ * portal, and no GDT-derived invoice event exists.
  *
  * Levels:
  *   1 (hard)  — pvs_event_log vs source truth. Worker-independent.
@@ -43,6 +50,33 @@ interface Problem {
   /** True when the source row/ledger entry is younger than the grace window
    *  (event may legitimately still be in flight). */
   inFlight?: boolean;
+}
+
+/** A finding of the GDT inbox check. Always hard (grace already applied). */
+interface GdtProblem {
+  clinic: "A" | "B";
+  type:
+    | "gdt_not_consumed"
+    | "gdt_stuck_in_processing"
+    | "gdt_patient_missing"
+    | "gdt_revenue_event"
+    | "foreignFileTouched"
+    | "gdtCounterExhausted"
+    | "gdt_ledger_problem";
+  detail: string;
+}
+
+interface GdtInboxResult {
+  clinic: "A" | "B";
+  problems: GdtProblem[];
+  patientsExpected: number;
+  patientsInPortal: number;
+  rootEinsFiles: number;
+  processingFiles: number;
+  failedFiles: number;
+  utf16Drops: number;
+  channelBusy: number;
+  untouchedDrops: number;
 }
 
 interface Expected {
@@ -102,6 +136,13 @@ interface LedgerEntry {
   invoiceId?: string;
   cents?: number;
   case?: string;
+  clinic?: "A" | "B";
+  source?: string;
+  expect?: "consumed" | "untouched" | "quarantined";
+  patientIds?: string[];
+  problem?: boolean;
+  file?: string;
+  detail?: string;
 }
 
 function expectedFromLedger(): Expected {
@@ -230,6 +271,138 @@ function compare(
   return problems;
 }
 
+// ---------------------------------------------------------------------------
+// GDT inbox (patients only; GDT never carries revenue)
+// ---------------------------------------------------------------------------
+
+// .bdt is read but never deleted by the agent, so it is not part of "consumed".
+const WATCHED_GDT = /\.(gdt|\d{3})$/i;
+
+function listFiles(dir: string): Array<{ name: string; mtimeMs: number }> {
+  if (!existsSync(dir)) return [];
+  const out: Array<{ name: string; mtimeMs: number }> = [];
+  for (const d of readdirSync(dir, { withFileTypes: true })) {
+    if (!d.isFile()) continue;
+    try {
+      out.push({ name: d.name, mtimeMs: statSync(join(dir, d.name)).mtimeMs });
+    } catch {
+      // vanished between readdir and stat: consumed meanwhile
+    }
+  }
+  return out;
+}
+
+async function gdtInbox(
+  clinic: "A" | "B",
+  graceMs: number,
+  entries: LedgerEntry[]
+): Promise<GdtInboxResult> {
+  const cfg = clinic === "A" ? CLINIC_A : CLINIC_B;
+  const now = Date.now();
+  const older = (ms: number) => now - ms > graceMs;
+  const mine = entries.filter((e) => e.clinic === clinic && e.source !== "csv");
+  const problems: GdtProblem[] = [];
+
+  // 1. Problem flags written by the dropper (foreign file touched, counter full).
+  for (const e of mine) {
+    if (!e.problem) continue;
+    const known = e.case === "foreignFileTouched" || e.case === "gdtCounterExhausted";
+    problems.push({
+      clinic,
+      type: known ? (e.case as GdtProblem["type"]) : "gdt_ledger_problem",
+      detail: `${e.case ?? "?"} at ${e.t}${e.file ? ` file ${e.file}` : ""}${e.detail ? ` (${e.detail})` : ""}`,
+    });
+  }
+
+  // 2. Addressed files still in the folder root past the grace window. Counter
+  //    names get reused after the wrap, so judge the folder, not single entries.
+  const root = listFiles(cfg.gdtFolder).filter(
+    (f) => /^EINS/i.test(f.name) && WATCHED_GDT.test(f.name)
+  );
+  for (const f of root) {
+    if (older(f.mtimeMs)) {
+      problems.push({
+        clinic,
+        type: "gdt_not_consumed",
+        detail: `${f.name} addressed to EINS is still in the folder, ${Math.round((now - f.mtimeMs) / 1000)}s old`,
+      });
+    }
+  }
+
+  // 3. Nothing may rot in .eins/processing.
+  const processing = listFiles(join(cfg.gdtFolder, ".eins", "processing"));
+  for (const f of processing) {
+    if (older(f.mtimeMs)) {
+      problems.push({
+        clinic,
+        type: "gdt_stuck_in_processing",
+        detail: `.eins/processing/${f.name} is ${Math.round((now - f.mtimeMs) / 1000)}s old`,
+      });
+    }
+  }
+
+  // 4. Every dropped patient (consumed GDT + BDT exports) must be in the portal.
+  const wantIds = new Set<string>();
+  for (const e of mine) {
+    const when = Date.parse(e.t);
+    if (!e.patientIds || !(when > 0) || !older(when)) continue;
+    if (e.expect === "consumed" || (e.expect === "untouched" && e.case === "bdtExport")) {
+      for (const id of e.patientIds) wantIds.add(id);
+    }
+  }
+  const res = await query(
+    PORTAL_DB_URL,
+    `SELECT DISTINCT payload->>'pvsPatientId' AS pid
+     FROM pvs_event_log
+     WHERE clinic_id = $1 AND bridge_source = 'gdt_agent' AND kind = 'PatientUpserted'`,
+    [cfg.id]
+  );
+  const have = new Set<string>(res.rows.map((r) => String(r.pid)));
+  for (const id of wantIds) {
+    if (!have.has(id)) {
+      problems.push({
+        clinic,
+        type: "gdt_patient_missing",
+        detail: `patient ${id} was dropped in a GDT/BDT file but has no PatientUpserted in the portal`,
+      });
+    }
+  }
+
+  // 5. GDT must never produce revenue (the old fictional "SGDT" invoices).
+  if (clinic === "B") {
+    const rev = await query(
+      PORTAL_DB_URL,
+      `SELECT payload->>'pvsInvoiceId' AS id
+       FROM pvs_event_log
+       WHERE clinic_id = $1 AND kind IN ('InvoicePaid', 'InvoiceRefunded')
+         AND payload->>'pvsInvoiceId' LIKE 'SGDT%'`,
+      [CLINIC_B.id]
+    );
+    if ((rev.rowCount ?? 0) > 0) {
+      problems.push({
+        clinic,
+        type: "gdt_revenue_event",
+        detail:
+          `${rev.rowCount} InvoicePaid/InvoiceRefunded event(s) with an SGDT* invoice id ` +
+          `(e.g. ${rev.rows[0].id}); GDT carries no revenue. Stale data from an old run? reset first`,
+      });
+    }
+  }
+
+  return {
+    clinic,
+    problems,
+    patientsExpected: wantIds.size,
+    patientsInPortal: [...wantIds].filter((id) => have.has(id)).length,
+    rootEinsFiles: root.length,
+    processingFiles: processing.length,
+    failedFiles: listFiles(join(cfg.gdtFolder, ".eins", "failed")).length,
+    utf16Drops: mine.filter((e) => e.case === "gdtUtf16Garbage").length,
+    channelBusy: mine.filter((e) => e.case === "gdtChannelBusy").length,
+    untouchedDrops: mine.filter((e) => e.expect === "untouched").length,
+  };
+}
+
 function net(exp: Expected): number {
   let n = 0;
   for (const c of exp.paid.values()) n += c;
@@ -276,9 +449,15 @@ export async function reconcile(graceSeconds = 240): Promise<ReconcileResult> {
   const actB = await portalActual(CLINIC_B.id, ["gdt_agent"]);
   const problemsB = compare("B", expB, actB, graceMs);
 
+  const ledgerEntries = readJsonl<LedgerEntry>(DROPPER_LEDGER);
+  const gdtA = await gdtInbox("A", graceMs, ledgerEntries);
+  const gdtB = await gdtInbox("B", graceMs, ledgerEntries);
+  const gdtProblems = [...gdtA.problems, ...gdtB.problems];
+
   const all = [...problemsA, ...problemsB];
   const hard = all.filter((p) => !p.inFlight);
   const soft = all.filter((p) => p.inFlight);
+  const hardTotal = hard.length + gdtProblems.length;
 
   const derivedA = await derivedRevenue(CLINIC_A.id);
   const derivedB = await derivedRevenue(CLINIC_B.id);
@@ -290,7 +469,7 @@ export async function reconcile(graceSeconds = 240): Promise<ReconcileResult> {
   push(``);
   push(`Generated: ${ts()}`);
   push(``);
-  const verdict = hard.length === 0 ? "**PASS**" : `**FAIL** (${hard.length} hard finding${hard.length === 1 ? "" : "s"})`;
+  const verdict = hardTotal === 0 ? "**PASS**" : `**FAIL** (${hardTotal} hard finding${hardTotal === 1 ? "" : "s"})`;
   push(`## Verdict: ${verdict}`);
   if (soft.length > 0) {
     push(``);
@@ -341,7 +520,30 @@ export async function reconcile(graceSeconds = 240): Promise<ReconcileResult> {
   };
 
   section("Praxis A — DB-Adapter-Pfad (tomedo)", expA, actA, problemsA, derivedA);
-  section("Praxis B — Datei-Pfad (GDT + Honorar-CSV)", expB, actB, problemsB, derivedB);
+  section("Praxis B — Datei-Pfad (Honorar-CSV revenue, GDT patients)", expB, actB, problemsB, derivedB);
+
+  push(`## GDT inbox`);
+  push(``);
+  push(`GDT carries patient master data only; revenue is checked in the sections above.`);
+  push(``);
+  push(`| | Praxis A | Praxis B |`);
+  push(`|---|---|---|`);
+  const row = (label: string, f: (g: GdtInboxResult) => string) =>
+    push(`| ${label} | ${f(gdtA)} | ${f(gdtB)} |`);
+  row("Patienten erwartet / im Portal", (g) => `${g.patientsExpected} / ${g.patientsInPortal}`);
+  row("EINS-Dateien im Ordner (Root)", (g) => String(g.rootEinsFiles));
+  row("In .eins/processing", (g) => String(g.processingFiles));
+  row(".eins/failed vs. UTF-16-Drops (soft)", (g) => `${g.failedFiles} vs. ${g.utf16Drops}`);
+  row("gdtChannelBusy (soft)", (g) => String(g.channelBusy));
+  row("Fremd-/BDT-Dateien geschrieben (untouched)", (g) => String(g.untouchedDrops));
+  push(``);
+  if (gdtProblems.length === 0) {
+    push(`Keine harten GDT-Findings.`);
+  } else {
+    push(`### Findings`);
+    for (const p of gdtProblems) push(`- Praxis ${p.clinic} \`${p.type}\`: ${p.detail}`);
+  }
+  push(``);
 
   const report = lines.join("\n");
   writeFileSync(REPORT_PATH, report, "utf8");
@@ -349,8 +551,8 @@ export async function reconcile(graceSeconds = 240): Promise<ReconcileResult> {
   console.log("\n" + report + "\n");
 
   return {
-    ok: hard.length === 0,
-    hardFailures: hard.length,
+    ok: hardTotal === 0,
+    hardFailures: hardTotal,
     inFlightOnly: soft.length,
     report,
   };

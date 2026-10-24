@@ -2,11 +2,14 @@ import type {
   CanonicalEvent,
   PatientUpsertedEvent,
   AppointmentCreatedEvent,
+  AppointmentStatusChangedEvent,
   EncounterCompletedEvent,
   InvoicePaidEvent,
+  InvoiceRefundedEvent,
   RecallScheduledEvent,
 } from "../../canonical/types.js";
 import { isoUtc, tomedoEventId } from "./event-identity.js";
+import { DEFAULT_TIMEZONE, type NormalizeOptions } from "../_shared/iso.js";
 
 /**
  * Tomedo → canonical event translators.
@@ -40,11 +43,13 @@ interface TomedoPatient extends TomedoBase {
 
 export function normalizePatient(
   clinicId: string,
-  p: unknown
+  p: unknown,
+  opts: NormalizeOptions = {}
 ): PatientUpsertedEvent {
+  const tz = opts.timezone ?? DEFAULT_TIMEZONE;
   const t = p as TomedoPatient;
   const fullName = [t.firstName, t.lastName].filter(Boolean).join(" ") || undefined;
-  const modifiedAt = isoUtc(t.modifiedAt);
+  const modifiedAt = isoUtc(t.modifiedAt, tz);
   return {
     kind: "PatientUpserted",
     clinicId,
@@ -75,8 +80,10 @@ interface TomedoAppointment extends TomedoBase {
 
 export function normalizeAppointment(
   clinicId: string,
-  a: unknown
+  a: unknown,
+  opts: NormalizeOptions = {}
 ): CanonicalEvent {
+  const tz = opts.timezone ?? DEFAULT_TIMEZONE;
   const t = a as TomedoAppointment;
   // Emit AppointmentCreated for every poll-seen appointment; the portal-side
   // event_log dedupes by (clinicId, bridge_source, pvsExternalEventId,
@@ -94,7 +101,7 @@ export function normalizeAppointment(
   // revenue by pvsInvoiceId). scheduledAt must ALSO stay the occurredAt for the
   // cross-path dedup contract in event-identity.ts (the DB-read YAML path maps
   // occurred_at from the same scheduledAt).
-  const scheduledAt = isoUtc(t.scheduledAt);
+  const scheduledAt = isoUtc(t.scheduledAt, tz);
   const created: AppointmentCreatedEvent = {
     kind: "AppointmentCreated",
     clinicId,
@@ -113,6 +120,50 @@ export function normalizeAppointment(
   return created;
 }
 
+/**
+ * The AppointmentStatusChanged event for a status that is not the default
+ * "scheduled", or null. Same contract as pabau/consentz: tomedo has no separate
+ * "status changed at", so occurredAt/changedAt are the row's modifiedAt, and the
+ * id embeds status + modifiedAt so each distinct transition dedups on its own.
+ * Id + occurredAt come from event-identity.ts (tomedoEventId.appointmentStatus),
+ * the same template the DB-read YAML path uses.
+ */
+export function normalizeAppointmentStatus(
+  clinicId: string,
+  a: unknown,
+  opts: NormalizeOptions = {}
+): AppointmentStatusChangedEvent | null {
+  const tz = opts.timezone ?? DEFAULT_TIMEZONE;
+  const t = a as TomedoAppointment;
+  const newStatus = mapApptStatus(t.status);
+  if (!newStatus || newStatus === "scheduled") return null;
+  const changedAt = isoUtc(t.modifiedAt, tz);
+  if (changedAt === "" || Number.isNaN(Date.parse(changedAt))) return null;
+  return {
+    kind: "AppointmentStatusChanged",
+    clinicId,
+    bridgeSource: "tomedo",
+    pvsExternalEventId: tomedoEventId.appointmentStatus(t.id, newStatus, changedAt),
+    occurredAt: changedAt,
+    pvsPatientId: t.patientId,
+    pvsAppointmentId: t.id,
+    newStatus,
+    changedAt,
+  };
+}
+
+/** AppointmentCreated plus, when the status moved on, AppointmentStatusChanged. */
+export function normalizeAppointmentEvents(
+  clinicId: string,
+  a: unknown,
+  opts: NormalizeOptions = {}
+): CanonicalEvent[] {
+  const events: CanonicalEvent[] = [normalizeAppointment(clinicId, a, opts)];
+  const status = normalizeAppointmentStatus(clinicId, a, opts);
+  if (status) events.push(status);
+  return events;
+}
+
 interface TomedoEncounter extends TomedoBase {
   id: string;
   patientId: string;
@@ -125,10 +176,12 @@ interface TomedoEncounter extends TomedoBase {
 
 export function normalizeEncounter(
   clinicId: string,
-  e: unknown
+  e: unknown,
+  opts: NormalizeOptions = {}
 ): EncounterCompletedEvent {
+  const tz = opts.timezone ?? DEFAULT_TIMEZONE;
   const t = e as TomedoEncounter;
-  const completedAt = isoUtc(t.completedAt);
+  const completedAt = isoUtc(t.completedAt, tz);
   return {
     kind: "EncounterCompleted",
     clinicId,
@@ -156,10 +209,37 @@ interface TomedoInvoice extends TomedoBase {
 
 export function normalizeInvoice(
   clinicId: string,
-  i: unknown
-): InvoicePaidEvent {
+  i: unknown,
+  opts: NormalizeOptions = {}
+): InvoicePaidEvent | InvoiceRefundedEvent | null {
+  const tz = opts.timezone ?? DEFAULT_TIMEZONE;
   const t = i as TomedoInvoice;
-  const paidAt = isoUtc(t.paidAt);
+  const paidAt = isoUtc(t.paidAt, tz);
+  // An invoice without a (valid) paidAt is NOT an InvoicePaid: Tomedo lists
+  // open invoices too, and emitting those with an empty paidAt made the portal
+  // reject the event (and, before per-event validation, the whole batch). Skip
+  // it; it is emitted once it is paid and its row changes.
+  if (paidAt === "" || Number.isNaN(Date.parse(paidAt))) return null;
+  // A negative amount is a Storno / Gutschrift. As an InvoicePaid it would be
+  // dropped by the sanitiser (amounts are non-negative) and the refund would
+  // silently never reach the revenue numbers, so it goes out as InvoiceRefunded
+  // with the positive magnitude. The id carries the row's timestamp, matching
+  // the shared refund id builder.
+  if (t.amountCents < 0) {
+    return {
+      kind: "InvoiceRefunded",
+      clinicId,
+      bridgeSource: "tomedo",
+      pvsExternalEventId: tomedoEventId.refund(t.id, paidAt),
+      occurredAt: paidAt,
+      pvsPatientId: t.patientId,
+      pvsInvoiceId: t.id,
+      pvsAppointmentId: t.appointmentId,
+      refundedAmountCents: Math.abs(t.amountCents),
+      currency: "EUR",
+      refundedAt: paidAt,
+    };
+  }
   return {
     kind: "InvoicePaid",
     clinicId,
@@ -186,8 +266,10 @@ interface TomedoRecall extends TomedoBase {
 
 export function normalizeRecall(
   clinicId: string,
-  r: unknown
+  r: unknown,
+  opts: NormalizeOptions = {}
 ): RecallScheduledEvent {
+  const tz = opts.timezone ?? DEFAULT_TIMEZONE;
   const t = r as TomedoRecall;
   // occurredAt is the scheduling moment (modifiedAt), NOT the future recall
   // target (recallAt). The DB-read YAML maps occurredAt from modified_at too
@@ -197,13 +279,54 @@ export function normalizeRecall(
     clinicId,
     bridgeSource: "tomedo",
     pvsExternalEventId: tomedoEventId.recall(t.id),
-    occurredAt: isoUtc(t.modifiedAt),
+    occurredAt: isoUtc(t.modifiedAt, tz),
     pvsPatientId: t.patientId,
     pvsRecallId: t.id,
-    recallAt: isoUtc(t.recallAt),
+    recallAt: isoUtc(t.recallAt, tz),
     treatmentCode: t.treatmentCode,
     treatmentLabel: t.treatmentName,
   };
+}
+
+/** Tomedo appointment status (German or English wording) -> canonical set. */
+function mapApptStatus(
+  s?: string | null
+): AppointmentStatusChangedEvent["newStatus"] | null {
+  if (!s) return null;
+  const v = s.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  switch (v) {
+    case "scheduled":
+    case "booked":
+    case "confirmed":
+    case "geplant":
+    case "terminiert":
+    case "bestaetigt":
+    case "bestätigt":
+      return "scheduled";
+    case "checked_in":
+    case "arrived":
+    case "eingecheckt":
+    case "anwesend":
+      return "checked_in";
+    case "completed":
+    case "complete":
+    case "finished":
+    case "abgeschlossen":
+    case "erledigt":
+    case "stattgefunden":
+      return "completed";
+    case "no_show":
+    case "noshow":
+    case "nicht_erschienen":
+      return "no_show";
+    case "cancelled":
+    case "canceled":
+    case "storniert":
+    case "abgesagt":
+      return "cancelled";
+    default:
+      return null;
+  }
 }
 
 function mapGender(input?: string): "f" | "m" | "d" | "x" | undefined {

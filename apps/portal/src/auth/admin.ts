@@ -2,12 +2,13 @@ import "server-only";
 import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
-import { and, eq, isNull, ne, sql as dsql } from "drizzle-orm";
+import { and, eq, isNull, sql as dsql } from "drizzle-orm";
 import { db, schema } from "../db/client";
 import { env } from "../lib/env";
 import { deriveSigningKey, generateToken, sha256Hex } from "../lib/crypto";
 import { trustedIpFromHeaders } from "../lib/client-ip";
 import { hostCookieName } from "../lib/constants";
+import { buildIpAllowlist, ipInAllowlist, type IpAllowlist } from "./ip-allowlist";
 
 /**
  * Admin auth — Karam's super-admin identity, entirely SEPARATE from the
@@ -83,6 +84,29 @@ export function isAdminEmail(email: string): boolean {
  * maintain an allowlist can consciously opt out with
  * `ADMIN_IP_ALLOWLIST_DISABLED=1`.
  */
+let compiledAllowlist: { source: string; allowlist: IpAllowlist } | null = null;
+
+function adminIpAllowlist(list: readonly string[]): IpAllowlist {
+  const source = list.join(",");
+  if (compiledAllowlist?.source !== source) {
+    const allowlist = buildIpAllowlist(list);
+    if (allowlist.invalid.length > 0) {
+      // Entries only, never a request IP. Invalid entries match nothing.
+      console.error(
+        `[admin] ADMIN_IP_ALLOWLIST: ${allowlist.invalid.length} ungültige(r) Eintrag/Einträge ignoriert: ${allowlist.invalid.join(", ")}`
+      );
+    }
+    compiledAllowlist = { source, allowlist };
+  }
+  return compiledAllowlist.allowlist;
+}
+
+/**
+ * B-13: entries may be single addresses or CIDR ranges; both sides are
+ * normalised (IPv4-mapped IPv6, IPv6 case / compression) instead of the
+ * former exact string compare. A non-empty list whose entries are all
+ * invalid matches nothing (fail closed).
+ */
 export function isAllowedAdminIp(ip: string | null): boolean {
   const list = env.ADMIN_IP_ALLOWLIST;
   if (!list.length) {
@@ -90,7 +114,7 @@ export function isAllowedAdminIp(ip: string | null): boolean {
     return true;
   }
   if (!ip) return false;
-  return list.includes(ip);
+  return ipInAllowlist(adminIpAllowlist(list), ip);
 }
 
 /**
@@ -235,27 +259,6 @@ export async function revokeAllAdminSessionsForAdmin(
     .where(
       and(
         eq(schema.adminSessions.adminId, adminId),
-        isNull(schema.adminSessions.revokedAt),
-        dsql`${schema.adminSessions.expiresAt} > now()`
-      )
-    );
-}
-
-/**
- * Revoke every non-expired admin session EXCEPT the one passed in. Used by
- * admin settings password-change flow so the current tab survives.
- */
-export async function revokeOtherAdminSessionsForAdmin(
-  adminId: string,
-  exceptSessionId: string
-): Promise<void> {
-  await db
-    .update(schema.adminSessions)
-    .set({ revokedAt: new Date() })
-    .where(
-      and(
-        eq(schema.adminSessions.adminId, adminId),
-        ne(schema.adminSessions.id, exceptSessionId),
         isNull(schema.adminSessions.revokedAt),
         dsql`${schema.adminSessions.expiresAt} > now()`
       )

@@ -33,15 +33,15 @@ import { withBrandLogos } from "@/app/_components/Brand";
 import {
   AI_CATEGORIES,
   AI_CATEGORY_LABELS,
+  ALL_REQUEST_STATUSES,
+  ALL_REQUEST_STATUS_LABELS,
   REQUEST_SORTS,
   REQUEST_SORT_LABELS,
   REQUEST_SOURCES,
-  REQUEST_STATUS_LABELS,
   SOURCE_LABELS,
   type AiCategory,
   type RequestSort,
   type RequestSource,
-  type RequestStatus,
 } from "@/lib/constants";
 
 interface Props {
@@ -50,15 +50,8 @@ interface Props {
   aiCounts: Record<string, number>;
 }
 
-const STATUSES: RequestStatus[] = [
-  "neu",
-  "kontaktiert",
-  "nicht_erreicht",
-  "termin_vereinbart",
-  "beratung_erschienen",
-  "gewonnen",
-  "verloren",
-];
+// Every status incl. the PVS-set "Nicht erschienen" / "Behandelt" (C-29).
+const STATUSES = ALL_REQUEST_STATUSES;
 
 const SEARCH_DEBOUNCE_MS = 200;
 
@@ -177,8 +170,8 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
           autoComplete="off"
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
-          placeholder="Suchen: Name, E-Mail, Telefon, Wunschbehandlung …"
-          className="h-11 pl-10 pr-10"
+          placeholder="Suchen: Name, Telefon, E-Mail"
+          className="h-11 text-ellipsis pl-10 pr-10"
           aria-label="Anfragen durchsuchen"
         />
         <div className="absolute right-2.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center">
@@ -230,7 +223,7 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
               onCheckedChange={() => toggleMulti("status", s)}
               onSelect={(e) => e.preventDefault()}
             >
-              {REQUEST_STATUS_LABELS[s]}
+              {ALL_REQUEST_STATUS_LABELS[s]}
             </DropdownMenuCheckboxItem>
           ))}
           <DropdownMenuSeparator />
@@ -262,6 +255,14 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
           activeCount={countSet("aiCategory")}
           dataTour="anfragen-ki"
         >
+          {AI_CATEGORIES.every((c) => !aiCounts[c]) && (
+            // C-7: without the background worker no Anfrage is scored yet;
+            // say so instead of offering three empty filters silently.
+            <p className="max-w-[16rem] px-2 py-1.5 text-sm text-fg-secondary">
+              Noch keine Anfrage bewertet. Die KI-Bewertung erscheint hier,
+              sobald sie vorliegt.
+            </p>
+          )}
           {AI_CATEGORIES.map((c) => {
             const Icon = c === "hot" ? Flame : c === "warm" ? Sun : Snowflake;
             const tone =
@@ -280,7 +281,7 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
                 <Icon className={cn("mr-2 h-3.5 w-3.5 shrink-0", tone)} aria-hidden />
                 <span>{AI_CATEGORY_LABELS[c as AiCategory]}</span>
                 <span
-                  className="ml-auto rounded-full bg-fg-primary/10 px-1.5 py-px text-[11px] font-semibold leading-none tabular-nums"
+                  className="ml-auto rounded-full bg-bg-tertiary px-2 py-0.5 text-sm font-semibold leading-none tabular-nums text-fg-primary"
                   aria-label={`${aiCounts[c] ?? 0} Anfragen`}
                 >
                   {aiCounts[c] ?? 0}

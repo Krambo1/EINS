@@ -27,10 +27,26 @@ import {
 
 const BATCH_MAX = 500;
 
+// Initial syncs of a few thousand events can take a while to apply sequentially.
+export const maxDuration = 60;
+
+// Events are validated one by one (a single bad event must not fail the
+// batch), so the body schema only checks the outer shape.
 const BatchBody = z.object({
   clinicId: z.string().uuid(),
-  events: z.array(PvsEventSchema).min(1).max(BATCH_MAX),
+  events: z.array(z.unknown()).min(1).max(BATCH_MAX),
 });
+
+// Mirror of PVS_KIND_ALIASES in ../route.ts (the single-event endpoint). Keep
+// the two in sync.
+const PVS_KIND_ALIASES: Record<string, string> = {
+  InvoicePosted: "InvoicePaid",
+  invoice_paid: "InvoicePaid",
+  invoice_posted: "InvoicePaid",
+  RechnungBezahlt: "InvoicePaid",
+};
+
+type ParsedEvent = z.infer<typeof PvsEventSchema>;
 
 export async function POST(request: NextRequest) {
   const raw = await request.text();
@@ -87,18 +103,49 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
-  const { clinicId, events } = parseResult.data;
+  const { clinicId, events: rawEvents } = parseResult.data;
 
-  // Cross-check: every event in the batch must carry the same clinicId.
-  for (const event of events) {
-    if (event.clinicId !== clinicId) {
-      return NextResponse.json(
-        { error: { code: "clinic_mismatch" } },
-        { status: 400 }
-      );
+  // Per-event validation. A bad event gets its own error entry; it never
+  // fails the rest of the batch. Nothing is applied yet (signature first).
+  const parsed: Array<{ event: ParsedEvent } | { error: string }> = rawEvents.map(
+    (raw): { event: ParsedEvent } | { error: string } => {
+      let candidate = raw;
+      if (
+        candidate &&
+        typeof candidate === "object" &&
+        typeof (candidate as { kind?: unknown }).kind === "string"
+      ) {
+        const aliased = PVS_KIND_ALIASES[(candidate as { kind: string }).kind];
+        if (aliased) candidate = { ...(candidate as object), kind: aliased };
+      }
+      const r = PvsEventSchema.safeParse(candidate);
+      if (!r.success) return { error: "invalid_envelope" };
+      if (r.data.clinicId !== clinicId) return { error: "clinic_mismatch" };
+      // csv_upload is reserved for the in-process CSV worker (see the single route).
+      if (r.data.bridgeSource === "csv_upload") return { error: "invalid_bridge_source" };
+      return { event: r.data };
     }
+  );
+  const batchSize = rawEvents.length;
+
+  const ok = await verifyClinicSignature(clinicId, raw, sig, "pvs");
+  if (!ok) {
+    await writeAudit({
+      clinicId,
+      action: "pvs_event_batch_reject",
+      entityKind: "pvs_event_log",
+      diff: { reason: "bad_signature", batchSize },
+    });
+    return NextResponse.json(
+      { error: { code: "invalid_request" } },
+      { status: 400 }
+    );
   }
 
+  // Pass 2: the per-clinic budget is spent only AFTER the signature check.
+  // clinicId sits in the request body in clear text, so anyone could burn a
+  // Praxis's quota with unsigned junk and the real agent got 429 for the
+  // rest of the window (a silently stalled upload).
   // Per-clinic rate limit (existing). IP-level gate above runs first.
   const rl = await rateLimit("pvs-events-batch", clinicId, {
     limit: 60,
@@ -117,20 +164,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const ok = await verifyClinicSignature(clinicId, raw, sig, "pvs");
-  if (!ok) {
-    await writeAudit({
-      clinicId,
-      action: "pvs_event_batch_reject",
-      entityKind: "pvs_event_log",
-      diff: { reason: "bad_signature", batchSize: events.length },
-    });
-    return NextResponse.json(
-      { error: { code: "invalid_request" } },
-      { status: 400 }
-    );
-  }
-
   // Sequential apply. Each event hits the same UNIQUE-on-conflict path as
   // the single-event endpoint, so replays in the batch are deduplicated
   // server-side and don't cause errors.
@@ -140,27 +173,41 @@ export async function POST(request: NextRequest) {
   let errorCount = 0;
   const errors: Array<{ idx: number; reason: string }> = [];
 
-  for (let i = 0; i < events.length; i++) {
+  const results: Array<{ status: "ingested" | "deduped" | "quarantined" } | { error: string }> = [];
+
+  for (let i = 0; i < parsed.length; i++) {
+    const p = parsed[i]!;
+    if ("error" in p) {
+      errorCount += 1;
+      errors.push({ idx: i, reason: p.error });
+      results.push({ error: p.error });
+      continue;
+    }
     let result: PvsEventResult;
     try {
-      result = await applyPvsEvent(events[i]!);
+      result = await applyPvsEvent(p.event);
     } catch (err) {
       console.error(`[pvs-events-batch] idx=${i} threw:`, err);
       errorCount += 1;
       errors.push({ idx: i, reason: "internal_error" });
+      results.push({ error: "internal_error" });
       continue;
     }
     if (!result.ok) {
       errorCount += 1;
       errors.push({ idx: i, reason: result.reason });
+      results.push({ error: result.reason });
       continue;
     }
     if (result.status === "deduped") {
       dedupedCount += 1;
+      results.push({ status: "deduped" });
     } else if (result.status === "quarantined") {
       quarantinedCount += 1;
+      results.push({ status: "quarantined" });
     } else {
       ingestedCount += 1;
+      results.push({ status: "ingested" });
     }
   }
 
@@ -169,7 +216,7 @@ export async function POST(request: NextRequest) {
     action: "pvs_event_batch",
     entityKind: "pvs_event_log",
     diff: {
-      batchSize: events.length,
+      batchSize,
       ingestedCount,
       dedupedCount,
       quarantinedCount,
@@ -184,6 +231,8 @@ export async function POST(request: NextRequest) {
       deduped: dedupedCount,
       quarantined: quarantinedCount,
       errors: errors.slice(0, 50),
+      // Aligned 1:1 with the input events.
+      results,
     },
     { status: 201 }
   );

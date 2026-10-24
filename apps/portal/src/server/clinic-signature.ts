@@ -10,8 +10,8 @@ import { decryptString } from "@/lib/crypto";
  * (initial-sync from Tomedo / RED); without caching, every event re-hits
  * the DB and re-runs `decryptString` to verify the signature.
  *
- * 30 s TTL is short enough that any rotate-secret action is effectively
- * immediate, AND we explicitly invalidate from both rotation paths
+ * 30 s TTL for found secrets (2 s for "no row", A-18), a re-read on a
+ * signature mismatch, AND we explicitly invalidate from both rotation paths
  * (mintAndStorePvsSecret here + rotateIntakeSecretAction in einstellungen/
  * actions.ts) so a rotation doesn't strand callers using the new secret.
  *
@@ -19,15 +19,34 @@ import { decryptString } from "@/lib/crypto";
  * because every non-PVS purpose resolves to the same 'intake' row.
  */
 const SECRET_CACHE_TTL_MS = 30_000;
+/**
+ * "No credential row" is cached only briefly (A-18): right after a secret is
+ * created on another serverless instance, a cached `null` would otherwise
+ * reject valid calls for up to 30 s.
+ */
+const NEGATIVE_CACHE_TTL_MS = 2_000;
+/** On a signature mismatch with a cached secret, re-read the row at most this often. */
+const MISMATCH_RELOAD_MIN_INTERVAL_MS = 1_000;
 const SECRET_CACHE_MAX = 256;
-type CacheEntry = { secret: string | null; expiresAt: number };
+
+/**
+ * Secrets accepted for one (clinic, platform). `previous` is the secret
+ * before the last intake rotation, accepted until `previousValidUntil`
+ * (C-34 / F-11: 24 h overlap so a rotation does not break the Zielseite).
+ */
+export interface SecretSet {
+  current: string | null;
+  previous: string | null;
+  previousValidUntil: number | null;
+}
+type CacheEntry = { set: SecretSet; expiresAt: number; loadedAt: number };
 const secretCache = new Map<string, CacheEntry>();
 
 function cacheKey(clinicId: string, platform: "intake" | "pvs"): string {
   return `${clinicId}:${platform}`;
 }
 
-function cacheGet(key: string): string | null | undefined {
+function cacheGet(key: string): CacheEntry | undefined {
   const entry = secretCache.get(key);
   if (!entry) return undefined;
   if (entry.expiresAt < Date.now()) {
@@ -37,15 +56,75 @@ function cacheGet(key: string): string | null | undefined {
   // Refresh recency for naive LRU eviction.
   secretCache.delete(key);
   secretCache.set(key, entry);
-  return entry.secret;
+  return entry;
 }
 
-function cacheSet(key: string, secret: string | null): void {
+function cacheSet(key: string, set: SecretSet): CacheEntry {
   if (secretCache.size >= SECRET_CACHE_MAX) {
     const oldest = secretCache.keys().next().value;
     if (oldest !== undefined) secretCache.delete(oldest);
   }
-  secretCache.set(key, { secret, expiresAt: Date.now() + SECRET_CACHE_TTL_MS });
+  const now = Date.now();
+  const entry: CacheEntry = {
+    set,
+    loadedAt: now,
+    expiresAt: now + (set.current ? SECRET_CACHE_TTL_MS : NEGATIVE_CACHE_TTL_MS),
+  };
+  secretCache.set(key, entry);
+  return entry;
+}
+
+async function loadSecretSet(
+  clinicId: string,
+  platform: "intake" | "pvs"
+): Promise<SecretSet> {
+  const [cred] = await db
+    .select({
+      accessTokenEnc: schema.platformCredentials.accessTokenEnc,
+      previousAccessTokenEnc: schema.platformCredentials.previousAccessTokenEnc,
+      previousValidUntil: schema.platformCredentials.previousValidUntil,
+    })
+    .from(schema.platformCredentials)
+    .where(
+      and(
+        eq(schema.platformCredentials.clinicId, clinicId),
+        eq(schema.platformCredentials.platform, platform)
+      )
+    )
+    .limit(1);
+  const previousValidUntil = cred?.previousValidUntil?.getTime() ?? null;
+  const previousUsable =
+    !!cred?.previousAccessTokenEnc &&
+    previousValidUntil !== null &&
+    previousValidUntil > Date.now();
+  return {
+    current: cred?.accessTokenEnc ? decryptString(cred.accessTokenEnc) : null,
+    previous: previousUsable ? decryptString(cred!.previousAccessTokenEnc!) : null,
+    previousValidUntil: previousUsable ? previousValidUntil : null,
+  };
+}
+
+/** Constant-time check of `provided` against every currently accepted secret. */
+export function signatureMatchesSecretSet(
+  set: SecretSet,
+  rawBody: string,
+  provided: Buffer,
+  now: number = Date.now()
+): boolean {
+  const candidates: string[] = [];
+  if (set.current) candidates.push(set.current);
+  if (set.previous && set.previousValidUntil !== null && set.previousValidUntil > now) {
+    candidates.push(set.previous);
+  }
+  let ok = false;
+  for (const secret of candidates) {
+    const expected = createHmac("sha256", secret).update(rawBody).digest();
+    // No early return: every candidate is checked.
+    if (expected.length === provided.length && timingSafeEqual(expected, provided)) {
+      ok = true;
+    }
+  }
+  return ok;
 }
 
 export function invalidateSignatureSecretCache(
@@ -98,29 +177,23 @@ export async function verifyClinicSignature(
   const platform = platformForPurpose(purpose);
   const key = cacheKey(clinicId, platform);
 
-  let secret = cacheGet(key);
-  if (secret === undefined) {
-    const [cred] = await db
-      .select({ accessTokenEnc: schema.platformCredentials.accessTokenEnc })
-      .from(schema.platformCredentials)
-      .where(
-        and(
-          eq(schema.platformCredentials.clinicId, clinicId),
-          eq(schema.platformCredentials.platform, platform)
-        )
-      )
-      .limit(1);
-    secret = cred?.accessTokenEnc ? decryptString(cred.accessTokenEnc) : null;
-    // Cache misses (no credential row) are cached too — a hostile probe
-    // re-using a bogus clinic id shouldn't hit the DB on every request.
-    cacheSet(key, secret);
-  }
-  if (!secret) return false;
+  const cached = cacheGet(key);
+  const entry = cached ?? cacheSet(key, await loadSecretSet(clinicId, platform));
+  if (signatureMatchesSecretSet(entry.set, rawBody, provided)) return true;
 
-  const expected = createHmac("sha256", secret).update(rawBody).digest();
-  return (
-    expected.length === provided.length && timingSafeEqual(expected, provided)
-  );
+  // A-18: the cache is per serverless instance. If another instance rotated
+  // or created the secret, our cached copy is stale: re-read the row once
+  // (throttled per key) before rejecting. Cached "no row" entries expire
+  // after 2 s anyway and are not re-read here.
+  if (
+    cached &&
+    cached.set.current !== null &&
+    Date.now() - cached.loadedAt >= MISMATCH_RELOAD_MIN_INTERVAL_MS
+  ) {
+    const fresh = cacheSet(key, await loadSecretSet(clinicId, platform));
+    return signatureMatchesSecretSet(fresh.set, rawBody, provided);
+  }
+  return false;
 }
 
 /**
@@ -136,7 +209,7 @@ export async function verifyClinicSignature(
 export async function clinicHasIntakeSecret(clinicId: string): Promise<boolean> {
   const key = cacheKey(clinicId, "intake");
   const cached = cacheGet(key);
-  if (cached !== undefined) return cached !== null;
+  if (cached !== undefined) return cached.set.current !== null;
   const [cred] = await db
     .select({ id: schema.platformCredentials.id })
     .from(schema.platformCredentials)

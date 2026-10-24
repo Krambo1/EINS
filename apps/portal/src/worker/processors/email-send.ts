@@ -27,6 +27,12 @@ export interface EmailSendJob {
    * working and protects deliverability.
    */
   unsubscribeUrl?: string | null;
+  /**
+   * Optional stable key forwarded to Resend as Idempotency-Key (E-19): a
+   * pg-boss retry after a timeout that Resend actually accepted does not
+   * deliver a second copy.
+   */
+  idempotencyKey?: string;
 }
 
 /**
@@ -46,9 +52,8 @@ export async function processEmailSend(job: EmailSendJob): Promise<void> {
     const klass = job.klass ?? "transactional";
     const reason = await isEmailSuppressed(job.clinicId, job.to, klass);
     if (reason) {
-      console.log(
-        `[email-send] skipping to=${job.to} clinic=${job.clinicId} reason=${reason}`
-      );
+      // No recipient address in logs (L-14): clinic and reason are enough.
+      console.log(`[email-send] skipping clinic=${job.clinicId} reason=${reason}`);
       return;
     }
   }
@@ -59,5 +64,6 @@ export async function processEmailSend(job: EmailSendJob): Promise<void> {
     text: job.text,
     html: job.html ?? buildBrandedEmailHtml(job.text),
     unsubscribeUrl: job.unsubscribeUrl ?? null,
+    idempotencyKey: job.idempotencyKey,
   });
 }

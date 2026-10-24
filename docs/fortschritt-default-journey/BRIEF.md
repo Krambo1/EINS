@@ -41,22 +41,20 @@ Every newly onboarded Praxis should open the **Fortschritt** tab and immediately
 
 ## Proposed default journey content (10 steps, tweakable)
 
-Source: Notion "Der Ablauf" + the offer's onboarding timeline, rewritten Inhaber-facing. Step 1 starts as **läuft**, the rest **geplant**.
+Source: `docs/umbau-ki-organisch/KANON.md` section 9 (KI-Klon, organisch zuerst, "Keine Anfrage, keine Rechnung"), rewritten Inhaber-facing. Step 1 starts as **läuft**, the rest **geplant**. Full wording: migration `0074_journey_ki_organisch.sql` (repairs template and already-seeded clinic rows; 0063 still seeds the original rows on a fresh DB, 0074 then rewrites them).
 
 | # | Phase (`phase_label`) | Title | Gist |
 |---|---|---|---|
-| 1 | Zum Start | Auftakt-Gespräch und Zugänge | Praxis kennenlernen, Fragebogen im Portal, Zugänge klären, Produktionstag festlegen |
-| 2 | Woche 1 bis 2 | Produktionstag in Ihrer Praxis | Hauptvideo + ~20 Fotos vor Ort; für Sie 4 bis 6 Stunden |
-| 3 | Woche 1 bis 2 | Ihre Zielseiten entstehen | Eigene Zielseiten für Ihre profitabelsten Behandlungen, bestehende Website unberührt |
-| 4 | Woche 2 bis 3 | Anfrage-System und Auswertung | Anfrage-Erfassung, Vorqualifizierung, automatische Erinnerungen, Auswertung |
-| 5 | Woche 3 bis 4 | Rechtsprüfung Ihrer Werbung | HWG-Prüfung aller Anzeigen, ohne Freigabe geht nichts live |
-| 6 | Woche 3 bis 4 | Ihre Kampagnen werden aufgebaut | Anzeigen bei Instagram, Facebook, Google; Budget vorher abgestimmt |
-| 7 | Woche 5 | Start Ihrer Anzeigen | Kampagnen live, erste Anfragen meist in der ersten Woche, tägliches Monitoring |
-| 8 | Ab Woche 6 | Feinschliff und Optimierung | Varianten testen, Anfrage-Qualität schärfen, Kosten pro Anfrage senken |
-| 9 | Monatlich | Ihr Monatsbericht und Strategie-Gespräch | Verständlicher Bericht + kurzes Gespräch zu den nächsten Schritten |
-| 10 | Nach 90 Tagen | Großes 90-Tage-Gespräch | Rückblick auf 3 Monate, was lief, wie skalieren; Sie entscheiden |
-
-Full wording is drafted in Bucket 1.
+| 1 | Woche 1 | Onboarding-Gespräch und Zugänge | Unterschrift startet die 90 Tage; Onboarding per Video, Fragebogen, Einwilligung KI-Klon, Zugänge (Instagram, Facebook, Meta Business, Domain) |
+| 2 | Woche 1 | Ihre Klon-Aufnahme | Wenige Minuten Video und Stimme am Handy, daraus entsteht der KI-Klon |
+| 3 | Woche 1 bis 2 | Ihr Klon und Ihre Zielseite entstehen | KI-Klon plus Zielseite für die profitabelste Behandlung, Ziel des Profil-Links und später der Anzeigen |
+| 4 | Woche 1 bis 2 | Anfrage-System und Auswertung | Vorqualifizierung, Weiterleitung, Erinnerungen; jede Anfrage mit Herkunft im Portal |
+| 5 | Woche 1 bis 2 | Erste Beiträge zu Ihrer Freigabe | KI-Videos, Erklär-Animationen, Bildmaterial; HWG-geprüft, als KI-generiert gekennzeichnet, kein Beitrag ohne Freigabe |
+| 6 | Ab Woche 2 | Ihre ersten Beiträge gehen live | Organisch auf den Kanälen der Praxis, wöchentliche Sammel-Freigabe |
+| 7 | Erste qualifizierte Anfrage | Erste Anfrage, erste Rechnung | Garantie-Wortlaut (erste qualifizierte Anfrage über EINS, 90 Tage); Vorschlag Werbebudget |
+| 8 | Laufend | Anzeigen hinter den Beiträgen, die wirken | Anzeigen auf Meta und Google hinter Beiträgen mit Anfragen, Budget direkt an die Plattformen |
+| 9 | Monatlich | Ihre Auswertung und Strategie-Gespräch | Beiträge und Anzeigen, gestoppte, Anfragen, Behandlungen im Portal; kurzes Gespräch |
+| 10 | Nach 90 Tagen | Großes 90-Tage-Gespräch | Rückblick: welche Beiträge und Anzeigen Anfragen brachten, Werbebudget-Empfehlung; Sie entscheiden |
 
 ## Buckets (risk-first)
 
@@ -85,3 +83,4 @@ Full wording is drafted in Bucket 1.
 - 2026-06-16 — **Finding: no admin "create clinic" UI exists.** Clinics are created only by `seed.ts` and the `scripts/setup-intake.ts` CLI. So "auto-seed on creation" = a reusable helper wired into every creation path, and the admin button is the primary live mechanism for both new and empty-existing clinics. A future admin create-clinic action must call `applyDefaultJourney`.
 - 2026-06-16 — **Bucket 4 built + verified.** Central template editor at admin route `/admin/journey` (nav: Wachstum → "Standard-Journey", `Route` icon). New `listDefaultJourneySteps()` in `timeline-journey.ts`; `journey/actions.ts` create/update/delete on superuser `db` (requireAdmin + audit `timeline_default_step`); `JourneyTemplateEditor.tsx` mirrors the FortschrittTab form idiom (per-step Titel/Phase/Sortierung/Start-Status/Sichtbar/Beschreibung, add + edit + delete). Reorder is via the editable `sortOrder` number (the 10er gaps allow inserting between); no drag-and-drop, matching the existing admin idiom. Template edits deliberately do NOT revalidate clinic `/fortschritt` (only future seedings are affected; existing clinics keep their copies). Verified on dev DB: read returns the 10 steps in sort order; full create→update→delete round-trip leaves the template at 10 rows. Typecheck green. Admin page not pixel-rendered (admin IP-gate + the preview hydration quirk); follows the exact working onboarding/clinics page idiom.
 - 2026-06-16 — **Bucket 3 built + verified.** New `src/server/timeline-journey.ts` → `applyDefaultJourney(clinicId)`: atomic `INSERT … SELECT … WHERE NOT EXISTS` on superuser `db`, in a tx guarded by a per-clinic `pg_advisory_xact_lock` so concurrent calls can't double-seed; returns `{ seeded }` (0 when skipped). Admin action `seedDefaultJourneyAction` (requireAdmin → helper → audit → revalidate). `FortschrittTab` shows a "Standard-Journey einsetzen" CTA only when the clinic has 0 entries, so it self-hides after seeding (visual idempotency on top of the server guard). `setup-intake.ts` inlines the same guarded copy (tsx can't load the server-only helper) so the script creation path auto-seeds. **Idempotency verified on the real dev DB:** throwaway empty clinic → first seed 10 rows, second seed 0, total 10, all `event_date` NULL, correct sort order + statuses. Typecheck green. CTA not pixel-verified (no empty clinic in dev + the known preview-hydration quirk); it is a trivial `entries.length === 0` conditional, and the action runs the SQL-verified helper.
+- 2026-09-30: **Steps rewritten for the KI + organic model** (Kanon section 9): no Produktionstag, no Tag 22; signing starts the 90 days, Klon-Aufnahme in week 1, first posts live from week 2, first qualified inquiry = first invoice. Migration 0074 updates template rows (match sort_order + seeded title) and seeded clinic rows (match seeded title + phase_label), status untouched, admin re-titled steps kept.

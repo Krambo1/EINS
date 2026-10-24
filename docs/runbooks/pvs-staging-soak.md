@@ -104,7 +104,7 @@ The seed script prints the actual totals before applying.
 ## Weekly review (every Monday)
 
 The soak runs for 30 days. Each Monday, run the four queries below and
-file a one-page note in Notion ("PVS Soak Week N") with the answers.
+file a one-page note in the Obsidian vault (`10 EINS/Infrastruktur/`, note "PVS Soak Week N") with the answers.
 
 ### Q1: link health
 
@@ -238,7 +238,7 @@ DELETE FROM clinics         WHERE id        = '00000000-0000-4000-8000-000000000
 ```
 
 Decommission the Windows VM. Archive the manifest + weekly notes
-under the Notion "Soak runs" database. Future soak runs use a fresh
+under the Obsidian vault folder `10 EINS/Infrastruktur/Soak runs/`. Future soak runs use a fresh
 UUID; we never reuse the staging clinic id across runs because the
 adversarial fixtures' `pvsExternalEventId`s are namespaced by the
 `seed_run_id` but the patient pool itself isn't.

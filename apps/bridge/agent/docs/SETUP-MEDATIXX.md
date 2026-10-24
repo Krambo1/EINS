@@ -1,258 +1,259 @@
 # medatixx mit EINS verbinden (GDT-Agent)
 
-Diese Anleitung richtet sich an Praxisinhaber:innen und Praxis-IT, die eine
-medatixx-Installation (auch psyx oder x.isynet) mit dem EINS-Portal
-verbinden wollen.
+Für Praxis-IT und EINS-Installer. Dauer: rund 30 Minuten. Nur Windows.
 
-Die native medatixx-HealthHub-Schnittstelle ist für EINS nicht verfügbar
-(Partner-Antrag abgelehnt). Stattdessen nutzen wir den medatixx-internen
-**GDT-Export** und den **EINS-Agent**, einen kleinen Hintergrund-Dienst,
-der auf dem Praxis-PC läuft.
+Der EINS-Agent läuft als Hintergrund-Dienst auf einem Praxis-PC. Er liest
+**Patienten-Stammdaten** aus einem GDT-Ordner und meldet sie an das
+EINS-Portal.
 
-Geschätzte Dauer: rund 20 Minuten.
+**Wichtig:** GDT enthält keine Rechnungs- oder Honorardaten. Aus GDT liest
+der Agent nur Name, Vorname, Geburtsdatum, Geschlecht und, falls
+vorhanden, Telefon und E-Mail. Umsatz kommt aus dem Honorar-Export
+(Schritt 6) oder aus dem Datenbank-Weg (`docs/onboarding-per-vendor/medatixx.md`).
 
 ---
 
 ## Voraussetzungen
 
-- Eine laufende medatixx-Installation (lokale Praxisversion oder
-  medatixx.cloud)
-- Ein Praxis-PC, der **dauerhaft** läuft (sonst keine kontinuierliche
-  Daten-Übertragung). Server, Empfangs-Rechner oder dedizierter Mini-PC
-  sind typisch
-- Admin-Rechte auf diesem PC (für die Installation des Agents als
-  Windows-Dienst beziehungsweise macOS-LaunchAgent)
-- Ein Inhaber-Login im EINS-Portal (für das Generieren des
-  Einrichtungs-Codes)
+- Ein Praxis-PC, der dauerhaft läuft (Server, Empfang oder Mini-PC).
+- Administrator-Rechte auf diesem PC.
+- Node.js 20 (am besten als `node.exe` im Agent-Ordner) und der Agent-Ordner
+  mit `eins-agent.cmd`. EINS stellt ihn bereit. Es gibt keinen Installer.
+- Ein Inhaber-Login im EINS-Portal für den Einrichtungs-Code.
 
 ---
 
 ## Schritt 1: GDT-Ordner anlegen
 
-Auf dem Praxis-PC einen Ordner anlegen, in den medatixx die GDT-Dateien
-schreibt und aus dem der Agent sie liest.
+Ordner anlegen, z.B. `C:\EINS\gdt\`.
 
-- **Windows:** `C:\EINS\gdt\`
-- **macOS:** `~/EINS/gdt/`
+Rechte:
 
-Berechtigungen:
+- medatixx muss in den Ordner schreiben dürfen.
+- Der Agent läuft als SYSTEM. SYSTEM braucht **Lesen, Schreiben und
+  Löschen** im Ordner. Der Agent löscht jede Datei, die an EINS adressiert
+  ist, nach dem Lesen. Das schreibt die GDT-Spezifikation so vor.
+- Der Agent legt den Unterordner `.eins` an. Dateien für andere Geräte
+  (EKG usw.) im selben Ordner fasst er nie an.
 
-- Der medatixx-Benutzer (meist der eingeloggte Windows-User) muss in den
-  Ordner schreiben dürfen
-- Der Agent-Dienst (läuft unter LocalSystem beziehungsweise dem
-  angemeldeten macOS-User) muss aus dem Ordner lesen dürfen
-
-In den meisten Praxis-Setups reicht die Standard-NTFS-Berechtigung.
-Wenn medatixx auf einem anderen Rechner läuft als der EINS-Agent, den
-Ordner als Netzwerk-Share freigeben und beide Pfade gleich verwenden.
+Liegt der Ordner auf einem anderen Rechner: Netzlaufwerk-Buchstaben
+(`Z:\`) sieht SYSTEM nicht. Den UNC-Pfad verwenden
+(`\\server\freigabe\gdt`). Die Freigabe muss dem Computerkonto
+(`DOMÄNE\PCNAME$`) Lesen, Schreiben und Löschen erlauben.
 
 ---
 
-## Schritt 2: GDT-Export in medatixx konfigurieren
+## Schritt 2: EINS in medatixx als GDT-Gerät anlegen
 
-Pfad in medatixx:
+In medatixx die GDT-Geräteanbindung öffnen (Menü-Pfad je nach Version
+verschieden, meist unter Administration, Schnittstellen).
 
-```
-Administration → Praxisorganisation → Schnittstellen → GDT-Geräteanbindung
-```
-
-> Der exakte Menü-Pfad kann je nach medatixx-Version leicht variieren.
-> Screenshots ergänzen wir nach Abnahme einer Test-Praxis. Bei Unsicherheit
-> hilft die medatixx-Support-Suche nach "GDT-Geräteanbindung einrichten".
-
-Neue Geräteanbindung anlegen:
+Neues Gerät anlegen:
 
 | Feld | Wert |
 | --- | --- |
-| Gerätename | `EINS-Portal` |
-| GDT-Importpfad | leer lassen (wir importieren nichts nach medatixx) |
-| GDT-Exportpfad | der Ordner aus Schritt 1 (z.B. `C:\EINS\gdt\`) |
-| Zeichensatz | `ISO-8859-15` (medatixx-Standard); der Agent erkennt UTF-8 ebenfalls automatisch |
-| Dateiname-Schema | medatixx-Standard belassen |
+| Gerätename | `EINS` |
+| GDT-ID (Empfänger-ID) | `EINS` |
+| Exportpfad | der Ordner aus Schritt 1 |
+| Dateiname | `EINSMDX.GDT` (fester Name) oder `EINSMDX.001`, `.002` ... (zählend) |
 
-Satzarten aktivieren, die gesendet werden sollen:
+Der Dateiname **muss mit der GDT-ID beginnen**. Statt über den Dateinamen
+kann die Datei auch das Feld 8315 = `EINS` enthalten.
 
-- **6301:** Patientendaten an PVS senden (für Stammdaten-Sync)
-- **8316:** Behandlungsdaten inkl. Patienten (für Termin- und
-  Behandlungsverlauf)
-- **6200:** Befund / Behandlungsdaten (optional, wenn medatixx getrennte
-  Befund-Exporte schreibt)
+Satzart einstellen: medatixx soll **6301** (Stammdaten übermitteln) oder
+**6302** (neue Untersuchung anfordern) senden, wenn Praxis-Mitarbeitende
+bei einer Patientin oder einem Patienten das Gerät EINS auslösen. Mitzusenden:
 
-Speichern und in medatixx einmal einen Test-Patienten exportieren. Im
-Ordner aus Schritt 1 sollte eine `.gdt`-Datei erscheinen.
+- Patientennummer (Feld 3000). **Pflicht.** Ohne sie verwirft der Agent
+  den Satz.
+- Name, Vorname, Geburtsdatum, Geschlecht.
+- Wenn medatixx GDT 3.x kann: 3618 Mobil, 3619 E-Mail, 3626 Telefon.
 
----
+Der Zeichensatz wird automatisch erkannt. Hier ist nichts einzustellen.
 
-## Schritt 3: Lead-Token-Verknüpfung einrichten
-
-Damit das Portal automatisch erkennt, welcher medatixx-Patient zu welcher
-EINS-Anfrage gehört, wird beim Anlegen des Patienten in medatixx ein Token
-ins **Bemerkungsfeld** des Patienten geschrieben.
-
-So funktioniert es:
-
-1. Eine Anfrage kommt ins Portal. In der Anfrage-Detail-Ansicht zeigt das
-   Portal den Lead-Token im Format `EINS-Lead-{8 Hex-Zeichen}`, zum
-   Beispiel `EINS-Lead-a3f7b2c1`.
-2. Beim Anlegen des Patienten in medatixx wird dieser Token (genau so wie
-   angezeigt) in das **Bemerkungsfeld** des Patienten kopiert.
-3. Sobald medatixx den Patienten via GDT exportiert, liest der Agent das
-   Bemerkungsfeld mit und schickt es ans Portal. Das Portal verknüpft
-   Patient und Anfrage automatisch.
-
-Hinweise:
-
-- Der Token funktioniert **case-insensitive**: `eins-lead-a3f7b2c1` ist
-  derselbe Token
-- Tolerante Trennzeichen: `EINS Lead: a3f7b2c1`, `EINSLeada3f7b2c1`,
-  `EINS_Lead_a3f7b2c1` werden alle erkannt
-- Der Token muss nicht alleinstehen; auch `Patientin via
-  EINS-Lead-a3f7b2c1 gemeldet, Erstgespräch am 14.6.` wird sauber
-  geparst
-- Ohne Token funktioniert weiterhin das Fuzzy-Matching über E-Mail,
-  Telefon und Name. Der Token verbessert nur die Trefferquote auf nahe
-  100 Prozent
+Test: einen Test-Patienten an EINS senden. Es erscheint eine Datei wie
+`EINSMDX.GDT` im Ordner. Der Agent nimmt sie in den nächsten Sekunden und
+löscht sie. Ohne laufenden Agent bleibt sie liegen.
 
 ---
 
-## Schritt 4: EINS-Agent installieren
+## Schritt 3: Lead-Token (optional)
 
-Im Portal:
+GDT hat kein Bemerkungsfeld. Der Agent erkennt den Token
+`EINS-Lead-xxxxxxxx` (acht Hex-Zeichen) nur, wenn medatixx ein Freitextfeld
+mit dem Token im GDT-Satz mitsendet (zum Beispiel Befund oder Kommentar).
+Der Token wird dann in jedem Feld des Satzes gefunden. Groß-/Kleinschreibung
+und die Trennzeichen (`EINS Lead: a3f7b2c1`, `EINS_Lead_a3f7b2c1`) sind egal.
+Es wird nur der Token weitergegeben, nie der Text drumherum.
 
-1. Einloggen als Inhaber:in
-2. **Einstellungen → Integrationen → medatixx → Installation starten**
-3. Einen **Einrichtungs-Code** generieren (24 Stunden gültig). Den Code
-   kopieren
-
-Auf dem Praxis-PC:
-
-1. Den Installer herunterladen (Link auf der Setup-Seite)
-   - Windows: `eins-agent-x.y.z-windows-x64.msi`
-   - macOS: `eins-agent-x.y.z-macos-universal.pkg`
-2. Installer ausführen
-3. Im Installer-Dialog die zwei Felder ausfüllen:
-   - **Einrichtungs-Code:** der Code aus dem Portal
-   - **GDT-Ordner:** der Pfad aus Schritt 1 (z.B. `C:\EINS\gdt\`)
-4. Installation abschließen
-
-Der Agent läuft danach als Hintergrund-Dienst und startet bei jedem
-PC-Neustart automatisch mit. Keine weitere Konfiguration nötig.
+Sendet medatixx kein solches Feld, bleibt es bei Name, Telefon und E-Mail.
 
 ---
 
-## Schritt 5: Verifikation
+## Schritt 4: Agent einrichten
 
-Direkt nach der Installation sollte der Agent den medatixx-Test-Export
-aus Schritt 2 verarbeiten und ans Portal senden.
+Im Portal: **Einstellungen → Integrationen → medatixx**, einen
+Einrichtungs-Code erzeugen (24 Stunden gültig) und die Praxis-ID notieren.
 
-Im Portal prüfen:
+Agent-Ordner in einen Ordner nur für Administratoren legen, z.B.
+`C:\Program Files\EINS-Agent`. Nicht in ein Benutzerprofil: der Dienst läuft
+als SYSTEM und lehnt Orte ab, die normale Benutzer ändern können.
 
-1. **Einstellungen → Integrationen → medatixx** zeigt jetzt Status
-   `Verbunden` und ein erstes `Letzter Event vor wenigen Sekunden`
-2. Unter **Anfragen → einer Test-Anfrage**: wenn der Test-Patient mit
-   Token-Bemerkung exportiert wurde, ist die Anfrage jetzt mit einem
-   Patienten verknüpft
-3. (Nur für EINS-intern) Im Admin-Dashboard `/admin/pvs-bridge` steigt
-   `total_events_last_24h` für die Praxis um eins
+Eingabeaufforderung **als Administrator** öffnen:
 
----
+```
+cd "C:\Program Files\EINS-Agent"
+echo <Einrichtungs-Code> | eins-agent --enroll --token-stdin --clinic <Praxis-ID> --folder "\\server\freigabe\gdt"
+```
 
-## Umsatz und Rechnungen
+Optionen:
 
-GDT von medatixx liefert keine Rechnungs- und Honorardaten. Für die
-Umsatz-Auswertung im Portal (ROAS, Umsatz pro Anfrage) gibt es einen
-zweiten Weg.
-
-**Empfohlener Weg: monatlicher CSV-Upload**
-
-1. In medatixx unter **Statistik → Abrechnung → Export** den
-   Abrechnungs-Export für den jeweiligen Monat erstellen
-2. Im EINS-Portal: **Einstellungen → Integrationen → CSV-Upload**
-3. Die exportierte CSV in den 3-Schritt-Wizard ziehen. Mapping geschieht
-   geführt
-
-Damit hat das Portal die kompletten Behandlungs-Umsätze und kann ROAS
-und Umsatz-pro-Lead sauber pro Anfrage berechnen.
-
-Eine Aktivierung der medatixx-Honorar-FK-Schnittstelle ist technisch
-möglich, in der Praxis aber häufig support-pflichtig und für die meisten
-Praxen unverhältnismäßig aufwändig. CSV ist der pragmatische Weg.
+- `--folder <Pfad>`: GDT-Ordner aus Schritt 1. Ohne Angabe gilt `C:\GDT-Out`.
+- `--honorar-folder <Pfad>`: Ordner für den Honorar-Export (Schritt 6).
+- `--gdt-receiver-id <ID>`: nur wenn die GDT-ID nicht `EINS` sein kann.
+  1 bis 8 Zeichen aus `A-Z a-z 0-9 _`. Dann muss der Dateiname in medatixx
+  mit dieser ID beginnen.
 
 ---
 
-## Troubleshooting
+## Schritt 5: Dienst installieren
 
-### Umlaute werden falsch dargestellt (z.B. "Müller" statt "Müller")
+In derselben Administrator-Eingabeaufforderung:
 
-Der Agent versucht automatisch UTF-8 zuerst, fällt auf ISO-8859-15 zurück.
-Wenn medatixx einen anderen Zeichensatz schreibt:
+```
+eins-agent --install-service
+```
 
-1. In medatixx unter der GDT-Geräteanbindung den Zeichensatz auf
-   `ISO-8859-15` zurücksetzen
-2. Der Agent muss nicht neugestartet werden, neue Dateien werden direkt
-   korrekt geparst
+Das legt die geplante Aufgabe `EINS-Agent` an. Sie läuft als SYSTEM und
+startet beim Hochfahren, ohne dass sich jemand anmelden muss. Zusätzlich
+prüft Windows alle 5 Minuten, ob der Agent noch läuft, und startet ihn bei
+Bedarf neu. Der Befehl wartet bis zu 60 Sekunden, ob der Agent wirklich
+läuft. Meldet er danach einen Fehler, steht der Grund in
+`%ProgramData%\EINS-Agent\logs\agent.log`.
 
-### Keine Events im Portal nach Installation
+Den Befehl als der Windows-Benutzer ausführen, der die Einrichtung gemacht
+hat: er übernimmt dabei Daten einer älteren Einrichtung aus
+`%APPDATA%\EINS-Agent`.
 
-Agent-Log prüfen:
+Läuft auf dem PC noch ein alter Agent als normales Programm, bricht der
+Befehl ab und nennt den Prozess. Den alten Agent beenden und den Befehl
+wiederholen. Liegen alte Daten in mehreren Benutzerprofilen, übernimmt der
+Befehl nichts und listet die gefundenen Ordner auf. Dann nur den Ordner der
+richtigen Praxis behalten und den Befehl als dieser Benutzer wiederholen.
 
-- Windows: `%APPDATA%\EINS-Agent\agent.log`
-- macOS: `~/Library/Logs/EINS-Agent/agent.log`
+Weitere Befehle: `eins-agent --service-status` (zeigt Dienst, Agent,
+Datenordner und letzte Logzeilen), `eins-agent --stop-service`,
+`eins-agent --start-service`, `eins-agent --uninstall-service`.
 
-Häufige Ursachen:
+### Agent aktualisieren
 
-- Watch-Ordner-Pfad im Installer-Dialog hat sich getippt unterschieden
-  vom GDT-Exportpfad in medatixx. Beide vergleichen, exakt gleich machen
-- Praxis-PC oder Agent-Dienst ist gestoppt. Dienste-Manager prüfen
-  (Windows: `services.msc`, Dienst-Name `EINS-Agent`)
-- Internet-Zugriff vom Praxis-PC zum Portal blockiert. Firewall-Regel
-  setzen: ausgehend HTTPS auf `*.eins.ag`
+Eingabeaufforderung **als Administrator**:
 
-### Lead-Token wird nicht erkannt
+1. `eins-agent --stop-service`. Das deaktiviert die Aufgabe (sonst startet
+   Windows sie nach 5 Minuten wieder), beendet den Agenten und wartet, bis er
+   wirklich weg ist. Meldet der Befehl nach 45 Sekunden, dass der Agent noch
+   läuft, im Task-Manager den Prozess `node.exe` des Agenten beenden.
+2. Die Dateien im Agent-Ordner ersetzen (kompletter neuer Ordnerinhalt,
+   auch `node_modules`).
+3. `eins-agent --install-service` (oder `eins-agent --start-service`, wenn
+   sich die Aufgabe nicht geändert hat). Beide warten, bis der Agent läuft.
+4. `eins-agent --service-status` prüfen.
 
-- Format kontrollieren: `EINS-Lead-` plus genau **acht Hex-Zeichen**
-  (0-9, a-f). Nicht weniger, nicht mehr
-- Sichergehen, dass der Token wirklich im **Bemerkungs-Feld** des
-  Patienten steht, nicht im Behandlungs-Bemerkungsfeld oder einer
-  Karteinotiz
-- Im Portal in der Anfrage-Detail-Ansicht den Token erneut kopieren
-  (Kopier-Button) und in medatixx neu einsetzen. Tippfehler sind die
-  häufigste Ursache
+Konfiguration, Schlüssel und Warteschlange bleiben im Datenordner erhalten.
 
-### medatixx-Update: bleibt die Konfiguration?
+### Nicht gesendete Meldungen erneut versuchen
 
-Ja. GDT-Geräteanbindungen sind Bestandteil der medatixx-Datenbank und
-überleben Updates. Der Agent ist davon unabhängig und läuft weiter.
+Gibt der Agent eine Meldung nach mehreren Versuchen auf, bleibt sie als
+fehlgeschlagen in der Warteschlange. Nach Behebung der Ursache:
+`eins-agent --requeue-failed` (optional `--reason <Code>`, zum Beispiel
+`invalid_envelope`). Der Befehl nennt die Zahl der Meldungen, die wieder auf
+"wartend" stehen. Er darf auch bei laufendem Agenten ausgeführt werden.
+
+Danach den Test aus Schritt 2 wiederholen.
+
+---
+
+## Schritt 6: Umsatz (Honorar-Export)
+
+GDT liefert keinen Umsatz. Für Umsatz und Werbeertrag im Portal:
+
+1. In medatixx den Honorar-Export als **CSV-Datei** in einen eigenen
+   Ordner schreiben lassen (nicht in den GDT-Ordner), z.B.
+   `\\server\freigabe\honorar`.
+2. Ordner beim Einrichten mit `--honorar-folder` angeben. Nachträglich:
+   `eins-agent --configure-honorar "<Ordner>"`, danach den Dienst neu
+   starten (`eins-agent --stop-service`, dann `eins-agent --start-service`).
+
+Der Agent liest alle `*.csv` im Ordner, erkennt die Spalten über die
+Kopfzeile und prüft den Ordner alle 5 Minuten. Er löscht die Dateien nicht.
+
+Alternative ohne CSV: der Datenbank-Weg, siehe
+`docs/onboarding-per-vendor/medatixx.md`.
+
+---
+
+## Prüfen
+
+1. `eins-agent --service-status`: Dienst installiert, Agent läuft,
+   Einrichtung vorhanden.
+2. Im Portal unter **Einstellungen → Integrationen → medatixx**: Status
+   `Verbunden`.
+3. Testpatient senden: die Datei im GDT-Ordner verschwindet, der Patient
+   erscheint im Portal.
+
+---
+
+## Fehlersuche
+
+**Log:** `%ProgramData%\EINS-Agent\logs\agent.log` (10 MB, 5 Dateien
+rotierend). Der Ordner `%ProgramData%\EINS-Agent` ist nur für SYSTEM und
+Administratoren lesbar. Ohne Administrator-Rechte kein Zugriff.
+
+**Ordner nicht gefunden oder kein Zugriff:** Der Agent schreibt beim Start
+und danach stündlich den genauen Pfad und den Grund ins Log. Häufigste
+Ursache: Netzlaufwerk-Buchstabe statt UNC-Pfad, oder die Freigabe erlaubt
+dem Computerkonto den Zugriff nicht.
+
+**Im Portal steht ein gestoppter Stream `gdt_agent/gdt_inbox`:** Der
+GDT-Ordner ist nicht lesbar, oder eine Datei für EINS kann nicht übernommen
+werden. Meist fehlt dem Konto SYSTEM das Schreib-/Löschrecht im Ordner.
+Rechte setzen, der Agent versucht es selbst erneut.
+
+**Im Portal steht ein gestoppter Stream `honorar_csv/csv_folder`:** Der
+Honorar-Export ist nicht auswertbar (Spalten nicht erkannt) oder zu groß.
+Das Portal zeigt die gefundenen Spaltennamen. Export in kleinere Zeiträume
+teilen oder die Spaltennamen an EINS melden.
+
+**Dateien in `<GDT-Ordner>\.eins\failed`:** Der Agent konnte die Datei nicht
+lesen (kein GDT, zu groß, kein Satz). Er verschiebt sie dorthin, damit
+medatixx nicht blockiert, und löscht sie nach 30 Tagen. Der Stream steht im
+Portal dann auf `degraded`.
+
+**Datei bleibt im Ordner liegen:** Sie ist nicht an EINS adressiert (Name
+beginnt nicht mit der GDT-ID und kein Feld 8315 = `EINS`), oder der Agent
+läuft nicht. Bei einer Datei für EINS ohne Patientennummer (3000) wird die
+Datei gelöscht, aber kein Patient gemeldet. Das Log nennt es.
+
+**Der Agent startet nicht, Exit-Code 75:** Es läuft schon ein Agent
+(eine Instanz pro PC). `eins-agent --service-status` zeigt ihn.
+
+**Anderer Datenpfad (nur Entwicklung):** `EINS_AGENT_DATA_DIR`.
+
+**BDT-Export (`*.bdt`):** Der Agent liest ihn, löscht ihn aber nie.
 
 ---
 
 ## FAQ
 
-**medatixx hat den GDT-Export schon eingerichtet für eine andere Software.
-Kann ich beides parallel laufen lassen?**
+**Kann ein bestehender GDT-Export für ein anderes Gerät im selben Ordner
+liegen?** Ja. Der Agent fasst nur Dateien an, die an EINS adressiert sind.
 
-Ja. In medatixx einen zweiten GDT-Geräte-Eintrag anlegen mit einem
-eigenen Exportpfad (z.B. `C:\EINS\gdt\` zusätzlich zum bestehenden
-`C:\Labor\gdt\`). Beide Empfänger erhalten dann eigene Dateien.
+**Wie werden die Daten übertragen?** Jede Meldung ist mit einem
+praxis-spezifischen Schlüssel signiert und geht per HTTPS an das Portal.
+Nicht gesendete Meldungen liegen verschlüsselt im Datenordner und gehen bei
+der nächsten Verbindung raus.
 
-**Brauche ich für die GDT-Aktivierung ein Support-Ticket bei medatixx?**
-
-Nein. GDT-Geräteanbindungen sind in jeder medatixx-Lizenz Standard und
-lassen sich von der Praxis selbst einrichten.
-
-**Was passiert mit den GDT-Dateien nach dem Senden ans Portal?**
-
-Der Agent behält sie standardmäßig 30 Tage im Ordner und löscht sie
-dann. Bei Bedarf kann das per Agent-Config angepasst werden.
-
-**Werden die Daten verschlüsselt übertragen?**
-
-Ja. Der Agent signiert jeden POST mit einem praxis-spezifischen
-HMAC-Secret und sendet ausschließlich über HTTPS ans Portal.
-
-**Wie sieht es mit DSGVO aus?**
-
-Der Agent verarbeitet nur Daten, die medatixx exportiert (Schritt 2 ist
-die Stellschraube). Das EINS-Portal ist Auftragsverarbeiter; der
-AV-Vertrag liegt im Portal unter **Einstellungen → Verträge** zur
-Unterzeichnung bereit.
+**Welche Daten verlassen die Praxis?** Nur Patientennummer, Name,
+Geburtsdatum, Geschlecht, Telefon, E-Mail und ein erkannter Lead-Token.
+Adresse, Versichertennummer, Größe, Gewicht und alle Befundtexte werden
+nicht übernommen.

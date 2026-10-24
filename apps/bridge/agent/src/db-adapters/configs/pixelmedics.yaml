@@ -38,6 +38,13 @@ driver: sqlite
 bridgeSource: pixelmedics
 defaultIntervalSeconds: 90
 batchSize: 500
+# Cursor storage format of the SQLite timestamp columns (HYPOTHESIS: ISO-8601
+# text with T and Z, as an Electron/JS app writes it). The first poll samples the
+# real column and halts with config_invalid if it is stored differently, e.g.
+# 'YYYY-MM-DD HH:MM:SS' text (iso_text), epoch seconds (epoch_s) or a Julian
+# day (julian). A 'Z' text value is an absolute instant, so timezone is utc.
+cursorFormat: iso_t_text
+timezone: utc
 
 connection:
   credentialId: pixelmedics-db-default
@@ -171,6 +178,7 @@ streams:
   # vendor's actual storage convention is part of the schema-discovery
   # work before going live.
   - kind: InvoicePaid
+    statusColumn: status
     cursorColumn: modified_at
     cursorType: timestamp
     tiebreakColumn: id
@@ -244,6 +252,12 @@ streams:
   # Cancellations stay on stream 3 (AppointmentStatusChanged -> cancelled); no
   # AppointmentCancelled stream until a real schema separates patient- vs
   # Praxis-side cancel.
+  # PROBE TODO (review finding 12): a Storno / Gutschrift booked as a NEW row has its own
+  # id here (pvsRefundId = that id, sent automatically). To net the ORIGINAL invoice and
+  # sum several partial credit notes, the schema probe must find the Storno reference
+  # column (original invoice id) and map it as `originalInvoiceId: <column>` below
+  # (select it in the query too). Until then pvsInvoiceId stays the row id, which is
+  # only right when the invoice row itself flips to storniert (flag-flip case).
   - kind: InvoiceRefunded
     cursorColumn: modified_at
     cursorType: timestamp

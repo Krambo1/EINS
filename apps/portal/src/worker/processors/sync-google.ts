@@ -2,6 +2,9 @@ import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { env, hasGoogle } from "@/lib/env";
 import { decryptString, encryptString } from "@/lib/crypto";
+import { GOOGLE_ADS_API_VERSION } from "@/server/google-ads-oci";
+import { berlinYesterday } from "./berlin-days";
+import { GOOGLE_RECONNECT, notifyOwnersOnce } from "./connection-alerts";
 
 /**
  * Daily Google Ads sync. Minimal shape matching `sync-meta.ts`.
@@ -22,10 +25,25 @@ export interface SyncGoogleJob {
 export async function processSyncGoogle(job: SyncGoogleJob): Promise<void> {
   const { clinicId } = job;
 
-  if (!hasGoogle() || !env.GOOGLE_ADS_LOGIN_CUSTOMER_ID) {
+  if (!hasGoogle()) {
     console.log("[sync-google] google not configured — skipping");
     return;
   }
+
+  // E-04: query the Praxis's OWN Ads account. The env login id is only the
+  // EINS manager account (MCC) used as login-customer-id header fallback;
+  // querying it returned the MCC's numbers for every Praxis.
+  const [clinic] = await db
+    .select({
+      customerId: schema.clinics.googleAdsCustomerId,
+      loginCustomerId: schema.clinics.googleAdsLoginCustomerId,
+    })
+    .from(schema.clinics)
+    .where(eq(schema.clinics.id, clinicId))
+    .limit(1);
+  const customerId = digitsOnly(clinic?.customerId);
+  const loginCustomerId =
+    digitsOnly(clinic?.loginCustomerId) ?? digitsOnly(env.GOOGLE_ADS_LOGIN_CUSTOMER_ID);
 
   const [cred] = await db
     .select()
@@ -42,8 +60,20 @@ export async function processSyncGoogle(job: SyncGoogleJob): Promise<void> {
     return;
   }
 
+  if (!customerId) {
+    // Visible in the admin "Sync-Fehler" list instead of a log line only.
+    console.log(`[sync-google] clinic=${clinicId} has no google_ads_customer_id — skipping`);
+    await db
+      .update(schema.platformCredentials)
+      .set({ lastSyncError: "Google-Ads-Kundennummer der Praxis fehlt (clinics.google_ads_customer_id)." })
+      .where(eq(schema.platformCredentials.id, cred.id));
+    return;
+  }
+
   const refreshToken = decryptString(cred.refreshTokenEnc);
-  const date = job.date ?? yyyyMmDd(daysAgo(1));
+  // Berlin "gestern" (the Ads account reports in its own time zone, which
+  // for DACH accounts is Europe/Berlin).
+  const date = job.date ?? berlinYesterday();
 
   try {
     const access = await refreshAccessToken(refreshToken);
@@ -62,20 +92,28 @@ export async function processSyncGoogle(job: SyncGoogleJob): Promise<void> {
       FROM customer
       WHERE segments.date = '${date}'
     `;
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${access.access_token}`,
+      "developer-token": env.GOOGLE_ADS_DEVELOPER_TOKEN!,
+      "Content-Type": "application/json",
+    };
+    if (loginCustomerId) headers["login-customer-id"] = loginCustomerId;
     const gaqlRes = await fetch(
-      `https://googleads.googleapis.com/v18/customers/${env.GOOGLE_ADS_LOGIN_CUSTOMER_ID}/googleAds:searchStream`,
+      `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}/customers/${customerId}/googleAds:searchStream`,
       {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${access.access_token}`,
-          "developer-token": env.GOOGLE_ADS_DEVELOPER_TOKEN!,
-          "login-customer-id": env.GOOGLE_ADS_LOGIN_CUSTOMER_ID!,
-          "Content-Type": "application/json",
-        },
+        headers,
         body: JSON.stringify({ query }),
+        signal: AbortSignal.timeout(15_000),
       }
     );
-    if (!gaqlRes.ok) throw new Error(`google ads http ${gaqlRes.status}`);
+    if (!gaqlRes.ok) {
+      throw new Error(
+        gaqlRes.status === 404
+          ? `google ads http 404 (API ${GOOGLE_ADS_API_VERSION} sunset? set GOOGLE_ADS_API_VERSION)`
+          : `google ads http ${gaqlRes.status}`
+      );
+    }
 
     // searchStream returns an array of chunks.
     const chunks = (await gaqlRes.json()) as {
@@ -147,8 +185,19 @@ export async function processSyncGoogle(job: SyncGoogleJob): Promise<void> {
       .update(schema.platformCredentials)
       .set({ lastSyncError: message.slice(0, 500) })
       .where(eq(schema.platformCredentials.id, cred.id));
+    // E-29: after 3 days without a successful sync (or a revoked grant), tell
+    // the Inhaber:in once a week instead of failing silently.
+    const lastOk = cred.lastSyncedAt?.getTime() ?? cred.createdAt?.getTime() ?? 0;
+    if (/google refresh http 40[01]/.test(message) || Date.now() - lastOk > 3 * 86_400_000) {
+      await notifyOwnersOnce({ clinicId, ...GOOGLE_RECONNECT, dedupeDays: 7 }).catch(() => 0);
+    }
     throw err;
   }
+}
+
+function digitsOnly(v: string | null | undefined): string | null {
+  const d = (v ?? "").replace(/\D/g, "");
+  return d.length > 0 ? d : null;
 }
 
 async function refreshAccessToken(refreshToken: string): Promise<{
@@ -157,6 +206,7 @@ async function refreshAccessToken(refreshToken: string): Promise<{
 }> {
   const res = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
+    signal: AbortSignal.timeout(10_000),
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       client_id: env.GOOGLE_ADS_CLIENT_ID!,
@@ -167,13 +217,4 @@ async function refreshAccessToken(refreshToken: string): Promise<{
   });
   if (!res.ok) throw new Error(`google refresh http ${res.status}`);
   return (await res.json()) as { access_token: string; expires_in: number };
-}
-
-function daysAgo(n: number): Date {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d;
-}
-function yyyyMmDd(d: Date): string {
-  return d.toISOString().slice(0, 10);
 }

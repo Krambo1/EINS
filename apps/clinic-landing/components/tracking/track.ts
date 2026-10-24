@@ -3,7 +3,12 @@
  *
  * - Adds events to a queue when the pixel libs aren't loaded yet
  * - Drops events entirely when marketing consent is missing
- * - Mirrors every event to /api/track for the server-side CAPI relay
+ * - Meta (fbq) only ever receives the standard `PageView`, without
+ *   parameters. Custom events (QuizStart, QuizStep, ...) never reach fbq or
+ *   the /api/track Meta relay: Meta restricts health advertisers and every
+ *   extra field is health context. The Meta Lead is server-side only
+ *   (/api/lead, consent + paid-Meta-visit gate).
+ * - gtag / ttq get the non-Lead events; no treatment in any payload.
  *
  * No external SDK — just `window.fbq`, `window.gtag`, `window.ttq` calls.
  * Each pixel adds itself to `window` only after consent + script load.
@@ -18,9 +23,10 @@ type EventName =
   | "BookingComplete"
   | "ScrollDeep";
 
+// No `treatment` field on purpose: nothing naming the treatment goes to an
+// ad platform. EINS-internal RUM (/api/rum) is separate.
 interface TrackPayload {
   step?: string;
-  treatment?: string;
   branch?: string;
   value?: number;
   currency?: string;
@@ -30,8 +36,16 @@ interface TrackArgs extends TrackPayload {
   event: EventName;
   /** Stable id the server will use to dedup against the CAPI side. */
   eventId: string;
-  /** When false, server-side relay is skipped (e.g. during scroll telemetry). */
+  /**
+   * When true, a PageView is also relayed to /api/track (Meta CAPI, same
+   * event id for dedup). Only PageView is ever relayed. Default false.
+   */
   serverRelay?: boolean;
+  /**
+   * Limit the fan-out to these pixels. Omitted = every loaded pixel. Meta
+   * only ever takes a PageView, whatever this list says.
+   */
+  platforms?: ("meta" | "google" | "tiktok")[];
 }
 
 declare global {
@@ -43,36 +57,39 @@ declare global {
   }
 }
 
-export function track({ event, eventId, serverRelay = true, ...payload }: TrackArgs) {
+export function track({ event, eventId, serverRelay = false, platforms, ...payload }: TrackArgs) {
   if (typeof window === "undefined") return;
 
   // Queue when no pixel is initialized yet. Drained from each pixel mount.
   if (typeof window.fbq !== "function" && typeof window.gtag !== "function") {
     window.__clinic_track_queue__ ||= [];
-    window.__clinic_track_queue__.push({ event, eventId, serverRelay, ...payload });
+    window.__clinic_track_queue__.push({ event, eventId, serverRelay, platforms, ...payload });
     return;
   }
 
-  if (typeof window.fbq === "function") {
-    window.fbq("trackCustom", event, payload, { eventID: eventId });
-    if (event === "Lead") window.fbq("track", "Lead", payload, { eventID: eventId });
-    if (event === "PageView") window.fbq("track", "PageView", undefined, { eventID: eventId });
+  const to = (p: "meta" | "google" | "tiktok") => !platforms || platforms.includes(p);
+
+  // Meta: standard PageView only, no parameters. Everything else is dropped.
+  const toMeta = event === "PageView" && to("meta");
+  if (toMeta && typeof window.fbq === "function") {
+    window.fbq("track", "PageView", undefined, { eventID: eventId });
   }
 
-  if (typeof window.gtag === "function") {
+  if (to("google") && typeof window.gtag === "function") {
     window.gtag("event", event, { ...payload, transaction_id: eventId });
   }
 
-  if (window.ttq && typeof window.ttq.track === "function") {
+  if (to("tiktok") && window.ttq && typeof window.ttq.track === "function") {
     window.ttq.track(event, payload, { event_id: eventId });
   }
 
-  if (serverRelay) {
-    // Best-effort fire-and-forget. /api/track checks consent server-side too.
+  if (serverRelay && toMeta) {
+    // Best-effort fire-and-forget. The relay accepts only PageView and sends
+    // the origin only, no custom_data.
     void fetch("/api/track", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ event, eventId, ...payload, sourceUrl: window.location.href }),
+      body: JSON.stringify({ event, eventId, sourceUrl: window.location.href }),
       keepalive: true,
     }).catch(() => {});
   }

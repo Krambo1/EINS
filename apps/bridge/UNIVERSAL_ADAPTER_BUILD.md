@@ -62,7 +62,7 @@ Today the bridge has three production-quality paths (Tomedo REST, RED FHIR, GDT-
 
 This build closes that gap by reading directly from each PVS's local database via the existing on-prem agent. **Direct DB access is legally defensible** under DSGVO Art. 20 (Data Portability) and BGH rulings on Praxis-Datenhoheit, as long as the read is authorized by the Praxis (the data owner) via AVV. PVS vendor EULAs cannot override that.
 
-Full strategic frame: Notion "Wettbewerb & Markt (April 2026)" Section 8. Memory: `project_pvs_bridge_moat.md`.
+Full strategic frame: Obsidian note `10 EINS/Markt/Wettbewerb & Markt (April 2026)/Wettbewerb & Markt (April 2026).md` (vault `D:\Desktop\Claude\Obsidian\Karam`), Section 8. Memory: `project_pvs_bridge_moat.md`.
 
 ## 3. Current state of the bridge (read first)
 
@@ -88,7 +88,7 @@ Before writing any code, read these files to understand the existing architectur
 - `AppointmentCancelled`
 - `RecallScheduled`
 
-GDT-emitted `EncounterCompleted` events carry no `pvsAppointmentId`, so the worker silently skips them (see `pvs-status-derive.ts` around line 233). GDT-emitted `InvoicePaid` events fire only if the PVS is configured to ship Honorar-FKs in GDT (rare default; medatixx requires support activation), and even then carry no `pvsAppointmentId`.
+GDT emits only `PatientUpserted` (patient master data). It emits no `EncounterCompleted` and no `InvoicePaid`, because GDT carries no billing or treatment data. Revenue comes from the Honorar-CSV watcher or a DB adapter.
 
 Net effect on a GDT-only Praxis: auto-status progression is dead, Forecast engine has zero `won` samples, Werbebudget ROI cannot attribute revenue to leads, Meta CAPI and Google OCI conversion uploads never fire. The portal looks half-empty.
 
@@ -220,6 +220,7 @@ Document, do not just code. Create:
 - `apps/bridge/legal/AVV-template-DE.md`: Auftragsverarbeitungsvertrag template explicitly authorizing the agent to read the named DB tables on the Praxis's behalf. Cite DSGVO Art. 20, Art. 28, and BGH ruling references.
 - `apps/bridge/docs/onboarding-per-vendor/`: one short markdown per supported PVS, written for the Praxis IT person. Steps: install agent, configure read-only DB credentials, enable monitoring, verify first event arrives in the portal.
 - `apps/bridge/docs/troubleshooting.md`: common failures (firewall blocks, wrong credentials, schema drift, vendor update broke a column rename), recovery playbook for each.
+- `apps/bridge/docs/remote-config.md`: signed vendor-config delivery (agent 0.3.0, portal migration 0071). Drift recovery becomes a config push instead of a reinstall on every affected machine. Covers the offline signing key, the rollout model, and the agent's self-rollback probation window.
 
 **Positioning constraint (hard):** never frame this as "bypassing Tomedo" or "hacking medatixx." Frame it as **"the EINS Agent reads the Praxis's own data, on the Praxis's own hardware, with the Praxis's explicit written authorization."** This is legally and culturally critical. The AVV is the contract. The vendor EULA is not relevant because the Praxis (data owner) is the one granting access to their own data.
 
@@ -357,13 +358,13 @@ The build is shippable when:
 
 ## 12. References
 
-- Project CLAUDE.md: `D:\Desktop\EINSWebsite\CLAUDE.md`
+- Project CLAUDE.md: `D:\Desktop\EINSCodebase\CLAUDE.md`
 - Bridge README: `apps/bridge/README.md`
 - Canonical types: `apps/bridge/src/canonical/types.ts`
 - Status-derive worker: `apps/portal/src/worker/processors/pvs-status-derive.ts`
 - Portal event API: `apps/portal/src/app/api/pvs/events/route.ts`
-- Notion strategic context: "Wettbewerb & Markt (April 2026)" Section 8 (https://www.notion.so/34be7fc887348148a71fc7c216db04d8)
-- Memory files (in `C:\Users\karam\.claude\projects\D--Desktop-EINSWebsite\memory\`):
+- Strategic context: Obsidian note `10 EINS/Markt/Wettbewerb & Markt (April 2026)/Wettbewerb & Markt (April 2026).md` (vault `D:\Desktop\Claude\Obsidian\Karam`), Section 8
+- Memory files (in `C:\Users\karam\.claude\projects\D--Desktop-EINSCodebase\memory\`):
   - `project_pvs_bridge_moat.md`
   - `project_pvs_adapter_priorities.md`
   - `feedback_no_code_for_mfa_discipline.md`

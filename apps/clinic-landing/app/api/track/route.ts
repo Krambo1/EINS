@@ -9,31 +9,32 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Server-side CAPI relay for non-Lead events (PageView, QuizStep, ScrollDeep).
+ * Server-side CAPI relay for the standard PageView ONLY.
  *
- * The browser pixel fires the same event with the same `event_id` so Meta
- * dedupes; the server-side relay survives ad-blockers and ITP, which is
- * the whole reason CAPI exists.
+ * Meta gets nothing but PageView from the landing pages: no custom events,
+ * no custom_data, and the event_source_url is reduced to the origin (page
+ * addresses must not reveal health context). The Lead goes via /api/lead
+ * behind the ads-consent + paid-Meta-visit gate. The browser pixel fires
+ * the same PageView with the same `event_id` so Meta dedupes.
  */
 
 // Field caps: unauthenticated sink, every string is attacker-controlled and
 // gets forwarded to Meta. Bound them (pentest authn-08-telemetry / residual 7).
+// Unknown keys (step, treatment, value, ...) are stripped by zod and never
+// forwarded.
 const trackSchema = z.object({
-  event: z.string().min(1).max(40),
+  event: z.literal("PageView"),
   eventId: z.string().min(1).max(128),
   sourceUrl: z.string().min(1).max(512),
-  step: z.string().max(64).optional(),
-  treatment: z.string().max(120).optional(),
-  branch: z.string().max(120).optional(),
-  // Forwarded verbatim into Meta custom_data — clamp the magnitude and pin
-  // the currency to an ISO-4217 code so an unauthenticated caller can't poison
-  // a clinic's conversion value with arbitrary numbers/strings (pentest H6).
-  value: z.number().finite().nonnegative().max(1_000_000).optional(),
-  currency: z
-    .string()
-    .regex(/^[A-Z]{3}$/)
-    .optional(),
 });
+
+function originOf(url: string): string | undefined {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return undefined;
+  }
+}
 
 const TRACK_LIMIT_PER_MINUTE = 120;
 
@@ -77,6 +78,8 @@ export async function POST(req: NextRequest) {
   }
   const parse = trackSchema.safeParse(raw);
   if (!parse.success) return NextResponse.json({ ok: true });
+  // Anything but PageView (Lead, Purchase, custom events) fails the schema
+  // and is dropped here.
   const ev = parse.data;
 
   const clinicSlug = resolveTrustedClinicSlug(req, ev.sourceUrl);
@@ -98,17 +101,10 @@ export async function POST(req: NextRequest) {
       {
         event_name: ev.event,
         event_id: ev.eventId,
-        event_source_url: ev.sourceUrl,
+        event_source_url: originOf(ev.sourceUrl),
         user_data: {
           client_ip_address: ip || undefined,
           client_user_agent: ua,
-        },
-        custom_data: {
-          step: ev.step,
-          treatment: ev.treatment,
-          branch: ev.branch,
-          value: ev.value,
-          currency: ev.currency,
         },
       },
     ],

@@ -1,7 +1,6 @@
 import "server-only";
 import { and, eq, gt, sql } from "drizzle-orm";
 import { db, schema } from "../db/client";
-import { adminOrigin } from "../lib/env";
 import { generateToken, sha256Hex } from "../lib/crypto";
 import { MAGIC_LINK_TTL_SECONDS } from "../lib/constants";
 import { sendMagicLinkEmail } from "../server/email";
@@ -10,6 +9,8 @@ import {
   isAdminEmail,
   ensureAdminUser,
 } from "./admin";
+import { adminLinkUrl } from "./admin-magic-link";
+import { isPlausibleLinkToken } from "./magic-link-rules";
 
 /**
  * Admin Password-Reset / Set-Password Flow.
@@ -22,8 +23,8 @@ import {
  * Workflow (post-Härtung):
  *   1. issueAdminPasswordResetLink(email) → admin_tokens-Row (purpose
  *      'password_reset'), TTL 15 min. Mail wird verschickt. URL zeigt auf
- *      /admin/login/callback?token=… (NICHT mehr direkt auf set-password).
- *   2. User klickt Link → /admin/login/callback ruft consumeAdminPasswordSetupToken
+ *      /admin/login/link?token=… (Seite mit Knopf, verbraucht nichts, B-1).
+ *   2. Knopf POSTet an /admin/login/callback, das ruft consumeAdminPasswordSetupToken
  *      auf (DELETE … RETURNING, atomar). Bei Erfolg: issuePasswordSetupCookie("admin", …)
  *      und Redirect auf /admin/set-password — clean URL, kein Token mehr.
  *   3. User submitted Passwort → setAdminPasswordAction liest die Cookie,
@@ -62,13 +63,22 @@ export async function issueAdminPasswordResetLink(email: string): Promise<void> 
       set: { email: lower, purpose: TOKEN_PURPOSE, expiresAt },
     });
 
-  const url = `${adminOrigin()}/admin/login/callback?token=${token}`;
-  await sendMagicLinkEmail({
-    to: lower,
-    url,
-    intent: "reset_password",
-    requestedAt,
-  });
+  // Landing page first (B-1): the token is only consumed by the POST from
+  // its button. Send failures are logged, never thrown (B-16).
+  const url = adminLinkUrl(token);
+  try {
+    await sendMagicLinkEmail({
+      to: lower,
+      url,
+      intent: "reset_password",
+      requestedAt,
+    });
+  } catch (err) {
+    console.error(
+      "[CRITICAL][admin-password] reset mail send failed:",
+      err instanceof Error ? err.message : String(err)
+    );
+  }
 }
 
 /**
@@ -84,6 +94,7 @@ export async function issueAdminPasswordResetLink(email: string): Promise<void> 
 export async function consumeAdminPasswordSetupToken(
   token: string
 ): Promise<{ id: string; email: string } | null> {
+  if (!isPlausibleLinkToken(token)) return null;
   const hash = sha256Hex(token);
   const [row] = await db
     .delete(schema.adminTokens)

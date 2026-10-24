@@ -1,11 +1,11 @@
-import type { Adapter, AdapterPollResult } from "../Adapter.js";
+import type { Adapter } from "../Adapter.js";
 import type { PvsLinkRow } from "../../db/client.js";
-import type { CanonicalEvent } from "../../canonical/types.js";
 import { TomedoClient } from "./client.js";
-import { pickMaxIso } from "../_shared/iso.js";
+import { restSyncMethods } from "../_shared/rest-adapter.js";
+import type { StreamSource } from "../_shared/stream-sync.js";
 import {
   normalizePatient,
-  normalizeAppointment,
+  normalizeAppointmentEvents,
   normalizeEncounter,
   normalizeInvoice,
   normalizeRecall,
@@ -19,10 +19,66 @@ import {
  * latter encrypted in platform_credentials.platform='pvs' with a "tomedo:"
  * prefix in the access_token_enc field — see setup wizard).
  *
- * Cursor: `${resource}:${maxModifiedAt}` per resource, concatenated as a
- * comma-separated string so one cursor token covers all five streams.
- * Tomedo's API exposes `?modifiedSince=` on each list endpoint.
+ * Cursor: one ISO watermark per resource (patients, appointments, encounters,
+ * invoices, recalls), comma-separated, so one token covers all five streams.
+ * Tomedo's API exposes `?modifiedSince=` on each list endpoint. Overlap,
+ * clamping, paging caps and resume are shared: see _shared/stream-sync.ts.
+ *
+ * Dedup ids are stable per row VERSION (patient: id + modifiedAt; appointment /
+ * encounter / invoice / recall: id; status change: id + status + modifiedAt),
+ * so re-reading the poll overlap re-posts byte-identical events that the portal
+ * dedups.
+ *
+ * Streams run in Patient → Appointment → Encounter → Invoice → Recall order so
+ * the portal sees coherent state at every checkpoint.
  */
+function sources(
+  link: PvsLinkRow,
+  signal: AbortSignal | undefined,
+  timezone: string
+): StreamSource[] {
+  const client = TomedoClient.from(link, { signal });
+  const clinicId = link.clinicId;
+  const opts = { timezone };
+  const mod = (r: unknown) => (r as { modifiedAt?: string }).modifiedAt;
+  return [
+    {
+      name: "patients",
+      pages: (s, o) => client.pages("patients", s, o),
+      toEvents: (r) => [normalizePatient(clinicId, r, opts)],
+      modifiedAt: mod,
+    },
+    {
+      name: "appointments",
+      pages: (s, o) => client.pages("appointments", s, o),
+      toEvents: (r) => normalizeAppointmentEvents(clinicId, r, opts),
+      modifiedAt: mod,
+    },
+    {
+      name: "encounters",
+      pages: (s, o) => client.pages("encounters", s, o),
+      toEvents: (r) => [normalizeEncounter(clinicId, r, opts)],
+      modifiedAt: mod,
+    },
+    {
+      name: "invoices",
+      pages: (s, o) => client.pages("invoices", s, o),
+      // Unpaid invoices normalise to null and are skipped (not an InvoicePaid).
+      toEvents: (r) => {
+        const e = normalizeInvoice(clinicId, r, opts);
+        return e ? [e] : [];
+      },
+      modifiedAt: mod,
+    },
+    {
+      name: "recalls",
+      pages: (s, o) => client.pages("recalls", s, o),
+      toEvents: (r) => [normalizeRecall(clinicId, r, opts)],
+      modifiedAt: mod,
+    },
+  ];
+}
+
 export const tomedoAdapter: Adapter = {
   vendor: "tomedo",
 
@@ -36,114 +92,5 @@ export const tomedoAdapter: Adapter = {
     }
   },
 
-  async *initialSync(
-    link: PvsLinkRow,
-    sinceIso: string
-  ): AsyncIterable<CanonicalEvent> {
-    const client = TomedoClient.from(link);
-    // Stream in this order so the portal sees Patient → Appointment →
-    // Encounter → Invoice → Recall — matches the temporal order events
-    // typically happen in.
-    for await (const p of client.streamPatients(sinceIso)) {
-      yield normalizePatient(link.clinicId, p);
-    }
-    for await (const a of client.streamAppointments(sinceIso)) {
-      yield normalizeAppointment(link.clinicId, a);
-    }
-    for await (const e of client.streamEncounters(sinceIso)) {
-      yield normalizeEncounter(link.clinicId, e);
-    }
-    for await (const i of client.streamInvoices(sinceIso)) {
-      yield normalizeInvoice(link.clinicId, i);
-    }
-    for await (const r of client.streamRecalls(sinceIso)) {
-      yield normalizeRecall(link.clinicId, r);
-    }
-  },
-
-  async poll(
-    link: PvsLinkRow,
-    cursor: string | null
-  ): Promise<AdapterPollResult> {
-    const client = TomedoClient.from(link);
-    const cursors = parseCursor(cursor);
-    const events: CanonicalEvent[] = [];
-
-    const newCursors = { ...cursors };
-    for await (const p of client.streamPatients(cursors.patients)) {
-      events.push(normalizePatient(link.clinicId, p));
-      newCursors.patients = pickMaxIso(newCursors.patients, p.modifiedAt);
-    }
-    for await (const a of client.streamAppointments(cursors.appointments)) {
-      events.push(normalizeAppointment(link.clinicId, a));
-      newCursors.appointments = pickMaxIso(newCursors.appointments, a.modifiedAt);
-    }
-    for await (const e of client.streamEncounters(cursors.encounters)) {
-      events.push(normalizeEncounter(link.clinicId, e));
-      newCursors.encounters = pickMaxIso(newCursors.encounters, e.modifiedAt);
-    }
-    for await (const i of client.streamInvoices(cursors.invoices)) {
-      events.push(normalizeInvoice(link.clinicId, i));
-      newCursors.invoices = pickMaxIso(newCursors.invoices, i.modifiedAt);
-    }
-    for await (const r of client.streamRecalls(cursors.recalls)) {
-      events.push(normalizeRecall(link.clinicId, r));
-      newCursors.recalls = pickMaxIso(newCursors.recalls, r.modifiedAt);
-    }
-
-    return {
-      events,
-      nextCursor: serializeCursor(newCursors),
-      // Empty poll? Back off to 5 min. Otherwise hit again in 60s.
-      recommendedDelayMs: events.length === 0 ? 5 * 60_000 : 60_000,
-    };
-  },
-
-  seedCursor(syncStartIso: string): string {
-    // Initial-sync watermark handoff (C7): every stream starts polling at
-    // the moment the initial sync began, so nothing falls in the gap and
-    // anything modified DURING the sync is re-fetched once (portal dedup
-    // absorbs the overlap).
-    return serializeCursor({
-      patients: syncStartIso,
-      appointments: syncStartIso,
-      encounters: syncStartIso,
-      invoices: syncStartIso,
-      recalls: syncStartIso,
-    });
-  },
+  ...restSyncMethods({ makeSources: sources }),
 };
-
-interface Cursors {
-  patients: string;
-  appointments: string;
-  encounters: string;
-  invoices: string;
-  recalls: string;
-}
-
-function parseCursor(input: string | null): Cursors {
-  const epoch = "1970-01-01T00:00:00.000Z";
-  if (!input) {
-    return {
-      patients: epoch,
-      appointments: epoch,
-      encounters: epoch,
-      invoices: epoch,
-      recalls: epoch,
-    };
-  }
-  const parts = input.split(",");
-  const get = (idx: number) => parts[idx] ?? epoch;
-  return {
-    patients: get(0),
-    appointments: get(1),
-    encounters: get(2),
-    invoices: get(3),
-    recalls: get(4),
-  };
-}
-
-function serializeCursor(c: Cursors): string {
-  return [c.patients, c.appointments, c.encounters, c.invoices, c.recalls].join(",");
-}

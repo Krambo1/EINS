@@ -1,33 +1,7 @@
 import { and, count, eq, gte, lt, sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import type { AlertCandidate, AlertSeverity } from "./types";
-
-/**
- * Anomaly rules. Each rule is a pure async function that reads from the
- * superuser db connection (workers run outside an RLS user context) and
- * returns zero or more AlertCandidate objects for the given clinic.
- *
- * The rules are intentionally narrow and statistic-free: no z-score
- * machinery, no rolling baselines stored in a table. Each rule computes
- * its own window-on-window comparison from kpi_daily / campaign_snapshots
- * / requests / notifications. This keeps each rule independently
- * deletable and makes the firing logic visible in one screen of code.
- *
- * Severity ladder (used by all rules):
- *   info     : noteworthy but not actionable
- *   warn     : small deviation; default action steps from rule suffice
- *   high     : clear deviation; default action steps from rule suffice
- *   extreme  : multi-signal or far-tail; eligible for AI enrichment
- *
- * Only "extreme" candidates set `aiEnrich = true`. Everything else stays
- * rule-only to keep the API spend near zero and the surface predictable.
- */
-
-// ---------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------
-
-const DAY_MS = 24 * 60 * 60 * 1000;
+import { DAY_MS } from "@/lib/constants";
 
 function daysAgo(n: number): Date {
   return new Date(Date.now() - n * DAY_MS);
@@ -222,7 +196,7 @@ export async function ruleCplSurge(
     out.push({
       kind: "cpl_surge",
       severity,
-      title: `CPL ${platformLabel(platform)} ${formatPctChange(pct)} auf ${formatEuro(recentCpl)}`,
+      title: `Kosten je Anfrage ${platformLabel(platform)} ${formatPctChange(pct)} auf ${formatEuro(recentCpl)}`,
       body: `Vorperiode 30 Tage: ${formatEuro(baseCpl)} pro Anfrage.`,
       defaultActionSteps:
         severity === "info"
@@ -301,7 +275,7 @@ export async function ruleLeadDrought(
       body: `In den 30 Tagen davor: ${base} Anfragen. Aktuell: 0.`,
       defaultActionSteps: [
         "Anzeigen-Auslieferung prüfen: läuft Meta + Google aktuell?",
-        "Landingpage testen: Formular erreichbar, kein 4xx auf der Tracking-URL?",
+        "Zielseite testen: Formular erreichbar, kein 4xx auf der Tracking-URL?",
         "Letzte Änderungen rückwärts laufen lassen (Audience, Bid, Creative der letzten 14 Tage)",
       ],
       aiEnrich: severity === "extreme",

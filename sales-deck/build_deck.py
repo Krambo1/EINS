@@ -1,22 +1,32 @@
 """
-EINS — Sales Deck Builder
+EINS Sales Deck Builder
 
-Generates EINS-Strategievorschlag-TEMPLATE.pptx, a 15-slide on-brand sales
-deck for clinic strategy calls. Re-runs are deterministic.
+Generates EINS-Strategievorschlag-TEMPLATE.pptx, a 17-slide on-brand sales
+deck for video strategy calls with practice owners (Praxen für ästhetische
+Medizin, DACH). Re-runs are deterministic.
 
-Source of truth for copy and numbers:
-  - apps/website/components/sections/guarantee.tsx (slide 11)
-  - apps/website/components/sections/hero.tsx (voice)
-  - apps/website/lib/offer-data.ts (slides 9, 10, 12)
-  - apps/website/lib/objections-data.ts (slide 14)
-  - apps/website/lib/timeline-data.ts (slide 13)
-  - Notion: EINS Grundlagen, Branding, Statistiken
+Source of truth for every fact, number, deadline and key sentence:
+  docs/umbau-ki-organisch/KANON.md (Stand 30.09.2026)
+    - Abschnitt 3 (drei Ebenen)            -> slide 10
+    - Abschnitt 4 (Preis, Werbebudget)     -> slides 11, 14
+    - Abschnitt 5 (Garantie)               -> slide 12
+    - Abschnitt 7 (Material und Klon)      -> slide 13
+    - Abschnitt 9 (Ablauf, Vorschau)       -> slides 7, 15
+    - Abschnitt 10 (Einwände)              -> slide 16
+  Obsidian vault (D:/Desktop/Claude/Obsidian/Karam): 10 EINS/Infrastruktur/EINS Grundlagen, 10 EINS/Infrastruktur/Branding,
+  10 EINS/Markt/Statistiken (72-Prozent-Zahl, slide 6)
+
+Slide order (footer number = position in the deck):
+  1 Cover, 2 Inhalt, 3 Hook, 4 Über die Praxis, 5 Ziele, 6 Was fehlt,
+  7 Vorschau-Anzeigen, 8 Über EINS, 9 Fallstudie (Platzhalter),
+  10 Leistungen, 11 Wert, 12 Garantie, 13 Material und Klon, 14 Investition,
+  15 Nächste Schritte, 16 Häufige Fragen, 17 Entscheidung
 
 Run:
   pip install python-pptx Pillow
   python build_deck.py
 
-Output: D:\\Desktop\\EINSWebsite\\sales-deck\\EINS-Strategievorschlag-TEMPLATE.pptx
+Output: D:\\Desktop\\EINSCodebase\\sales-deck\\EINS-Strategievorschlag-TEMPLATE.pptx
 """
 
 from __future__ import annotations
@@ -41,7 +51,7 @@ except ImportError:
 
 
 # ---------------------------------------------------------------------------
-# Brand tokens (from Notion `Branding` page + apps/website CSS variables)
+# Brand tokens (from the vault note `10 EINS/Infrastruktur/Branding` + apps/website CSS variables)
 # ---------------------------------------------------------------------------
 ACCENT       = RGBColor(0x58, 0xBA, 0xB5)
 ACCENT_TOP   = RGBColor(0x64, 0xCE, 0xC9)
@@ -61,7 +71,7 @@ FONT_MONO    = "Consolas"          # JetBrains Mono fallback
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-ROOT       = Path(r"D:\Desktop\EINSWebsite")
+ROOT       = Path(__file__).resolve().parent.parent  # EINSCodebase
 PUBLIC     = ROOT / "apps" / "website" / "public"
 OUT_DIR    = ROOT / "sales-deck"
 OUT_FILE   = OUT_DIR / "EINS-Strategievorschlag-TEMPLATE.pptx"
@@ -78,113 +88,163 @@ if HAVE_PIL and HEADSHOT_WEBP.exists() and not HEADSHOT_PNG.exists():
 
 
 # ---------------------------------------------------------------------------
-# Source-of-truth content (mirrored from apps/website + Notion)
+# Source-of-truth content: docs/umbau-ki-organisch/KANON.md (Stand 30.09.2026).
+# Wortlaut nie aus alten Seiten abschreiben, nur aus dem Kanon.
 # ---------------------------------------------------------------------------
 
-GUARANTEE_STACK = [
-    ("01", "Kein Aufbau-Risiko",
-     "Sie zahlen für die Aufbauarbeit erst, wenn die ersten qualifizierten Anfragen bei Ihnen liegen. Vorab kein Setup-Betrag fällig."),
-    ("02", "100 % Geld zurück bei verfehltem Ziel",
-     "Erreichen wir die vereinbarte Anfragen-Schwelle in 90 Tagen nicht, erstatten wir alle bis dahin gezahlten Gebühren. Vollständig, ohne Diskussion."),
-    ("03", "Geschwindigkeits-Garantie: erste Anfragen in 21 Tagen",
-     "Liegt nach drei Wochen ab Kampagnen-Launch keine einzige qualifizierte Anfrage vor, erlassen wir den nächsten Monat komplett."),
-    ("04", "Kein Lock-in ab Tag 1",
-     "Sie können monatlich kündigen, vom ersten Tag an. Keine 12-Monats-Bindung, keine Mindestlaufzeit."),
+# Slide 12: Garantie "Keine Anfrage, keine Rechnung" (KANON Abschnitt 5).
+# Der Wortlaut steht wörtlich im Kanon, beide Grenzen im selben Absatz.
+GUARANTEE_QUOTE = (
+    "Sie zahlen nichts, bis die erste qualifizierte Anfrage über EINS in "
+    "Ihrem Portal liegt. Kommt in 90 Tagen keine, endet die "
+    "Zusammenarbeit, und Sie haben nichts bezahlt."
+)
+
+GUARANTEE_RULES = [
+    ("01", "Was zählt",
+     "Als erste qualifizierte Anfrage über EINS zählt: Formular auf einer "
+     "EINS-Zielseite, Anruf auf einer EINS-Tracking-Nummer oder Buchung "
+     "über den EINS-Buchungslink. Eine echte Person fragt nach einer "
+     "Behandlung Ihrer Praxis und hinterlässt Telefon oder E-Mail."),
+    ("02", "Die Frist",
+     "90 Kalendertage ab dem Tag der Unterschrift für die erste "
+     "qualifizierte Anfrage über EINS. Jeder Tag, an dem Sie mit einer "
+     "Mitwirkung in Verzug sind, verlängert die 90 Tage um einen Tag. "
+     "Wir teilen jeden Verzug per E-Mail mit."),
+    ("03", "Ihre Mitwirkung",
+     "Innerhalb von 3 Werktagen nach Unterschrift: Klon-Aufnahme, "
+     "Einwilligung, Zugänge. Beiträge innerhalb von 2 Werktagen freigeben "
+     "oder konkret ändern. Profil-Link und Tracking-Nummer bleiben."),
+    ("04", "Beenden ohne Kosten",
+     "Bis zur ersten Rechnung beenden Sie jederzeit per E-Mail, ohne "
+     "Begründung und ohne Kosten. Ab der ersten Rechnung: 1.900 € netto "
+     "im Monat, monatlich kündbar."),
 ]
 
-COUNTER_ASKS = [
-    "Einen Produktionstag in Ihrer Klinik (4 bis 6 h)",
-    "Freigabe für Case-Study und Testimonial nach Tag 90",
-    "Namentliche Nennung als Referenz (Logo, Klinikname, optional Foto)",
+GUARANTEE_NOT = (
+    "Nicht garantiert: Aufrufe, Follower, Reichweite, Anzahl der Beiträge, "
+    "Umsatz, Werbeertrag, gebuchte Beratungen."
+)
+
+# Slide 10: die drei Ebenen (KANON Abschnitt 3). Nie einzeln verkauft.
+# (Ebene, Name, Untertitel, Text, welche Lücken aus Folie 6 sie schließt)
+LEVELS = [
+    ("Ebene 1", "Content-Fundament", "KI-gemacht",
+     "Medizinisch seriöse Videos, in denen Ihr KI-Klon die Fragen "
+     "beantwortet, die Patientinnen sich nicht zu stellen trauen, dazu "
+     "Erklär-Animationen und Bildmaterial für Ihre profitabelste "
+     "Behandlung. HWG-geprüft, als KI-generiert gekennzeichnet und erst "
+     "nach Ihrer Freigabe veröffentlicht. Sie müssen nie vor die Kamera.",
+     "Schließt Lücke 1 und 6 aus Folie 6"),
+    ("Ebene 2", "Reichweite", "Organisch zuerst, Anzeigen optional",
+     "Wir veröffentlichen die Beiträge organisch auf den Kanälen Ihrer "
+     "Praxis. Sobald sichtbar ist, welche Beiträge Anfragen bringen, "
+     "setzen wir bezahlte Anzeigen auf Meta und Google genau dahinter. "
+     "Das Werbebudget zahlen Sie direkt an die Plattformen. Zu Beginn ist "
+     "es keine Pflicht. Die Betreuung der Anzeigen ist im Preis enthalten.",
+     "Bringt die Beiträge zu den Patientinnen"),
+    ("Ebene 3", "Anfragen-Infrastruktur", "Von der Anfrage bis zur Behandlung",
+     "Zielseiten (auch Ziel Ihres Profil-Links), KI-Vorqualifizierung "
+     "(Budget, Indikation, Erwartung), Weiterleitung (niedrige Preise zur "
+     "Online-Buchung, hohe zum Team ans Telefon), Erinnerungen, "
+     "Nachfassen, Bewertungsanfragen. Auswertung bis zu Buchung und "
+     "Umsatz im Portal, angebunden an Ihre Praxissoftware (PVS-Bridge).",
+     "Schließt Lücke 2, 3, 4 und 5"),
 ]
 
-BASISPAKET = [
-    ("01", "Haupt-Medien Produktion",
-     "Voller Produktionstag für Ihre profitabelste Behandlung. Strategie-Meeting, hochauflösendes Video, medizinische Animation."),
-    ("02", "Foto-Suite",
-     "20 hochwertige Fotos für Website, Anzeigen und soziale Medien. Klinik, Team, Behandlungsräume, Technologie."),
-    ("03", "Behandlungs-Motion-Archiv",
-     "Bibliothek an 2D-Animationen, maßgeschneidert auf Ihre Klinik. Botox, Hyaluron, Kryolipolyse, HIFU, Laser, Body Contouring."),
-    ("04", "Rechtsprüfung der Werbung",
-     "KI-gestützte Prüfung gegen typische HWG-Abmahnmuster. Vorher-Nachher, Heilsversprechen, Lockangebote, Superlative."),
-    ("05", "Konvertierende Ziel-Websites",
-     "Eigene Zielseiten für hochpreisige Behandlungen, ausschließlich für bezahlte Anzeigen. Keine Navigation, ein Ziel: Beratungsanfrage."),
-]
-
-OBJECTIONS_TOP6 = [
-    ("Werbung hat bei uns noch nie funktioniert.",
-     "Meistens lag es nicht am Geld, sondern am System dahinter. Schwache Seiten, austauschbare Videos und fehlende Filter verbrennen jedes Budget. Genau das ersetzen wir."),
-    ("Können wir erstmal klein anfangen, mit 500 bis 1.000 €?",
-     "Nein. Damit Instagram und Google Ihre besten Patienten finden, brauchen die Plattformen genug Daten. Unter 3.000 €/Monat lernen sie nicht zuverlässig. Ein einziger Premium-Patient deckt das Werbebudget bereits ab."),
+# Slide 16: Einwände (KANON Abschnitt 10, Kernsätze wörtlich)
+FAQ = [
     ("Was, wenn es nicht funktioniert?",
-     "Sie haben unsere 6-fache Garantie aus Folie 11. Inklusive 100 % Geld zurück bei verfehltem Ziel. Sie tragen kein Risiko."),
-    ("Wir haben doch schon eine Website.",
-     "Ihre Website ist gut, um gefunden zu werden. Bezahlte Anzeigen brauchen ablenkungsfreie Zielseiten, sonst verpuffen 70 % des Budgets. Wir lassen Ihre Hauptseite unangetastet."),
-    ("Sind Sie DSGVO-konform?",
-     "Ja, vollständig. Inklusive: KI-gestützte Prüfung jeder Werbeaussage gegen typische HWG-Abmahnmuster, anwaltliche Eskalation in Grenzfällen vor Live-Schaltung."),
-    ("Können wir nur Videos oder nur Anzeigen buchen?",
-     "Nein. Inhalt ohne Anzeigen wird nicht gesehen. Anzeigen ohne starken Inhalt überzeugen nicht. Nur das Zusammenspiel liefert planbare Ergebnisse."),
+     "Dann zahlen Sie nichts. Sie zahlen erst, wenn die erste "
+     "qualifizierte Anfrage über EINS in Ihrem Portal liegt. Kommt in 90 "
+     "Tagen keine, endet die Zusammenarbeit, und Sie haben nichts bezahlt."),
+    ("Brauche ich Werbebudget? Klein mit 500 € anfangen?",
+     "Zu Beginn brauchen Sie kein Werbebudget. Wir starten organisch und "
+     "sehen, welche Beiträge Anfragen bringen. Dahinter setzen wir dann "
+     "Anzeigen, auch mit kleinem Budget. So geben Sie kein Geld für "
+     "Vermutungen aus."),
+    ("Ist das KI?",
+     "Ja. Die Videos entstehen mit einem KI-Klon von Ihnen und sind als "
+     "KI-generiert gekennzeichnet, wie es das Gesetz verlangt. Jeder "
+     "Beitrag geht erst nach Ihrer Freigabe raus."),
+    ("Muss ich vor die Kamera?",
+     "Nein. Sie nehmen einmal wenige Minuten Video und Stimme mit dem "
+     "Handy auf. Daraus entsteht Ihr Klon."),
+    ("Was passiert mit meinem Gesicht und meiner Stimme?",
+     "Ihr Klon gehört Ihnen. Wir nutzen ihn nur für Ihre Praxis und "
+     "löschen ihn spätestens 30 Tage nach Vertragsende. Widerrufen Sie "
+     "Ihre Einwilligung, stoppen wir sofort alle Beiträge mit Ihrem Klon."),
+    ("Wem gehört das Material?",
+     "Sobald die erste Rechnung bezahlt ist, dürfen Sie alles, was für "
+     "Ihre Praxis entstanden ist, dauerhaft nutzen und bearbeiten, auch "
+     "nach einer Kündigung und mit einer anderen Agentur."),
+    ("Organische Beiträge bringen doch nur Likes.",
+     "Deshalb zählen wir keine Likes. Wir zählen Anfragen, und die erste "
+     "davon ist der Moment, ab dem Sie zahlen. Jede Anfrage steht mit "
+     "Herkunft in Ihrem Portal."),
+    ("Wie viel Arbeit habe ich damit?",
+     "In der ersten Woche wenige Minuten Aufnahme, die Einwilligung und "
+     "die Zugänge. Danach geben Sie die Beiträge einmal pro Woche frei, "
+     "das dauert wenige Minuten."),
 ]
 
+# Slide 15: Ablauf nach der Unterschrift (KANON Abschnitt 9)
 TIMELINE = [
-    ("Woche 1 bis 2", "Aufbau",
-     "Produktionstag in [STADT], CRM-Anbindung, KI-HWG-Prüfung gestartet."),
-    ("Woche 3", "Launch",
-     "Kampagnen live auf Meta und Google. Erste Anfragen innerhalb 7 Tagen erwartet."),
-    ("Ab Woche 6", "Optimierung",
-     "A/B-Tests, Lead-Qualität feinjustiert, Kosten pro Anfrage sinken."),
-    ("Tag 90", "Bilanz",
-     "ROI-Analyse, Pipeline-Bewertung, Wachstumsplan für Monat 4 bis 12."),
+    ("Unterschrift", "Die 90 Tage beginnen",
+     "Im Gespräch legen wir gleich fest: Termin für Onboarding-Gespräch "
+     "und Klon-Aufnahme."),
+    ("Woche 1", "Onboarding",
+     "Onboarding-Gespräch per Video. Einwilligung, Zugänge und "
+     "Klon-Aufnahme am Handy, wenige Minuten."),
+    ("Ab Woche 2", "Erste Beiträge live",
+     "Klon und Zielseite stehen, Sie geben die ersten Beiträge frei. "
+     "Anfragen laufen mit Herkunft ins Portal."),
+    ("Erste Anfrage", "Erste Rechnung",
+     "Sobald die erste qualifizierte Anfrage über EINS in Ihrem Portal "
+     "liegt (Frist: 90 Tage). EINS schlägt vor, welches Werbebudget "
+     "hinter welche Beiträge gehört."),
+    ("Tag 90", "Spätester Zeitpunkt",
+     "Liegt bis Tag 90 (plus Verzugstage) keine erste qualifizierte "
+     "Anfrage über EINS vor, endet die Zusammenarbeit ohne Kosten."),
 ]
 
+# Inhaltsverzeichnis: (Foliennummer, Titel). Nummer = Position im Deck.
 TOC = [
-    ("01", "Hook"),
-    ("02", "Über Ihre Klinik"),
-    ("03", "Ihre Ziele"),
-    ("04", "Was aktuell fehlt"),
-    ("05", "Über EINS"),
-    ("06", "Fallstudie / Referenzen"),
-    ("07", "Vorgeschlagene Leistungen"),
-    ("08", "Wert für Sie"),
-    ("09", "Garantie"),
-    ("10", "Investition"),
-    ("11", "Nächste Schritte"),
-    ("12", "Häufige Fragen"),
-    ("13", "Zwei Wege nach vorne"),
+    ("03", "Hook"),
+    ("04", "Über Ihre Praxis"),
+    ("05", "Ihre Ziele"),
+    ("06", "Was aktuell fehlt"),
+    ("07", "Ihre Vorschau-Anzeigen"),
+    ("08", "Über EINS"),
+    ("09", "Fallstudie / Referenzen"),
+    ("10", "Vorgeschlagene Leistungen"),
+    ("11", "Wert für Sie"),
+    ("12", "Garantie"),
+    ("13", "Material und Klon"),
+    ("14", "Investition"),
+    ("15", "Nächste Schritte"),
+    ("16", "Häufige Fragen"),
+    ("17", "Zwei Wege nach vorne"),
 ]
 
-# Slide 6 — Missing pieces (calibrated default placeholders, editable)
+# Slide 6: Missing pieces (calibrated default placeholders, editable)
 MISSING_PIECES = [
     "Aktuell: kein eigenes Behandlungsvideo. Patienten googeln, finden Stockfotos, vergleichen mit Mitbewerbern.",
-    "Aktuell: Anzeigen führen auf die Hauptseite, nicht auf eine fokussierte Zielseite. Klickkosten verpuffen.",
+    "Aktuell: keine fokussierte Zielseite. Beiträge, Anzeigen und Profil-Link führen auf die Hauptseite, Anfragen versanden.",
     "Aktuell: keine Vorqualifizierung. Ihr Team telefoniert mit Preis-Shoppern statt mit zahlungsbereiten Patienten.",
     "Aktuell: keine systematische Bewertungs-Strecke. 72 Prozent der Patienten buchen nur ab 4+ Sternen.",
-    "Aktuell: keine Auswertung pro Behandlung. Sie wissen nicht, was Botox vs. Facelift pro Patient kostet.",
-    "Aktuell: kein klar geprüfter HWG-Kanal. Jede Werbeanzeige ist ein offenes Abmahnrisiko.",
+    "Aktuell: keine Auswertung pro Behandlung. Sie wissen nicht, was Botox und Facelift pro Patient kosten.",
+    "Aktuell: kein klar geprüfter HWG-Kanal. Jeder Beitrag und jede Anzeige ist ein offenes Abmahnrisiko.",
 ]
 
-# Slide 5 — Goals (yes-ladder)
+# Slide 5: Goals (yes-ladder)
 GOALS = [
     "Sie wollen [N] zusätzliche Selbstzahler-Patienten pro Monat. Korrekt?",
-    "Sie wollen den Anteil hochpreisiger Behandlungen ([BEHANDLUNG_X], [BEHANDLUNG_Y]) erhöhen. Korrekt?",
+    "Sie wollen mehr hochpreisige Behandlungen ([BEHANDLUNG_X], [BEHANDLUNG_Y]). Korrekt?",
     "Sie wollen weniger Preisdiskussionen im Beratungsgespräch. Korrekt?",
     "Sie wollen weniger Abhängigkeit von Empfehlungen, mehr planbare Nachfrage. Korrekt?",
     "Sie wollen eine Auswertung, die Ihnen monatlich klar zeigt, was Marketing einbringt. Korrekt?",
     "Sie wollen, dass Ihr Team behandelt, statt Marketing zu betreiben. Korrekt?",
-]
-
-# Mapping for slide 9 (services -> missing piece)
-SERVICE_MAP = [
-    ("Aktuell: kein eigenes Behandlungsvideo",            "Haupt-Medien Produktion (BASISPAKET 01)"),
-    ("Aktuell: Hauptseite statt Zielseite",               "Konvertierende Ziel-Websites (BASISPAKET 05)"),
-    ("Aktuell: keine Vorqualifizierung",                  "KI-Vorqualifizierung (Retainer)"),
-    ("Aktuell: keine Bewertungs-Strecke",                 "Klinik-Reputationssystem (Retainer)"),
-    ("Aktuell: keine Auswertung pro Behandlung",          "Monatliche Auswertung + Auswertungs-Übersicht (Retainer)"),
-    ("Aktuell: kein HWG-geprüfter Werbekanal",            "Rechtsprüfung der Werbung (BASISPAKET 04)"),
-]
-SERVICE_EXTRAS = [
-    "Foto-Suite (BASISPAKET 02) · 20 hochwertige Fotos",
-    "Behandlungs-Motion-Archiv (BASISPAKET 03) · Animationen für alle Behandlungen",
 ]
 
 
@@ -249,7 +309,7 @@ def add_text(slide, left, top, width, height, text, *, font=FONT_BODY, size=14,
 
 def add_runs(slide, left, top, width, height, runs, *, align=PP_ALIGN.LEFT,
              anchor=MSO_ANCHOR.TOP, spacing=1.15):
-    """runs is a list of (text, dict-of-formatting) tuples — single paragraph."""
+    """runs is a list of (text, dict-of-formatting) tuples, single paragraph."""
     tb = slide.shapes.add_textbox(left, top, width, height)
     tf = tb.text_frame
     tf.word_wrap = True
@@ -295,8 +355,9 @@ def add_logo_top_left(slide, prs):
                                  height=Inches(0.55))
 
 
-def add_footer(slide, prs, slide_n: int, total: int = 13):
-    """Number footer — 'Strategievorschlag · 03/13' style, mono."""
+def add_footer(slide, prs):
+    """Footer: 'EINS · Strategievorschlag' left, position in the deck right (//07)."""
+    slide_n = prs.slides.index(slide) + 1
     add_text(slide, Inches(0.5), Inches(7.1), Inches(6), Inches(0.3),
              f"EINS · Strategievorschlag", font=FONT_MONO, size=10,
              color=FG_TERTIARY)
@@ -356,7 +417,7 @@ def add_click_animation_appear(slide, target_shape):
     support it natively, so we inject the XML if not already present and
     extend the click sequence.
     """
-    # Skipping full animation injection — Karam can adjust per-bullet click
+    # Skipping full animation injection: Karam can adjust per-bullet click
     # animations in PowerPoint quickly; the spec calls them out and the
     # Reading order in the deck is correct. We deliberately keep the build
     # script free of fragile timing-tree XML; PPT's "Animation Painter"
@@ -369,7 +430,7 @@ def add_click_animation_appear(slide, target_shape):
 # ---------------------------------------------------------------------------
 
 def slide_1_cover(prs):
-    """Cover — clinic name + EINS branding."""
+    """Cover: Praxisname + EINS branding."""
     s = prs.slides.add_slide(prs.slide_layouts[6])  # blank
     background_white(s, prs)
     add_accent_bar_left(s, prs)
@@ -379,19 +440,19 @@ def slide_1_cover(prs):
         s.shapes.add_picture(str(LOGO), Inches(0.55), Inches(0.45),
                              height=Inches(0.6))
 
-    # Klinik logo placeholder top-right
-    klinik_box = add_rect(s, Inches(10.3), Inches(0.5),
+    # Praxis logo placeholder top-right
+    praxis_box = add_rect(s, Inches(10.3), Inches(0.5),
                           Inches(2.6), Inches(1.0),
                           fill=BG_SECONDARY, line=BORDER,
                           shape=MSO_SHAPE.ROUNDED_RECTANGLE,
                           corner_radius=0.08)
     add_text(s, Inches(10.3), Inches(0.78), Inches(2.6), Inches(0.5),
-             "[KLINIK_LOGO]", font=FONT_MONO, size=11,
+             "[PRAXIS_LOGO]", font=FONT_MONO, size=11,
              color=FG_SECONDARY, align=PP_ALIGN.CENTER)
 
     # Eyebrow
     add_eyebrow(s, Inches(0.9), Inches(2.6), Inches(8),
-                "Strategievorschlag · für [KLINIK_NAME]")
+                "Strategievorschlag · für [PRAXIS_NAME]")
 
     # Title
     add_text(s, Inches(0.9), Inches(3.0), Inches(11.5), Inches(1.6),
@@ -403,23 +464,23 @@ def slide_1_cover(prs):
 
     # Subtitle clinic
     add_text(s, Inches(0.9), Inches(5.1), Inches(11.5), Inches(0.9),
-             "für [KLINIK_NAME]", font=FONT_DISPLAY, size=42, bold=False,
+             "für [PRAXIS_NAME]", font=FONT_DISPLAY, size=42, bold=False,
              color=ACCENT, spacing=1.0)
 
     # Bottom captions
     add_text(s, Inches(0.9), Inches(6.85), Inches(6), Inches(0.4),
-             "Strategiegespräch · [DATUM] · Köln", font=FONT_MONO, size=11,
+             "Strategiegespräch per Video · [DATUM]", font=FONT_MONO, size=11,
              color=FG_SECONDARY)
     add_text(s, Inches(7), Inches(6.85), Inches(5.8), Inches(0.4),
              "Karam Issa · Gründer EINS", font=FONT_MONO, size=11,
              color=FG_SECONDARY, align=PP_ALIGN.RIGHT)
 
     set_speaker_notes(s,
-        "ANKER SETZEN. Diese Folie sagt: das ist eine Strategie für [Klinik], "
-        "kein Standard-Pitch. Vorab: Klinik-Logo in den rechten oberen Block "
-        "einsetzen, [KLINIK_NAME] und [DATUM] ersetzen. 5 Sekunden auf der "
+        "ANKER SETZEN. Diese Folie sagt: das ist eine Strategie für [Praxis], "
+        "kein Standard-Pitch. Vorab: Praxis-Logo in den rechten oberen Block "
+        "einsetzen, [PRAXIS_NAME] und [DATUM] ersetzen. 5 Sekunden auf der "
         "Folie bleiben, dann weiter.\n\n"
-        "Quelle Branding: Notion `Branding` page (Akzent #58BAB5).")
+        "Quelle Branding: Vault-Notiz `Branding` (Akzent #58BAB5).")
     set_slide_transition_fade(s)
     return s
 
@@ -435,23 +496,23 @@ def slide_2_toc(prs):
              "Was Sie erwartet.", font=FONT_DISPLAY, size=64, bold=True,
              color=FG_PRIMARY, spacing=1.0)
 
-    # Two-column TOC: 7 left, 6 right
+    # Two-column TOC: 8 left, 7 right
     col_w = Inches(5.5)
     left_x = Inches(0.5)
     right_x = Inches(7.0)
-    line_h = Inches(0.55)
-    top_y = Inches(3.7)
+    line_h = Inches(0.42)
+    top_y = Inches(3.45)
 
     for i, (num, title) in enumerate(TOC):
-        col_x = left_x if i < 7 else right_x
-        row = i if i < 7 else i - 7
+        col_x = left_x if i < 8 else right_x
+        row = i if i < 8 else i - 8
         y = top_y + line_h * row
         add_text(s, col_x, y, Inches(0.7), line_h,
                  num, font=FONT_MONO, size=14, color=ACCENT, bold=True)
         add_text(s, col_x + Inches(0.8), y, col_w - Inches(0.8), line_h,
                  title, font=FONT_DISPLAY, size=20, color=FG_PRIMARY)
 
-    add_footer(s, prs, 1)
+    add_footer(s, prs)
     set_speaker_notes(s,
         "Kurz scannen lassen, nicht vorlesen. 'Wir gehen es Schritt für "
         "Schritt durch. Die Investition kommt am Ende, damit wir vorher "
@@ -467,39 +528,39 @@ def slide_3_hook(prs):
 
     # Big quote, centered
     add_text(s, Inches(1.0), Inches(2.4), Inches(11.3), Inches(2.5),
-             ['"Ihre Klinik innoviert.'], font=FONT_DISPLAY, size=58,
+             ['"Ihre Praxis innoviert.'], font=FONT_DISPLAY, size=48,
              bold=True, color=FG_PRIMARY, align=PP_ALIGN.CENTER, spacing=1.05)
     add_text(s, Inches(1.0), Inches(3.45), Inches(11.3), Inches(1.6),
-             ['Sollte Ihre Marketing-Agentur das'], font=FONT_DISPLAY, size=58,
+             ['Sollte Ihre Marketing-Agentur das'], font=FONT_DISPLAY, size=48,
              bold=True, color=FG_PRIMARY, align=PP_ALIGN.CENTER, spacing=1.05)
     add_text(s, Inches(1.0), Inches(4.5), Inches(11.3), Inches(1.6),
-             ['nicht auch?"'], font=FONT_DISPLAY, size=58,
+             ['nicht auch?"'], font=FONT_DISPLAY, size=48,
              bold=True, color=ACCENT, align=PP_ALIGN.CENTER, spacing=1.05)
 
     # Mono attribution
     add_text(s, Inches(1.0), Inches(5.95), Inches(11.3), Inches(0.4),
-             "EINS · Akquise-System für Ästhetikkliniken im DACH-Raum",
+             "EINS · Akquise-System für Praxen für ästhetische Medizin im DACH-Raum",
              font=FONT_MONO, size=12, color=FG_SECONDARY,
              align=PP_ALIGN.CENTER)
 
-    add_footer(s, prs, 2)
+    add_footer(s, prs)
     set_speaker_notes(s,
         "PATTERN INTERRUPT. Ruhig vorlesen, eine Sekunde Pause am Ende. "
-        "Dann fragen: 'Wie würden Sie Ihre Klinik im Vergleich zu Ihrem "
-        "Marketing aktuell beschreiben?' Erwartete Antwort: Klinik gut, "
+        "Dann fragen: 'Wie würden Sie Ihre Praxis im Vergleich zu Ihrem "
+        "Marketing aktuell beschreiben?' Erwartete Antwort: Praxis gut, "
         "Marketing schwächer. Genau dort holen wir sie ab.")
     set_slide_transition_fade(s)
     return s
 
 
-def slide_4_about_clinic(prs):
+def slide_4_about_practice(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     background_white(s, prs)
     add_logo_top_left(s, prs)
 
-    add_eyebrow(s, Inches(0.5), Inches(1.5), Inches(8), "Über [KLINIK_NAME]")
+    add_eyebrow(s, Inches(0.5), Inches(1.5), Inches(8), "Über [PRAXIS_NAME]")
     add_text(s, Inches(0.5), Inches(1.95), Inches(11.5), Inches(1.4),
-             "Wir kennen Ihre Klinik.", font=FONT_DISPLAY, size=58, bold=True,
+             "Wir kennen Ihre Praxis.", font=FONT_DISPLAY, size=58, bold=True,
              color=FG_PRIMARY, spacing=1.0)
 
     # Left column: 3 mono facts
@@ -515,32 +576,32 @@ def slide_4_about_clinic(prs):
                  font=FONT_MONO, size=10, color=FG_TERTIARY)
         add_text(s, Inches(0.5), y + Inches(0.3), Inches(5.2), Inches(0.5),
                  val, font=FONT_DISPLAY, size=18, color=FG_PRIMARY)
-        y += Inches(0.85)
+        y += Inches(0.75)
 
     # Right column: paragraph
     add_rect(s, Inches(6.5), Inches(3.7), Inches(6.4), Inches(2.8),
              fill=BG_SECONDARY, line=BORDER,
              shape=MSO_SHAPE.ROUNDED_RECTANGLE, corner_radius=0.04)
     add_text(s, Inches(6.8), Inches(3.85), Inches(5.9), Inches(2.5),
-             "[KLINIK_NAME] in [STADT] steht für medizinisch fundierte "
+             "[PRAXIS_NAME] in [STADT] steht für medizinisch fundierte "
              "Ästhetik mit klarer Patientenführung. Schwerpunkte: "
              "[BEHANDLUNG_X], [BEHANDLUNG_Y]. Was uns aufgefallen ist: "
-             "[INSIGHT_AUS_DISCOVERY_CALL]. Der Anspruch der Klinik ist "
+             "[INSIGHT_AUS_DISCOVERY_CALL]. Der Anspruch der Praxis ist "
              "deutlich höher als das, was online aktuell sichtbar wird.",
              font=FONT_BODY, size=15, color=FG_PRIMARY, spacing=1.35)
 
     # Closing question
-    add_text(s, Inches(0.5), Inches(6.45), Inches(12), Inches(0.5),
+    add_text(s, Inches(0.5), Inches(6.65), Inches(12), Inches(0.5),
              "Stimmt das so?", font=FONT_MONO, size=18, color=ACCENT,
              bold=True)
 
-    add_footer(s, prs, 3)
+    add_footer(s, prs)
     set_speaker_notes(s,
         "ZIEL: Yes #1. Diese Folie zeigt: ich habe Hausaufgaben gemacht. "
-        "Bewusst die Klinik in gutem Licht zeichnen. Das ist Common Ground, "
+        "Bewusst die Praxis in gutem Licht zeichnen. Das ist Common Ground, "
         "kein Pitch. Erwartete Antwort: 'Ja, stimmt.' Wenn eine Korrektur "
         "kommt: zuhören, nicht abwehren, in den Goals (Folie 5) mental "
-        "anpassen. Vorab: Platzhalter [KLINIK_NAME], [STADT], "
+        "anpassen. Vorab: Platzhalter [PRAXIS_NAME], [STADT], "
         "[BEHANDLUNGS-SCHWERPUNKT] etc. ersetzen.")
     set_slide_transition_fade(s)
     return s
@@ -566,14 +627,14 @@ def slide_5_goals(prs):
                  font=FONT_DISPLAY, size=18, color=FG_PRIMARY, spacing=1.2)
         y += Inches(0.55)
 
-    add_footer(s, prs, 4)
+    add_footer(s, prs)
     set_speaker_notes(s,
         "YES-LADDER KERN. Jeden Punkt einzeln einblenden (in PPT: 'Animation "
         "Painter' → Appear → On Click pro Punkt). Nach jedem Punkt anhalten "
         "und das Nicken / Ja abwarten. Nicht weiterklicken bevor das Yes da "
         "ist. Wenn ein Punkt nicht passt: streichen, nicht erzwingen. Ziel: "
         "6 Yeses bis Folienende.\n\n"
-        "Quelle für die Ziel-Liste: Discovery-Call-Notizen + Notion `ICP` "
+        "Quelle für die Ziel-Liste: Discovery-Call-Notizen + Vault-Notiz `Ideales Kundenprofil (ICP)` "
         "(Pain Points + Wünsche).")
     set_slide_transition_fade(s)
     return s
@@ -604,18 +665,110 @@ def slide_6_missing(prs):
              "Jeder dieser Punkte ist Umsatz, der jeden Monat liegen bleibt.",
              font=FONT_MONO, size=13, color=ACCENT, bold=True)
 
-    add_footer(s, prs, 5)
+    add_footer(s, prs)
     set_speaker_notes(s,
         "LOSS AVERSION. Diagnose, kein Vorwurf. Bei jedem Punkt fragen: "
         "'Erkennen Sie das wieder?' Wenn ja, weiter. Nicht die "
-        "Marketing-Person der Klinik beschimpfen, das System diagnostizieren.\n\n"
+        "Marketing-Person der Praxis beschimpfen, das System diagnostizieren.\n\n"
         "Quelle 72%-Zahl: rater8 'How Patients Choose Their Doctors' 2025 "
-        "(Notion `Statistiken` #8).")
+        "(Vault-Notiz `Statistiken` #8).")
     set_slide_transition_fade(s)
     return s
 
 
-def slide_7_about_eins(prs):
+def slide_7_preview_ads(prs):
+    """Ihre Vorschau-Anzeigen: drei Anzeigen für die profitabelste Behandlung.
+
+    Steht direkt nach dem Befund (Folie 6). Die Praxis sieht ihre eigenen
+    Anzeigen, bevor sie zahlt (KANON Abschnitt 1 und 9). Ohne Gesicht und
+    Stimme des Arztes (Animation, Text, Bilder), HWG-sauber. Platzhalter im
+    [BRACKETED]-Format des Decks, keine erfundenen Zahlen.
+    """
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    background_white(s, prs)
+    add_logo_top_left(s, prs)
+
+    add_eyebrow(s, Inches(0.5), Inches(1.5), Inches(8), "Ihre Vorschau-Anzeigen")
+    add_text(s, Inches(0.5), Inches(1.95), Inches(12), Inches(0.9),
+             "Ihre drei Anzeigen. Schon gebaut.",
+             font=FONT_DISPLAY, size=42, bold=True, color=FG_PRIMARY,
+             spacing=1.0)
+    add_text(s, Inches(0.5), Inches(2.7), Inches(12.4), Inches(0.6),
+             "Für Ihre profitabelste Behandlung, [BEHANDLUNG_X]. Mit "
+             "Animation, Text und Bildern, ohne Gesicht und Stimme, "
+             "HWG-sauber. Sie sehen Ihre Anzeigen, bevor Sie zahlen.",
+             font=FONT_BODY, size=14, color=FG_PRIMARY, spacing=1.25)
+
+    card_w = Inches(4.0)
+    gap = Inches(0.2)
+    base_y = Inches(3.55)
+    x = Inches(0.5)
+    for n in (1, 2, 3):
+        # card
+        add_rect(s, x, base_y, card_w, Inches(3.0),
+                 fill=BG_SECONDARY, line=BORDER,
+                 shape=MSO_SHAPE.ROUNDED_RECTANGLE, corner_radius=0.04)
+        # ad frame (paste the finished ad here)
+        add_rect(s, x + Inches(0.25), base_y + Inches(0.25),
+                 card_w - Inches(0.5), Inches(1.65),
+                 fill=BG_PRIMARY, line=ACCENT,
+                 shape=MSO_SHAPE.ROUNDED_RECTANGLE, corner_radius=0.06)
+        add_text(s, x + Inches(0.25), base_y + Inches(0.78),
+                 card_w - Inches(0.5), Inches(0.3),
+                 f"[VORSCHAU_ANZEIGE_{n}]", font=FONT_MONO, size=12,
+                 bold=True, color=ACCENT, align=PP_ALIGN.CENTER)
+        add_text(s, x + Inches(0.25), base_y + Inches(1.13),
+                 card_w - Inches(0.5), Inches(0.3),
+                 "Bild oder Standbild einsetzen", font=FONT_MONO, size=9,
+                 color=FG_SECONDARY, align=PP_ALIGN.CENTER)
+        # caption
+        add_text(s, x + Inches(0.3), base_y + Inches(2.05),
+                 card_w - Inches(0.6), Inches(0.3),
+                 f"Anzeige {n:02d}", font=FONT_MONO, size=10,
+                 bold=True, color=ACCENT)
+        add_text(s, x + Inches(0.3), base_y + Inches(2.3),
+                 card_w - Inches(0.6), Inches(0.35),
+                 f"[ÜBERSCHRIFT_{n}]", font=FONT_DISPLAY, size=15,
+                 bold=True, color=FG_PRIMARY)
+        add_text(s, x + Inches(0.3), base_y + Inches(2.65),
+                 card_w - Inches(0.6), Inches(0.3),
+                 f"[ANZEIGENTEXT_{n}]", font=FONT_BODY, size=11,
+                 color=FG_PRIMARY)
+        x += card_w + gap
+
+    add_text(s, Inches(0.5), Inches(6.72), Inches(12.4), Inches(0.3),
+             "Ihr Gesicht und Ihre Stimme bauen wir erst nach Ihrer "
+             "schriftlichen Einwilligung nach. Diese Vorschau kommt ohne "
+             "beides aus.",
+             font=FONT_MONO, size=10, color=FG_SECONDARY)
+
+    add_footer(s, prs)
+    set_speaker_notes(s,
+        "DER BEWEIS. Das ist der stärkste Beweis, den EINS ohne eigene "
+        "Kundenfälle liefern kann: Die Praxis sieht ihre eigenen Anzeigen, "
+        "bevor sie zahlt. Vorab: die drei fertigen Anzeigen als Bild oder "
+        "Standbild in die Rahmen einsetzen, [BEHANDLUNG_X], "
+        "[ÜBERSCHRIFT_1] bis [ÜBERSCHRIFT_3] und [ANZEIGENTEXT_1] bis "
+        "[ANZEIGENTEXT_3] ersetzen. Alle Platzhalter stehen in der README.\n\n"
+        "Erst zeigen, dann fragen: 'Was würden Sie an diesen Anzeigen "
+        "ändern?' Zuhören, nicht erklären. Die Anzeigen liegen im Gespräch "
+        "auf dem Bildschirm, das Teardown-Video hat sie schon am Ende "
+        "gezeigt.\n\n"
+        "Grenzen: Vor einer unterschriebenen Einwilligung wird nie das "
+        "Gesicht oder die Stimme des Arztes nachgebaut, auch nicht für "
+        "diese Vorschau. Die Vorschau muss HWG-sauber sein (kein "
+        "Vorher-Nachher, keine KI-Patientinnen, keine KI-Ergebnisse). "
+        "Keine Zahl nennen, die nicht belegt ist: EINS hat noch keine "
+        "eigenen Ergebnisse.\n\n"
+        "Verkauft wird der Nutzen, nicht die Technik: 'Sie müssen nie vor "
+        "die Kamera' und 'schneller Start'. Auf Nachfrage offen sagen, dass "
+        "es KI ist.\n\n"
+        "Quelle: docs/umbau-ki-organisch/KANON.md Abschnitte 1 und 9.")
+    set_slide_transition_fade(s)
+    return s
+
+
+def slide_8_about_eins(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     background_white(s, prs)
     add_logo_top_left(s, prs)
@@ -628,20 +781,22 @@ def slide_7_about_eins(prs):
 
     # Left paragraph
     add_text(s, Inches(0.5), Inches(3.55), Inches(8.0), Inches(2.6),
-             "EINS ist ein Akquise-System für Ästhetik- und "
-             "Schönheitskliniken im DACH-Raum. Wir kombinieren medizinisch "
-             "seriöse Videoproduktion, bezahlte Anzeigen und ein durch "
-             "Künstliche Intelligenz gestütztes System zu einem vollständigen "
-             "Akquisitionssystem.\n\n"
-             "Das Ziel ist nicht Sichtbarkeit. Das Ziel ist kontrolliertes, "
-             "planbares Wachstum.",
-             font=FONT_BODY, size=16, color=FG_PRIMARY, spacing=1.4)
+             ["EINS ist ein Akquise-System für Praxen für ästhetische "
+              "Medizin im DACH-Raum. Wir verbinden medizinisch seriöse "
+              "Videos mit dem KI-Klon des Inhabers, organische Reichweite "
+              "mit bezahlten Anzeigen genau hinter den Beiträgen, die "
+              "Anfragen bringen, und eine KI-Vorqualifizierung zu einem "
+              "vollständigen Akquisitionssystem.",
+              "",
+              "Das Ziel ist nicht Sichtbarkeit. Das Ziel ist kontrolliertes, "
+              "planbares Wachstum."],
+             font=FONT_BODY, size=15, color=FG_PRIMARY, spacing=1.3)
 
     # Right facts
     facts = [
         ("Sitz",            "Köln, Deutschland"),
         ("Region",          "DACH (DE, AT, CH)"),
-        ("Spezialisierung", "Ästhetikkliniken (1.500–15.000 €)"),
+        ("Spezialisierung", "Praxen für ästhetische Medizin"),
     ]
     y = Inches(3.55)
     for label, val in facts:
@@ -653,8 +808,8 @@ def slide_7_about_eins(prs):
 
     # 4 pillar cards bottom
     pillars = [
-        ("Medienproduktion",   "Video, Animation, Foto"),
-        ("Bezahlte Anzeigen",  "Meta + Google performance"),
+        ("Content-Fundament",  "KI-Videos mit Ihrem Klon"),
+        ("Reichweite",         "Organisch, Anzeigen optional"),
         ("KI-Vorqualifizierung","Echte Patienten, kein Spam"),
         ("HWG-Prüfung",        "Schutz vor Abmahnung"),
     ]
@@ -674,24 +829,25 @@ def slide_7_about_eins(prs):
                  color=FG_SECONDARY)
         x += card_w + gap
 
-    add_footer(s, prs, 6)
+    add_footer(s, prs)
     set_speaker_notes(s,
-        "Erst hier — Folie 7 — reden wir über uns. Zwei Sätze, dann zurück "
-        "zur Klinik. 'Was Sie merken werden: wir sind keine Allround-Agentur. "
+        "Erst hier, Folie 8, reden wir über uns. Zwei Sätze, dann zurück "
+        "zur Praxis. 'Was Sie merken werden: wir sind keine Allround-Agentur. "
         "Wir bauen ein System.'\n\n"
-        "Quelle: Notion `EINS Grundlagen` + `Branding`.")
+        "Quelle: Vault-Notizen `EINS Grundlagen` + `Branding`, "
+        "docs/umbau-ki-organisch/KANON.md Abschnitt 3.")
     set_slide_transition_fade(s)
     return s
 
 
-def slide_8_proof_placeholder(prs):
+def slide_9_proof_placeholder(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     background_white(s, prs)
     add_logo_top_left(s, prs)
 
-    add_eyebrow(s, Inches(0.5), Inches(1.5), Inches(8), "Fallstudie · Branchenwert")
+    add_eyebrow(s, Inches(0.5), Inches(1.5), Inches(8), "Fallstudie · [QUELLE]")
     add_text(s, Inches(0.5), Inches(1.95), Inches(12), Inches(1.4),
-             "Was realistisch in 6 Monaten möglich ist.",
+             "Was in [ZEITRAUM] möglich war.",
              font=FONT_DISPLAY, size=38, bold=True, color=FG_PRIMARY,
              spacing=1.0)
 
@@ -710,9 +866,7 @@ def slide_8_proof_placeholder(prs):
     av.line.width = Pt(1)
 
     add_text(s, Inches(2.7), Inches(3.7), Inches(10), Inches(1.0),
-             '"Wir telefonieren nicht mehr mit Preis-Shoppern. '
-             "Die Anfragen, die durchkommen, sind vorbereitet und "
-             'bereit.”',
+             "„[ZITAT_DER_PRAXIS]“",
              font=FONT_DISPLAY, size=22, italic=True, color=FG_PRIMARY,
              spacing=1.25)
     add_text(s, Inches(2.7), Inches(5.0), Inches(10), Inches(0.4),
@@ -721,14 +875,14 @@ def slide_8_proof_placeholder(prs):
 
     # 3 KPIs
     kpis = [
-        ("Qualifizierte Anfragen / Monat", "+47"),
-        ("Kosten pro Anfrage",             "38 € → 19 €"),
-        ("Werbeertrag (6 Monate)",         "4,2x"),
+        ("Qualifizierte Anfragen / Monat", "[ZAHL_1]"),
+        ("Kosten pro Anfrage",             "[ZAHL_2]"),
+        ("Werbeertrag",                    "[ZAHL_3]"),
     ]
     card_w = Inches(4.0)
     gap = Inches(0.2)
     x = Inches(0.5)
-    y = Inches(6.1)
+    y = Inches(6.0)
     for label, val in kpis:
         add_rect(s, x, y, card_w, Inches(0.75),
                  fill=ACCENT_GLOW_BG, line=BORDER,
@@ -741,500 +895,629 @@ def slide_8_proof_placeholder(prs):
                  color=ACCENT)
         x += card_w + gap
 
-    # Internal flag — visible on slide
-    add_text(s, Inches(0.5), Inches(7.05), Inches(12), Inches(0.3),
-             "[INTERN: Platzhalter · vor echtem Pitch durch echte Klinik-Daten ersetzen]",
+    # Internal flag, visible on slide
+    add_text(s, Inches(0.5), Inches(6.82), Inches(12), Inches(0.3),
+             "[INTERN: Platzhalter · vor echtem Pitch durch echte Praxis-Daten ersetzen]",
              font=FONT_MONO, size=10, color=FG_TERTIARY, italic=True)
 
-    add_footer(s, prs, 7)
+    add_footer(s, prs)
     set_speaker_notes(s,
-        "WICHTIG INTERN: Diese Folie ist Platzhalter. EINS hat aktuell "
-        "(Stand 2026-04-27) keine geschlossenen Klinik-Cases. Die Zahlen "
-        "sind realistische Branchenwerte aus DACH-Aesthetic, NICHT eigene "
-        "Kundendaten. \n\n"
-        "Diese Folie NUR verwenden, wenn echte Daten von Klinik X "
-        "(Q3-2026-Mandant) vorliegen. Sonst: überspringen ODER ersetzen "
-        "durch '#3 — 1.252% ROAS Implantat-Kampagne (Australien, 2018)' "
-        "mit klarer Quellenangabe (Notion `Statistiken` #3).\n\n"
-        "Sprecherhaltung: 'Das sind realistische Branchenzahlen für die "
-        "DACH-Aesthetic. Wir bauen mit Ihnen die nächste belastbare Case "
-        "Study.' Nicht lügen. Nicht eigene Klinik claimen.\n\n"
-        "Quellen: ISAPS Global Survey 2022, MyAdvice Dental Patient Survey "
-        "2024, Wyzowl Video Marketing 2026.")
+        "WICHTIG INTERN: Diese Folie ist ein leerer Platzhalter. EINS hat "
+        "aktuell (Stand 2026-09-30) keine eigenen Ergebnisse und keine "
+        "geschlossenen Kundenfälle, deshalb stehen hier weder Zahlen noch "
+        "ein Zitat. Nie wieder Beispielwerte eintragen, die wie Ergebnisse "
+        "gelesen werden können.\n\n"
+        "Diese Folie NUR verwenden, wenn echte Daten einer Praxis vorliegen "
+        "(Zitat und Zahlen mit Freigabe der Praxis). Sonst: ausblenden ODER "
+        "ersetzen durch einen zitierten Branchenwert mit klarer "
+        "Quellenangabe, z. B. '1.252 % Werbeertrag bei einer "
+        "Implantat-Kampagne (Australien, 2018)' aus Vault-Notiz `Statistiken` "
+        "#3. Nicht lügen. Nie als eigene Praxis oder eigenes Ergebnis "
+        "ausgeben.\n\n"
+        "Der eigentliche Beweis dieses Gesprächs sind die Vorschau-Anzeigen "
+        "auf Folie 7.")
     set_slide_transition_fade(s)
     return s
 
 
-def slide_9_services(prs):
+def slide_10_services(prs):
+    """Vorgeschlagene Leistungen: die drei Ebenen (KANON Abschnitt 3)."""
     s = prs.slides.add_slide(prs.slide_layouts[6])
     background_white(s, prs)
     add_logo_top_left(s, prs)
 
     add_eyebrow(s, Inches(0.5), Inches(1.5), Inches(8), "Vorgeschlagene Leistungen")
-    add_text(s, Inches(0.5), Inches(1.95), Inches(12), Inches(1.4),
+    add_text(s, Inches(0.5), Inches(1.95), Inches(12), Inches(0.9),
              "Jede Lücke bekommt ein Werkzeug.",
              font=FONT_DISPLAY, size=42, bold=True, color=FG_PRIMARY,
              spacing=1.0)
+    add_text(s, Inches(0.5), Inches(2.7), Inches(12), Inches(0.4),
+             "Drei Ebenen, nie einzeln verkauft: ein Paket.",
+             font=FONT_MONO, size=12, color=ACCENT)
 
-    # Two columns: missing piece -> service
-    col_left_x = Inches(0.5)
-    col_right_x = Inches(7.0)
-    col_w_left = Inches(5.8)
-    col_w_right = Inches(5.9)
+    card_w = Inches(4.0)
+    gap = Inches(0.2)
+    base_y = Inches(3.15)
+    card_h = Inches(3.45)
+    x = Inches(0.5)
+    for tag, name, sub, body, closes in LEVELS:
+        add_rect(s, x, base_y, card_w, card_h,
+                 fill=BG_SECONDARY, line=BORDER,
+                 shape=MSO_SHAPE.ROUNDED_RECTANGLE, corner_radius=0.04)
+        inner_x = x + Inches(0.3)
+        inner_w = card_w - Inches(0.6)
+        add_text(s, inner_x, base_y + Inches(0.22), inner_w, Inches(0.3),
+                 tag, font=FONT_MONO, size=11, color=ACCENT, bold=True)
+        add_text(s, inner_x, base_y + Inches(0.5), inner_w, Inches(0.4),
+                 name, font=FONT_DISPLAY, size=18, bold=True,
+                 color=FG_PRIMARY)
+        add_text(s, inner_x, base_y + Inches(0.92), inner_w, Inches(0.3),
+                 sub, font=FONT_MONO, size=10, color=FG_SECONDARY)
+        add_text(s, inner_x, base_y + Inches(1.25), inner_w, Inches(1.6),
+                 body, font=FONT_BODY, size=10.5, color=FG_PRIMARY,
+                 spacing=1.25)
+        add_text(s, inner_x, base_y + Inches(3.1), inner_w, Inches(0.3),
+                 closes, font=FONT_MONO, size=9, color=FG_SECONDARY)
+        x += card_w + gap
 
-    add_text(s, col_left_x, Inches(3.4), col_w_left, Inches(0.3),
-             "Lücke aus Folie 6", font=FONT_MONO, size=10, color=FG_TERTIARY)
-    add_text(s, col_right_x, Inches(3.4), col_w_right, Inches(0.3),
-             "EINS-Leistung", font=FONT_MONO, size=10, color=ACCENT)
+    add_text(s, Inches(0.5), Inches(6.75), Inches(12.4), Inches(0.3),
+             "EINS bewertet Beiträge und Anzeigen nach behandelten "
+             "Patienten, nicht nach Klicks.",
+             font=FONT_MONO, size=11, color=FG_PRIMARY)
 
-    y = Inches(3.75)
-    line_h = Inches(0.42)
-    for left, right in SERVICE_MAP:
-        add_text(s, col_left_x, y, col_w_left, line_h, "· " + left,
-                 font=FONT_BODY, size=12, color=FG_PRIMARY, spacing=1.2)
-        # Arrow
-        ar = s.shapes.add_shape(MSO_SHAPE.RIGHT_ARROW,
-                                Inches(6.3), y + Inches(0.05),
-                                Inches(0.5), Inches(0.25))
-        ar.shadow.inherit = False
-        ar.fill.solid()
-        ar.fill.fore_color.rgb = ACCENT
-        ar.line.fill.background()
-        add_text(s, col_right_x, y, col_w_right, line_h, right,
-                 font=FONT_DISPLAY, size=13, bold=True, color=FG_PRIMARY,
-                 spacing=1.2)
-        y += line_h
-
-    # Extras
-    y += Inches(0.15)
-    add_text(s, col_left_x, y, Inches(12), Inches(0.3),
-             "Außerdem inklusive (ohne direktes Lücken-Mapping):",
-             font=FONT_MONO, size=10, color=FG_TERTIARY)
-    y += Inches(0.32)
-    for extra in SERVICE_EXTRAS:
-        add_text(s, col_left_x, y, Inches(12), Inches(0.4),
-                 "+ " + extra, font=FONT_DISPLAY, size=13, color=FG_PRIMARY)
-        y += Inches(0.32)
-
-    add_footer(s, prs, 8)
+    add_footer(s, prs)
     set_speaker_notes(s,
-        "LOGISCHER CLOSE. Jeder Pfeil zeigt: dieses Problem aus Folie 6, "
-        "diese Lösung. Frage am Ende: 'Macht das in Ihrem Kontext Sinn? "
+        "LOGISCHER CLOSE. Drei Ebenen, ein Paket, nie einzeln. Für jede "
+        "Ebene die Lücke aus Folie 6 nennen, die sie schließt (steht unten "
+        "auf der Karte). Frage am Ende: 'Macht das in Ihrem Kontext Sinn? "
         "Erkennen Sie die Logik?' Erwartete Antwort: ja. Das ist der "
         "finale Yes vor dem Geld-Frame.\n\n"
-        "Quelle: BASISPAKET in `apps/website/lib/offer-data.ts:8-66`.")
+        "Reichweite: organisch zuerst, Anzeigen danach und optional. Das "
+        "Ziel bleibt, dass die Praxis Werbebudget hinter die Beiträge "
+        "setzt, die Anfragen bringen. Es ist nur nicht mehr die "
+        "Eintrittskarte. Organisch findet heraus, was wirkt, Werbebudget "
+        "macht es größer.\n\n"
+        "Verkauft wird der Nutzen: 'Sie müssen nie vor die Kamera' und "
+        "'schneller Start' nach vorne. Auf Nachfrage offen sagen, dass es "
+        "KI ist. Keine Stückzahl nennen ('X Beiträge pro Monat'): es gibt "
+        "keine Stückzahl-Zusage.\n\n"
+        "Schutz vor Nachahmern: KI-Anzeigen kann jeder bauen. Was niemand "
+        "sonst hat, ist die Auswertung, welcher Beitrag zu einer "
+        "behandelten Patientin mit Umsatz geführt hat (Portal plus "
+        "PVS-Bridge).\n\n"
+        "Quelle: docs/umbau-ki-organisch/KANON.md Abschnitt 3.")
     set_slide_transition_fade(s)
     return s
 
 
-def slide_10_value_equation(prs):
+def slide_11_value_equation(prs):
+    """Wertgleichung ohne Pflicht-Budget, ohne erfundene Zahlen.
+
+    Alle Praxis-Zahlen sind [BRACKETED] und kommen aus dem Gespräch. Die
+    einzigen festen Zahlen sind aus dem Kanon: 1.900 € netto im Monat,
+    keine Einrichtungsgebühr, 12 Monate als Rechenrahmen (12 x 1.900 =
+    22.800 €).
+    """
     s = prs.slides.add_slide(prs.slide_layouts[6])
     background_white(s, prs)
     add_logo_top_left(s, prs)
 
     add_eyebrow(s, Inches(0.5), Inches(1.5), Inches(8), "Wert für Sie")
-    add_text(s, Inches(0.5), Inches(1.95), Inches(12), Inches(1.4),
+    add_text(s, Inches(0.5), Inches(1.95), Inches(12), Inches(0.9),
              "Die Rechnung, ehrlich.",
              font=FONT_DISPLAY, size=46, bold=True, color=FG_PRIMARY,
              spacing=1.0)
 
     # Value Equation visual (top half)
-    add_rect(s, Inches(0.5), Inches(3.4), Inches(12.4), Inches(1.2),
+    add_rect(s, Inches(0.5), Inches(2.85), Inches(12.4), Inches(1.2),
              fill=BG_SECONDARY, line=BORDER,
              shape=MSO_SHAPE.ROUNDED_RECTANGLE, corner_radius=0.06)
-    add_text(s, Inches(0.5), Inches(3.55), Inches(12.4), Inches(0.4),
+    add_text(s, Inches(0.5), Inches(3.0), Inches(12.4), Inches(0.4),
              "Wert  =  (Traum-Ergebnis  ×  Wahrscheinlichkeit)  ÷  (Zeit bis Erfolg  ×  Aufwand)",
              font=FONT_DISPLAY, size=20, bold=True, color=FG_PRIMARY,
              align=PP_ALIGN.CENTER)
-    add_text(s, Inches(0.5), Inches(4.05), Inches(12.4), Inches(0.4),
-             "Hormozi Value Equation · konkret auf Ihre Klinik gerechnet",
+    add_text(s, Inches(0.5), Inches(3.5), Inches(12.4), Inches(0.4),
+             "Hormozi Value Equation · konkret auf Ihre Praxis gerechnet",
              font=FONT_MONO, size=11, color=ACCENT, align=PP_ALIGN.CENTER)
 
-    # Math block
+    # Math block: Praxis-Zahlen als Platzhalter, aus dem Gespräch
     rows = [
-        ("Traum-Ergebnis",          "[6]   zusätzliche Patienten / Monat",          False),
-        ("× Ø Behandlungswert",     "[3.000] €",                                    False),
-        ("─────────────────────",    "",                                            False),
-        ("= Mehrwert / Monat",      "[18.000] €",                                   False),
-        ("× 12 Monate",             "[216.000] €",                                  False),
-        ("─────────────────────",    "",                                            False),
-        ("─ EINS-Investition",      "[44.199] € (Setup + 12× Retainer Standard)",   False),
-        ("─ Werbebudget",           "[36.000] € (12× 3.000 €, an Meta + Google)",   False),
-        ("══════════════════════",   "",                                            False),
-        ("= Netto-Wert Jahr 1",     "ca. [136.000] €",                              True),
+        ("Traum-Ergebnis",       "[N_PATIENTEN] zusätzliche Patienten / Monat", False),
+        ("× Ø Behandlungswert",  "[Ø_BEHANDLUNGSWERT] €",                       False),
+        ("= Mehrwert / Monat",   "[MEHRWERT_MONAT] €",                          False),
+        ("× 12 Monate",          "[MEHRWERT_JAHR] €",                           False),
+        ("− EINS-Investition",   "22.800 € (12 × 1.900 € netto, keine Einrichtungsgebühr)", False),
+        ("− Werbebudget",        "zu Beginn keine Pflicht",                     False),
+        ("= Netto-Wert Jahr 1",  "ca. [NETTO_WERT_JAHR_1] €",                   True),
     ]
-    y = Inches(4.65)
-    for label, val, highlight in rows:
+    dividers_before = {2, 6}
+    y = Inches(4.25)
+    for idx, (label, val, highlight) in enumerate(rows):
         color = ACCENT if highlight else FG_PRIMARY
-        bold = highlight
-        add_text(s, Inches(0.7), y, Inches(5.5), Inches(0.32), label,
-                 font=FONT_MONO, size=12, color=color, bold=bold)
-        add_text(s, Inches(6.5), y, Inches(6.4), Inches(0.32), val,
-                 font=FONT_MONO, size=12, color=color, bold=bold)
-        y += Inches(0.24)
+        if idx in dividers_before:
+            add_rect(s, Inches(0.7), y - Inches(0.04), Inches(12.0),
+                     Emu(9525), fill=BORDER)
+        add_text(s, Inches(0.7), y, Inches(5.5), Inches(0.3), label,
+                 font=FONT_MONO, size=13, color=color, bold=highlight)
+        add_text(s, Inches(6.5), y, Inches(6.4), Inches(0.3), val,
+                 font=FONT_MONO, size=13, color=color, bold=highlight)
+        y += Inches(0.3)
 
-    add_text(s, Inches(0.5), Inches(7.1), Inches(12), Inches(0.3),
-             "Konservatives Szenario · Quelle: SCENARIOS in apps/website/lib/offer-data.ts",
-             font=FONT_MONO, size=9, color=FG_TERTIARY)
+    add_text(s, Inches(0.5), Inches(6.5), Inches(12.4), Inches(0.3),
+             "Rechenbeispiel mit Ihren Zahlen, keine Umsatz-Zusage.",
+             font=FONT_MONO, size=10, color=FG_SECONDARY)
+    add_text(s, Inches(0.5), Inches(6.72), Inches(12.4), Inches(0.3),
+             "Erste Rechnung erst mit der ersten qualifizierten Anfrage "
+             "über EINS. Kommt in 90 Tagen keine, endet die Zusammenarbeit "
+             "ohne Kosten.",
+             font=FONT_MONO, size=10, color=FG_SECONDARY)
 
-    add_footer(s, prs, 9)
+    add_footer(s, prs)
     set_speaker_notes(s,
-        "VALUE EQUATION KONKRET. Vorab: Klinik-Zahlen aus Discovery-Call in "
-        "die Platzhalter eintragen. NICHT durch alle 5 Szenarien gehen, NUR "
-        "das konservative zeigen. Wenn die Klinik bei der Zahl stutzt: "
-        "'Diese Rechnung ist konservativ. Im Schnitt liegt unser Modell bei "
-        "39 Patienten in 90 Tagen. Aber ich rechne lieber konservativ.'\n\n"
-        "Quelle: SCENARIOS-Tabelle in `apps/website/lib/offer-data.ts:99-105`.")
+        "WERTGLEICHUNG KONKRET. Vorab: die Zahlen der Praxis aus dem "
+        "Gespräch in die Platzhalter eintragen ([N_PATIENTEN], "
+        "[Ø_BEHANDLUNGSWERT], [MEHRWERT_MONAT], [MEHRWERT_JAHR], "
+        "[NETTO_WERT_JAHR_1]). Nicht durch mehrere Szenarien gehen. Keine "
+        "Zahl nennen, die die Praxis nicht selbst gesagt hat: EINS hat noch "
+        "keine eigenen Ergebnisse.\n\n"
+        "Die vier Hebel der Gleichung, mündlich: Traum-Ergebnis (Ziele, "
+        "Folie 5). Wahrscheinlichkeit: Sie zahlen erst ab der ersten "
+        "qualifizierten Anfrage über EINS (Folie 12). Zeit bis Erfolg: "
+        "erste Beiträge ab Woche 2 (Folie 15). Aufwand: einmal wenige "
+        "Minuten Aufnahme, danach wenige Minuten pro Woche für die "
+        "Freigabe.\n\n"
+        "Das Werbebudget steht bewusst nicht in der Rechnung: Zu Beginn "
+        "brauchen Sie keins. Sobald sichtbar ist, welche Beiträge "
+        "Anfragen bringen, schlagen wir vor, wie viel dahinter gehört "
+        "(Folie 14). Keine Mindest- oder Richtzahl nennen.\n\n"
+        "Quelle: docs/umbau-ki-organisch/KANON.md Abschnitte 4, 5 und 9.")
     set_slide_transition_fade(s)
     return s
 
 
-def slide_11_guarantee(prs):
+def slide_12_guarantee(prs):
+    """Garantie "Keine Anfrage, keine Rechnung" (KANON Abschnitt 5).
+
+    Wortlaut wörtlich, dazu die wichtigsten Regeln. Beide Grenzen ("erste
+    qualifizierte Anfrage über EINS" und "90 Tage") stehen im selben Absatz
+    und auf derselben Folie (§ 5 UWG, § 307 BGB).
+    """
     s = prs.slides.add_slide(prs.slide_layouts[6])
     background_white(s, prs)
     add_logo_top_left(s, prs)
 
-    add_eyebrow(s, Inches(0.5), Inches(1.5), Inches(8),
-                "Garantie für die ersten zwei Mandate Q3 2026")
-    add_text(s, Inches(0.5), Inches(1.95), Inches(12), Inches(1.5),
-             "Wir tragen das Risiko.",
-             font=FONT_DISPLAY, size=46, bold=True, color=FG_PRIMARY,
-             spacing=1.0)
-    add_text(s, Inches(0.5), Inches(2.65), Inches(12), Inches(0.7),
-             "Sie tragen die Patienten.",
-             font=FONT_DISPLAY, size=46, bold=False, color=ACCENT,
+    add_eyebrow(s, Inches(0.5), Inches(1.5), Inches(8), "Die Garantie")
+    add_text(s, Inches(0.5), Inches(1.95), Inches(12), Inches(0.9),
+             "Keine Anfrage, keine Rechnung.",
+             font=FONT_DISPLAY, size=42, bold=True, color=FG_PRIMARY,
              spacing=1.0)
 
-    # Card with all 6 guarantees
-    add_rect(s, Inches(0.5), Inches(3.6), Inches(12.4), Inches(3.3),
+    # Wortlaut card with headshot
+    add_rect(s, Inches(0.5), Inches(2.85), Inches(12.4), Inches(1.5),
              fill=ACCENT_GLOW_BG, line=ACCENT,
-             shape=MSO_SHAPE.ROUNDED_RECTANGLE, corner_radius=0.04)
-
-    # Headshot small lower-right
+             shape=MSO_SHAPE.ROUNDED_RECTANGLE, corner_radius=0.06)
     if HEADSHOT_PNG.exists():
-        s.shapes.add_picture(str(HEADSHOT_PNG), Inches(11.3), Inches(3.85),
-                             height=Inches(1.0))
-    add_text(s, Inches(10.6), Inches(4.95), Inches(2.3), Inches(0.3),
-             "Karam Issa", font=FONT_DISPLAY, size=11, bold=True,
-             color=FG_PRIMARY, align=PP_ALIGN.CENTER)
-    add_text(s, Inches(10.6), Inches(5.18), Inches(2.3), Inches(0.3),
-             "Gründer, EINS", font=FONT_MONO, size=9,
-             color=FG_SECONDARY, align=PP_ALIGN.CENTER)
+        s.shapes.add_picture(str(HEADSHOT_PNG), Inches(0.8), Inches(3.0),
+                             height=Inches(1.2))
+    add_text(s, Inches(2.2), Inches(3.05), Inches(10.4), Inches(0.9),
+             GUARANTEE_QUOTE,
+             font=FONT_DISPLAY, size=17, italic=True, color=FG_PRIMARY,
+             spacing=1.25)
+    add_text(s, Inches(2.2), Inches(3.95), Inches(10.4), Inches(0.3),
+             "Karam Issa · Gründer, EINS",
+             font=FONT_MONO, size=10, color=FG_SECONDARY)
 
-    # 6 guarantees in 2 cols x 3 rows (excluding headshot column on right)
-    col_w = Inches(4.85)
-    col1_x = Inches(0.85)
-    col2_x = Inches(5.85)
-    row_h = Inches(0.95)
-    base_y = Inches(3.85)
-    for i, (num, title, body) in enumerate(GUARANTEE_STACK):
-        col_x = col1_x if i % 2 == 0 else col2_x
-        row = i // 2
-        y = base_y + row_h * row
-        add_text(s, col_x, y, Inches(0.6), Inches(0.3), num,
-                 font=FONT_MONO, size=11, color=ACCENT, bold=True)
-        add_text(s, col_x + Inches(0.55), y, col_w - Inches(0.55),
-                 Inches(0.32), title, font=FONT_DISPLAY, size=13, bold=True,
-                 color=FG_PRIMARY)
-        add_text(s, col_x + Inches(0.55), y + Inches(0.32),
-                 col_w - Inches(0.55), Inches(0.6), body,
-                 font=FONT_BODY, size=10, color=FG_PRIMARY, spacing=1.2)
+    # 4 rule cards
+    card_w = Inches(2.95)
+    gap = Inches(0.2)
+    base_y = Inches(4.5)
+    card_h = Inches(2.2)
+    x = Inches(0.5)
+    for num, title, body in GUARANTEE_RULES:
+        add_rect(s, x, base_y, card_w, card_h,
+                 fill=BG_SECONDARY, line=BORDER,
+                 shape=MSO_SHAPE.ROUNDED_RECTANGLE, corner_radius=0.04)
+        add_text(s, x + Inches(0.2), base_y + Inches(0.18), Inches(0.5),
+                 Inches(0.3), num, font=FONT_MONO, size=11, color=ACCENT,
+                 bold=True)
+        add_text(s, x + Inches(0.7), base_y + Inches(0.15),
+                 card_w - Inches(0.85), Inches(0.32), title,
+                 font=FONT_DISPLAY, size=13, bold=True, color=FG_PRIMARY)
+        add_text(s, x + Inches(0.2), base_y + Inches(0.55),
+                 card_w - Inches(0.4), Inches(1.6), body,
+                 font=FONT_BODY, size=10, color=FG_PRIMARY, spacing=1.15)
+        x += card_w + gap
 
-    # Counter-asks footer block
-    add_text(s, Inches(0.5), Inches(7.05), Inches(5), Inches(0.3),
-             "Was wir im Gegenzug erwarten",
-             font=FONT_MONO, size=10, color=FG_TERTIARY)
-    add_text(s, Inches(5.6), Inches(7.05), Inches(7.4), Inches(0.3),
-             "  ·  ".join(COUNTER_ASKS),
-             font=FONT_BODY, size=10, color=FG_PRIMARY)
+    add_text(s, Inches(0.5), Inches(6.8), Inches(12.4), Inches(0.3),
+             GUARANTEE_NOT,
+             font=FONT_MONO, size=10, color=FG_SECONDARY)
 
-    add_footer(s, prs, 10)
+    add_footer(s, prs)
     set_speaker_notes(s,
-        "RISK REVERSAL VOR PRICING. Diese Garantie ist die stärkste, die "
-        "EINS anbietet. Sie gilt nur für die ersten zwei Mandate Q3 2026. "
-        "Erwähnen: 'Diese Konditionen stehen so auch auf unserer Website. "
-        "Sie können sich das nochmal in Ruhe ansehen.' \n\n"
-        "WICHTIG: NICHT als Pilot-Projekt framen — Karam-Regel.\n\n"
-        "Quelle: `apps/website/components/sections/guarantee.tsx:7-44`.")
+        "RISIKO UMKEHREN, VOR DEM PREIS. Den Wortlaut ruhig vorlesen, "
+        "nichts ergänzen. Beide Grenzen immer zusammen nennen, auch "
+        "mündlich: 'erste qualifizierte Anfrage über EINS' und '90 Tage'. "
+        "Nie 'wir garantieren Anfragen' sagen und keine Rückzahlung "
+        "versprechen: Sie zahlen erst ab der ersten Anfrage, es gibt nichts "
+        "zurückzuzahlen. "
+        "Es ist eine Garantie, kein Ausprobieren, und sie gilt für jede "
+        "Praxis, ohne Verknappung.\n\n"
+        "Wenn 'Was zählt als Anfrage?' kommt: nur die drei EINS-Messwege "
+        "(Formular auf einer EINS-Zielseite, Anruf auf der "
+        "EINS-Tracking-Nummer, Buchung über den EINS-Buchungslink). "
+        "Selbstauskünfte ('Wie sind Sie auf uns aufmerksam geworden?') "
+        "lösen die Rechnung nicht aus. Nicht die erste gebuchte Beratung "
+        "ist der Auslöser, weil die am Rückruf des Praxisteams hängt. Der "
+        "KI-Score entscheidet nie, ob eine Anfrage zählt.\n\n"
+        "Wenn 'Was, wenn wir mit der Freigabe in Verzug sind?' kommt: "
+        "Jeder Verzugstag verlängert die 90 Tage um einen Tag, wir teilen "
+        "jeden Verzug per E-Mail mit. Es gibt keine automatische "
+        "Freigabe: Kein Beitrag ohne Ihre Freigabe.\n\n"
+        "Das Werbebudget der Praxis trägt keine eigene Garantie, keine "
+        "Garantie übernimmt es oder friert den Preis ein.\n\n"
+        "Neben der Garantie versprechen wir (steuerbar, aber keine "
+        "Garantie): Kein Beitrag ohne Ihre Freigabe. Sie müssen nie vor "
+        "die Kamera. Jede Anfrage mit Herkunft im Portal.\n\n"
+        "Quelle: docs/umbau-ki-organisch/KANON.md Abschnitte 5 und 6.")
     set_slide_transition_fade(s)
     return s
 
 
-def slide_12_pricing(prs):
+def slide_13_material_klon(prs):
+    """Das Material und Ihr Klon gehören Ihnen (KANON Abschnitt 7).
+
+    Wortlaut wörtlich aus dem Kanon. Formulierung "dauerhaft nutzen", nie "Urheberrecht".
+    """
+    s = prs.slides.add_slide(prs.slide_layouts[6])
+    background_white(s, prs)
+    add_logo_top_left(s, prs)
+
+    add_eyebrow(s, Inches(0.5), Inches(1.5), Inches(8), "Material und Klon")
+    add_text(s, Inches(0.5), Inches(1.95), Inches(12), Inches(1.5),
+             "Das Material und Ihr Klon",
+             font=FONT_DISPLAY, size=46, bold=True, color=FG_PRIMARY,
+             spacing=1.0)
+    add_text(s, Inches(0.5), Inches(2.65), Inches(12), Inches(0.7),
+             "gehören Ihnen.",
+             font=FONT_DISPLAY, size=46, bold=False, color=ACCENT,
+             spacing=1.0)
+
+    add_rect(s, Inches(0.5), Inches(3.6), Inches(12.4), Inches(2.85),
+             fill=ACCENT_GLOW_BG, line=ACCENT,
+             shape=MSO_SHAPE.ROUNDED_RECTANGLE, corner_radius=0.04)
+
+    columns = [
+        ("01", "Das Material gehört Ihnen.",
+         "Sobald die erste Rechnung bezahlt ist, dürfen Sie alles, was für "
+         "Ihre Praxis entstanden ist, dauerhaft nutzen und bearbeiten, "
+         "auch nach einer Kündigung und mit einer anderen Agentur.",
+         "Endet die Zusammenarbeit nach 90 Tagen ohne Anfrage, dürfen "
+         "bereits veröffentlichte Beiträge auf Ihren Kanälen stehen "
+         "bleiben. Anfragedaten bekommen Sie bei Vertragsende als Export."),
+        ("02", "Ihr KI-Klon gehört Ihnen.",
+         "Wir nutzen Ihr Gesicht und Ihre Stimme nur für Ihre Praxis, nie "
+         "für eigene Werbung ohne Ihre gesonderte schriftliche "
+         "Einwilligung, und löschen das Klon-Modell spätestens 30 Tage "
+         "nach Vertragsende.",
+         "Widerrufen Sie Ihre Einwilligung, stoppen wir sofort alle "
+         "Beiträge mit dem Klon und löschen das Modell. Jeder Beitrag ist "
+         "als KI-generiert gekennzeichnet und geht erst nach Ihrer "
+         "Freigabe raus."),
+    ]
+    col_w = Inches(5.75)
+    for i, (num, title, line, detail) in enumerate(columns):
+        col_x = Inches(0.85) if i == 0 else Inches(6.85)
+        y = Inches(3.85)
+        add_text(s, col_x, y + Inches(0.06), Inches(0.6), Inches(0.3), num,
+                 font=FONT_MONO, size=11, color=ACCENT, bold=True)
+        add_text(s, col_x + Inches(0.55), y, col_w - Inches(0.55),
+                 Inches(0.4), title, font=FONT_DISPLAY, size=20, bold=True,
+                 color=FG_PRIMARY)
+        add_text(s, col_x + Inches(0.55), y + Inches(0.5),
+                 col_w - Inches(0.55), Inches(1.1), line,
+                 font=FONT_BODY, size=13, color=FG_PRIMARY, spacing=1.25)
+        add_text(s, col_x + Inches(0.55), y + Inches(1.75),
+                 col_w - Inches(0.55), Inches(0.75), detail,
+                 font=FONT_BODY, size=11, color=FG_SECONDARY, spacing=1.3)
+
+    add_text(s, Inches(0.5), Inches(6.6), Inches(12.4), Inches(0.3),
+             "Nicht dabei: Vorlagen, Prompts und Werkzeuge von EINS, die "
+             "Software (Portal, CRM, KI-Scoring, Zielseiten-Technik) und "
+             "Werbekonten.",
+             font=FONT_MONO, size=10, color=FG_SECONDARY)
+    add_text(s, Inches(0.5), Inches(6.83), Inches(12.4), Inches(0.3),
+             "Vertraglich geregelt in § 9 des Hauptvertrags und in der "
+             "Einwilligung zu KI-Abbild und Stimme.",
+             font=FONT_MONO, size=10, color=FG_SECONDARY)
+
+    add_footer(s, prs)
+    set_speaker_notes(s,
+        "MATERIAL UND KLON. Reihenfolge im Gespräch: Vorschau-Anzeigen "
+        "(Folie 7), Wert-Rechnung (Folie 11), Garantie (Folie 12), diese "
+        "Folie, dann Preis (Folie 14).\n\n"
+        "So sagen: 'Sobald die erste Rechnung bezahlt ist, dürfen Sie "
+        "alles, was für Ihre Praxis entstanden ist, dauerhaft nutzen und "
+        "bearbeiten, auch nach einer Kündigung und mit einer anderen "
+        "Agentur. Und Ihr Klon gehört Ihnen: Wir nutzen Ihr Gesicht und "
+        "Ihre Stimme nur für Ihre Praxis und löschen das Modell "
+        "spätestens 30 Tage nach Vertragsende.'\n\n"
+        "Formulierung 'dauerhaft nutzen', nie 'Urheberrecht': Reine "
+        "KI-Ergebnisse sind in Deutschland meist nicht urheberrechtlich "
+        "geschützt, die Zusage ist vertraglich.\n\n"
+        "Endet die Zusammenarbeit nach 90 Tagen ohne Anfrage: Bereits "
+        "veröffentlichte Beiträge dürfen auf den Kanälen der Praxis "
+        "stehen bleiben, weitere Nutzungsrechte entstehen nicht. Widerruft "
+        "der Inhaber die Einwilligung, stoppt EINS sofort alle Beiträge "
+        "mit dem Klon und löscht das Modell.\n\n"
+        "Ehrlich bleiben: KI-Material lässt sich billig neu bauen. Was die "
+        "Praxis wirklich hält, ist die Auswertung im Portal, nicht die "
+        "Dateien. Werbekonten sind nicht Teil dieses Versprechens. "
+        "Anwalt vor der ersten Unterschrift: Kennzeichnung des Klons "
+        "(AI Act Art. 50) und Berufsrecht (MBO-Ä § 27).\n\n"
+        "Quelle: docs/umbau-ki-organisch/KANON.md Abschnitte 7 und 8.")
+    set_slide_transition_fade(s)
+    return s
+
+
+def slide_14_pricing(prs):
+    """Investition: ein Paket, 1.900 € netto (KANON Abschnitt 4)."""
     s = prs.slides.add_slide(prs.slide_layouts[6])
     background_white(s, prs)
     add_logo_top_left(s, prs)
 
     add_eyebrow(s, Inches(0.5), Inches(1.5), Inches(8), "Investition")
-    add_text(s, Inches(0.5), Inches(1.95), Inches(12), Inches(1.4),
-             "Drei Optionen. Eine ist für Sie gemacht.",
-             font=FONT_DISPLAY, size=38, bold=True, color=FG_PRIMARY,
+    add_text(s, Inches(0.5), Inches(1.95), Inches(12), Inches(0.9),
+             "Ein Paket. Ein Preis.",
+             font=FONT_DISPLAY, size=42, bold=True, color=FG_PRIMARY,
              spacing=1.0)
 
-    # Werbebudget callout strip (above cards)
-    add_rect(s, Inches(0.5), Inches(3.0), Inches(12.4), Inches(0.5),
+    # Left: das Paket
+    left_x = Inches(0.5)
+    left_w = Inches(5.5)
+    base_y = Inches(3.0)
+    add_rect(s, left_x, base_y, left_w, Inches(3.85),
              fill=ACCENT_GLOW_BG, line=ACCENT,
-             shape=MSO_SHAPE.ROUNDED_RECTANGLE, corner_radius=0.3)
-    add_text(s, Inches(0.7), Inches(3.08), Inches(12), Inches(0.35),
-             "Werbebudget separat · direkt an Meta + Google · min. 3.000 €/Monat · volle Transparenz, kein Cent geht an EINS",
-             font=FONT_MONO, size=10, color=ACCENT)
-
-    # 3 cards: A, B (highlighted), C
-    card_w = Inches(4.05)
-    gap = Inches(0.15)
-    base_y = Inches(3.7)
-    card_h = Inches(3.1)
-
-    cards = [
-        {
-            "name": "Paket A",
-            "subtitle": "Standard",
-            "price_main": "2.600 €",
-            "price_unit": "/ Monat",
-            "setup": "Setup 12.999 € · einmalig",
-            "term": "Mindestlaufzeit 3 Monate",
-            "bullets": [
-                "Kampagnensteuerung & Optimierung",
-                "KI-Vorqualifizierung",
-                "Monatliche Auswertung",
-                "Standard-Support",
-                "Monatliches Strategie-Meeting",
-            ],
-            "highlight": False,
-        },
-        {
-            "name": "Paket B",
-            "subtitle": "Empfohlen",
-            "price_main": "3.900 €",
-            "price_unit": "/ Monat",
-            "setup": "Setup 12.999 € · einmalig",
-            "term": "Mindestlaufzeit 3 Monate",
-            "bullets": [
-                "Alles in Paket A",
-                "Priorität-Support < 3 h",
-                "2× monatlich Strategie-Meetings",
-                "1 neues Medien-Asset / Quartal",
-                "Erweiterte Auswertungs-Übersicht",
-                "Manager-Account-Management",
-            ],
-            "highlight": True,
-        },
-        {
-            "name": "Paket C",
-            "subtitle": "Premium+",
-            "price_main": "5.900 €",
-            "price_unit": "/ Monat",
-            "setup": "Setup 12.999 € · einmalig",
-            "term": "Mindestlaufzeit 6 Monate",
-            "bullets": [
-                "Alles in Paket B",
-                "2 neue Medien-Assets / Quartal",
-                "Wöchentliche Strategie-Calls",
-                "Dedizierter Strategie-Manager + Junior-Editor",
-                "Klinik-Microsite mit Behandlungs-Detailseiten",
-                "Mobile-App-Lite (Reminder + Bewertungen)",
-            ],
-            "highlight": False,
-        },
+             shape=MSO_SHAPE.ROUNDED_RECTANGLE, corner_radius=0.04)
+    inner_x = left_x + Inches(0.3)
+    inner_w = left_w - Inches(0.6)
+    add_text(s, inner_x, base_y + Inches(0.22), inner_w, Inches(0.3),
+             "Ihr Paket für [PRAXIS_NAME]", font=FONT_MONO, size=11,
+             color=FG_SECONDARY)
+    add_text(s, inner_x, base_y + Inches(0.55), Inches(2.6), Inches(0.8),
+             "1.900 €", font=FONT_DISPLAY, size=44, bold=True,
+             color=FG_PRIMARY)
+    add_text(s, inner_x + Inches(2.75), base_y + Inches(0.95), Inches(2.0),
+             Inches(0.3), "netto / Monat", font=FONT_MONO, size=12,
+             color=FG_SECONDARY)
+    add_text(s, inner_x, base_y + Inches(1.4), inner_w, Inches(0.3),
+             "Keine Einrichtungsgebühr · monatlich kündbar",
+             font=FONT_MONO, size=10, color=FG_SECONDARY)
+    bullets = [
+        "KI-Videos mit Ihrem Klon, Erklär-Animationen, Bildmaterial",
+        "Beiträge organisch auf Ihren Kanälen",
+        "Betreuung der Anzeigen ist im Preis enthalten",
+        "Zielseiten, KI-Vorqualifizierung, Weiterleitung",
+        "Erinnerungen, Nachfassen, Bewertungsanfragen",
+        "Auswertung bis zu Buchung und Umsatz im Portal",
+        "HWG-Prüfung jedes Beitrags und jeder Anzeige",
+        "Ansprechpartner: direkt der Gründer",
+        "Technischer Support: Reaktionszeit unter 24 Stunden",
+        "Strategie-Gespräche: monatlich (etwa 30 Minuten)",
     ]
+    y = base_y + Inches(1.62)
+    for b in bullets:
+        add_text(s, inner_x, y, inner_w, Inches(0.26), "· " + b,
+                 font=FONT_BODY, size=11, color=FG_PRIMARY, spacing=1.15)
+        y += Inches(0.23)
 
-    x = Inches(0.5)
-    for c in cards:
-        fill = ACCENT_GLOW_BG if c["highlight"] else BG_SECONDARY
-        line = ACCENT if c["highlight"] else BORDER
-        add_rect(s, x, base_y, card_w, card_h,
-                 fill=fill, line=line,
-                 shape=MSO_SHAPE.ROUNDED_RECTANGLE, corner_radius=0.04)
+    # Right top: erste Rechnung
+    right_x = Inches(6.25)
+    right_w = Inches(6.65)
+    add_rect(s, right_x, base_y, right_w, Inches(1.8),
+             fill=BG_PRIMARY, line=ACCENT,
+             shape=MSO_SHAPE.ROUNDED_RECTANGLE, corner_radius=0.05)
+    add_text(s, right_x + Inches(0.3), base_y + Inches(0.2), Inches(6.0),
+             Inches(0.3), "Erste Rechnung", font=FONT_MONO, size=11,
+             color=ACCENT, bold=True)
+    add_text(s, right_x + Inches(0.3), base_y + Inches(0.5), Inches(6.05),
+             Inches(0.6),
+             "Die erste Rechnung kommt erst, wenn die erste qualifizierte "
+             "Anfrage über EINS in Ihrem Portal liegt.",
+             font=FONT_DISPLAY, size=15, bold=True, color=FG_PRIMARY,
+             spacing=1.2)
+    add_text(s, right_x + Inches(0.3), base_y + Inches(1.2), Inches(6.05),
+             Inches(0.5),
+             "Kommt in 90 Tagen keine, endet die Zusammenarbeit, und Sie "
+             "haben nichts bezahlt.",
+             font=FONT_BODY, size=11, color=FG_PRIMARY, spacing=1.25)
 
-        # "Empfohlen für [KLINIK_NAME]" pill on B
-        if c["highlight"]:
-            pill = s.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE,
-                                      x + Inches(0.6), base_y - Inches(0.18),
-                                      Inches(2.85), Inches(0.36))
-            pill.shadow.inherit = False
-            pill.fill.solid()
-            pill.fill.fore_color.rgb = ACCENT
-            pill.line.fill.background()
-            try:
-                pill.adjustments[0] = 0.5
-            except Exception:
-                pass
-            add_text(s, x + Inches(0.6), base_y - Inches(0.13),
-                     Inches(2.85), Inches(0.3),
-                     "Empfohlen für [KLINIK_NAME]",
-                     font=FONT_MONO, size=10, bold=True, color=BG_PRIMARY,
-                     align=PP_ALIGN.CENTER)
+    # Right bottom: Werbebudget als nächster Schritt
+    ry = base_y + Inches(1.95)
+    add_rect(s, right_x, ry, right_w, Inches(1.9),
+             fill=BG_SECONDARY, line=BORDER,
+             shape=MSO_SHAPE.ROUNDED_RECTANGLE, corner_radius=0.05)
+    add_text(s, right_x + Inches(0.3), ry + Inches(0.2), Inches(6.0),
+             Inches(0.3), "Werbebudget: der nächste Schritt",
+             font=FONT_MONO, size=11, color=ACCENT, bold=True)
+    add_text(s, right_x + Inches(0.3), ry + Inches(0.5), Inches(6.05),
+             Inches(0.85),
+             "Zu Beginn brauchen Sie kein Werbebudget. Wir starten "
+             "organisch. Sobald wir sehen, welche Beiträge Anfragen "
+             "bringen, schlagen wir vor, wie viel Werbebudget dahinter "
+             "gehört. Das Budget zahlen Sie direkt an Meta und Google.",
+             font=FONT_BODY, size=11, color=FG_PRIMARY, spacing=1.25)
+    add_text(s, right_x + Inches(0.3), ry + Inches(1.4), Inches(6.05),
+             Inches(0.45),
+             "Organisch findet heraus, was wirkt. Werbebudget macht es "
+             "größer. So verbrennen Sie kein Budget für Vermutungen.",
+             font=FONT_BODY, size=11, bold=True, color=FG_PRIMARY,
+             spacing=1.25)
 
-        # Card content
-        inner_x = x + Inches(0.3)
-        inner_w = card_w - Inches(0.6)
-        y = base_y + Inches(0.25)
-
-        add_text(s, inner_x, y, inner_w, Inches(0.3), c["name"],
-                 font=FONT_MONO, size=12, color=FG_TERTIARY)
-        y += Inches(0.3)
-        add_text(s, inner_x, y, inner_w, Inches(0.45), c["subtitle"],
-                 font=FONT_DISPLAY, size=22, bold=True,
-                 color=ACCENT if c["highlight"] else FG_PRIMARY)
-        y += Inches(0.55)
-
-        # price
-        add_text(s, inner_x, y, inner_w, Inches(0.5), c["price_main"],
-                 font=FONT_DISPLAY, size=30, bold=True, color=FG_PRIMARY)
-        add_text(s, inner_x + Inches(1.95), y + Inches(0.18), Inches(2),
-                 Inches(0.3), c["price_unit"],
-                 font=FONT_MONO, size=11, color=FG_SECONDARY)
-        y += Inches(0.55)
-
-        add_text(s, inner_x, y, inner_w, Inches(0.3), c["setup"],
-                 font=FONT_MONO, size=10, color=FG_SECONDARY)
-        y += Inches(0.22)
-        add_text(s, inner_x, y, inner_w, Inches(0.3), c["term"],
-                 font=FONT_MONO, size=10, color=FG_SECONDARY)
-        y += Inches(0.32)
-
-        # bullets
-        for b in c["bullets"]:
-            add_text(s, inner_x, y, inner_w, Inches(0.28), "· " + b,
-                     font=FONT_BODY, size=10, color=FG_PRIMARY, spacing=1.15)
-            y += Inches(0.22)
-
-        x += card_w + gap
-
-    add_footer(s, prs, 11)
+    add_footer(s, prs)
     set_speaker_notes(s,
-        "B IST DAS ZIEL. C IST DER ANKER, er macht B vernünftig. Nicht "
-        "entschuldigen, nicht relativieren.\n\n"
-        "'Paket B passt zu Ihren Zielen aus Folie 5 am besten. Paket C "
-        "ergibt erst ab Monat 13 Sinn.' Pause. Nicht reden. Erste Frage "
-        "abwarten. Wenn 'Das ist teuer' kommt: zur FAQ-Folie 14 vorblättern.\n\n"
-        "Quelle Preise: Notion `[Intern] Angebot (Schönheitskliniken)` + "
-        "`apps/website/lib/offer-data.ts` (RETAINER_ROWS).")
+        "EIN PAKET. Den Preis einmal nennen, dann Pause. Nicht "
+        "entschuldigen, nicht relativieren, keine Optionen anbieten: Es "
+        "gibt ein Paket, keine Einrichtungsgebühr, monatlich kündbar.\n\n"
+        "Der Hebel ist der Kasten rechts oben: 'Die erste Rechnung kommt "
+        "erst, wenn die erste qualifizierte Anfrage über EINS in Ihrem "
+        "Portal liegt.' Kurz sagen, dabei die 90 Tage mitnennen, nicht "
+        "ausbauen (Details Folie 12).\n\n"
+        "Werbebudget (Kasten rechts unten), immer in dieser Reihenfolge "
+        "nennen: Organisch findet heraus, was wirkt. Werbebudget macht es "
+        "größer. Ab der ersten qualifizierten Anfrage schlägt EINS "
+        "konkret vor, welches Budget hinter welche Beiträge und "
+        "Behandlungen gehört. Die Höhe richtet sich nach den Kosten pro "
+        "Anfrage, die dann sichtbar sind. Keine Mindest- oder Richtzahl "
+        "nennen, keine erfinden. Das Ziel bleibt, dass jede Praxis in "
+        "Werbebudget investiert, es ist nur nicht die Eintrittskarte.\n\n"
+        "Wenn 'Das ist teuer' kommt: zur FAQ-Folie 16 vorblättern. Keine "
+        "Knappheit, keine Frist.\n\n"
+        "Quelle: docs/umbau-ki-organisch/KANON.md Abschnitt 4.")
     set_slide_transition_fade(s)
     return s
 
 
-def slide_13_next_steps(prs):
+def slide_15_next_steps(prs):
+    """Nächste Schritte: Ablauf nach der Unterschrift (KANON Abschnitt 9)."""
     s = prs.slides.add_slide(prs.slide_layouts[6])
     background_white(s, prs)
     add_logo_top_left(s, prs)
 
     add_eyebrow(s, Inches(0.5), Inches(1.5), Inches(8), "Nächste Schritte")
-    add_text(s, Inches(0.5), Inches(1.95), Inches(12), Inches(1.4),
+    add_text(s, Inches(0.5), Inches(1.95), Inches(12), Inches(1.0),
              "Von Tag 1 bis zur ersten Anfrage.",
              font=FONT_DISPLAY, size=42, bold=True, color=FG_PRIMARY,
              spacing=1.0)
 
-    # 4-step horizontal stepper
-    card_w = Inches(2.95)
-    gap = Inches(0.18)
-    base_y = Inches(3.6)
-    card_h = Inches(2.4)
+    # 5-step horizontal stepper
+    n = len(TIMELINE)
+    gap = Inches(0.225)
+    card_w = int((Inches(12.4) - gap * (n - 1)) / n)
+    base_y = Inches(3.2)
+    card_h = Inches(3.05)
+    highlight_idx = 3  # Erste Rechnung
     x = Inches(0.5)
 
     for i, (when, title, body) in enumerate(TIMELINE):
-        is_last = i == 3
-        fill = ACCENT_GLOW_BG if is_last else BG_SECONDARY
-        line = ACCENT if is_last else BORDER
+        is_hl = i == highlight_idx
+        fill = ACCENT_GLOW_BG if is_hl else BG_SECONDARY
+        line = ACCENT if is_hl else BORDER
         add_rect(s, x, base_y, card_w, card_h,
                  fill=fill, line=line,
                  shape=MSO_SHAPE.ROUNDED_RECTANGLE, corner_radius=0.04)
 
         # number circle
-        circ = s.shapes.add_shape(MSO_SHAPE.OVAL, x + Inches(0.25),
-                                  base_y + Inches(0.25),
-                                  Inches(0.45), Inches(0.45))
+        circ = s.shapes.add_shape(MSO_SHAPE.OVAL, x + Inches(0.2),
+                                  base_y + Inches(0.2),
+                                  Inches(0.42), Inches(0.42))
         circ.shadow.inherit = False
         circ.fill.solid()
         circ.fill.fore_color.rgb = ACCENT
         circ.line.fill.background()
-        add_text(s, x + Inches(0.25), base_y + Inches(0.32), Inches(0.45),
-                 Inches(0.32), str(i+1), font=FONT_DISPLAY, size=14,
+        add_text(s, x + Inches(0.2), base_y + Inches(0.27), Inches(0.42),
+                 Inches(0.3), str(i + 1), font=FONT_DISPLAY, size=14,
                  bold=True, color=BG_PRIMARY, align=PP_ALIGN.CENTER)
 
-        add_text(s, x + Inches(0.85), base_y + Inches(0.3), card_w - Inches(1),
-                 Inches(0.32), when, font=FONT_MONO, size=11, color=ACCENT,
-                 bold=True)
-        add_text(s, x + Inches(0.3), base_y + Inches(0.85), card_w - Inches(0.5),
-                 Inches(0.5), title, font=FONT_DISPLAY, size=18, bold=True,
-                 color=FG_PRIMARY)
-        add_text(s, x + Inches(0.3), base_y + Inches(1.4), card_w - Inches(0.5),
-                 Inches(1.0), body, font=FONT_BODY, size=11, color=FG_PRIMARY,
-                 spacing=1.3)
-
-        # Arrow between cards
-        if not is_last:
-            ax = x + card_w + Inches(0.005)
-            ay = base_y + Inches(1.05)
-            ar = s.shapes.add_shape(MSO_SHAPE.RIGHT_ARROW, ax, ay,
-                                    Inches(0.18), Inches(0.3))
-            ar.shadow.inherit = False
-            ar.fill.solid()
-            ar.fill.fore_color.rgb = ACCENT
-            ar.line.fill.background()
+        add_text(s, x + Inches(0.75), base_y + Inches(0.27),
+                 card_w - Inches(0.85), Inches(0.3), when,
+                 font=FONT_MONO, size=10, color=ACCENT, bold=True)
+        add_text(s, x + Inches(0.2), base_y + Inches(0.8),
+                 card_w - Inches(0.4), Inches(0.55), title,
+                 font=FONT_DISPLAY, size=15, bold=True, color=FG_PRIMARY,
+                 spacing=1.05)
+        add_text(s, x + Inches(0.2), base_y + Inches(1.45),
+                 card_w - Inches(0.4), Inches(1.4), body,
+                 font=FONT_BODY, size=10.5, color=FG_PRIMARY, spacing=1.25)
 
         x += card_w + gap
 
-    # Footer line about clinic effort
-    add_text(s, Inches(0.5), Inches(6.4), Inches(12.4), Inches(0.4),
-             "Was Ihre Klinik beiträgt:  1 Produktionstag (4 bis 6 h)  ·  "
-             "90-min Onboarding  ·  30-min monatliches Strategie-Meeting.",
-             font=FONT_MONO, size=12, color=FG_PRIMARY)
+    # Footer lines about the Praxis' effort
+    add_text(s, Inches(0.5), Inches(6.35), Inches(12.4), Inches(0.4),
+             "Was Ihre Praxis beiträgt: wenige Minuten Klon-Aufnahme · "
+             "Einwilligung und Zugänge in 3 Werktagen · wöchentlich "
+             "Beiträge freigeben.",
+             font=FONT_MONO, size=11, color=FG_PRIMARY)
     add_text(s, Inches(0.5), Inches(6.7), Inches(12.4), Inches(0.4),
              "Den Rest übernehmen wir.",
              font=FONT_DISPLAY, size=18, bold=True, color=ACCENT)
 
-    add_footer(s, prs, 12)
+    add_footer(s, prs)
     set_speaker_notes(s,
-        "KONKRETHEIT. Jeden Schritt nennen. Frage am Ende: 'Welcher "
-        "Produktionstag würde bei Ihnen passen, Anfang oder Mitte "
-        "[MONAT_X]?' Assumed-Choice, nicht 'wollen Sie' sondern 'wann'.\n\n"
-        "Quelle: STATIONS in `apps/website/lib/timeline-data.ts`.")
+        "KONKRETHEIT. Jeden Schritt nennen. Onboarding-Gespräch und "
+        "Klon-Aufnahme werden im Gespräch gleich terminiert. Frage am "
+        "Ende: 'Wann passt Ihnen das Onboarding-Gespräch, Anfang oder "
+        "Ende nächster Woche?' Assumed-Choice, nicht 'wollen Sie' "
+        "sondern 'wann'.\n\n"
+        "Ablauf (alles aus der Ferne, keine Anreise): Tag der "
+        "Unterschrift: die 90 Tage beginnen. Woche 1: Onboarding-Gespräch "
+        "per Video, Einwilligung, Zugänge, Klon-Aufnahme am Handy. Woche "
+        "1 bis 2: Klon und Zielseite stehen, erste Beiträge zur "
+        "Freigabe. Ab Woche 2: erste Beiträge live, Anfragen laufen mit "
+        "Herkunft ins Portal. Erste qualifizierte Anfrage: erste "
+        "Rechnung, EINS schlägt vor, welches Werbebudget hinter welche "
+        "Beiträge gehört. Laufend: wöchentliche Freigabe, monatliche "
+        "Auswertung im Portal (welche Beiträge und Anzeigen liefen, welche "
+        "gestoppt wurden, wie viele Anfragen kamen, wie viele Behandlungen "
+        "daraus wurden). Tag 90 plus Verzugstage: spätester Zeitpunkt für "
+        "die erste Anfrage, sonst endet die Zusammenarbeit ohne Kosten.\n\n"
+        "Freigaben laufen für die ersten Kunden per E-Mail, eine Freigabe "
+        "im Portal kommt danach. Keine Stückzahl nennen.\n\n"
+        "Quelle: docs/umbau-ki-organisch/KANON.md Abschnitte 6 und 9.")
     set_slide_transition_fade(s)
     return s
 
 
-def slide_14_faq(prs):
+def slide_16_faq(prs):
+    """Häufige Fragen: Kernsätze wörtlich aus KANON Abschnitt 10."""
     s = prs.slides.add_slide(prs.slide_layouts[6])
     background_white(s, prs)
     add_logo_top_left(s, prs)
 
     add_eyebrow(s, Inches(0.5), Inches(1.5), Inches(8), "Häufige Fragen")
-    add_text(s, Inches(0.5), Inches(1.95), Inches(12), Inches(1.0),
+    add_text(s, Inches(0.5), Inches(1.95), Inches(12), Inches(0.8),
              "Bereits vorab beantwortet.",
              font=FONT_DISPLAY, size=38, bold=True, color=FG_PRIMARY,
              spacing=1.0)
 
-    # 6 FAQ items in 2 columns
+    # 8 FAQ items in 2 columns x 4 rows
     col_w = Inches(6.05)
     col1_x = Inches(0.5)
     col2_x = Inches(6.85)
-    base_y = Inches(3.2)
-    row_h = Inches(1.35)
+    base_y = Inches(2.85)
+    row_h = Inches(1.0)
 
-    for i, (q, a) in enumerate(OBJECTIONS_TOP6):
+    for i, (q, a) in enumerate(FAQ):
         col_x = col1_x if i % 2 == 0 else col2_x
         row = i // 2
         y = base_y + row_h * row
-        add_text(s, col_x, y, col_w, Inches(0.4), q,
-                 font=FONT_DISPLAY, size=13, bold=True, color=FG_PRIMARY,
-                 spacing=1.2)
-        add_text(s, col_x, y + Inches(0.4), col_w, Inches(0.95), a,
-                 font=FONT_BODY, size=10, color=FG_PRIMARY, spacing=1.3)
+        add_text(s, col_x, y, col_w, Inches(0.3), q,
+                 font=FONT_DISPLAY, size=12, bold=True, color=FG_PRIMARY,
+                 spacing=1.1)
+        add_text(s, col_x, y + Inches(0.3), col_w, Inches(0.65), a,
+                 font=FONT_BODY, size=10, color=FG_PRIMARY, spacing=1.25)
 
-    add_footer(s, prs, 13)
+    add_footer(s, prs)
     set_speaker_notes(s,
-        "EINWAND-VORGRIFF. Wenn ein Einwand kommt, der nicht hier steht: "
-        "Notion-Page `Sales-Einwände` (15 Antworten + aggressive Variante) "
-        "im Kopf haben. Wenn 'müssen wir intern besprechen' kommt: Folie "
-        "15 zeigen und Follow-up direkt buchen, NICHT per E-Mail "
-        "hinterherjagen lassen.\n\n"
-        "Quelle: OBJECTIONS in `apps/website/lib/objections-data.ts`.")
+        "EINWAND-VORGRIFF. Die Antworten stehen wörtlich im Kanon "
+        "(Abschnitt 10), nicht umformulieren. Weitere Einwände, die hier "
+        "nicht stehen:\n\n"
+        "'Kann ich nur die Videos oder nur die Anzeigen haben?': 'Es gibt "
+        "ein Paket. Beiträge allein bringen Reichweite. Erst Zielseite, "
+        "Vorqualifizierung und Portal machen daraus Anfragen, die Sie bis "
+        "zur Behandlung nachverfolgen können.'\n\n"
+        "'Was kostet das?': '1.900 € netto im Monat, keine "
+        "Einrichtungsgebühr, monatlich kündbar. Die erste Rechnung kommt "
+        "erst mit der ersten qualifizierten Anfrage.'\n\n"
+        "Wenn ein Einwand kommt, der nicht hier steht: Sales Playbook "
+        "(Vault-Notiz), Abschnitt Einwände, im Kopf haben. Wenn 'müssen wir "
+        "intern besprechen' kommt: Folie 17 zeigen und das Folgegespräch "
+        "direkt buchen, NICHT per E-Mail hinterherjagen lassen.\n\n"
+        "Quelle: docs/umbau-ki-organisch/KANON.md Abschnitt 10.")
     set_slide_transition_fade(s)
     return s
 
 
-def slide_15_close(prs):
+def slide_17_close(prs):
     s = prs.slides.add_slide(prs.slide_layouts[6])
     background_white(s, prs)
     add_logo_top_left(s, prs)
@@ -1248,30 +1531,33 @@ def slide_15_close(prs):
     # Two large option cards
     card_w = Inches(5.95)
     gap = Inches(0.5)
-    base_y = Inches(3.7)
-    card_h = Inches(2.6)
+    base_y = Inches(3.5)
+    card_h = Inches(3.0)
 
-    # Option A — mint, primary
+    # Option A: mint tint, primary (dark text on tint, never text on solid mint)
     x_a = Inches(0.5)
     add_rect(s, x_a, base_y, card_w, card_h,
-             fill=ACCENT, line=ACCENT,
+             fill=ACCENT_GLOW_BG, line=ACCENT,
              shape=MSO_SHAPE.ROUNDED_RECTANGLE, corner_radius=0.04)
     add_text(s, x_a + Inches(0.4), base_y + Inches(0.3), card_w - Inches(0.6),
              Inches(0.4), "Option A", font=FONT_MONO, size=12,
-             color=BG_PRIMARY)
+             color=ACCENT, bold=True)
     add_text(s, x_a + Inches(0.4), base_y + Inches(0.7), card_w - Inches(0.6),
-             Inches(0.7), "Paket B starten", font=FONT_DISPLAY, size=32,
-             bold=True, color=BG_PRIMARY)
-    add_text(s, x_a + Inches(0.4), base_y + Inches(1.5), card_w - Inches(0.6),
+             Inches(0.7), "Jetzt starten", font=FONT_DISPLAY, size=32,
+             bold=True, color=FG_PRIMARY)
+    add_text(s, x_a + Inches(0.4), base_y + Inches(1.4), card_w - Inches(0.6),
              Inches(0.4),
-             "Setup 12.999 € + Retainer 3.900 €/Monat",
-             font=FONT_MONO, size=12, color=BG_PRIMARY)
-    add_text(s, x_a + Inches(0.4), base_y + Inches(1.85), card_w - Inches(0.6),
-             Inches(0.7),
-             "Wir reservieren Ihren Produktions-Slot Q3 2026 ab heute.",
-             font=FONT_BODY, size=12, color=BG_PRIMARY, spacing=1.3)
+             "1.900 € netto im Monat, keine Einrichtungsgebühr",
+             font=FONT_MONO, size=12, color=FG_PRIMARY)
+    add_text(s, x_a + Inches(0.4), base_y + Inches(1.8), card_w - Inches(0.8),
+             Inches(1.1),
+             "Wir terminieren Onboarding-Gespräch und Klon-Aufnahme direkt "
+             "jetzt. Die erste Rechnung kommt erst mit der ersten "
+             "qualifizierten Anfrage über EINS. Kommt in 90 Tagen keine, "
+             "endet die Zusammenarbeit ohne Kosten.",
+             font=FONT_BODY, size=12, color=FG_PRIMARY, spacing=1.3)
 
-    # Option B — outline
+    # Option B: outline
     x_b = x_a + card_w + gap
     add_rect(s, x_b, base_y, card_w, card_h,
              fill=BG_PRIMARY, line=FG_PRIMARY,
@@ -1280,21 +1566,22 @@ def slide_15_close(prs):
              Inches(0.4), "Option B", font=FONT_MONO, size=12,
              color=FG_TERTIARY)
     add_text(s, x_b + Inches(0.4), base_y + Inches(0.7), card_w - Inches(0.6),
-             Inches(0.7), "30-min Follow-up", font=FONT_DISPLAY, size=32,
+             Inches(0.7), "Folgegespräch", font=FONT_DISPLAY, size=32,
              bold=True, color=FG_PRIMARY)
-    add_text(s, x_b + Inches(0.4), base_y + Inches(1.5), card_w - Inches(0.6),
+    add_text(s, x_b + Inches(0.4), base_y + Inches(1.4), card_w - Inches(0.6),
              Inches(0.4),
-             "Termin: [FOLLOWUP_DATUM]",
+             "30 Minuten · Termin: [FOLGETERMIN]",
              font=FONT_MONO, size=12, color=FG_SECONDARY)
-    add_text(s, x_b + Inches(0.4), base_y + Inches(1.85), card_w - Inches(0.6),
-             Inches(0.7),
+    add_text(s, x_b + Inches(0.4), base_y + Inches(1.8), card_w - Inches(0.8),
+             Inches(1.1),
              "Wir klären offene Fragen. Sie entscheiden in Ruhe.",
              font=FONT_BODY, size=12, color=FG_PRIMARY, spacing=1.3)
 
-    # Validity line
-    add_text(s, Inches(0.5), Inches(6.6), Inches(12.4), Inches(0.4),
-             "Beide Optionen verbindlich bis [DATUM_GÜLTIG_BIS] · danach öffnen wir den Slot für die Warteliste.",
-             font=FONT_MONO, size=11, color=FG_TERTIARY,
+    # Versprechen neben der Garantie
+    add_text(s, Inches(0.5), Inches(6.65), Inches(12.4), Inches(0.4),
+             "Kein Beitrag ohne Ihre Freigabe  ·  Sie müssen nie vor die "
+             "Kamera  ·  Jede Anfrage mit Herkunft im Portal",
+             font=FONT_MONO, size=11, color=FG_SECONDARY,
              align=PP_ALIGN.CENTER)
 
     # Contact strip
@@ -1304,13 +1591,18 @@ def slide_15_close(prs):
              align=PP_ALIGN.CENTER)
 
     set_speaker_notes(s,
-        "TWO-OPTION CLOSE. Kein Ja/Nein. Karam stellt offen: 'Was passt für "
-        "Sie besser, heute starten oder nochmal in zwei Tagen sprechen?' "
-        "Schweigen aushalten.\n\n"
+        "ZWEI-OPTIONEN-ABSCHLUSS. Kein Ja/Nein. Karam stellt offen: 'Was "
+        "passt für Sie besser, heute starten oder nochmal in zwei Tagen "
+        "sprechen?' Schweigen aushalten. Keine Frist setzen, keine "
+        "Warteliste, keine Verknappung.\n\n"
         "Wenn 'B' kommt: sofort Termin im Kalender buchen, LIVE, nicht "
         "nachträglich per E-Mail.\n"
-        "Wenn 'A' kommt: Vertrag innerhalb 24h nachreichen.\n\n"
-        "Quelle Voice: `apps/website/components/sections/final-cta.tsx`.")
+        "Wenn 'A' kommt: Onboarding-Gespräch und Klon-Aufnahme sofort "
+        "terminieren, Vertrag innerhalb 24h nachreichen (Anwalt vor der "
+        "ersten Unterschrift, siehe KANON Abschnitt 8).\n\n"
+        "Die Garantie immer mit beiden Grenzen nennen: 'erste "
+        "qualifizierte Anfrage über EINS' und '90 Tage'.\n\n"
+        "Quelle: docs/umbau-ki-organisch/KANON.md Abschnitte 4, 5 und 9.")
     set_slide_transition_fade(s)
     return s
 
@@ -1327,18 +1619,20 @@ def build():
     slide_1_cover(prs)
     slide_2_toc(prs)
     slide_3_hook(prs)
-    slide_4_about_clinic(prs)
+    slide_4_about_practice(prs)
     slide_5_goals(prs)
     slide_6_missing(prs)
-    slide_7_about_eins(prs)
-    slide_8_proof_placeholder(prs)
-    slide_9_services(prs)
-    slide_10_value_equation(prs)
-    slide_11_guarantee(prs)
-    slide_12_pricing(prs)
-    slide_13_next_steps(prs)
-    slide_14_faq(prs)
-    slide_15_close(prs)
+    slide_7_preview_ads(prs)
+    slide_8_about_eins(prs)
+    slide_9_proof_placeholder(prs)
+    slide_10_services(prs)
+    slide_11_value_equation(prs)
+    slide_12_guarantee(prs)
+    slide_13_material_klon(prs)
+    slide_14_pricing(prs)
+    slide_15_next_steps(prs)
+    slide_16_faq(prs)
+    slide_17_close(prs)
 
     prs.save(str(OUT_FILE))
     print(f"Built: {OUT_FILE}")

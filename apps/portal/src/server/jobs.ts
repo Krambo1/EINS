@@ -1,7 +1,7 @@
 import "server-only";
 import PgBoss from "pg-boss";
 import { bossConnectionString } from "@/lib/env";
-import { QUEUES, type QueueName, DEFAULT_RETRY } from "@/lib/queues";
+import { QUEUES, type QueueName, retryOptionsFor } from "@/lib/queues";
 
 export { QUEUES, type QueueName };
 
@@ -84,7 +84,7 @@ async function safeAdd(
     await ready(); // ensure the boss has started (once) before sending
     // `send` returns null when a `short`-policy job coalesces with one already
     // queued for the same singletonKey — that's a successful no-op, not a fault.
-    return await boss.send(name, data, { ...DEFAULT_RETRY, ...opts });
+    return await boss.send(name, data, { ...retryOptionsFor(name), ...opts });
   } catch (err) {
     console.error(`[jobs] enqueue failed for ${name}:`, err);
     return null;
@@ -260,4 +260,13 @@ export function enqueueAnomalyScan(
   clinicId?: string
 ): Promise<string | null> {
   return safeAdd(QUEUES.anomalyScan, clinicId ? { clinicId } : {});
+}
+
+/**
+ * Wiederbehandlungs-Kalender: rebuild one Praxis's intervals + calendar rows
+ * now (the daily fan-out does the same at 03:45). Called after the Praxis
+ * changes a calendar setting so the page reflects it within seconds.
+ */
+export function enqueueRetreatmentRefresh(clinicId: string): Promise<string | null> {
+  return safeAdd(QUEUES.retreatmentRefresh, { clinicId });
 }

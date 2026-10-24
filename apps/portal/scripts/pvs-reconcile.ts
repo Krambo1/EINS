@@ -418,7 +418,7 @@ async function runReplayEvents(args: ReplayArgs): Promise<void> {
         .where(
           and(
             eq(schema.pvsPatientMap.clinicId, args.clinicId),
-            sql`${schema.pvsPatientMap.pvsPatientId} = ANY(${pvsIds}::text[])`
+            sql`${schema.pvsPatientMap.pvsPatientId} = ANY(${sql.param(pvsIds)}::text[])`
           )
         )
     : [];
@@ -486,15 +486,16 @@ async function runReplayEvents(args: ReplayArgs): Promise<void> {
     // operator passed --include-applied they may want the flag preserved
     // for a follow-up bulk re-run.
     //
-    // Note: in postgres.js with this driver wrapping, `sql.placeholder` /
-    // ANY() syntax handles the array binding through the ::uuid[] cast.
+    // Note: `sql.param` is required. drizzle 0.36 expands a bare JS array
+    // inside sql`` into a row tuple `($1, $2, ...)`, which Postgres refuses
+    // to cast to uuid[]; `sql.param` binds the array as one parameter.
     await db
       .update(schema.pvsEventLog)
       .set({ needsRederive: false })
       .where(
         and(
           eq(schema.pvsEventLog.clinicId, args.clinicId),
-          sql`${schema.pvsEventLog.id} = ANY(${replayedEventIds}::uuid[])`
+          sql`${schema.pvsEventLog.id} = ANY(${sql.param(replayedEventIds)}::uuid[])`
         )
       );
   }

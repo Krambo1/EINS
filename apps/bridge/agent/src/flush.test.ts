@@ -6,7 +6,7 @@ import {
   type FlushRow,
   type OutageSnapshot,
 } from "./flush.js";
-import type { PostResult } from "./portal-client.js";
+import type { BatchPostResult, PostResult } from "./portal-client.js";
 
 /**
  * H10 + H11 flush-policy tests. runFlushCycle takes injected deps, so we drive
@@ -294,5 +294,185 @@ describe("runFlushCycle — H10 outage summary rate-limit", () => {
     h.setRows([{ id: 1, payload: "a" }]);
     await runFlushCycle(h.deps, createFlushState());
     expect(h.logs.warn.filter((m) => /portal upload is failing/.test(m))).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// billing_conflict permanent + batch mode
+// ---------------------------------------------------------------------------
+
+describe("runFlushCycle — billing_conflict (single path)", () => {
+  it("dead-letters the conflicting row without auth-pause and still sends the next row", async () => {
+    const billingConflict: PostResult = {
+      ok: false,
+      retryable: false,
+      reason: 'http 422: {"error":{"code":"billing_conflict"}}',
+    };
+    const h = harness(async (p) => (p === "a" ? billingConflict : ok));
+    h.setRows([{ id: 1, payload: "a" }, { id: 2, payload: "b" }]);
+    const state = createFlushState();
+    await runFlushCycle(h.deps, state);
+    expect(h.marks.failed.map((f) => f[0])).toEqual([1]);
+    expect(h.marks.sent).toEqual([2]);
+    expect(state.authPaused).toBe(false);
+  });
+});
+
+describe("runFlushCycle — batch mode", () => {
+  function batchHarness(
+    postBatch: (p: string[]) => Promise<BatchPostResult>,
+    postEvent: (p: string) => Promise<PostResult> = async () => ok
+  ) {
+    const h = harness(postEvent);
+    h.deps.postBatch = postBatch;
+    return h;
+  }
+  const rows3: FlushRow[] = [
+    { id: 1, payload: "a" },
+    { id: 2, payload: "b" },
+    { id: 3, payload: "c" },
+  ];
+
+  it("happy path: one batch call marks all rows sent", async () => {
+    const postBatch = vi.fn(async (p: string[]): Promise<BatchPostResult> => ({
+      ok: true,
+      outcomes: p.map(() => ({ ok: true as const })),
+    }));
+    const postEvent = vi.fn(async () => ok);
+    const h = batchHarness(postBatch, postEvent);
+    h.setRows(rows3);
+    await runFlushCycle(h.deps, createFlushState());
+    expect(postBatch).toHaveBeenCalledTimes(1);
+    expect(postBatch).toHaveBeenCalledWith(["a", "b", "c"]);
+    expect(postEvent).not.toHaveBeenCalled();
+    expect(h.marks.sent).toEqual([1, 2, 3]);
+  });
+
+  it("mixed per-event outcomes are applied per row", async () => {
+    const h = batchHarness(async () => ({
+      ok: true,
+      outcomes: [
+        { ok: true },
+        { ok: false, retryable: true, reason: "link_not_ready" },
+        { ok: false, retryable: false, reason: "billing_conflict" },
+      ],
+    }));
+    h.setRows(rows3);
+    const state = createFlushState();
+    await runFlushCycle(h.deps, state);
+    expect(h.marks.sent).toEqual([1]);
+    expect(h.marks.retried).toEqual([[2, "link_not_ready"]]);
+    expect(h.marks.failed).toEqual([[3, "billing_conflict"]]);
+    expect(state.authPaused).toBe(false);
+  });
+
+  it("auth failure pauses and leaves rows untouched", async () => {
+    const h = batchHarness(async () => ({
+      ok: false,
+      retryable: false,
+      authFailure: true,
+      reason: "http 400 (auth rejected)",
+    }));
+    h.setRows(rows3);
+    const state = createFlushState();
+    await runFlushCycle(h.deps, state);
+    expect(state.authPaused).toBe(true);
+    expect(h.marks).toEqual({ sent: [], retried: [], failed: [] });
+  });
+
+  it("fallbackToSingle runs this cycle through the single-event path", async () => {
+    const postEvent = vi.fn(async () => ok);
+    const h = batchHarness(
+      async () => ({ ok: false, retryable: false, fallbackToSingle: true, reason: "http 404" }),
+      postEvent
+    );
+    h.setRows(rows3);
+    await runFlushCycle(h.deps, createFlushState());
+    expect(postEvent).toHaveBeenCalledTimes(3);
+    expect(h.marks.sent).toEqual([1, 2, 3]);
+  });
+
+  it("429 with Retry-After sets state.retryAfterMs, rows untouched", async () => {
+    const h = batchHarness(async () => ({
+      ok: false,
+      retryable: true,
+      reason: "http 429",
+      httpStatus: 429,
+      retryAfterMs: 120_000,
+    }));
+    h.setRows(rows3);
+    const state = createFlushState();
+    await runFlushCycle(h.deps, state);
+    expect(state.retryAfterMs).toBe(120_000);
+    expect(h.marks).toEqual({ sent: [], retried: [], failed: [] });
+  });
+
+  it("network failures grow the backoff (5s..cap 5min) and reset on success", async () => {
+    let res: BatchPostResult = {
+      ok: false,
+      retryable: true,
+      networkFailure: true,
+      reason: "network: down",
+    };
+    const h = batchHarness(async (p) =>
+      res.ok === false ? res : { ok: true, outcomes: p.map(() => ({ ok: true as const })) }
+    );
+    h.setRows(rows3);
+    const state = createFlushState();
+    const seen: Array<number | null> = [];
+    for (let i = 0; i < 8; i++) {
+      await runFlushCycle(h.deps, state);
+      seen.push(state.retryAfterMs);
+    }
+    expect(seen).toEqual([5_000, 10_000, 20_000, 40_000, 80_000, 160_000, 300_000, 300_000]);
+    expect(h.marks).toEqual({ sent: [], retried: [], failed: [] });
+
+    res = { ok: true, outcomes: [] };
+    await runFlushCycle(h.deps, state);
+    expect(state.retryAfterMs).toBeNull();
+    expect(state.consecutiveTransientFailures).toBe(0);
+    expect(h.marks.sent).toEqual([1, 2, 3]);
+
+    res = { ok: false, retryable: true, networkFailure: true, reason: "x" };
+    await runFlushCycle(h.deps, state);
+    expect(state.retryAfterMs).toBe(5_000);
+  });
+
+  it("ambiguous batch response marks nothing sent", async () => {
+    const h = batchHarness(async () => ({
+      ok: false,
+      retryable: true,
+      httpStatus: 201,
+      reason: "ambiguous batch response",
+    }));
+    h.setRows(rows3);
+    await runFlushCycle(h.deps, createFlushState());
+    expect(h.marks.sent).toEqual([]);
+    expect(h.marks.failed).toEqual([]);
+  });
+
+  it("3 consecutive batch 5xx: next cycle is single-event, then back to batch", async () => {
+    const postBatch = vi.fn(async (_p: string[]): Promise<BatchPostResult> => ({
+      ok: false,
+      retryable: true,
+      httpStatus: 500,
+      reason: "http 500",
+    }));
+    const postEvent = vi.fn(async () => ok);
+    const h = batchHarness(postBatch, postEvent);
+    h.setRows(rows3);
+    const state = createFlushState();
+    for (let i = 0; i < 3; i++) await runFlushCycle(h.deps, state);
+    expect(postBatch).toHaveBeenCalledTimes(3);
+    expect(postEvent).not.toHaveBeenCalled();
+    expect(state.singleModeNext).toBe(true);
+
+    await runFlushCycle(h.deps, state);
+    expect(postBatch).toHaveBeenCalledTimes(3);
+    expect(postEvent).toHaveBeenCalledTimes(3);
+    expect(state.singleModeNext).toBe(false);
+
+    await runFlushCycle(h.deps, state);
+    expect(postBatch).toHaveBeenCalledTimes(4);
   });
 });

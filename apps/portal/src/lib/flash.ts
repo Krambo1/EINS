@@ -1,7 +1,13 @@
 import "server-only";
 import { cookies } from "next/headers";
+import { ZodError } from "zod";
+import { ForbiddenError } from "@/lib/roles";
+import { ImpersonationBlockedError } from "@/auth/impersonation-guard";
+import { describeErrorForLog, isDbDriverError } from "@/lib/error-log";
+import { ACTION_FLASH_COOKIE } from "@/lib/flash-cookie";
+import { EmailDeliveryError } from "@/lib/email-delivery-error";
 
-export const ACTION_FLASH_COOKIE = "eins_action_flash";
+export { ACTION_FLASH_COOKIE };
 
 export type FlashTone = "good" | "bad";
 
@@ -65,8 +71,51 @@ export async function readActionFlash(): Promise<FlashPayload | null> {
   }
 }
 
-/** Convert a thrown value into a user-readable German message. */
-export function flashMessageFromError(err: unknown): string {
-  if (err instanceof Error && err.message) return err.message;
-  return "Aktion fehlgeschlagen. Bitte erneut versuchen.";
+const GENERIC_ERROR_MESSAGE =
+  "Das hat gerade nicht geklappt. Bitte versuchen Sie es erneut.";
+
+/**
+ * Convert a thrown value into a user-readable German message.
+ *
+ * Only messages written for the user pass through: plain `Error`s thrown by
+ * our own actions (`throw new Error("Diese E-Mail-Adresse ist bereits ...")`)
+ * and `ImpersonationBlockedError`. Everything else (Postgres driver errors,
+ * Zod issue dumps, TypeErrors, network errors from Resend/R2/Meta) gets a
+ * generic German text, and the details go to the server log via
+ * `describeErrorForLog` (no patient data). `action` labels the log line.
+ */
+export function flashMessageFromError(err: unknown, action?: string): string {
+  if (err instanceof ForbiddenError) {
+    return "Dafür fehlt Ihrer Rolle die Berechtigung.";
+  }
+  if (err instanceof ZodError) {
+    return "Bitte prüfen Sie Ihre Eingaben.";
+  }
+  if (err instanceof ImpersonationBlockedError) return err.message;
+  if (isUserFacingError(err)) return err.message;
+  console.error(
+    JSON.stringify({
+      kind: "action_error",
+      level: "error",
+      action: action ?? "unknown",
+      error: describeErrorForLog(err),
+    })
+  );
+  return GENERIC_ERROR_MESSAGE;
+}
+
+/**
+ * A plain `new Error("...")` from app code, i.e. not a subclass (TypeError,
+ * PostgresError, ...), no driver/system `code`, no wrapped `cause`.
+ * E-mail delivery failures (`EmailDeliveryError`, English provider text) are
+ * never user-facing (V4 Neben 6); the explicit check keeps that true even if
+ * the subclass rule below is ever loosened.
+ */
+function isUserFacingError(err: unknown): err is Error {
+  if (!(err instanceof Error) || !err.message) return false;
+  if (err instanceof EmailDeliveryError) return false;
+  if (Object.getPrototypeOf(err) !== Error.prototype) return false;
+  if (isDbDriverError(err)) return false;
+  if ("code" in err || err.cause !== undefined) return false;
+  return true;
 }

@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import {
@@ -33,26 +34,35 @@ export interface OnboardingGateStatus {
   checklistComplete: boolean;
 }
 
-export async function getOnboardingGateStatus(
+/**
+ * Deduped per request with React `cache()` (layout + /onboarding page read
+ * the same status); the two reads run in parallel instead of one after the
+ * other.
+ */
+export const getOnboardingGateStatus = cache(getOnboardingGateStatusUncached);
+
+async function getOnboardingGateStatusUncached(
   clinicId: string
 ): Promise<OnboardingGateStatus> {
-  const [discoveryRow] = await db
-    .select({ submittedAt: schema.discoveryFragebogen.submittedAt })
-    .from(schema.discoveryFragebogen)
-    .where(eq(schema.discoveryFragebogen.clinicId, clinicId))
-    .limit(1);
+  const [[discoveryRow], checklistRows] = await Promise.all([
+    db
+      .select({ submittedAt: schema.discoveryFragebogen.submittedAt })
+      .from(schema.discoveryFragebogen)
+      .where(eq(schema.discoveryFragebogen.clinicId, clinicId))
+      .limit(1),
+    db
+      .select({
+        itemId: schema.checklistItems.itemId,
+        status: schema.checklistItems.status,
+      })
+      .from(schema.checklistItems)
+      .where(eq(schema.checklistItems.clinicId, clinicId)),
+  ]);
   // "Ever submitted", not "currently eingereicht": an owner may reopen the
   // questionnaire to edit it (status flips back to entwurf) — that must NOT
   // re-close the gate and trap them back in onboarding.
   const fragebogenSubmitted = Boolean(discoveryRow?.submittedAt);
 
-  const checklistRows = await db
-    .select({
-      itemId: schema.checklistItems.itemId,
-      status: schema.checklistItems.status,
-    })
-    .from(schema.checklistItems)
-    .where(eq(schema.checklistItems.clinicId, clinicId));
   const statusById = new Map(
     checklistRows.map((r) => [r.itemId, r.status as ChecklistStatus])
   );
@@ -79,20 +89,5 @@ export async function getOnboardingGateStatus(
   };
 }
 
-/** Paths an un-onboarded Inhaber may still reach while the gate is closed:
- *  the onboarding hub + its sub-pages, settings, and self-serve help. */
-const GATE_ALLOWED_PREFIXES = [
-  "/onboarding",
-  "/einstellungen",
-  "/faq",
-  "/feedback",
-  "/support",
-];
-
-export function isGateAllowedPath(pathname: string | null | undefined): boolean {
-  // Unknown path (header missing) → never lock the user out.
-  if (!pathname) return true;
-  return GATE_ALLOWED_PREFIXES.some(
-    (p) => pathname === p || pathname.startsWith(`${p}/`)
-  );
-}
+// Path rule lives in a pure module so the client guard can share it.
+export { isGateAllowedPath } from "@/app/(portal)/_components/onboarding-gate-paths";

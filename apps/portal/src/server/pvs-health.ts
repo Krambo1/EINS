@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db/client";
 
@@ -72,6 +72,7 @@ const StreamKind = z.enum([
   "AppointmentCancelled",
   "EncounterCompleted",
   "InvoicePaid",
+  "InvoiceRefunded",
   "RecallScheduled",
   "PatientMerged",
   "vendor",
@@ -89,6 +90,13 @@ const EventKind = z.enum([
   // returned data does not match the YAML map (wrong status codes, mostly-NULL
   // required column, a failing transform). Widened in migration 0054.
   "config_invalid",
+  // Recovery counterparts for the transient/failure kinds. Recoveries never
+  // insert a row (they resolve open failures), so the DB event_kind CHECK is
+  // unaffected.
+  "auth_recovered",
+  "connection_recovered",
+  "rate_limit_recovered",
+  "config_recovered",
 ]);
 
 const SchemaDriftDetail = z.object({
@@ -170,15 +178,29 @@ export type ApplyHealthResult =
         | "internal_error";
     };
 
-const RECOVERY_EVENT_KINDS: ReadonlySet<string> = new Set([
-  "schema_recovered",
-  "stream_recovered",
-]);
+/** Which open failure kinds a recovery event resolves (same vendor + stream). */
+const RECOVERY_RESOLVES: Readonly<Record<string, readonly string[]>> = {
+  schema_recovered: ["schema_drift"],
+  // A stream that polls cleanly again clears every stream-scoped failure.
+  stream_recovered: [
+    "stream_error",
+    "connection_lost",
+    "rate_limited",
+    "auth_expired",
+    "config_invalid",
+  ],
+  auth_recovered: ["auth_expired"],
+  connection_recovered: ["connection_lost"],
+  rate_limit_recovered: ["rate_limited"],
+  config_recovered: ["config_invalid"],
+};
 
-function failureKindForRecovery(eventKind: string): string | null {
-  if (eventKind === "schema_recovered") return "schema_drift";
-  if (eventKind === "stream_recovered") return "stream_error";
-  return null;
+const RECOVERY_EVENT_KINDS: ReadonlySet<string> = new Set(
+  Object.keys(RECOVERY_RESOLVES)
+);
+
+function failureKindsForRecovery(eventKind: string): readonly string[] {
+  return RECOVERY_RESOLVES[eventKind] ?? [];
 }
 
 /**
@@ -222,14 +244,29 @@ export async function applyPvsHealth(
       event.pvsVendor === link.vendor ||
       event.pvsVendor.startsWith(`${link.vendor}-`);
     if (!matchesBridgeSource && !matchesDbAdapter) {
-      return { ok: false, reason: "vendor_mismatch" };
+      // Agent-enrolled clinics keep pvs_link.pvs_vendor = 'gdt_agent' while the
+      // DB adapters report 'medatixx', 'cgm_albis', ... Accept any source the
+      // clinic has registered in pvs_link_source (same rule as applyPvsEvent).
+      const [enrolled] = await db
+        .select({ bridgeSource: schema.pvsLinkSource.bridgeSource })
+        .from(schema.pvsLinkSource)
+        .where(
+          and(
+            eq(schema.pvsLinkSource.clinicId, event.clinicId),
+            eq(schema.pvsLinkSource.bridgeSource, event.bridgeSource)
+          )
+        )
+        .limit(1);
+      if (!enrolled) {
+        return { ok: false, reason: "vendor_mismatch" };
+      }
     }
   }
 
   try {
     if (RECOVERY_EVENT_KINDS.has(event.eventKind)) {
-      const failureKind = failureKindForRecovery(event.eventKind);
-      if (failureKind) {
+      const failureKinds = failureKindsForRecovery(event.eventKind);
+      if (failureKinds.length > 0) {
         const updated = await db
           .update(schema.pvsLinkHealth)
           .set({
@@ -241,7 +278,7 @@ export async function applyPvsHealth(
               eq(schema.pvsLinkHealth.clinicId, event.clinicId),
               eq(schema.pvsLinkHealth.pvsVendor, event.pvsVendor),
               eq(schema.pvsLinkHealth.streamKind, event.streamKind),
-              eq(schema.pvsLinkHealth.eventKind, failureKind),
+              inArray(schema.pvsLinkHealth.eventKind, [...failureKinds]),
               // SQL `IS NULL` predicate in drizzle.
               sql`${schema.pvsLinkHealth.resolvedAt} IS NULL`
             )

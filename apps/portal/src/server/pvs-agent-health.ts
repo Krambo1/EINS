@@ -1,5 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { notifyOps } from "@/server/ops-alerts";
 
 /**
  * PVS agent health: turn the on-prem agent's heartbeat telemetry into
@@ -50,6 +51,12 @@ export const AGENT_HEALTH_ALERT_KIND = "pvs_agent_health";
  */
 export const HEARTBEAT_STALE_MS = 5 * 60 * 1000;
 
+/** Outside Berlin working hours the PC may simply be off: wait 14 h. */
+export const HEARTBEAT_STALE_OFF_HOURS_MS = 14 * 60 * 60 * 1000;
+
+/** Enrolled but never heartbeated for this long raises `heartbeat_never`. */
+export const HEARTBEAT_NEVER_AFTER_MS = 2 * 60 * 60 * 1000;
+
 /**
  * "Healthy agent, no events at all" threshold, measured in BUSINESS time.
  *
@@ -59,8 +66,8 @@ export const HEARTBEAT_STALE_MS = 5 * 60 * 1000;
  * working normally. An operator learns to ignore an alert like that in about
  * two weeks, at which point the alert is worse than not having one.
  *
- * Counting only Monday to Friday makes the threshold mean what it says: two
- * working days without a single event. A Friday-midday close reaches Monday
+ * Counting only Berlin working days (no weekends, no German holidays) makes
+ * the threshold mean what it says: two working days without a single event. A Friday-midday close reaches Monday
  * afternoon at ~25 business hours and stays quiet; a genuinely dead install
  * crosses 48 business hours and fires.
  *
@@ -72,41 +79,184 @@ export const SILENT_STALL_BUSINESS_MS = 48 * 60 * 60 * 1000;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// ---------------------------------------------------------------------------
+// Europe/Berlin calendar helpers
+//
+// "Business time" is a Berlin concept: a Praxis in Munich is closed on
+// Karfreitag and Pfingstmontag, not on whatever UTC thinks is a weekday.
+// Everything below works on Berlin calendar days (DST-aware: 23 or 25 hours on
+// the two switch days) and a small computed list of German federal holidays.
+// ---------------------------------------------------------------------------
+
+const BERLIN_TZ = "Europe/Berlin";
+
+const berlinFormatter = new Intl.DateTimeFormat("en-GB", {
+  timeZone: BERLIN_TZ,
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+  hourCycle: "h23",
+});
+
+interface BerlinParts {
+  y: number;
+  m: number;
+  d: number;
+  h: number;
+  min: number;
+  s: number;
+}
+
+function berlinParts(at: Date): BerlinParts {
+  const out: Record<string, number> = {};
+  for (const p of berlinFormatter.formatToParts(at)) {
+    if (p.type !== "literal") out[p.type] = Number(p.value);
+  }
+  return {
+    y: out.year!,
+    m: out.month!,
+    d: out.day!,
+    h: out.hour!,
+    min: out.minute!,
+    s: out.second!,
+  };
+}
+
+/** Berlin wall clock minus UTC at the given instant, in ms (3.6e6 or 7.2e6). */
+function berlinOffsetMs(at: Date): number {
+  const p = berlinParts(at);
+  const wallAsUtc = Date.UTC(p.y, p.m - 1, p.d, p.h, p.min, p.s);
+  return wallAsUtc - Math.floor(at.getTime() / 1000) * 1000;
+}
+
+/** The UTC instant at which the given Berlin calendar day starts. */
+function berlinMidnightUtc(y: number, m: number, d: number): number {
+  const guess = Date.UTC(y, m - 1, d);
+  const first = guess - berlinOffsetMs(new Date(guess));
+  return guess - berlinOffsetMs(new Date(first));
+}
+
+/** Gregorian Easter Sunday (Anonymous algorithm) as {m, d}. */
+function easterSunday(year: number): { m: number; d: number } {
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  return { m: month, d: day };
+}
+
+const ymdKey = (y: number, m: number, d: number) => y * 10_000 + m * 100 + d;
+
+const holidayCache = new Map<number, ReadonlySet<number>>();
+
 /**
- * Elapsed milliseconds between two instants, excluding Saturdays and Sundays.
- *
- * Weekdays are taken in UTC rather than Europe/Berlin. The offset is one or
- * two hours, which cannot move a 48-BUSINESS-hour threshold across a decision
- * boundary in any way an operator would notice, and it keeps this function
- * free of timezone data. If the gap is longer than a year we stop counting and
- * return the raw span: the clinic is unambiguously stalled either way, and the
- * loop must stay bounded.
+ * Days a Praxis is normally closed, besides Saturday and Sunday: the German
+ * FEDERAL public holidays (Neujahr, Karfreitag, Ostermontag, 1. Mai, Christi
+ * Himmelfahrt, Pfingstmontag, 3. Oktober, 25./26. Dezember) plus the usual
+ * Brueckentage and quiet days (Freitag nach Himmelfahrt, 24. und 31. Dezember).
+ * State-only holidays (Fronleichnam, Allerheiligen, ...) are deliberately left
+ * out: counting them would hide a real outage in the states that work through.
+ */
+export function germanClosedDays(year: number): ReadonlySet<number> {
+  const cached = holidayCache.get(year);
+  if (cached) return cached;
+  const set = new Set<number>();
+  const add = (m: number, d: number) => set.add(ymdKey(year, m, d));
+  add(1, 1);
+  add(5, 1);
+  add(10, 3);
+  add(12, 24);
+  add(12, 25);
+  add(12, 26);
+  add(12, 31);
+  const easter = easterSunday(year);
+  for (const offset of [-2, 1, 39, 40, 50]) {
+    const t = new Date(Date.UTC(year, easter.m - 1, easter.d + offset));
+    set.add(ymdKey(t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate()));
+  }
+  holidayCache.set(year, set);
+  return set;
+}
+
+function isClosedBerlinDay(y: number, m: number, d: number): boolean {
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  if (dow === 0 || dow === 6) return true;
+  return germanClosedDays(y).has(ymdKey(y, m, d));
+}
+
+/**
+ * True on a Berlin weekday that is not a closed day, between 07:00 and 19:00
+ * local time: the window in which a Praxis PC is expected to be switched on.
+ */
+export function isBerlinBusinessHours(at: Date): boolean {
+  const p = berlinParts(at);
+  if (isClosedBerlinDay(p.y, p.m, p.d)) return false;
+  return p.h >= 7 && p.h < 19;
+}
+
+/**
+ * Elapsed milliseconds between two instants, excluding Berlin Saturdays,
+ * Sundays and German closed days (see germanClosedDays). If the gap is longer
+ * than a year we stop counting and return the raw span: the clinic is
+ * unambiguously stalled either way, and the loop must stay bounded.
  */
 export function businessMsBetween(from: Date, to: Date): number {
   const total = to.getTime() - from.getTime();
   if (total <= 0) return 0;
   if (total > 400 * DAY_MS) return total;
 
-  let weekendMs = 0;
-  let cursor = Date.UTC(
-    from.getUTCFullYear(),
-    from.getUTCMonth(),
-    from.getUTCDate()
-  );
-  while (cursor < to.getTime()) {
-    const dow = new Date(cursor).getUTCDay();
-    if (dow === 0 || dow === 6) {
-      const start = Math.max(cursor, from.getTime());
-      const end = Math.min(cursor + DAY_MS, to.getTime());
-      if (end > start) weekendMs += end - start;
+  let closedMs = 0;
+  const start = berlinParts(from);
+  let y = start.y;
+  let m = start.m;
+  let d = start.d;
+  let dayStart = berlinMidnightUtc(y, m, d);
+  while (dayStart < to.getTime()) {
+    const next = new Date(Date.UTC(y, m - 1, d + 1));
+    const ny = next.getUTCFullYear();
+    const nm = next.getUTCMonth() + 1;
+    const nd = next.getUTCDate();
+    const dayEnd = berlinMidnightUtc(ny, nm, nd);
+    if (isClosedBerlinDay(y, m, d)) {
+      const lo = Math.max(dayStart, from.getTime());
+      const hi = Math.min(dayEnd, to.getTime());
+      if (hi > lo) closedMs += hi - lo;
     }
-    cursor += DAY_MS;
+    y = ny;
+    m = nm;
+    d = nd;
+    dayStart = dayEnd;
   }
-  return total - weekendMs;
+  return total - closedMs;
 }
 
-/** Stream states that mean the stream is halted and will not self-recover. */
-const HALTED_STREAM_STATUSES = new Set(["error", "schema_drift", "config_invalid"]);
+/**
+ * Stream states that need a human. Most will not self-recover. suspect_empty
+ * keeps polling, but it means the stream has never returned a row although
+ * its table has rows (usually a wrong status literal), so revenue silently
+ * stays at zero. auth_failed stops connecting until the credential changes,
+ * so a shared vendor account is not locked out by retries.
+ */
+const HALTED_STREAM_STATUSES = new Set([
+  "error",
+  "schema_drift",
+  "config_invalid",
+  "suspect_empty",
+  "auth_failed",
+]);
 
 export interface AdapterStatusSnapshot {
   vendor: string;
@@ -122,11 +272,66 @@ export interface AgentHeartbeatHealth {
   missingFolders: string[];
   dbAdaptersFailed: string | null;
   adapterStatuses: AdapterStatusSnapshot[];
+  /**
+   * Agent clock minus portal clock, seconds, from the latest heartbeat.
+   * Undefined/null = unknown (e.g. evaluated from stored state of a row that
+   * predates 0079): no skew condition.
+   */
+  clockSkewSeconds?: number | null;
+  /**
+   * Why uploads are not flowing, in German, from the agent's own upload state
+   * (see deriveUploadReason). Undefined/null = the agent did not say; the
+   * backlog alert then keeps its generic text.
+   */
+  uploadReason?: string | null;
+  /**
+   * Dead-letter movement for THIS heartbeat: the reported failed count, the
+   * stored count it is compared with, and the top reasons. Only the ingest
+   * route fills it; the hourly scan has no "previous beat" to compare with.
+   */
+  deadLetter?: { count: number; priorCount: number; reasons: string[] } | null;
 }
+
+/** The agent's upload diagnostics as stored in pvs_agent_status.upload_diagnostics. */
+export interface UploadDiagnostics {
+  uploadState?: {
+    authPaused?: boolean;
+    lastBatchError?: string | null;
+    consecutiveTransientFailures?: number;
+  } | null;
+  pendingReasons?: Array<{ reason: string; count: number }> | null;
+}
+
+/**
+ * One short German phrase naming why events are stuck, or null when the agent
+ * gave no reason. Order: the agent is not signed in (nothing else matters), the
+ * last batch error, then the most common reason among rows that already failed.
+ * The heartbeat arriving at all proves the network is fine, so a reason here
+ * is more useful than the generic "check the firewall".
+ */
+export function deriveUploadReason(
+  d: UploadDiagnostics | null | undefined
+): string | null {
+  if (!d) return null;
+  if (d.uploadState?.authPaused) {
+    return "Das Portal lehnt die Anmeldung oder Signatur des Agents ab (Anmeldung/Signatur)";
+  }
+  const batch = d.uploadState?.lastBatchError;
+  if (batch && (d.uploadState?.consecutiveTransientFailures ?? 0) > 0) {
+    return `Letzter Upload-Fehler laut Agent: ${batch.slice(0, 200)}`;
+  }
+  const top = d.pendingReasons?.[0]?.reason;
+  if (top) return `Häufigster Grund laut Agent: ${top.slice(0, 200)}`;
+  return null;
+}
+
+/** |skew| above this raises `agent_clock_skew`. */
+export const CLOCK_SKEW_THRESHOLD_SECONDS = 5 * 60;
 
 export interface AgentHealthCondition {
   /** Stable per-condition key; becomes the dedupe-key suffix. */
   key: string;
+  /** "warn" is the low tier (dashboard_alerts has no "low"); "high" pages ops. */
   severity: "warn" | "high";
   title: string;
   body: string;
@@ -213,6 +418,8 @@ export function evaluateHeartbeatHealth(
         "Korrektur der Konfiguration oder der Zugangsdaten.",
       actionSteps: [
         "Den genannten Grund prüfen. 'schema_drift' heißt: Eine Spalte im PVS wurde umbenannt oder entfernt.",
+        "'suspect_empty' heißt: Die Tabelle hat Zeilen, die Abfrage findet aber keine. Meist passt das Status-Literal nicht (die gefundenen Statuswerte stehen im Grund).",
+        "'auth_failed' heißt: Die Datenbank lehnt die Zugangsdaten ab. Der Agent versucht es erst wieder, wenn neue Zugangsdaten hinterlegt sind.",
         "Bei einem Verbindungsfehler die Zugangsdaten des betroffenen Anbieters erneuern.",
         "Nach der Korrektur den Agent neu starten, damit der Strom wieder anläuft.",
       ],
@@ -222,6 +429,7 @@ export function evaluateHeartbeatHealth(
   }
 
   if (hb.stalePendingEvents > 0) {
+    const reason = hb.uploadReason ?? null;
     conditions.push({
       key: "backlog_stuck",
       severity: "high",
@@ -234,14 +442,74 @@ export function evaluateHeartbeatHealth(
         } seit über einer Stunde auf dem Praxis-Rechner und ` +
         "kommen nicht im Portal an. Der Agent versucht es weiter, deshalb steht der " +
         "Dead-Letter-Zähler auf null. Die Daten sind nicht verloren, aber die " +
-        "Auswertung im Portal ist so lange unvollständig.",
-      actionSteps: [
-        "Prüfen, ob der Praxis-Rechner ins Internet kommt und ob eine neue Firewall-Regel den Zugriff auf das Portal blockt.",
-        "Prüfen, ob ein Proxy im Netz der Praxis zwischengeschaltet wurde.",
-        "Läuft die Verbindung wieder, überträgt der Agent den Rückstand von selbst. Es geht nichts verloren.",
-      ],
+        "Auswertung im Portal ist so lange unvollständig." +
+        (reason
+          ? ` ${reason}. Die Meldungen des Agents kommen an, das Netz ist also in Ordnung.`
+          : ""),
+      actionSteps: reason
+        ? [
+            `Ursache beheben: ${reason}.`,
+            "Danach überträgt der Agent den Rückstand von selbst. Es geht nichts verloren.",
+          ]
+        : [
+            "Prüfen, ob der Praxis-Rechner ins Internet kommt und ob eine neue Firewall-Regel den Zugriff auf das Portal blockt.",
+            "Prüfen, ob ein Proxy im Netz der Praxis zwischengeschaltet wurde.",
+            "Läuft die Verbindung wieder, überträgt der Agent den Rückstand von selbst. Es geht nichts verloren.",
+          ],
       metric: "pvs_agent_stale_pending",
       observedValue: hb.stalePendingEvents,
+    });
+  }
+
+  if (hb.deadLetter && hb.deadLetter.count > hb.deadLetter.priorCount) {
+    const { count, priorCount, reasons } = hb.deadLetter;
+    const added = count - priorCount;
+    conditions.push({
+      key: "dead_letter",
+      severity: "high",
+      title: `PVS-Agent: ${count} Ereignis${count > 1 ? "se" : ""} vom Portal endgültig abgelehnt`,
+      body:
+        `Beim letzten Abgleich sind ${added} Ereignis${added > 1 ? "se" : ""} ` +
+        `hinzugekommen, die das Portal endgültig abgelehnt hat (insgesamt ${count}). ` +
+        (reasons.length > 0
+          ? `Häufigste Gründe: ${reasons.join(" · ")}. `
+          : "") +
+        "Diese Ereignisse werden nicht erneut gesendet und fehlen in der Auswertung, " +
+        "bis sie von Hand wieder freigegeben werden.",
+      actionSteps: [
+        "Den genannten Grund prüfen. Häufige Ursachen: ein fehlerhaftes Update von Agent oder Portal oder eine falsche Portal-Adresse.",
+        "Nach der Korrektur auf dem Praxis-Rechner 'eins-agent --requeue-failed' ausführen (mit '--reason <Code>' nur für einen Grund). Der Agent sendet die Ereignisse dann erneut.",
+        "Der Alarm verschwindet, sobald die Zahl der abgelehnten Ereignisse wieder bei null liegt.",
+      ],
+      metric: "pvs_agent_dead_letter_events",
+      observedValue: count,
+    });
+  }
+
+  if (
+    hb.clockSkewSeconds !== undefined &&
+    hb.clockSkewSeconds !== null &&
+    Math.abs(hb.clockSkewSeconds) > CLOCK_SKEW_THRESHOLD_SECONDS
+  ) {
+    const minutes = Math.round(Math.abs(hb.clockSkewSeconds) / 60);
+    const ahead = hb.clockSkewSeconds > 0;
+    conditions.push({
+      key: "agent_clock_skew",
+      severity: "warn",
+      title: "Uhr des PVS-Agent-Rechners geht falsch",
+      body:
+        `Die Systemuhr des Praxis-Rechners geht rund ${minutes} Minuten ` +
+        `${ahead ? "vor" : "nach"}. Die Zeitstempel der gemeldeten Ereignisse ` +
+        "stammen von dieser Uhr, deshalb können Umsätze und Termine am falschen " +
+        "Tag oder in der falschen Reihenfolge landen. Die Überwachung selbst " +
+        "rechnet mit der Portal-Uhr und ist nicht betroffen.",
+      actionSteps: [
+        "Datum, Uhrzeit und Zeitzone des Praxis-Rechners prüfen.",
+        "Automatische Zeitsynchronisierung (Windows-Zeitdienst) aktivieren und einmal manuell synchronisieren.",
+        "Den Agent danach neu starten.",
+      ],
+      metric: "pvs_agent_clock_skew_minutes",
+      observedValue: ahead ? minutes : -minutes,
     });
   }
 
@@ -264,16 +532,61 @@ export function evaluateAgentLiveness(input: {
    * check designed to catch it.
    */
   agentFirstSeenAt: Date;
+  /**
+   * pvs_agent_status.first_heartbeat_at. `null` = the row was seeded at
+   * enrollment and the agent has never beaten. `undefined` (older callers)
+   * is treated as "has beaten".
+   */
+  firstHeartbeatAt?: Date | null;
   now: Date;
 }): AgentHealthCondition[] {
   const conditions: AgentHealthCondition[] = [];
+
+  if (input.firstHeartbeatAt === null) {
+    // Enrolled, never beaten: lastHeartbeatAt is just the seed time, so none
+    // of the clocks below mean anything. One condition, after a grace period
+    // that covers a slow installer.
+    const sinceEnrollMs = input.now.getTime() - input.agentFirstSeenAt.getTime();
+    if (sinceEnrollMs > HEARTBEAT_NEVER_AFTER_MS) {
+      const hours = Math.floor(sinceEnrollMs / 3_600_000);
+      conditions.push({
+        key: "heartbeat_never",
+        severity: "high",
+        title: "PVS-Agent hat sich nach der Einrichtung nie gemeldet",
+        body:
+          `Der Agent wurde vor rund ${hours} Stunden eingerichtet, hat aber ` +
+          "bis jetzt keine einzige Meldung geschickt. Entweder wurde die " +
+          "Installation nicht abgeschlossen, der Dienst startet nicht, oder der " +
+          "Praxis-Rechner erreicht das Portal nicht.",
+        actionSteps: [
+          "Prüfen, ob der EINS-Agent-Dienst auf dem Praxis-Rechner installiert ist und läuft.",
+          "Im Agent-Log nach Verbindungsfehlern zum Portal suchen (Firewall, Proxy).",
+          "Falls nötig, einen neuen Einrichtungs-Link erzeugen und den Agent neu einrichten.",
+        ],
+        metric: "pvs_agent_hours_since_enrollment",
+        observedValue: hours,
+      });
+    }
+    return conditions;
+  }
+
   const heartbeatAgeMs = input.now.getTime() - input.lastHeartbeatAt.getTime();
 
-  if (heartbeatAgeMs > HEARTBEAT_STALE_MS) {
+  // A Praxis PC that is switched off at night is normal. Inside Berlin working
+  // hours five silent minutes is an incident (high); outside them only a gap
+  // longer than 14 h is worth a (low) notice. Consequence: an alert raised in
+  // the day clears at the first evening scan, and is raised again the next
+  // working morning if the agent is still silent.
+  const inBusinessHours = isBerlinBusinessHours(input.now);
+  const staleAfterMs = inBusinessHours
+    ? HEARTBEAT_STALE_MS
+    : HEARTBEAT_STALE_OFF_HOURS_MS;
+
+  if (heartbeatAgeMs > staleAfterMs) {
     const minutes = Math.floor(heartbeatAgeMs / 60_000);
     conditions.push({
       key: "heartbeat_stale",
-      severity: "high",
+      severity: inBusinessHours ? "high" : "warn",
       title: "PVS-Agent meldet sich nicht mehr",
       body:
         `Der Agent auf dem Praxis-Rechner hat sich seit ${minutes} Minuten nicht ` +
@@ -390,6 +703,19 @@ export async function reconcileAgentHealthAlerts(
         });
     }
 
+    // Operator mail for HIGH conditions. Rate-limited per (clinic, condition)
+    // inside notifyOps, never throws, so it cannot fail the reconcile.
+    for (const c of conditions) {
+      if (c.severity !== "high") continue;
+      await notifyOps({
+        clinicId,
+        kind: dedupeKey(c.key),
+        severity: "high",
+        title: c.title,
+        body: c.body,
+      });
+    }
+
     // Resolve: delete this scope's alerts whose condition no longer holds.
     // See the lifecycle note above for why this deletes instead of dismissing.
     const activeKeys = new Set(conditions.map((c) => c.key));
@@ -416,10 +742,15 @@ export const HEARTBEAT_SCOPE_KEYS = [
   "adapters_down",
   "stream_halted",
   "backlog_stuck",
+  "agent_clock_skew",
 ] as const;
 
 /** Condition keys owned by the hourly liveness scan. */
-export const LIVENESS_SCOPE_KEYS = ["heartbeat_stale", "silent_stall"] as const;
+export const LIVENESS_SCOPE_KEYS = [
+  "heartbeat_stale",
+  "silent_stall",
+  "heartbeat_never",
+] as const;
 
 /**
  * Compact, comparable summary of the health slice of a heartbeat. The ingest
@@ -444,10 +775,24 @@ export function healthSignature(hb: AgentHeartbeatHealth): string {
     // count is rendered IN the alert text, so 3 growing to 5 000 has to refresh
     // it or the operator reads a number that is off by three orders.
     magnitudeBucket(hb.stalePendingEvents),
+    // The reason is rendered in the backlog alert, so a change must refresh it.
+    // Only while a backlog exists: otherwise a changing reason would rewrite
+    // nothing and force a pointless reconcile.
+    hb.stalePendingEvents > 0 ? (hb.uploadReason ?? "") : "",
     [...hb.missingFolders].sort().join("|"),
     hb.dbAdaptersFailed ?? "",
     streams,
+    skewBucket(hb.clockSkewSeconds),
   ].join("§");
+}
+
+/** "ok" inside the threshold, else direction + order of magnitude of minutes. */
+function skewBucket(seconds: number | null | undefined): string {
+  // Unknown skew raises no condition, so it is the same state as "within range".
+  if (seconds === undefined || seconds === null) return "ok";
+  if (Math.abs(seconds) <= CLOCK_SKEW_THRESHOLD_SECONDS) return "ok";
+  const minutes = Math.abs(seconds) / 60;
+  return `${seconds > 0 ? "+" : "-"}${magnitudeBucket(minutes)}`;
 }
 
 /** 0, then one bucket per power of ten. */

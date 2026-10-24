@@ -12,6 +12,7 @@ import { storeSecret } from "./secure-store.js";
 import { agentFetch, tlsHint } from "./net-setup.js";
 import { portalEndpoint } from "./portal-url.js";
 import type { CsvMapping } from "./csv-mapper.js";
+import { watchFolderConflict } from "./watch-folders.js";
 
 /**
  * One-shot enrollment flow:
@@ -27,11 +28,24 @@ import type { CsvMapping } from "./csv-mapper.js";
  * Called from `eins-agent --enroll <token>` on the installer's first run.
  */
 
+/** GDT receive folder used when neither the operator nor an earlier config names one. */
+export function defaultWatchPath(): string {
+  return process.platform === "win32"
+    ? "C:\\GDT-Out"
+    : `${process.env.HOME ?? "/tmp"}/gdt-out`;
+}
+
+/**
+ * `watchFolder`, `honorarCsvFolder` and `honorarCsvMapping` are only written
+ * when passed explicitly. Re-enrollment (secret rotation after an auth pause)
+ * merges into the existing config and leaves everything else, including the DB
+ * adapters and the GDT receiver id, exactly as it was.
+ */
 export interface EnrollInput {
   clinicId: string;
   token: string;
   portalBaseUrl: string;
-  watchFolder: string;
+  watchFolder?: string;
   honorarCsvFolder?: string;
   honorarCsvMapping?: CsvMapping;
 }
@@ -69,7 +83,8 @@ const UUID_RE =
 interface EnrollRecovery {
   clinicId: string;
   portalBaseUrl: string;
-  watchFolder: string;
+  /** Explicit override only; absent = keep the existing / default folder. */
+  watchFolder?: string;
   honorarCsvFolder?: string;
   honorarCsvMapping?: CsvMapping;
   machineFingerprint: string;
@@ -101,6 +116,14 @@ export async function enroll(input: EnrollInput): Promise<EnrollResult> {
   // fresh install computes a deterministic one.
   const existing = await loadConfig().catch(() => null);
   const fingerprint = existing?.machineFingerprint ?? machineFingerprint();
+
+  // The GDT and CSV folders must differ. Checked on the folders this enrollment
+  // WOULD leave in the config, before the one-time token is spent.
+  const conflict = watchFolderConflict({
+    watchFolder: input.watchFolder ?? existing?.watchFolder ?? defaultWatchPath(),
+    honorarCsvFolder: input.honorarCsvFolder ?? existing?.honorarCsvFolder,
+  });
+  if (conflict) return { ok: false, error: `${conflict} The token is still unused.` };
 
   // L15: hard timeout on the only request that previously had none.
   const controller = new AbortController();
@@ -283,14 +306,19 @@ async function parseEnrollResponse(res: Response): Promise<ParseResult> {
  */
 async function finalizeEnrollment(rec: EnrollRecovery): Promise<void> {
   await storeSecret(rec.pvsSecretHex);
+  // Merge, never rebuild: a re-enrollment that dropped dbAdapters and
+  // gdtReceiverId, or reset watchFolder, silently stopped every data stream of
+  // that Praxis while the heartbeat kept reporting fewer sources.
+  const existing = await loadConfig().catch(() => null);
   const config: AgentConfig = {
+    ...(existing ?? {}),
     clinicId: rec.clinicId,
     portalBaseUrl: rec.portalBaseUrl,
-    watchFolder: rec.watchFolder,
     machineFingerprint: rec.machineFingerprint,
-    honorarCsvFolder: rec.honorarCsvFolder,
-    honorarCsvMapping: rec.honorarCsvMapping,
+    watchFolder: rec.watchFolder ?? existing?.watchFolder ?? defaultWatchPath(),
   };
+  if (rec.honorarCsvFolder !== undefined) config.honorarCsvFolder = rec.honorarCsvFolder;
+  if (rec.honorarCsvMapping !== undefined) config.honorarCsvMapping = rec.honorarCsvMapping;
   await saveConfig(config);
   await unlink(recoveryPath()).catch(() => {});
 }

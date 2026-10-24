@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import { getClinic, getTreatment } from "@/lib/clinic-registry";
+import { getClinic, getTreatmentByCode } from "@/lib/clinic-registry";
 
 export const alt = "Beratungstermin";
 export const size = { width: 1200, height: 630 };
@@ -12,7 +12,8 @@ export default async function OpenGraphImage({
   params: { clinicSlug: string; treatmentSlug: string };
 }) {
   const clinic = getClinic(params.clinicSlug);
-  const treatment = getTreatment(params.clinicSlug, params.treatmentSlug);
+  // Segment = neutral urlCode (see page.tsx).
+  const treatment = getTreatmentByCode(params.clinicSlug, params.treatmentSlug);
 
   const fallback = {
     bg: "#ffffff",

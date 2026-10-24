@@ -1,4 +1,5 @@
 import { isAllowedWebhookUrl } from "./webhook-guard";
+import { webhookHeaders } from "./signing";
 import type { CRMAdapterResult, QuizSubmissionPayload } from "../types";
 
 export interface CRMAdapter {
@@ -70,10 +71,12 @@ export async function postMarketingConfirmed(
     return { ok: false, message: "webhook_url_blocked" };
   }
   try {
+    // L-16: sign the exact string that is sent.
+    const body = JSON.stringify(event);
     const res = await fetch(webhookUrl, {
       method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(event),
+      headers: webhookHeaders(event.clinic, body),
+      body,
       signal: AbortSignal.timeout(5000),
     });
     return { ok: res.ok, message: res.ok ? undefined : `Webhook responded ${res.status}` };

@@ -42,6 +42,13 @@ export interface CsvParseResult {
    */
   droppedSuspectLastRow: boolean;
   /**
+   * True when the last non-blank DATA line of the file has no line terminator,
+   * independent of tornWriteGuard. With tornWriteGuard:false that row is still
+   * returned; callers (the watcher) can use this flag to wait for a fresh,
+   * fully written file before trusting it.
+   */
+  lastLineUnterminated: boolean;
+  /**
    * M-P3: count of DATA rows whose cell count did not match the header count
    * (ragged rows). Extra cells are dropped, missing cells become empty strings
    * as before; this counter lets the watcher log a rate-limited warning so a
@@ -63,6 +70,16 @@ export interface CsvParseResult {
    * The watcher skips a cap-exceeded file loudly.
    */
   rowCapExceeded: boolean;
+  /**
+   * False when an `isHeader` predicate was given and none of the first
+   * HEADER_SCAN_LINES non-empty lines satisfied it. `headers` then holds a
+   * best-guess line for diagnostics only and `rows` is empty.
+   */
+  headerFound: boolean;
+  /** Index of the header among the logical rows (-1 for an empty file). */
+  headerLineIndex: number;
+  /** Logical lines (incl. blank, sep=) skipped above the header. */
+  preambleLines: number;
 }
 
 /**
@@ -86,7 +103,27 @@ export interface ParseCsvOptions {
   maxRows?: number;
   /** M-P9: hard cap on raw byte length, checked before the scored decode. */
   maxBytes?: number;
+  /**
+   * Header-row locator. When given, the first HEADER_SCAN_LINES non-empty
+   * lines (after an optional `sep=X` line) are tried in order and the first
+   * one for which the predicate returns true is the header; everything above
+   * it (title line, `;;;` line, report banner) is skipped. Without it the
+   * first non-empty line is the header.
+   */
+  isHeader?: (headers: string[]) => boolean;
+  /**
+   * Torn-write guard for a final line without a terminator (default true,
+   * the historical behaviour). The Honorar watcher passes false: it already
+   * waits for write-stability (awaitWriteFinish + pre/post stat), so an
+   * unterminated last line of a stable file is a real row, and many PVS
+   * exports legitimately omit the final newline. An UNBALANCED trailing quote
+   * is still dropped and flagged in both modes.
+   */
+  tornWriteGuard?: boolean;
 }
+
+/** How many non-empty leading lines are tried as the header row. */
+export const HEADER_SCAN_LINES = 15;
 
 export function parseCsv(
   bytes: Buffer,
@@ -99,49 +136,131 @@ export function parseCsv(
   }
   const contentHash = sha256(bytes);
   const text = decodeCsv(bytes).replace(/^﻿/, "");
-  // H9: split into LOGICAL rows honoring quote state, so a newline inside a
-  // quoted cell does not end the row. Also reports whether the file ended
-  // cleanly on a row terminator and whether it ended mid-open-quote.
-  const { rows: logicalRows, endsWithNewline, unterminatedQuote } =
-    splitLogicalRows(text);
-  // Empty / zero-byte file: no logical rows at all. This branch is NOT dead:
-  // it guards the header access below (detectDelimiter(logicalRows[0]) would
-  // throw on an empty array). It returns headers:[] so the watcher can treat
-  // "zero-byte file" the same as "produced zero events" (see csv-watcher.ts,
-  // L4/L5: warn once, then advance the cursor so it does not re-warn forever).
-  if (logicalRows.length === 0) {
-    return {
-      headers: [],
-      rows: [],
-      delimiter: ";",
-      contentHash,
-      droppedSuspectLastRow: false,
-      raggedRowCount: 0,
-      duplicateHeaders: [],
-      rowCapExceeded: false,
-    };
+  // Phase A: locate the header on PHYSICAL lines. The delimiter has to be
+  // known before rows can be split into logical rows (a quote only opens a
+  // quoted field at field start, i.e. after a delimiter), so it is detected
+  // from the header candidate line first.
+  const lines = physicalLines(text);
+  const emptyResult = (): CsvParseResult => ({
+    headers: [],
+    rows: [],
+    delimiter: ";",
+    contentHash,
+    droppedSuspectLastRow: false,
+    lastLineUnterminated: false,
+    raggedRowCount: 0,
+    duplicateHeaders: [],
+    rowCapExceeded: false,
+    headerFound: false,
+    headerLineIndex: -1,
+    preambleLines: 0,
+  });
+  // Empty / zero-byte (or whitespace-only) file: headers:[] lets the watcher
+  // treat it as "no header row".
+  const firstNonEmpty = lines.findIndex((l) => l.text.trim() !== "");
+  if (firstNonEmpty === -1) return emptyResult();
+
+  // Excel "sep=;" first line: honour as the delimiter and skip it.
+  let forcedDelimiter: ";" | "," | "\t" | null = null;
+  let firstCandidate = firstNonEmpty;
+  const sepMatch = /^sep=(.)\s*$/i.exec(lines[firstNonEmpty].text.trim());
+  if (sepMatch) {
+    const d = sepMatch[1];
+    if (d === ";" || d === "," || d === "\t") forcedDelimiter = d;
+    firstCandidate = firstNonEmpty + 1;
+    while (
+      firstCandidate < lines.length &&
+      lines[firstCandidate].text.trim() === ""
+    ) {
+      firstCandidate++;
+    }
+    if (firstCandidate >= lines.length) return emptyResult();
   }
-  // C1 + H9: no final line terminator, OR a file ending mid-open-quote, means
-  // the last logical row may be a torn write. Drop it (data rows only; a
-  // header-only file has nothing to poison) and flag the drop so the watcher
-  // refuses to advance its cursor. An unbalanced trailing quote is always
-  // suspect even if its (partial) tail is non-blank; a merely newline-less
-  // tail is only suspect when it carries content.
+
+  // Locate the header row.
+  let headerPhys = firstCandidate;
+  let delimiter = forcedDelimiter ?? detectDelimiter(lines[headerPhys].text);
+  let headers = splitRow(lines[headerPhys].text, delimiter);
+  let headerFound = true;
+  if (opts.isHeader) {
+    headerFound = false;
+    let tried = 0;
+    let fallback: { idx: number; d: ";" | "," | "\t"; h: string[] } | null =
+      null;
+    for (
+      let i = firstCandidate;
+      i < lines.length && tried < HEADER_SCAN_LINES;
+      i++
+    ) {
+      if (lines[i].text.trim() === "") continue;
+      tried++;
+      const d = forcedDelimiter ?? detectDelimiter(lines[i].text);
+      const h = splitRow(lines[i].text, d);
+      if (opts.isHeader(h)) {
+        headerPhys = i;
+        delimiter = d;
+        headers = h;
+        headerFound = true;
+        break;
+      }
+      // Best guess for diagnostics: first line that looks like a table
+      // header (>= 3 non-empty cells), so a title line is not reported.
+      if (!fallback && h.filter((c) => c !== "").length >= 3) {
+        fallback = { idx: i, d, h };
+      }
+    }
+    if (!headerFound) {
+      const fb = fallback ?? { idx: firstCandidate, d: delimiter, h: headers };
+      return {
+        ...emptyResult(),
+        headers: fb.h,
+        delimiter: fb.d,
+        headerLineIndex: fb.idx,
+        preambleLines: 0,
+      };
+    }
+  }
+
+  // Phase B (H9): split from the header line on into LOGICAL rows honoring
+  // quote state, so a newline inside a quoted cell does not end the row. Also
+  // reports whether the file ended cleanly on a row terminator and whether an
+  // unclosed quote forced a literal re-parse of the tail.
+  const {
+    rows: logicalRows,
+    endsWithNewline,
+    unterminatedQuote,
+    literalFromRow,
+  } = splitLogicalRows(text.slice(lines[headerPhys].start), delimiter);
+  const headerIdx = 0;
+  const cellsOf = (idx: number): string[] =>
+    splitRow(logicalRows[idx], delimiter, idx >= literalFromRow);
+  // A header cell may itself contain a quoted newline: re-read it from the
+  // logical row.
+  headers = cellsOf(0);
+
+  // C1 + H9: a file ending mid-open-quote always has a damaged last row.
+  // Optionally (tornWriteGuard, default on) a missing final terminator is
+  // treated the same. Data rows only; a header-only file has nothing to
+  // poison. The dropped row is flagged so the caller can say so loudly.
+  const guard = opts.tornWriteGuard !== false;
   let droppedSuspectLastRow = false;
   let lastDataRow = logicalRows.length;
-  if ((!endsWithNewline || unterminatedQuote) && logicalRows.length > 1) {
-    lastDataRow = logicalRows.length - 1;
-    if (unterminatedQuote || logicalRows[logicalRows.length - 1].trim()) {
+  const lastIdx = logicalRows.length - 1;
+  // Whether the last data line has no terminator, regardless of the guard, so
+  // a caller that disabled the guard can still wait for a fresh file.
+  const lastLineUnterminated =
+    lastIdx > headerIdx && !endsWithNewline && logicalRows[lastIdx].trim() !== "";
+  if (lastIdx > headerIdx && !endsWithNewline && (unterminatedQuote || guard)) {
+    lastDataRow = lastIdx;
+    if (logicalRows[lastIdx].trim()) {
       droppedSuspectLastRow = true;
     }
   }
-  const delimiter = detectDelimiter(logicalRows[0]);
-  const headers = splitRow(logicalRows[0], delimiter);
   const duplicateHeaders = findDuplicateHeaders(headers);
   const rows: Record<string, string>[] = [];
   let raggedRowCount = 0;
   let rowCapExceeded = false;
-  for (let i = 1; i < lastDataRow; i++) {
+  for (let i = headerIdx + 1; i < lastDataRow; i++) {
     const line = logicalRows[i];
     if (!line.trim()) continue;
     // M-P9 part 1: enforce the row cap DURING parsing. Reaching the cap with a
@@ -151,7 +270,7 @@ export function parseCsv(
       rowCapExceeded = true;
       break;
     }
-    const cells = splitRow(line, delimiter);
+    const cells = cellsOf(i);
     // M-P3: a cell count other than the header count is a ragged row. Keep the
     // historical tolerant behaviour (drop extras, pad missing with "") but
     // count it so the watcher can surface a systematic column shift.
@@ -168,9 +287,13 @@ export function parseCsv(
     delimiter,
     contentHash,
     droppedSuspectLastRow,
+    lastLineUnterminated,
     raggedRowCount,
     duplicateHeaders,
     rowCapExceeded,
+    headerFound,
+    headerLineIndex: headerPhys,
+    preambleLines: headerPhys,
   };
 }
 
@@ -222,70 +345,134 @@ function decodeCsv(bytes: Buffer): string {
   return decodeBytesBestEffort(body).text;
 }
 
+/** Split text into physical lines (LF / CRLF / CR) with their start offsets. */
+function physicalLines(text: string): { text: string; start: number }[] {
+  const out: { text: string; start: number }[] = [];
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === "\n" || c === "\r") {
+      out.push({ text: text.slice(start, i), start });
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      start = i + 1;
+    }
+  }
+  if (start < text.length) out.push({ text: text.slice(start), start });
+  return out;
+}
+
 /**
- * Split text into LOGICAL CSV rows (RFC 4180). A field opened with `"`
- * continues across newlines until its closing `"`; `""` inside a quoted field
- * is a literal quote and does NOT toggle quote state. Newlines OUTSIDE quotes
- * (LF or CRLF) terminate a row.
+ * Does the quote at `i` close a quoted field? Only when it is followed (after
+ * optional spaces) by the delimiter, a line break or the end of the text. A
+ * quote anywhere else inside a quoted field is a literal character, so
+ * `"Botox 5" Nadel"` stays one field.
+ */
+function closesQuote(text: string, i: number, delimiter: string): boolean {
+  let j = i + 1;
+  while (text[j] === " ") j++;
+  return j >= text.length || text[j] === delimiter || text[j] === "\n" || text[j] === "\r";
+}
+
+/**
+ * Split text into LOGICAL CSV rows (RFC 4180). A quote opens a quoted field
+ * ONLY at field start (start of line or right after the delimiter); inside an
+ * unquoted field it is a literal character (`Botox 5" Nadel`). A quoted field
+ * continues across newlines until its closing quote; `""` inside it is a
+ * literal quote. Newlines OUTSIDE quotes (LF or CRLF) terminate a row.
+ *
+ * If the text ends inside an open quoted field, the tail from the start of the
+ * row that opened it is re-split with quotes treated literally (one row per
+ * physical line) instead of swallowing every following row; `literalFromRow`
+ * is the index of the first such row.
  *
  * Returns:
  *   - rows: the logical row strings, each still containing its raw quotes and
  *     any embedded newlines (splitRow later turns them into cells).
- *   - endsWithNewline: the text ended on an unquoted row terminator (nothing
- *     trailing after it). Used by the torn-write guard.
- *   - unterminatedQuote: the text ended while still inside an open quoted
- *     field (an unbalanced quote), which the caller treats as a torn write
- *     for the affected trailing row.
+ *   - endsWithNewline: the text ended on a row terminator (nothing trailing
+ *     after it). Used by the torn-write guard.
+ *   - unterminatedQuote: the literal fallback was needed (open quote at EOF).
  */
-function splitLogicalRows(text: string): {
+function splitLogicalRows(
+  text: string,
+  delimiter: string
+): {
   rows: string[];
   endsWithNewline: boolean;
   unterminatedQuote: boolean;
+  literalFromRow: number;
 } {
   const rows: string[] = [];
   let cur = "";
   let inQuotes = false;
+  let atFieldStart = true;
+  let rowStart = 0;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
     if (c === '"') {
-      if (inQuotes && text[i + 1] === '"') {
-        // Escaped quote: keep both chars verbatim, stay in-quotes.
-        cur += '""';
-        i++;
+      if (inQuotes) {
+        if (text[i + 1] === '"') {
+          cur += '""'; // escaped quote, stay in quotes
+          i++;
+        } else {
+          if (closesQuote(text, i, delimiter)) inQuotes = false;
+          cur += c;
+        }
       } else {
-        inQuotes = !inQuotes;
+        if (atFieldStart) inQuotes = true;
+        atFieldStart = false;
         cur += c;
       }
       continue;
     }
-    if (!inQuotes && (c === '\n' || c === '\r')) {
-      if (c === '\r' && text[i + 1] === '\n') i++; // consume CRLF as one break
-      rows.push(cur);
-      cur = "";
-      continue;
+    if (!inQuotes) {
+      if (c === "\n" || c === "\r") {
+        if (c === "\r" && text[i + 1] === "\n") i++; // CRLF is one break
+        rows.push(cur);
+        cur = "";
+        atFieldStart = true;
+        rowStart = i + 1;
+        continue;
+      }
+      if (c === delimiter) {
+        atFieldStart = true;
+        cur += c;
+        continue;
+      }
+      if (c !== " ") atFieldStart = false;
     }
     cur += c;
   }
-  const unterminatedQuote = inQuotes;
+  if (inQuotes) {
+    // Open quote at EOF: re-parse the tail literally.
+    const tail = physicalLines(text.slice(rowStart));
+    return {
+      rows: [...rows, ...tail.map((l) => l.text)],
+      endsWithNewline: /[\r\n]$/.test(text),
+      unterminatedQuote: true,
+      literalFromRow: rows.length,
+    };
+  }
   // `cur` holds the segment after the last unquoted row terminator. Non-empty
-  // (a newline-less final line) or an open quote means there is a trailing
-  // logical row; push it. Empty + closed means the file ended cleanly.
-  if (cur !== "" || unterminatedQuote) rows.push(cur);
-  const endsWithNewline = cur === "" && !unterminatedQuote;
-  return { rows, endsWithNewline, unterminatedQuote };
+  // (a newline-less final line) means there is a trailing logical row; push
+  // it. Empty means the file ended cleanly.
+  if (cur !== "") rows.push(cur);
+  return {
+    rows,
+    endsWithNewline: cur === "",
+    unterminatedQuote: false,
+    literalFromRow: Infinity,
+  };
 }
 
 function detectDelimiter(headerLine: string): ";" | "," | "\t" {
   // M-P2: genuinely count-based. The delimiter that occurs MOST OFTEN in the
   // header (outside quoted ranges) wins; ties break in the order ; > tab > ,
-  // (German-PVS default first). The old code was presence-based, not
-  // count-based despite the comment: a single stray semicolon in a
-  // tab-separated header beat five tabs. If no candidate occurs, default to
-  // comma (a single-column file has no delimiter to detect).
+  // (German-PVS default first). If no candidate occurs, default to comma (a
+  // single-column file has no delimiter to detect).
   const counts: Record<";" | "\t" | ",", number> = {
-    ";": countOutsideQuotes(headerLine, ";"),
-    "\t": countOutsideQuotes(headerLine, "\t"),
-    ",": countOutsideQuotes(headerLine, ","),
+    ";": countDelimiters(headerLine, ";"),
+    "\t": countDelimiters(headerLine, "\t"),
+    ",": countDelimiters(headerLine, ","),
   };
   const tiebreakOrder: Array<";" | "\t" | ","> = [";", "\t", ","];
   let best: ";" | "\t" | "," = ",";
@@ -300,48 +487,58 @@ function detectDelimiter(headerLine: string): ";" | "," | "\t" {
   return best;
 }
 
-function countOutsideQuotes(line: string, ch: string): number {
-  let inQuotes = false;
-  let count = 0;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (c === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        i++; // escaped quote
-      } else {
-        inQuotes = !inQuotes;
-      }
-      continue;
-    }
-    if (!inQuotes && c === ch) count++;
-  }
-  return count;
+/** Number of delimiters outside quoted fields (quotes open at field start only). */
+function countDelimiters(line: string, ch: string): number {
+  return splitRaw(line, ch, false).length - 1;
 }
 
-function splitRow(line: string, delimiter: string): string[] {
+function splitRow(line: string, delimiter: string, literal = false): string[] {
+  return splitRaw(line, delimiter, literal).map((v) => v.trim());
+}
+
+/**
+ * Split one logical row into cells (untrimmed). A quote opens a quoted field
+ * only at field start; inside it `""` is a literal quote and a quote closes
+ * the field only when followed by the delimiter or the end of the row, any
+ * other quote is literal. `literal` treats every quote as a plain character.
+ */
+function splitRaw(line: string, delimiter: string, literal: boolean): string[] {
   const cells: string[] = [];
   let cur = "";
   let inQuotes = false;
+  let atFieldStart = true;
   for (let i = 0; i < line.length; i++) {
     const c = line[i];
-    if (c === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        cur += '"';
-        i++;
+    if (!literal && c === '"') {
+      if (inQuotes) {
+        if (line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else if (closesQuote(line, i, delimiter)) {
+          inQuotes = false;
+        } else {
+          cur += c;
+        }
+      } else if (atFieldStart) {
+        inQuotes = true;
+        atFieldStart = false;
+        cur = ""; // drop leading spaces before the opening quote
       } else {
-        inQuotes = !inQuotes;
+        cur += c;
       }
       continue;
     }
     if (!inQuotes && c === delimiter) {
       cells.push(cur);
       cur = "";
+      atFieldStart = true;
       continue;
     }
+    if (c !== " " || inQuotes) atFieldStart = false;
     cur += c;
   }
   cells.push(cur);
-  return cells.map((v) => v.trim());
+  return cells;
 }
 
 function sha256(bytes: Buffer): string {

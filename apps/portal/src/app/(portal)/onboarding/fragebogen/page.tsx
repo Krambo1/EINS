@@ -11,6 +11,7 @@ import {
 } from "./content";
 import { FragebogenForm } from "./FragebogenForm";
 import { reopenDiscoveryAction } from "./actions";
+import { DISPLAY_TIME_ZONE } from "@/lib/formatting";
 
 export const metadata = { title: "Fragebogen zum Start" };
 
@@ -31,8 +32,14 @@ export default async function DiscoveryFragebogenPage() {
   const submitted = row?.status === "eingereicht";
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
-      <header>
+    <div
+      className={
+        submitted
+          ? "mx-auto max-w-3xl space-y-8"
+          : "mx-auto max-w-3xl space-y-8 xl:max-w-5xl"
+      }
+    >
+      <header className="max-w-3xl">
         <Link
           href="/onboarding"
           className="inline-flex items-center gap-1.5 text-sm font-medium text-fg-secondary hover:text-fg-primary"
@@ -61,8 +68,8 @@ export default async function DiscoveryFragebogenPage() {
                   <Badge tone="good">Eingereicht</Badge>
                 </div>
                 <p className="mt-1 text-base text-fg-primary">
-                  Wir bauen darauf Ihre Kampagnen, Ihre Zielseite und das
-                  Video-Konzept auf. Den Rest besprechen wir im
+                  Wir bauen darauf Ihren KI-Klon, Ihre ersten Beiträge und Ihre
+                  Zielseite auf. Den Rest besprechen wir im
                   Onboarding-Gespräch. Hat sich etwas geändert? Sie können Ihre
                   Antworten jederzeit anpassen, Ihr EINS-Team wird automatisch
                   informiert.
@@ -74,6 +81,7 @@ export default async function DiscoveryFragebogenPage() {
                       day: "2-digit",
                       month: "2-digit",
                       year: "numeric",
+                      timeZone: DISPLAY_TIME_ZONE,
                     })}
                     {row.resubmittedAt && (
                       <>
@@ -82,6 +90,7 @@ export default async function DiscoveryFragebogenPage() {
                           day: "2-digit",
                           month: "2-digit",
                           year: "numeric",
+                          timeZone: DISPLAY_TIME_ZONE,
                         })}
                       </>
                     )}
@@ -112,14 +121,14 @@ export default async function DiscoveryFragebogenPage() {
                         : value;
                       return (
                         <div key={q.id}>
-                          <dt className="text-sm font-medium text-fg-secondary">
+                          <dt className="text-sm font-medium text-fg-primary">
                             {q.label}
                           </dt>
                           <dd className="mt-0.5 whitespace-pre-wrap text-base text-fg-primary">
                             {text && text.length > 0 ? (
                               text
                             ) : (
-                              <span className="text-fg-tertiary">
+                              <span className="text-fg-secondary">
                                 Keine Angabe
                               </span>
                             )}
@@ -134,7 +143,12 @@ export default async function DiscoveryFragebogenPage() {
           </div>
         </>
       ) : (
-        <FragebogenForm initialAnswers={answers} hasDraft={Boolean(row)} />
+        <FragebogenForm
+          initialAnswers={answers}
+          hasDraft={Boolean(row)}
+          baseUpdatedAt={row?.updatedAt?.toISOString() ?? null}
+          storageKey={`eins:fragebogen:${session.clinicId}`}
+        />
       )}
     </div>
   );

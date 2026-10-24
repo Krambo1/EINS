@@ -2,7 +2,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { SignJWT, jwtVerify, createRemoteJWKSet } from "jose";
 import { env, adminOrigin } from "@/lib/env";
-import { deriveSigningKey, generateToken } from "@/lib/crypto";
+import { deriveSigningKey, generateToken, sha256Hex } from "@/lib/crypto";
 import { hostCookieName } from "@/lib/constants";
 
 /**
@@ -23,6 +23,12 @@ import { hostCookieName } from "@/lib/constants";
  * `track` matches the route. Same double-binding the integrations OAuth uses
  * (see `@/server/oauth`), but with a separate cookie + a track instead of a
  * clinic/user id (there is no session yet at login time).
+ *
+ * OIDC nonce (B-16): the authorize request carries `nonce = sha256(state)`,
+ * and the callback requires the id_token's `nonce` claim to equal
+ * sha256(state) of THIS browser's state cookie. An id_token minted for a
+ * different login attempt (or replayed) is rejected even if its signature,
+ * issuer and audience are valid.
  */
 
 export type LoginTrack = "clinic" | "admin";
@@ -114,6 +120,11 @@ export function googleAdminRedirectUri(): string {
 // Authorize URL + token exchange
 // ---------------------------------------------------------------------------
 
+/** OIDC nonce bound to the signed state (and so to the state cookie). */
+export function oidcNonceForState(state: string): string {
+  return sha256Hex(`glogin-nonce-v1:${state}`);
+}
+
 export function buildGoogleAuthorizeUrl(opts: {
   redirectUri: string;
   state: string;
@@ -124,6 +135,7 @@ export function buildGoogleAuthorizeUrl(opts: {
     response_type: "code",
     scope: GOOGLE_SCOPE,
     state: opts.state,
+    nonce: oidcNonceForState(opts.state),
     access_type: "online", // login only — we don't need a refresh token
     prompt: "select_account", // let the user pick which Google account
   });
@@ -142,11 +154,13 @@ export interface GoogleIdentity {
  * exchange fails or the token carries no email.
  *
  * `redirectUri` MUST be the same value passed to `buildGoogleAuthorizeUrl` for
- * this flow — Google rejects the exchange otherwise.
+ * this flow — Google rejects the exchange otherwise. `state` is the verified
+ * state of this browser (cookie === query); the id_token's nonce must match it.
  */
 export async function exchangeCodeForGoogleEmail(opts: {
   code: string;
   redirectUri: string;
+  state: string;
 }): Promise<GoogleIdentity> {
   const res = await fetch(GOOGLE_TOKEN_URL, {
     method: "POST",
@@ -175,6 +189,9 @@ export async function exchangeCodeForGoogleEmail(opts: {
     issuer: GOOGLE_ISSUERS,
     audience: env.GOOGLE_OAUTH_CLIENT_ID!,
   });
+  if (payload.nonce !== oidcNonceForState(opts.state)) {
+    throw new Error("google id_token nonce mismatch");
+  }
 
   const email =
     typeof payload.email === "string" ? payload.email.toLowerCase() : "";

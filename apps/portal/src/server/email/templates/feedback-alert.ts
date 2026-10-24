@@ -1,11 +1,14 @@
+import { escapeHtml } from "@/server/email";
 /**
  * EINS Bewertungen — alert mail to the Praxisinhaber:in when a patient submits
  * private feedback via the rating landing.
  *
  * Why this template: the patient_feedback inbox lives at /bewertungen/feedback in the
  * portal, but the Inhaber:in shouldn't have to babysit it. This mail
- * surfaces the rating + text inline so they can decide on the spot whether
- * to call back, and deep-links them to the inbox for triage.
+ * surfaces the rating and the callback wish and deep-links to the inbox.
+ * Patient name, email and free text are deliberately NOT rendered (the inbox
+ * can be an external address; patient data stays behind the portal login).
+ * The input still carries them so callers need no change.
  */
 
 export interface FeedbackAlertRenderInput {
@@ -37,36 +40,26 @@ export function renderFeedbackAlertEmail(
   input: FeedbackAlertRenderInput
 ): RenderedEmail {
   const tone = RATING_TONE[input.rating] ?? "neu";
-  const subject = `Neue Patient:innen-Rückmeldung (${input.rating} ★ – ${tone}): ${input.clinicName}`;
+  const subject = `Neue Rückmeldung eines Patienten (${input.rating} ★, ${tone}): ${input.clinicName}`;
 
   const link = `${input.portalOrigin.replace(/\/$/, "")}/bewertungen/feedback/${encodeURIComponent(input.feedbackId)}`;
 
   const contactLine = input.contactBackOk
-    ? "<strong>Rückruf gewünscht.</strong>"
-    : "Kein expliziter Rückrufwunsch — bitte Patient:in nicht ungefragt kontaktieren.";
+    ? "<strong>Rückruf gewünscht.</strong> Name, Kontakt und Nachricht finden Sie im Portal."
+    : "Kein ausdrücklicher Rückrufwunsch. Bitte die Person nicht ungefragt kontaktieren.";
 
   const html = `<!doctype html>
-<html lang="de"><head><meta charset="utf-8"><title>${escape(subject)}</title></head>
+<html lang="de"><head><meta charset="utf-8"><title>${escapeHtml(subject)}</title></head>
 <body style="font-family: -apple-system, Helvetica, Arial, sans-serif; color:#10101a; background:#f5f5f7; margin:0; padding:32px;">
   <div style="max-width:560px; margin:0 auto; background:#ffffff; border:1px solid #e4e4e7; border-radius:16px; padding:32px;">
-    <div style="font-size:14px; letter-spacing:0.04em; color:#4a4a52; margin-bottom:16px;">${escape(input.clinicName)}</div>
+    <div style="font-size:14px; letter-spacing:0.04em; color:#4a4a52; margin-bottom:16px;">${escapeHtml(input.clinicName)}</div>
 
     <h1 style="font-size:22px; font-weight:600; margin:0 0 8px 0;">
-      Neue private Rückmeldung &mdash; ${input.rating} ★
+      Neue private Rückmeldung: ${input.rating} ★
     </h1>
     <p style="margin:0 0 16px 0; font-size:14px; color:#4a4a52;">
-      ${escape(input.patientName ?? "Ohne Namen")}${
-        input.patientEmail ? ` · ${escape(input.patientEmail)}` : ""
-      }
+      ${input.freeText ? "Mit Nachricht." : "Ohne Nachricht."} Aus Datenschutzgründen steht der Inhalt nur im Portal.
     </p>
-
-    ${
-      input.freeText
-        ? `<blockquote style="border-left:3px solid #58BAB5; padding-left:16px; margin:16px 0; color:#10101a; font-size:15px; line-height:1.55; white-space:pre-wrap;">
-${escape(input.freeText)}
-</blockquote>`
-        : `<p style="font-style:italic; color:#8a8a94; margin:16px 0;">Keine Freitext-Rückmeldung.</p>`
-    }
 
     <p style="margin:16px 0; font-size:14px;">${contactLine}</p>
 
@@ -80,7 +73,7 @@ ${escape(input.freeText)}
 
     <hr style="border:none; border-top:1px solid #e4e4e7; margin:32px 0;">
     <div style="font-size:12px; color:#8a8a94; line-height:1.5;">
-      Sie erhalten diese E-Mail, weil Patient:innen vertrauliche
+      Sie erhalten diese E-Mail, weil Patienten vertrauliche
       Rückmeldungen an Ihre Praxis schicken. Verwaltung und Abmeldung
       unter „Einstellungen &rsaquo; Bewertungen &amp; Reputation" im Portal.
     </div>
@@ -88,29 +81,17 @@ ${escape(input.freeText)}
 </body></html>`;
 
   const text = [
-    `Neue Patient:innen-Rückmeldung (${input.rating} ★)`,
+    `Neue Rückmeldung eines Patienten (${input.rating} ★)`,
     `Praxis: ${input.clinicName}`,
     "",
-    `Von: ${input.patientName ?? "Ohne Namen"}${
-      input.patientEmail ? ` <${input.patientEmail}>` : ""
-    }`,
     input.contactBackOk
       ? "Rückruf gewünscht."
       : "Kein Rückruf gewünscht.",
-    "",
-    input.freeText ? input.freeText : "(Keine Freitext-Rückmeldung)",
+    input.freeText ? "Mit Nachricht." : "Ohne Nachricht.",
+    "Aus Datenschutzgründen stehen Name, Kontakt und Nachricht nur im Portal.",
     "",
     `Im Portal öffnen: ${link}`,
   ].join("\n");
 
   return { subject, html, text };
-}
-
-function escape(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }

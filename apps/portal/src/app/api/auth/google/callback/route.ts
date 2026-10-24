@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { and, eq, isNull } from "drizzle-orm";
-import { db, schema } from "@/db/client";
 import { createSession } from "@/auth/session";
+import { findActiveClinicUserByEmail } from "@/auth/user-lookup";
 import {
   exchangeCodeForGoogleEmail,
   verifyLoginState,
@@ -15,6 +14,7 @@ import { rateLimit } from "@/server/rate-limit";
 import { writeAudit } from "@/server/audit";
 import { defaultLandingPath } from "@/lib/roles";
 import type { Role } from "@/lib/constants";
+import { describeErrorForLog } from "@/lib/error-log";
 
 /**
  * Clinic "Mit Google anmelden" — step 2 (Google bounces here with ?code&state).
@@ -80,9 +80,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     identity = await exchangeCodeForGoogleEmail({
       code,
       redirectUri: googleClinicRedirectUri(),
+      state: stateQuery,
     });
   } catch (err) {
-    console.error("[oauth/google-login/clinic] exchange failed:", err);
+    console.error("[oauth/google-login/clinic] exchange failed:", JSON.stringify(describeErrorForLog(err)));
     await clearLoginStateCookie();
     return loginError(origin, "google_error");
   }
@@ -92,20 +93,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return loginError(origin, "google_unverified");
   }
 
-  const [user] = await db
-    .select({
-      id: schema.clinicUsers.id,
-      clinicId: schema.clinicUsers.clinicId,
-      role: schema.clinicUsers.role,
-    })
-    .from(schema.clinicUsers)
-    .where(
-      and(
-        eq(schema.clinicUsers.email, identity.email),
-        isNull(schema.clinicUsers.archivedAt)
-      )
-    )
-    .limit(1);
+  // Active user in an active Praxis, oldest membership first (B-7, G-05).
+  const user = await findActiveClinicUserByEmail(identity.email);
 
   if (!user) {
     await writeAudit({
@@ -125,6 +114,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     action: "login",
     entityKind: "login",
     diff: { method: "google", ok: true },
+    impersonatedByAdminId: null,
   });
 
   return NextResponse.redirect(

@@ -1,57 +1,98 @@
-# EINS — Sales Deck
+# EINS Sales Deck
 
-`EINS-Strategievorschlag-TEMPLATE.pptx` ist ein 15-Folien-Verkaufsdeck für Strategiegespräche mit Klinik-Inhabern im DACH-Raum. Der Founder geht das Deck live mit dem Interessenten durch.
+`EINS-Strategievorschlag-TEMPLATE.pptx` ist ein 17-Folien-Verkaufsdeck für das Strategie-Gespräch per Video mit Inhaber:innen von Praxen für ästhetische Medizin im DACH-Raum. Der Gründer geht das Deck live mit dem Interessenten durch. Die Vorschau-Anzeigen der Praxis liegen dabei auf dem Bildschirm. Stand: 30.09.2026.
+
+Fakten, Zahlen, Fristen und Kernsätze kommen nur aus `docs/umbau-ki-organisch/KANON.md`.
+
+## Folienliste
+
+| Folie | Inhalt | Kanon |
+|---|---|---|
+| 1 | Cover | |
+| 2 | Inhaltsverzeichnis | |
+| 3 | Hook | |
+| 4 | Über die Praxis | |
+| 5 | Ihre Ziele | |
+| 6 | Was aktuell fehlt | |
+| 7 | Ihre Vorschau-Anzeigen (drei Platzhalter) | 1, 9 |
+| 8 | Über EINS | 3 |
+| 9 | Fallstudie (Platzhalter) | |
+| 10 | Vorgeschlagene Leistungen (drei Ebenen) | 3 |
+| 11 | Wert für Sie (Wertgleichung) | 4 |
+| 12 | Garantie "Keine Anfrage, keine Rechnung" | 5, 6 |
+| 13 | Das Material und Ihr Klon gehören Ihnen | 7 |
+| 14 | Investition (ein Paket, 1.900 € netto) | 4 |
+| 15 | Nächste Schritte | 6, 9 |
+| 16 | Häufige Fragen | 10 |
+| 17 | Zwei Wege nach vorne | |
+
+Reihenfolge im Gespräch: Vorschau-Anzeigen (7), Wertgleichung (11), Garantie (12), Material und Klon (13), Preis (14). Die Fußzeilen-Nummer ist die Position im Deck.
 
 ## Vor jedem Pitch ersetzen (Pflicht)
 
-Alle clinic-spezifischen Felder sind als `[BRACKETED]` markiert. Mit Strg+H in PowerPoint Suchen und Ersetzen, oder per Hand pro Folie:
+Alle Praxis-spezifischen Felder sind als `[BRACKETED]` markiert. In PowerPoint per Strg+H ersetzen oder pro Folie von Hand.
 
 | Platzhalter | Bedeutung | Folie |
 |---|---|---|
-| `[KLINIK_NAME]` | Voller Klinikname | 1, 4, 12 |
-| `[STADT]` | Standort der Klinik | 1, 4, 11, 13 |
+| `[PRAXIS_NAME]` | Voller Praxisname | 1, 4, 14 |
+| `[STADT]` | Standort der Praxis | 4, 9 |
 | `[DATUM]` | Datum des Strategie-Gesprächs | 1 |
-| `[KLINIK_LOGO]` | Logo der Klinik (Bild einfügen statt Platzhalter-Text) | 1 |
-| `[BEHANDLUNGS-SCHWERPUNKT]`, `[BEHANDLUNG_X]`, `[BEHANDLUNG_Y]` | Spezialisierungen aus Recherche | 4, 5 |
-| `[GRÜNDUNGSJAHR]`, `[ÄRZTLICHER_LEITER]`, `[USP_1]` | Stammdaten der Klinik | 4 |
-| `[INSIGHT_AUS_DISCOVERY_CALL]` | Eine konkrete Beobachtung aus dem Discovery-Call, die zeigt, dass zugehört wurde | 4 |
-| `[N]` | Zielanzahl zusätzlicher Patienten / Monat | 5 |
-| `[N_PATIENTEN]`, `[Ø_BEHANDLUNGSWERT_EUR]` | Zahlen für die Value-Equation auf Folie 10 | 10 |
-| `[FOLLOWUP_DATUM]` | Konkretes Datum für Option B | 15 |
-| `[DATUM_GÜLTIG_BIS]` | Wie lange beide Optionen verbindlich sind | 15 |
+| `[PRAXIS_LOGO]` | Logo der Praxis (Bild einfügen statt Platzhalter-Text) | 1 |
+| `[BEHANDLUNGS-SCHWERPUNKT]`, `[BEHANDLUNG_X]`, `[BEHANDLUNG_Y]` | Behandlungen aus der Recherche. `[BEHANDLUNG_X]` ist die profitabelste Behandlung | 4, 5, 7 |
+| `[GRÜNDUNGSJAHR]`, `[ÄRZTLICHER_LEITER]`, `[USP_1]` | Stammdaten der Praxis | 4 |
+| `[INSIGHT_AUS_DISCOVERY_CALL]` | Eine konkrete Beobachtung aus dem Vorgespräch | 4 |
+| `[N]` | Zielanzahl zusätzlicher Patienten pro Monat | 5 |
+| `[VORSCHAU_ANZEIGE_1]` bis `[VORSCHAU_ANZEIGE_3]` | Die drei fertigen Anzeigen als Bild oder Standbild in den Rahmen einsetzen | 7 |
+| `[ÜBERSCHRIFT_1]` bis `[ÜBERSCHRIFT_3]`, `[ANZEIGENTEXT_1]` bis `[ANZEIGENTEXT_3]` | Überschrift und Text je Anzeige | 7 |
+| `[QUELLE]`, `[ZEITRAUM]`, `[ZITAT_DER_PRAXIS]`, `[NAME]`, `[ZAHL_1]` bis `[ZAHL_3]` | Nur mit echten Daten füllen, sonst Folie ausblenden | 9 |
+| `[N_PATIENTEN]`, `[Ø_BEHANDLUNGSWERT]`, `[MEHRWERT_MONAT]`, `[MEHRWERT_JAHR]`, `[NETTO_WERT_JAHR_1]` | Zahlen der Praxis aus dem Gespräch. Mehrwert Monat = Patienten x Behandlungswert. Netto-Wert = Mehrwert Jahr minus 22.800 € | 11 |
+| `[FOLGETERMIN]` | Konkretes Datum für Option B | 17 |
 
-Die Standard-Zahlen für Folie 10 (Value Equation) basieren auf dem konservativen Szenario aus `apps/website/lib/offer-data.ts`. Wenn die Klinik einen höheren Behandlungswert hat (z. B. Implantologie, Facelift), die Zahlen vor dem Pitch im Discovery-Call-Brief neu rechnen.
+## Folie 7 (Vorschau-Anzeigen)
 
-## Folie 8 (Fallstudie) — Pflicht-Hinweis
+- Drei Anzeigen für die profitabelste Behandlung der Praxis, Bauzeit unter einer Stunde pro Praxis.
+- Ohne Gesicht und Stimme des Arztes (Animation, Text, Bilder). Vor einer unterschriebenen Einwilligung wird nie das Gesicht oder die Stimme eines Arztes nachgebaut.
+- HWG-sauber vor dem Gespräch prüfen: kein Vorher-Nachher, keine KI-Patientinnen, keine KI-Ergebnisse.
+- Keine Zahlen auf der Folie.
+- Fehlen die Anzeigen, Folie ausblenden.
 
-Die Folie ist als Platzhalter markiert (sichtbar auf der Folie + im Speaker-Note). EINS hat zum Stand 2026-04-27 keine geschlossenen Klinik-Cases. Drei Optionen vor dem Pitch:
+## Folie 9 (Fallstudie)
 
-1. **Folie überspringen.** In PowerPoint die Folie ausblenden (Rechtsklick → Folie ausblenden).
-2. **Mit echtem Q3-2026-Mandant ersetzen.** Sobald der erste Case dokumentiert ist, Zahlen und Zitat eintragen, Internal-Hinweis löschen.
-3. **Mit zitierter Branchen-Case-Study ersetzen.** Z. B. „1.252 % ROAS bei Implantat-Kampagne, Australien 2018" (Notion `Statistiken` #3) mit klarer Quellenangabe.
+Platzhalter ohne Zahlen. EINS hat noch keine eigenen Ergebnisse. Vor dem Pitch:
 
-Niemals als eigene EINS-Klinik claimen. Speaker-Note auf Folie 8 erinnert daran.
+1. **Folie ausblenden.** Rechtsklick, Folie ausblenden.
+2. **Mit echtem Kundenfall ersetzen.** Zitat und Zahlen mit Freigabe der Praxis eintragen, Internal-Hinweis löschen.
+3. **Mit zitiertem Branchenwert ersetzen.** Z. B. "1.252 % Werbeertrag bei Implantat-Kampagne, Australien 2018" (Vault-Notiz `10 EINS/Markt/Statistiken` #3) mit klarer Quellenangabe.
 
-## Folie 11 (Garantie) — gilt nur für ersten zwei Mandate
+Nie als eigene EINS-Praxis ausgeben.
 
-Die 6-fache Garantie ist in dieser Stärke nur für die ersten zwei Mandate Q3 2026 verfügbar. Ab Mandant #3 gilt die normale 90-Tage-Garantie aus dem `[Intern] Angebot`-Notion-Doc.
+## Folie 12 (Garantie)
 
-Wichtig: Niemals als „Pilot" framen. Das Wort taucht im Deck nicht auf (verifiziert per Grep).
+- Wortlaut wörtlich aus Kanon Abschnitt 5, nichts ergänzen.
+- Beide Grenzen immer zusammen nennen, auch mündlich: "erste qualifizierte Anfrage über EINS" und "90 Tage".
+- Nie "wir garantieren Anfragen", keine Rückzahlung versprechen.
+- Die Wörter Probe, Test und Pilot kommen im Deck nicht vor. Keine Knappheit, keine Frist.
+- Gilt für jede Praxis. Werbebudget trägt keine eigene Garantie.
 
-## Folie 12 (Pricing) — Decoy-Struktur
+## Folie 13 (Material und Klon)
 
-- Paket A (Standard, 2.600 €/Monat) ist der Anker.
-- **Paket B (Empfohlen, 3.900 €/Monat) ist das Ziel.** Der Empfohlen-Pin und Mint-Akzent leiten dorthin.
-- Paket C (Premium+, 5.900 €/Monat, 6 Monate Mindestlaufzeit) ist der Decoy. Macht B vernünftig.
+- Wortlaut wörtlich aus Kanon Abschnitt 7. "dauerhaft nutzen", nie "Urheberrecht".
+- Vertragsgrundlage: Hauptdienstleistungsvertrag § 9 und Einwilligung KI-Abbild und Stimme.
+- Vor der ersten Unterschrift: Anwalt (Kennzeichnung des Klons nach AI Act Art. 50, Berufsrecht MBO-Ä § 27).
 
-Nicht Paket A drücken, nicht Paket C verkaufen.
+## Folie 14 (Investition)
+
+- Ein Paket: 1.900 € netto im Monat, keine Einrichtungsgebühr, monatlich kündbar. Keine Optionen, keine Staffel.
+- Erste Rechnung erst mit der ersten qualifizierten Anfrage über EINS.
+- Werbebudget ist der nächste Schritt, keine Pflicht. Keine Mindest- oder Richtzahl nennen.
+- Die Betreuung der Anzeigen ist im Preis enthalten.
 
 ## Re-Build
 
-Wenn Copy oder Zahlen sich ändern, einfach das Build-Script erneut laufen lassen. Re-runs sind deterministisch.
+Wenn Copy oder Zahlen sich ändern, das Build-Script erneut laufen lassen. Re-runs sind deterministisch.
 
 ```powershell
-cd D:\Desktop\EINSWebsite\sales-deck
+cd D:\Desktop\EINSCodebase\sales-deck
 python build_deck.py
 ```
 
@@ -65,36 +106,36 @@ pip install python-pptx Pillow
 
 | Inhalt | Quelle |
 |---|---|
-| 6-fache Garantie + Counter-asks | `apps/website/components/sections/guarantee.tsx:7-44` |
-| Hero-Stimme, Scarcity-Badge | `apps/website/components/sections/hero.tsx` |
-| Basispaket (5 Items) | `apps/website/lib/offer-data.ts:8-66` |
-| Standard vs. Premium (Retainer) | `apps/website/lib/offer-data.ts:74-88` |
-| ROI-Szenarien (für Folie 10) | `apps/website/lib/offer-data.ts:99-105` |
-| FAQ / Einwand-Vorgriff | `apps/website/lib/objections-data.ts` |
-| Onboarding-Timeline | `apps/website/lib/timeline-data.ts` |
-| 72%-Zahl (Folie 6) | rater8 Healthcare Trends 2025 (Notion `Statistiken` #8) |
-| Brand-Tokens (Farben, Schriften) | Notion `Branding` |
-| Positionierung, ICP, Pricing | Notion `EINS Grundlagen`, `[Intern] Angebot (Schönheitskliniken)` |
-| Voice-Regeln (Sie-Form, keine Em-Dashes, keine „Pilot"-Sprache) | Notion `Branding` + Handoff `2026-04-27-0227` |
+| Drei Ebenen (Folie 8, 10, 14) | `docs/umbau-ki-organisch/KANON.md` Abschnitt 3 |
+| Preis, Werbebudget (Folie 11, 14) | Kanon Abschnitt 4 |
+| Garantie (Folie 12) | Kanon Abschnitt 5 |
+| Mitwirkung der Praxis (Folie 12, 15) | Kanon Abschnitt 6 |
+| Material und Klon (Folie 13) | Kanon Abschnitt 7 |
+| KI-Regeln (Folie 7, 13) | Kanon Abschnitt 8 |
+| Vorschau-Anzeigen, Ablauf (Folie 7, 15) | Kanon Abschnitt 9 |
+| Einwände (Folie 16) | Kanon Abschnitt 10 |
+| 72-Prozent-Zahl (Folie 6) | rater8 Healthcare Trends 2025 (Vault-Notiz `10 EINS/Markt/Statistiken` #8) |
+| Brand-Tokens (Farben, Schriften) | Vault-Notiz `10 EINS/Infrastruktur/Branding` |
+| Positionierung, ICP | Vault-Notiz `10 EINS/Infrastruktur/EINS Grundlagen` |
+| Gesprächswortlaut und Einwände | `EINS Dokumente\Sales Deck\Closing-Leitfaden.md` |
 
 ## Animations-Hinweise (in PowerPoint nachjustieren)
 
-Das Build-Script setzt nur die Slide-Transitions (Fade durch Schwarz, 0,4 s). Per-Element Click-Animationen können in PowerPoint manuell gesetzt werden:
+Das Build-Script setzt nur die Folien-Übergänge (Fade durch Schwarz, 0,4 s). Klick-Animationen in PowerPoint von Hand:
 
-- Folie 5 (Ziele): pro Goal `Erscheinen` auf `Mit Klick`, 0,3 s
+- Folie 5 (Ziele): pro Ziel `Erscheinen` auf `Mit Klick`, 0,3 s
 - Folie 6 (Lücken): pro Lücke `Erscheinen` auf `Mit Klick`, 0,3 s
-- Folie 9 (Leistungen): jeden Pfeil sequentiell `Erscheinen`, 0,4 s, vorheriger Bullet-Trigger
-- Folie 10 (Value Equation): jede Zeile `Wischen` von links, 0,3 s, mit Klick
-- Folie 12 (Preise): Paket B `Vergrößern/Verkleinern` 95→100 %, 0,4 s, automatisch beim Folienstart
+- Folie 7 (Vorschau-Anzeigen): pro Anzeige `Erscheinen` auf `Mit Klick`, 0,3 s
+- Folie 10 (Leistungen): pro Ebene `Erscheinen` auf `Mit Klick`, 0,4 s
+- Folie 11 (Wertgleichung): jede Zeile `Wischen` von links, 0,3 s, mit Klick
 
-Diese Animationen sind im Plan `C:\Users\karam\.claude\plans\role-you-are-building-vast-unicorn.md` (Animations-Tabelle) dokumentiert.
+## Checkliste vor jedem Pitch
 
-## Checklist vor jedem Pitch
-
-- [ ] Klinik-Logo auf Folie 1 eingesetzt
+- [ ] Praxis-Logo auf Folie 1 eingesetzt
 - [ ] Alle `[BRACKETED]` Platzhalter ersetzt
-- [ ] Folie 5 Ziele auf den Discovery-Call abgestimmt
-- [ ] Folie 8 entweder ausgeblendet, mit echtem Case ersetzt oder mit Branchen-Case + Quelle ergänzt
-- [ ] Folie 10 Zahlen für die jeweilige Klinik gerechnet (nicht Default lassen)
-- [ ] Folie 15 Follow-up-Datum gesetzt
-- [ ] Animationen geprüft im Präsentationsmodus (Slides 5, 6, 9, 10, 12)
+- [ ] Folie 5 Ziele auf das Vorgespräch abgestimmt
+- [ ] Folie 7 drei fertige Vorschau-Anzeigen eingesetzt und auf HWG geprüft
+- [ ] Folie 9 ausgeblendet, mit echtem Fall ersetzt oder mit Branchenwert und Quelle ergänzt
+- [ ] Folie 11 Zahlen der Praxis gerechnet
+- [ ] Folie 17 Folgetermin gesetzt
+- [ ] Animationen geprüft im Präsentationsmodus (Folien 5, 6, 7, 10, 11)

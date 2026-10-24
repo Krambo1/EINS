@@ -1,5 +1,6 @@
 import { normalizedLead, type CRMAdapter } from "./adapter";
 import { isAllowedWebhookUrl } from "./webhook-guard";
+import { webhookHeaders } from "./signing";
 import type { QuizSubmissionPayload, CRMAdapterResult } from "../types";
 
 /**
@@ -40,10 +41,12 @@ export const ghlAdapter: CRMAdapter = {
     };
 
     try {
+      // L-16: signed like the raw adapter (GHL ignores the header).
+      const body = JSON.stringify(flat);
       const res = await fetch(webhookUrl, {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(flat),
+        headers: webhookHeaders(payload.clinicSlug, body),
+        body,
         signal: AbortSignal.timeout(5000),
       });
       return { ok: res.ok, message: res.ok ? undefined : `GHL responded ${res.status}` };

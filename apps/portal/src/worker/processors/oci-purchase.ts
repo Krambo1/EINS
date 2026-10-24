@@ -1,4 +1,5 @@
 import {
+  conversionOrderId,
   loadOutboxRow,
   loadRequestForOutbox,
   markFailed,
@@ -7,10 +8,14 @@ import {
 } from "@/server/ads-conversion-outbox";
 import { loadClinicAdsConfig } from "@/server/conversion-config";
 import {
+  clampConversionTime,
+  classifyOciFailure,
   refreshGoogleAccessTokenForClinic,
   uploadClickConversion,
 } from "@/server/google-ads-oci";
-import { hashEmail, hashPhone } from "@/server/meta-capi";
+import { ADS_MAX_ATTEMPTS } from "@/lib/queues";
+import { hashEmail, hashPhoneForGoogle } from "@/server/meta-capi";
+import { googlePurchaseSkipReason } from "@/lib/ads-report-gate";
 
 /**
  * Google Ads Offline Conversion Import worker — uploads a single
@@ -20,7 +25,7 @@ import { hashEmail, hashPhone } from "@/server/meta-capi";
  * Triggered by `enqueueInvoiceConversions` (see ads-conversion-outbox.ts).
  * Idempotency at two levels:
  *   • outbox `status=sent` → return early (pg-boss replay protection).
- *   • Google `order_id = pvs_event_log_id` → Google dedupes within 24h
+ *   • Google `order_id = outbox dedup key (per invoice)` → Google dedupes within 24h
  *     even on retry-from-scratch, AND if a user revisits the outbox
  *     dashboard and clicks "retry" weeks later, the conversion is still
  *     attached to the same order.
@@ -34,7 +39,8 @@ export interface OciPurchaseJob {
   outboxId: string;
 }
 
-const MAX_ATTEMPTS = 3;
+// Pass 2: matches the queue's ADS_RETRY (was 3 against 3 quick retries).
+const MAX_ATTEMPTS = ADS_MAX_ATTEMPTS;
 
 export async function processOciPurchase(job: OciPurchaseJob): Promise<void> {
   const row = await loadOutboxRow(job.outboxId);
@@ -65,11 +71,13 @@ export async function processOciPurchase(job: OciPurchaseJob): Promise<void> {
     return;
   }
 
-  // OCI requires at least one click id (gclid > wbraid > gbraid). Without
-  // any of them we have nothing to attach to and the upload will fail with
-  // an InvalidArgument; skip cleanly instead.
-  if (!request.gclid && !request.wbraid && !request.gbraid) {
-    await markSkipped(row.id, "no_google_click_id");
+  // Report gate (owner decision 2026-10-06): only with the person's active
+  // form consent (checked at send time, so a revoke before this point stops
+  // the report) AND a Google click id (gclid > wbraid > gbraid). Without a
+  // click id OCI has nothing to attach to.
+  const skipReason = googlePurchaseSkipReason(request);
+  if (skipReason) {
+    await markSkipped(row.id, skipReason);
     return;
   }
 
@@ -99,7 +107,7 @@ export async function processOciPurchase(job: OciPurchaseJob): Promise<void> {
     ? hashEmail(request.contactEmail)
     : undefined;
   const hashedPhone = request.contactPhone
-    ? hashPhone(request.contactPhone)
+    ? hashPhoneForGoogle(request.contactPhone)
     : undefined;
 
   const result = await uploadClickConversion(
@@ -112,10 +120,12 @@ export async function processOciPurchase(job: OciPurchaseJob): Promise<void> {
       gclid: request.gclid,
       wbraid: request.wbraid,
       gbraid: request.gbraid,
-      occurredAt: row.occurredAt,
+      // Pass 2: never before the click (the lead's arrival) nor in the
+      // future; Google rejects both permanently.
+      occurredAt: clampConversionTime(row.occurredAt, request.createdAt, new Date()),
       valueEur: Number(row.valueEur),
       currency: row.currency,
-      orderId: row.pvsEventLogId,
+      orderId: conversionOrderId(row),
       hashedEmail,
       hashedPhone,
     },
@@ -135,8 +145,15 @@ export async function processOciPurchase(job: OciPurchaseJob): Promise<void> {
     return;
   }
 
+  // Pass 2: a duplicate means an earlier attempt landed (its response was
+  // lost); an error no retry can fix stops now instead of burning retries.
+  const kind = classifyOciFailure(result);
+  if (kind === "already_sent") {
+    await markSent(row.id, result.status, result.body, userDataSnapshot);
+    return;
+  }
   const nextAttempt = row.attemptCount + 1;
-  const finalAttempt = nextAttempt >= MAX_ATTEMPTS;
+  const finalAttempt = kind === "permanent" || nextAttempt >= MAX_ATTEMPTS;
   await markFailed(row.id, result.status, result.body, nextAttempt, finalAttempt);
   if (!finalAttempt) {
     throw new Error(`oci http ${result.status}`);

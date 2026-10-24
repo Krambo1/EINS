@@ -1,5 +1,6 @@
 import type { CanonicalEvent } from "../canonical/types.js";
 import type { PvsLinkRow } from "../db/client.js";
+import type { InitialSyncState, SyncChunk } from "./_shared/stream-sync.js";
 
 /**
  * Adapter contract. Each PVS vendor implements a subset of these methods:
@@ -15,10 +16,28 @@ import type { PvsLinkRow } from "../db/client.js";
  * `initialSync` yields events as an AsyncIterable so the caller can stream
  * them straight into postBatch without buffering 50k rows in memory.
  *
- * Errors thrown from any method propagate to the scheduler, which records
- * a failure and pushes `pvs_link.status='error'` after FAIL_THRESHOLD
- * consecutive failures.
+ * Errors thrown from any method propagate to the scheduler, which records the
+ * failure in pvs_sync_status (last_error, consecutive_failure_count) and retries
+ * with backoff. The bridge never writes pvs_link.status='error': the portal
+ * rejects every event for such a link, so it could not recover.
  */
+
+/** Per-call context the scheduler hands to an adapter. */
+export interface AdapterRunContext {
+  /** Aborted on the scheduler's wall-clock deadline or on shutdown. Adapters
+   *  must pass it to every fetch so a deadline CANCELS the work. */
+  signal?: AbortSignal;
+  /** Poll start time (clamp for the next cursor). Default: now. */
+  now?: Date;
+  /** Epoch ms after which a streaming poll should stop pulling new pages and
+   *  persist where it stopped (the poll's time budget, a bit earlier than the
+   *  hard deadline that aborts the signal). */
+  deadlineAt?: number;
+  /** Streams the scheduler has rejected during this poll. The adapter stops
+   *  reading them and leaves their watermark unchanged. Mutated by the
+   *  scheduler while the poll runs. */
+  failedStreams?: ReadonlySet<string>;
+}
 
 export interface AdapterPollResult {
   events: CanonicalEvent[];
@@ -58,8 +77,33 @@ export interface Adapter {
    */
   poll?(
     link: PvsLinkRow,
-    cursor: string | null
+    cursor: string | null,
+    ctx?: AdapterRunContext
   ): Promise<AdapterPollResult>;
+
+  /**
+   * Streaming incremental poll (preferred by the scheduler over `poll`): yields
+   * one chunk per vendor page; the scheduler posts a chunk's events, then (when
+   * chunk.cursor is set) checkpoints, before pulling the next chunk. Memory is
+   * bounded by one page and a failure mid-poll keeps the progress made so far.
+   */
+  pollChunks?(
+    link: PvsLinkRow,
+    cursor: string | null,
+    ctx?: AdapterRunContext
+  ): AsyncIterable<SyncChunk>;
+
+  /**
+   * Resumable initial sync: yields one chunk per vendor page, each carrying the
+   * resume token (see InitialSyncState) for the NEXT page. The scheduler
+   * persists the token after every accepted chunk and passes it back in after a
+   * restart. Adapters without it fall back to the all-or-nothing `initialSync`.
+   */
+  initialChunks?(
+    link: PvsLinkRow,
+    state: InitialSyncState,
+    ctx?: AdapterRunContext
+  ): AsyncIterable<SyncChunk>;
 
   /**
    * Build the adapter's cursor token representing "everything before

@@ -19,7 +19,9 @@
  * file-hash-scoped) so rolling N-day exports don't double-write.
  */
 
+import { createHash } from "node:crypto";
 import type { CanonicalEvent } from "./normalize.js";
+import { berlinDateToUtcIso, berlinWallClockToUtcIso } from "./berlin-time.js";
 
 export type CsvStream =
   | "patients"
@@ -96,6 +98,15 @@ export type CsvMapping =
     }
   | (InvoiceOpts & {
       stream: "invoices";
+      /**
+       * What the mapped amount column holds. "row" (default when absent): each
+       * row carries its own payment / line amount and rows of one invoice are
+       * summed. "invoice": the column is an invoice-level total (Rechnungsbetrag,
+       * Gesamtbetrag, Endbetrag, Rechnungssumme) that is REPEATED on every
+       * line-item / payment row of the invoice and must not be summed per row.
+       * Set by detectMapping / autoDetectMapping.
+       */
+      amountScope?: "row" | "invoice";
       columns: {
         pvsPatientId: string;
         pvsInvoiceId: string;
@@ -157,6 +168,28 @@ export function mapCsvRow(ctx: CsvMapRowContext): CsvMapRowResult {
 // Per-stream mappers
 // ---------------------------------------------------------------
 
+/**
+ * Event id with a short deterministic revision of the row's business payload.
+ * The outbox dedups on the event id, so an id keyed only on the PVS id would
+ * swallow a changed e-mail / phone / rescheduled appointment. The hash covers
+ * normalized payload fields only (never occurredAt or other volatile values),
+ * so re-reading an unchanged export reproduces the identical id. The source id
+ * is truncated if needed to keep the whole id <= 200 chars; the hash still
+ * covers the full id, so truncation cannot cause a collision.
+ */
+function revisionedEventId(
+  prefix: string,
+  id: string,
+  fields: ReadonlyArray<string | null | undefined>
+): string {
+  const rev = createHash("sha256")
+    .update(JSON.stringify([id, ...fields.map((x) => x ?? null)]))
+    .digest("hex")
+    .slice(0, 12);
+  const maxId = 200 - prefix.length - 1 - rev.length;
+  return `${prefix}${id.length > maxId ? id.slice(0, maxId) : id}:${rev}`;
+}
+
 function mapPatientRow(
   ctx: CsvMapRowContext,
   m: Extract<CsvMapping, { stream: "patients" }>
@@ -164,7 +197,7 @@ function mapPatientRow(
   const v = pluckColumns(ctx.row, m.columns);
   if (!v.pvsPatientId) return { ok: false, reason: "missing pvsPatientId" };
 
-  const dob = v.dob ? parseDate(v.dob, m.dateFormat) : null;
+  const dob = v.dob ? parseDate(v.dob, m.dateFormat, "dob") : null;
   if (v.dob && !dob) return { ok: false, reason: `invalid dob: ${v.dob}` };
 
   // M-P4: when the CSV carries a Vorname-like column AND a Name/Nachname-like
@@ -184,7 +217,15 @@ function mapPatientRow(
     kind: "PatientUpserted",
     clinicId: ctx.clinicId,
     bridgeSource: "gdt_agent",
-    pvsExternalEventId: `csv-local:patient:${v.pvsPatientId}`,
+    pvsExternalEventId: revisionedEventId("csv-local:patient:", v.pvsPatientId, [
+      email,
+      v.phone,
+      fullName,
+      dob,
+      normaliseGender(v.gender),
+      v.bemerkung,
+      v.externalId,
+    ]),
     // H4: deterministic occurredAt. The event id keys on the stable patient id,
     // so prefer the file mtime (stable across re-exports) over the wall clock;
     // the latter only survives as the back-compat fallback until the watcher
@@ -218,7 +259,19 @@ function mapAppointmentRow(
     kind: "AppointmentCreated",
     clinicId: ctx.clinicId,
     bridgeSource: "gdt_agent",
-    pvsExternalEventId: `csv-local:appointment:${v.pvsAppointmentId}`,
+    pvsExternalEventId: revisionedEventId(
+      "csv-local:appointment:",
+      v.pvsAppointmentId,
+      [
+        v.pvsPatientId,
+        scheduledAt,
+        v.treatmentCode,
+        v.treatmentLabel,
+        v.locationCode,
+        v.locationLabel,
+        v.bemerkung,
+      ]
+    ),
     occurredAt: scheduledAt,
     pvsPatientId: v.pvsPatientId,
     pvsAppointmentId: v.pvsAppointmentId,
@@ -278,7 +331,18 @@ function mapEncounterRow(
     kind: "EncounterCompleted",
     clinicId: ctx.clinicId,
     bridgeSource: "gdt_agent",
-    pvsExternalEventId: `csv-local:encounter:${v.pvsEncounterId}`,
+    pvsExternalEventId: revisionedEventId(
+      "csv-local:encounter:",
+      v.pvsEncounterId,
+      [
+        v.pvsPatientId,
+        v.pvsAppointmentId,
+        completedAt,
+        v.treatmentCode,
+        v.treatmentLabel,
+        v.practitionerLabel,
+      ]
+    ),
     occurredAt: completedAt,
     pvsPatientId: v.pvsPatientId,
     pvsEncounterId: v.pvsEncounterId,
@@ -306,7 +370,12 @@ function mapRecallRow(
     kind: "RecallScheduled",
     clinicId: ctx.clinicId,
     bridgeSource: "gdt_agent",
-    pvsExternalEventId: `csv-local:recall:${v.pvsRecallId}`,
+    pvsExternalEventId: revisionedEventId("csv-local:recall:", v.pvsRecallId, [
+      v.pvsPatientId,
+      recallAt,
+      v.treatmentCode,
+      v.treatmentLabel,
+    ]),
     occurredAt: recallAt,
     pvsPatientId: v.pvsPatientId,
     pvsRecallId: v.pvsRecallId,
@@ -317,75 +386,378 @@ function mapRecallRow(
   return { ok: true, events: [event] };
 }
 
-function mapInvoiceRow(
-  ctx: CsvMapRowContext,
+/**
+ * Words that start a footer / summary line of a printed or exported report
+ * ("Summe", "Gesamt", "Übertrag" ...). Matched against the FIRST NON-EMPTY cell
+ * of a row and the mapped invoice-id / patient-id cells (trimmed, case-insensitive): a treatment text such as "Total
+ * Body Lifting" in a later cell must not turn a real invoice row into a footer. The negative lookahead keeps real names such
+ * as "Summerfield" or "Totalis" out of the net.
+ */
+const FOOTER_CELL_RE =
+  /^(summen?|gesamt(summe|betrag)?|endsumme|total|übertrag|uebertrag|zwischensumme)(?![a-zäöüß])/i;
+
+function isFooterRow(
+  row: Record<string, string>,
+  columns?: { pvsInvoiceId?: string; pvsPatientId?: string }
+): boolean {
+  const isFooterCell = (cell: string | undefined): boolean => {
+    const t = typeof cell === "string" ? cell.trim() : "";
+    return t !== "" && FOOTER_CELL_RE.test(t);
+  };
+  // Also the mapped invoice-id / patient-id cells: a "Gesamtsumme" there is a
+  // summary line even when it is not the row's first cell.
+  if (columns) {
+    if (columns.pvsInvoiceId && isFooterCell(row[columns.pvsInvoiceId])) return true;
+    if (columns.pvsPatientId && isFooterCell(row[columns.pvsPatientId])) return true;
+  }
+  for (const cell of Object.values(row)) {
+    const t = typeof cell === "string" ? cell.trim() : "";
+    if (t) return isFooterCell(t);
+  }
+  return false;
+}
+
+/** Outcome category of a single invoice row that did not yield a signed amount. */
+export type InvoiceSkipKind =
+  | "footer" // summary line or empty invoice cell
+  | "storno" // storniert/Storno status with a positive amount
+  | "not_paid" // status column says offen / unknown
+  | "invalid"; // missing field, bad date, bad amount
+
+export type InvoiceRowParse =
+  | {
+      ok: true;
+      patientId: string;
+      invoiceId: string;
+      /** SIGNED integer cents: refunds are negative. */
+      cents: number;
+      at: string;
+      appointmentId: string | null;
+      encounterId: string | null;
+      /** Pass 2: a positive row marked storniert. cents is 0; the row still
+       *  names its invoice so an all-storno invoice can be emitted as 0 €. */
+      storno?: boolean;
+    }
+  | { ok: false; kind: InvoiceSkipKind; reason: string };
+
+function parseInvoiceRow(
+  row: Record<string, string>,
   m: Extract<CsvMapping, { stream: "invoices" }>
-): CsvMapRowResult {
-  const v = pluckColumns(ctx.row, m.columns);
-  if (!v.pvsPatientId) return { ok: false, reason: "missing pvsPatientId" };
-  if (!v.pvsInvoiceId) return { ok: false, reason: "missing pvsInvoiceId" };
-  if (!v.amount) return { ok: false, reason: "missing amount" };
-  if (!v.paidAt) return { ok: false, reason: "missing paidAt" };
+): InvoiceRowParse {
+  const v = pluckColumns(row, m.columns);
+  // Footer / summary lines ("Summe;ges;150,00;07.10.2026") and rows without an
+  // invoice number are never invoices.
+  if (isFooterRow(row, m.columns)) {
+    return { ok: false, kind: "footer", reason: "summary/footer row; skipped" };
+  }
+  if (!v.pvsInvoiceId) {
+    return { ok: false, kind: "footer", reason: "missing pvsInvoiceId" };
+  }
+  if (!v.pvsPatientId) {
+    return { ok: false, kind: "invalid", reason: "missing pvsPatientId" };
+  }
+  if (!v.amount) return { ok: false, kind: "invalid", reason: "missing amount" };
+  if (!v.paidAt) return { ok: false, kind: "invalid", reason: "missing paidAt" };
 
-  const paidAt = parseDateTime(v.paidAt, m.dateFormat);
-  if (!paidAt) return { ok: false, reason: `invalid paidAt: ${v.paidAt}` };
+  const at = parseInvoiceInstant(v.paidAt, m.dateFormat);
+  if (!at) return { ok: false, kind: "invalid", reason: "invalid paidAt" };
 
-  const amountCents = parseAmountToCents(v.amount, m.amountUnit);
-  if (amountCents === null) {
-    return { ok: false, reason: `invalid amount: ${v.amount}` };
+  const cents = parseAmountToCents(v.amount, m.amountUnit);
+  if (cents === null) {
+    return { ok: false, kind: "invalid", reason: "invalid amount" };
   }
 
-  // H1: negative amounts are Stornobuchungen. Map them to InvoiceRefunded with
-  // the absolute magnitude and a dedicated id namespace (csv-local:invoice-
-  // refund:) so a refund can never collide with the paid event of the same
-  // invoice. This happens BEFORE the status gate: a storniert row with a
-  // negative amount is still a real refund.
-  if (amountCents < 0) {
-    const refund: CanonicalEvent = {
-      kind: "InvoiceRefunded",
-      clinicId: ctx.clinicId,
-      bridgeSource: "gdt_agent",
-      pvsExternalEventId: `csv-local:invoice-refund:${v.pvsInvoiceId}`,
-      occurredAt: paidAt,
-      pvsPatientId: v.pvsPatientId,
-      pvsInvoiceId: v.pvsInvoiceId,
-      pvsAppointmentId: v.pvsAppointmentId ?? undefined,
-      refundedAmountCents: Math.abs(amountCents),
-      currency: "EUR",
-      refundedAt: paidAt,
-    };
-    return { ok: true, events: [refund] };
-  }
-
-  // H2: when a Zahlstatus column is mapped, a positive row only counts as
-  // revenue if the status reads as paid. Open / storniert / unknown rows are
-  // skipped with a distinct, counted reason (the watcher tallies skips and
-  // logs the first few). Without a status column, behavior is unchanged: the
-  // row is booked as paid.
-  if (m.columns.statusColumn) {
+  // H2: when a Zahlstatus column is mapped, a POSITIVE row only counts as
+  // revenue if the status reads as paid. Negative amounts are real refunds
+  // regardless of status (H1), so they bypass this gate. Storniert rows with a
+  // positive amount are neither revenue nor refund; they are counted apart.
+  if (cents >= 0 && m.columns.statusColumn) {
+    if (isStornoInvoiceStatus(v.statusColumn)) {
+      return {
+        ok: true,
+        patientId: v.pvsPatientId,
+        invoiceId: v.pvsInvoiceId,
+        cents: 0,
+        at,
+        appointmentId: v.pvsAppointmentId ?? null,
+        encounterId: v.pvsEncounterId ?? null,
+        storno: true,
+      };
+    }
     if (!isPaidInvoiceStatus(v.statusColumn)) {
       return {
         ok: false,
+        kind: "not_paid",
         reason: `invoice not paid (status=${v.statusColumn ?? "<empty>"}); skipped`,
       };
     }
   }
-
-  const event: CanonicalEvent = {
-    kind: "InvoicePaid",
-    clinicId: ctx.clinicId,
-    bridgeSource: "gdt_agent",
-    pvsExternalEventId: `csv-local:invoice:${v.pvsInvoiceId}`,
-    occurredAt: paidAt,
-    pvsPatientId: v.pvsPatientId,
-    pvsInvoiceId: v.pvsInvoiceId,
-    pvsAppointmentId: v.pvsAppointmentId ?? undefined,
-    pvsEncounterId: v.pvsEncounterId ?? undefined,
-    amountCents,
-    currency: "EUR",
-    paidAt,
+  return {
+    ok: true,
+    patientId: v.pvsPatientId,
+    invoiceId: v.pvsInvoiceId,
+    cents,
+    at,
+    appointmentId: v.pvsAppointmentId ?? null,
+    encounterId: v.pvsEncounterId ?? null,
   };
-  return { ok: true, events: [event] };
+}
+
+function invoiceEvent(
+  clinicId: string,
+  p: {
+    patientId: string;
+    invoiceId: string;
+    totalCents: number;
+    at: string;
+    appointmentId: string | null;
+    encounterId: string | null;
+    /** Pass 2: producer revision (file mtime); decides before dates in derive. */
+    sourceRevision?: number;
+  }
+): CanonicalEvent {
+  const rev = p.sourceRevision !== undefined ? { sourceRevision: p.sourceRevision } : {};
+  if (p.totalCents < 0) {
+    const abs = Math.abs(p.totalCents);
+    return {
+      kind: "InvoiceRefunded",
+      clinicId,
+      bridgeSource: "gdt_agent",
+      pvsExternalEventId: `csv-local:refund:${p.invoiceId}:${abs}`,
+      occurredAt: p.at,
+      pvsPatientId: p.patientId,
+      pvsInvoiceId: p.invoiceId,
+      pvsAppointmentId: p.appointmentId ?? undefined,
+      refundedAmountCents: abs,
+      currency: "EUR",
+      refundedAt: p.at,
+      ...rev,
+    };
+  }
+  return {
+    kind: "InvoicePaid",
+    clinicId,
+    bridgeSource: "gdt_agent",
+    pvsExternalEventId: `csv-local:invoice:${p.invoiceId}:${p.totalCents}`,
+    occurredAt: p.at,
+    pvsPatientId: p.patientId,
+    pvsInvoiceId: p.invoiceId,
+    pvsAppointmentId: p.appointmentId ?? undefined,
+    pvsEncounterId: p.encounterId ?? undefined,
+    amountCents: p.totalCents,
+    currency: "EUR",
+    paidAt: p.at,
+    ...rev,
+  };
+}
+
+/**
+ * Single-row mapping (kept for callers that map one row at a time). The
+ * watcher does NOT use this for invoices: a row is not an invoice. A
+ * line-item export (one row per GOÄ-Ziffer), Teilzahlungen and corrected
+ * re-exports need per-invoice aggregation, see aggregateInvoiceRows.
+ */
+function mapInvoiceRow(
+  ctx: CsvMapRowContext,
+  m: Extract<CsvMapping, { stream: "invoices" }>
+): CsvMapRowResult {
+  const r = parseInvoiceRow(ctx.row, m);
+  if (!r.ok) return { ok: false, reason: r.reason };
+  if (r.storno) return { ok: false, reason: "invoice storniert; skipped" };
+  if (r.cents === 0) return { ok: false, reason: "zero amount; skipped" };
+  return {
+    ok: true,
+    events: [
+      invoiceEvent(ctx.clinicId, {
+        patientId: r.patientId,
+        invoiceId: r.invoiceId,
+        totalCents: r.cents,
+        at: r.at,
+        appointmentId: r.appointmentId,
+        encounterId: r.encounterId,
+      }),
+    ],
+  };
+}
+
+export interface InvoiceAggregateStats {
+  /** Data rows seen. */
+  rows: number;
+  /** Distinct invoice numbers among the accepted rows. */
+  invoices: number;
+  paidInvoices: number;
+  refundInvoices: number;
+  /** Invoices whose rows net to exactly 0 (pass 2: emitted as InvoicePaid 0). */
+  netZeroInvoices: number;
+  /** Invoice numbers that appear with more than one patient id (ignored). */
+  conflictingInvoices: number;
+  skippedFooter: number;
+  skippedNotPaid: number;
+  skippedStorno: number;
+  invalidRows: number;
+  /** Category -> count for invalid rows; keys carry no cell values. */
+  invalidReasons: Record<string, number>;
+}
+
+/**
+ * Aggregate the rows of ONE file per invoice number and build one event per
+ * invoice (defect "invoice identity = invoice number only"):
+ *
+ *   - signed cents of all accepted rows of an invoice are SUMMED (line items,
+ *     Teilzahlungen, Stornobuchungen),
+ *   - paidAt is the LATEST row date,
+ *   - net > 0  -> InvoicePaid   id csv-local:invoice:<inv>:<totalCents>
+ *   - net < 0  -> InvoiceRefunded id csv-local:refund:<inv>:<absCents>
+ *   - net 0    -> InvoicePaid 0 (pass 2). Credit lines that cancel the
+ *     invoice, or only storniert rows: the newest state of an invoice an
+ *     earlier export may have sent with its full amount. Skipping it left
+ *     that amount counting forever; derive treats the drop as a refund.
+ *   - amountScope "invoice" (Rechnungsbetrag & co., repeated on every row):
+ *     NOT summed; resolved by invoiceScopeTotal (re-issue, storno, credits).
+ *   - sourceRevision (the file mtime, from the watcher) is put on every
+ *     event, so in derive a later export wins even when its dates are older.
+ * The total is part of the id, so a corrected re-export (new total) re-emits
+ * while the identical total re-exported in an overlapping file dedups in the
+ * outbox. pvsInvoiceId stays the plain invoice number. An invoice number that
+ * carries two different patient ids inside one file is ambiguous and is
+ * ignored (counted in conflictingInvoices).
+ */
+/**
+ * Pass 2 (verifier): net total of an invoice whose amount column repeats the
+ * INVOICE total on every row (Rechnungsbetrag & co., amountScope "invoice").
+ * Rows in date order (file order on equal dates):
+ *   - positive p equal to an open credit: that credit is reversed;
+ *   - other positive p: the invoice total is now p; a new amount is a
+ *     re-issue, so credits against the old version are dropped;
+ *   - negative n with |n| = current total: storno of the current version (0);
+ *   - negative n with |n| = an earlier total: storno of a version that was
+ *     already replaced (listed after the re-issue, or repeated on a line);
+ *   - any other negative: a credit note, counted once per distinct amount
+ *     (two genuine credit notes of the same amount on one invoice count once).
+ * The old rule (latest positive + every distinct negative) turned "+1000,
+ * -1000, +800" into a 200 € refund and lost the 800 €.
+ */
+export function invoiceScopeTotal(rows: ReadonlyArray<{ cents: number; at: string }>): number {
+  const ordered = rows
+    .map((r, i) => ({ cents: r.cents, at: r.at, i }))
+    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : a.i - b.i));
+  let current = 0;
+  const seenTotals = new Set<number>();
+  let credits = new Set<number>();
+  for (const r of ordered) {
+    if (r.cents > 0) {
+      if (r.cents !== current && credits.has(-r.cents)) {
+        credits.delete(-r.cents);
+        continue;
+      }
+      if (r.cents !== current) credits = new Set();
+      current = r.cents;
+      seenTotals.add(r.cents);
+    } else if (r.cents < 0) {
+      const abs = -r.cents;
+      if (current > 0 && abs === current) {
+        current = 0;
+      } else if (!seenTotals.has(abs)) {
+        credits.add(r.cents);
+      }
+    }
+  }
+  let total = current;
+  for (const c of credits) total += c;
+  return total;
+}
+
+export function aggregateInvoiceRows(input: {
+  clinicId: string;
+  rows: ReadonlyArray<Record<string, string>>;
+  mapping: Extract<CsvMapping, { stream: "invoices" }>;
+  /** Pass 2: the file's revision (integer mtime ms); see invoiceEvent. */
+  sourceRevision?: number;
+}): { events: CanonicalEvent[]; stats: InvoiceAggregateStats } {
+  const invoiceScope = input.mapping.amountScope === "invoice";
+  const stats: InvoiceAggregateStats = {
+    rows: input.rows.length,
+    invoices: 0,
+    paidInvoices: 0,
+    refundInvoices: 0,
+    netZeroInvoices: 0,
+    conflictingInvoices: 0,
+    skippedFooter: 0,
+    skippedNotPaid: 0,
+    skippedStorno: 0,
+    invalidRows: 0,
+    invalidReasons: {},
+  };
+  interface Acc {
+    patients: Set<string>;
+    patientId: string;
+    /** Row scope: sum of signed cents. */
+    total: number;
+    /** Invoice scope: every row's total, resolved by invoiceScopeTotal. */
+    scoped: Array<{ cents: number; at: string }>;
+    at: string;
+    appointmentId: string | null;
+    encounterId: string | null;
+  }
+  const byInvoice = new Map<string, Acc>();
+  for (const row of input.rows) {
+    const r = parseInvoiceRow(row, input.mapping);
+    if (r.ok && r.storno) stats.skippedStorno++;
+    if (!r.ok) {
+      if (r.kind === "footer") stats.skippedFooter++;
+      else if (r.kind === "not_paid") stats.skippedNotPaid++;
+      else if (r.kind === "storno") stats.skippedStorno++;
+      else {
+        stats.invalidRows++;
+        stats.invalidReasons[r.reason] = (stats.invalidReasons[r.reason] ?? 0) + 1;
+      }
+      continue;
+    }
+    const acc = byInvoice.get(r.invoiceId);
+    if (!acc) {
+      const fresh: Acc = {
+        patients: new Set([r.patientId]),
+        patientId: r.patientId,
+        total: r.cents,
+        scoped: [{ cents: r.cents, at: r.at }],
+        at: r.at,
+        appointmentId: r.appointmentId,
+        encounterId: r.encounterId,
+      };
+      byInvoice.set(r.invoiceId, fresh);
+      continue;
+    }
+    acc.patients.add(r.patientId);
+    acc.total += r.cents;
+    acc.scoped.push({ cents: r.cents, at: r.at });
+    if (r.at > acc.at) acc.at = r.at;
+    acc.appointmentId ??= r.appointmentId;
+    acc.encounterId ??= r.encounterId;
+  }
+  const events: CanonicalEvent[] = [];
+  stats.invoices = byInvoice.size;
+  for (const [invoiceId, acc] of byInvoice) {
+    if (acc.patients.size > 1) {
+      stats.conflictingInvoices++;
+      continue;
+    }
+    const total = invoiceScope ? invoiceScopeTotal(acc.scoped) : acc.total;
+    if (total === 0) stats.netZeroInvoices++;
+    else if (total < 0) stats.refundInvoices++;
+    else stats.paidInvoices++;
+    events.push(
+      invoiceEvent(input.clinicId, {
+        patientId: acc.patientId,
+        invoiceId,
+        totalCents: total,
+        at: acc.at,
+        appointmentId: acc.appointmentId,
+        encounterId: acc.encounterId,
+        sourceRevision: input.sourceRevision,
+      })
+    );
+  }
+  return { events, stats };
 }
 
 // ---------------------------------------------------------------
@@ -398,16 +770,18 @@ function mapInvoiceRow(
  */
 const ALIASES: Record<string, RegExp[]> = {
   pvsPatientId: [
-    /^pat(ient)?[\s\-_.]*nr\.?$/i,
+    /^pat(ient)?(en)?[\s\-_.]*nr\.?$/i, // Patient-Nr., Patienten-Nr., Patientennr., Pat-Nr, PatNr
     /^pat(ient)?ennummer$/i,
     /^patid$/i,
-    /^patient$/i,
+    // NOT /^patient$/: a bare "Patient" column is the patient NAME
+    // ("Müller, Anna"); mapping it to the id would ship the name as an id.
     /^kundennr\.?$/i,
   ],
   pvsInvoiceId: [
-    /^rech(nung)?s?[\s\-_.]*nr\.?$/i,
+    /^rech(nung)?s?[\s\-_.]*nr\.?$/i, // Rechnungs-Nr., Rech-Nr.
     /^rechnungsnummer$/i,
-    /^belegnummer$/i,
+    /^r[eg][\s\-_.]*nr\.?$/i, // Rg.-Nr., Rg-Nr, RgNr, Re-Nr., Re.-Nr.
+    /^beleg[\s\-_.]*(nr\.?|nummer)$/i, // Belegnr, Belegnummer
     /^rechnung$/i,
     /^invoice[\s\-_.]*nr\.?$/i,
   ],
@@ -428,15 +802,6 @@ const ALIASES: Record<string, RegExp[]> = {
     /^nachsorge[\s\-_.]*nr\.?$/i,
     /^wiedervorlage[\s\-_.]*nr\.?$/i,
   ],
-  amount: [
-    /^endbetrag$/i,
-    /^rechnungsbetrag$/i,
-    /^gesamtbetrag$/i,
-    /^betrag$/i,
-    /^summe$/i,
-    /^honorar$/i,
-    /^gesamt$/i,
-  ],
   paidAt: [
     // H2: `rechnungsdatum` (and other invoice-DATE aliases) are intentionally
     // NOT here. A PVS that exports offen + bezahlt invoices with only a
@@ -444,9 +809,13 @@ const ALIASES: Record<string, RegExp[]> = {
     // Rechnungsdatum may still serve as paidAt via an EXPLICIT operator column
     // mapping (mapping.columns.paidAt = "Rechnungsdatum"), which bypasses this
     // auto-detection table entirely.
-    /^bezahl[t]?[\s\-_.]*(am|datum)?$/i,
-    /^zahldatum$/i,
-    /^zahlungsdatum$/i,
+    // A bare "Bezahlt" is a Zahlstatus (ja/nein), never a date: it lives in
+    // invoiceStatus only, so one column can never serve both fields.
+    /^bezahlt[\s\-_.]*am$/i,
+    /^bezahl[\s\-_.]*datum$/i,
+    /^zahl(ungs)?[\s\-_.]*datum$/i,
+    /^zahlungs?[\s\-_.]*eingang$/i,
+    /^eingang$/i,
     /^paid[\s\-_.]*at$/i,
   ],
   invoiceStatus: [
@@ -517,31 +886,184 @@ const ALIASES: Record<string, RegExp[]> = {
   statusColumn: [/^status$/i, /^termin[\s\-_.]*status$/i],
 };
 
+/**
+ * Version of the auto-detection alias table + resolution rules. Part of the
+ * ledger fingerprint of a file handled with auto-detected mapping: bumping it
+ * makes every previously ignored file be re-read once.
+ */
+export const AUTO_MAPPING_VERSION = 4;
+
+/**
+ * Amount column priority tiers (best first). A column from a better tier
+ * always beats a column from a worse tier, regardless of position in the file.
+ * Two DIFFERENT columns inside the best matching tier are ambiguous (netto vs
+ * brutto cannot be told apart) and the file is refused instead of guessed.
+ *
+ * Pass 2 (version 4): what was paid comes first; then the invoice-level
+ * totals (Rechnungsbetrag, Gesamtbetrag, Endbetrag, Rechnungssumme), then the
+ * row amounts. An invoice total is what the patient pays (Honorar + Auslagen
+ * such as filler or toxin, + MwSt); Honorar or Netto alone undercount it.
+ * Invoice totals are repeated on every line-item / payment row, so they carry
+ * scope "invoice" and aggregateInvoiceRows counts them once per invoice
+ * instead of summing them per row (version 3 ranked them last for that
+ * reason, at the cost of picking Honorar over Rechnungsbetrag).
+ */
+const AMOUNT_TIERS: { scope: "row" | "invoice"; patterns: RegExp[] }[] = [
+  {
+    // What was actually paid on this row.
+    scope: "row",
+    patterns: [
+      /^zahl(ungs)?[\s\-_.]*betrag$/i,
+      /^gezahlt$/i,
+      /^zahlung$/i,
+      /^betrag[\s\-_.]*bezahlt$/i,
+      /^einzahlung$/i,
+    ],
+  },
+  // Invoice-level totals, counted once per invoice (scope "invoice").
+  {
+    scope: "invoice",
+    patterns: [
+      /^endbetrag$/i,
+      /^rechnungsbetrag$/i,
+      /^gesamtbetrag$/i,
+      /^rechnungssumme$/i,
+    ],
+  },
+  {
+    scope: "row",
+    patterns: [
+      /^brutto$/i,
+      /^brutto[\s\-_.]*betrag$/i,
+      /^summe[\s\-_.]*brutto$/i,
+    ],
+  },
+  {
+    scope: "row",
+    patterns: [
+      /^betrag$/i,
+      /^betrag[\s]*\((eur|euro|€)\)$/i,
+      /^betrag[\s]+(in[\s]+)?(eur|euro|€)$/i,
+      /^betrag[\s]*(€|eur)$/i,
+    ],
+  },
+  { scope: "row", patterns: [/^summe$/i, /^gesamt$/i] },
+  // Netto / Honorar: row-level fallback.
+  {
+    scope: "row",
+    patterns: [
+      /^honorar$/i,
+      /^netto$/i,
+      /^netto[\s\-_.]*betrag$/i,
+      /^summe[\s\-_.]*netto$/i,
+    ],
+  },
+];
+
+type ResolveResult = {
+  fields: Record<string, string>;
+  /** Scope of the resolved amount column (see CsvMapping invoices.amountScope). */
+  amountScope?: "row" | "invoice";
+  /** Column names tied for the best amount tier (>= 2 means ambiguous). */
+  ambiguousAmount?: string[];
+};
+
+/** Best-alias-wins: the alias list order is the priority, not the column order. */
 function resolveField(
   headers: string[],
-  field: string
+  field: string,
+  used?: ReadonlySet<string>
 ): string | undefined {
   const patterns = ALIASES[field];
   if (!patterns) return undefined;
-  for (const header of headers) {
-    const norm = header.trim();
-    if (patterns.some((re) => re.test(norm))) return header;
+  for (const re of patterns) {
+    const hit = headers.find((h) => !used?.has(h) && re.test(h.trim()));
+    if (hit !== undefined) return hit;
   }
   return undefined;
+}
+
+function resolveAmount(
+  headers: string[],
+  used: ReadonlySet<string>
+): { column?: string; scope?: "row" | "invoice"; ambiguous?: string[] } {
+  for (const tier of AMOUNT_TIERS) {
+    const cols = [
+      ...new Set(
+        headers.filter(
+          (h) => !used.has(h) && tier.patterns.some((re) => re.test(h.trim()))
+        )
+      ),
+    ];
+    if (cols.length === 1) return { column: cols[0], scope: tier.scope };
+    if (cols.length > 1) return { ambiguous: cols };
+  }
+  return {};
 }
 
 /**
  * Resolve every alias-known field present in the headers. Used by the
  * stream-picker (which counts matched fields per stream) and by the
- * per-stream mapping builder.
+ * per-stream mapping builder. The invoice fields are resolved in a fixed order
+ * with a used-column set so one column never serves two fields.
  */
-function resolveAllFields(headers: string[]): Record<string, string> {
+function resolveAllFields(headers: string[]): ResolveResult {
   const out: Record<string, string> = {};
+  const used = new Set<string>();
+  const claim = (field: string, header: string | undefined): void => {
+    if (header !== undefined) {
+      out[field] = header;
+      used.add(header);
+    }
+  };
+  claim("pvsPatientId", resolveField(headers, "pvsPatientId", used));
+  claim("pvsInvoiceId", resolveField(headers, "pvsInvoiceId", used));
+  const amount = resolveAmount(headers, used);
+  claim("amount", amount.column);
+  claim("paidAt", resolveField(headers, "paidAt", used));
+  claim("invoiceStatus", resolveField(headers, "invoiceStatus", used));
+  const claimed = new Set(Object.keys(out));
   for (const field of Object.keys(ALIASES)) {
+    if (claimed.has(field)) continue;
+    // Fields outside the invoice group may legitimately share a column
+    // (e.g. "Name" -> fullName AND lastName, "Status" -> invoice AND
+    // appointment status); they belong to different streams.
     const header = resolveField(headers, field);
     if (header) out[field] = header;
   }
-  return out;
+  return {
+    fields: out,
+    amountScope: amount.scope,
+    ambiguousAmount: amount.ambiguous,
+  };
+}
+
+export type MappingDetection =
+  | { ok: true; mapping: CsvMapping }
+  | {
+      ok: false;
+      /** `ambiguous_amount_columns` when two columns tie for the amount. */
+      reason: "ambiguous_amount_columns" | "no_mapping";
+      columns: string[];
+    };
+
+/**
+ * Like autoDetectMapping but tells WHY nothing was detected, so the watcher
+ * can record `ambiguous_amount_columns: <names>` as the ignore reason.
+ */
+export function detectMapping(headers: string[]): MappingDetection {
+  const mapping = autoDetectMapping(headers);
+  if (mapping) return { ok: true, mapping };
+  const { fields, ambiguousAmount } = resolveAllFields(headers);
+  if (
+    ambiguousAmount &&
+    fields.pvsPatientId &&
+    fields.pvsInvoiceId &&
+    fields.paidAt
+  ) {
+    return { ok: false, reason: "ambiguous_amount_columns", columns: ambiguousAmount };
+  }
+  return { ok: false, reason: "no_mapping", columns: [] };
 }
 
 /**
@@ -551,7 +1073,7 @@ function resolveAllFields(headers: string[]): Record<string, string> {
  * Returns null if no stream has all required fields.
  */
 export function autoDetectMapping(headers: string[]): CsvMapping | null {
-  const resolved = resolveAllFields(headers);
+  const { fields: resolved, amountScope } = resolveAllFields(headers);
 
   const candidates: { mapping: CsvMapping; score: number }[] = [];
 
@@ -666,6 +1188,7 @@ export function autoDetectMapping(headers: string[]): CsvMapping | null {
       dateFormat: "DD.MM.YYYY",
       amountUnit: "eur",
       decimalSeparator: ",",
+      amountScope: amountScope ?? "row",
     };
     candidates.push({ mapping, score: countMatched(mapping.columns) });
   }
@@ -708,7 +1231,11 @@ function pluckColumns<T extends Record<string, string | undefined>>(
   return out as Record<keyof T, string | null>;
 }
 
-function parseDate(input: string, format: CommonOpts["dateFormat"]): string | null {
+function parseDate(
+  input: string,
+  format: CommonOpts["dateFormat"],
+  kind: "dob" | "event" = "event"
+): string | null {
   const trimmed = input.trim();
   if (!trimmed) return null;
   // M-P5: each branch validates SHAPE, then real CALENDAR validity below. The
@@ -725,11 +1252,12 @@ function parseDate(input: string, format: CommonOpts["dateFormat"]): string | nu
     month = Number(m[2]);
     day = Number(m[3]);
   } else if (format === "DD.MM.YYYY") {
-    const m = trimmed.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
-    if (!m) return null;
-    day = Number(m[1]);
-    month = Number(m[2]);
-    year = Number(m[3]);
+    // D.M.YYYY, DD.MM.YY (-> 20YY) and YYYY-MM-DD are all accepted.
+    const flex = parseFlexibleDateParts(trimmed, kind);
+    if (!flex || flex.hour !== undefined) return null;
+    day = flex.day;
+    month = flex.month;
+    year = flex.year;
   } else if (format === "MM/DD/YYYY") {
     const m = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
     if (!m) return null;
@@ -908,19 +1436,138 @@ function zoneOffsetMinutes(timeZone: string, utcMs: number): number {
   return Math.round((asIfUtc - utcMs) / 60_000);
 }
 
+interface FlexDateParts {
+  year: number;
+  month: number;
+  day: number;
+  hour?: number;
+  minute?: number;
+  second?: number;
+  /** Explicit UTC offset in minutes (east-positive) when the input carried one. */
+  offsetMinutes?: number;
+}
+
+/**
+ * Parse the date notations German exports use:
+ *   DD.MM.YYYY, D.M.YYYY, DD-MM-YYYY, DD/MM/YYYY, DD.MM.YY, YYYY-MM-DD,
+ * each optionally followed by a time (separated by space, "T" or ", "):
+ *   HH:MM, HH:MM:SS, HH:MM:SS.fff, optionally + "Uhr" or an explicit offset
+ *   (Z, +02:00, +0200, +02).
+ * Returns null for any other shape or an impossible calendar date (31.02.).
+ *
+ * Two-digit years: invoice / event dates are 20YY. For a date of birth
+ * (kind "dob") a two-digit year greater than the current year's last two
+ * digits is 19YY (15.03.65 -> 1965), otherwise 20YY.
+ */
+function parseFlexibleDateParts(
+  input: string,
+  kind: "dob" | "event" = "event"
+): FlexDateParts | null {
+  const t = input.trim();
+  let year: number;
+  let month: number;
+  let day: number;
+  let rest: string;
+  let m = /^(\d{4})-(\d{1,2})-(\d{1,2})(?=$|[\sT])(.*)$/.exec(t);
+  if (m) {
+    year = Number(m[1]);
+    month = Number(m[2]);
+    day = Number(m[3]);
+    rest = m[4];
+  } else {
+    m = /^(\d{1,2})([.\-/])(\d{1,2})\2(\d{4}|\d{2})(?=$|[\s,T])(.*)$/.exec(t);
+    if (!m) return null;
+    day = Number(m[1]);
+    month = Number(m[3]);
+    if (m[4].length === 2) {
+      const yy = Number(m[4]);
+      const pivot = new Date().getFullYear() % 100;
+      year = kind === "dob" && yy > pivot ? 1900 + yy : 2000 + yy;
+    } else {
+      year = Number(m[4]);
+    }
+    rest = m[5];
+  }
+  if (!isValidCalendarDate(year, month, day)) return null;
+  rest = rest.replace(/^[\s,T]+/, "").trim();
+  if (!rest) return { year, month, day };
+  const tm =
+    /^(\d{1,2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?\s*(?:uhr)?\s*(z|[+-]\d{2}(?::?\d{2})?)?$/i.exec(
+      rest
+    );
+  if (!tm) return null;
+  const hour = Number(tm[1]);
+  const minute = Number(tm[2]);
+  const second = tm[3] ? Number(tm[3]) : 0;
+  if (hour > 23 || minute > 59 || second > 59) return null;
+  let offsetMinutes: number | undefined;
+  if (tm[4]) {
+    if (tm[4].toLowerCase() === "z") {
+      offsetMinutes = 0;
+    } else {
+      const om = /^([+-])(\d{2}):?(\d{2})?$/.exec(tm[4]);
+      if (!om) return null;
+      const oh = Number(om[2]);
+      const omin = om[3] ? Number(om[3]) : 0;
+      if (oh > 14 || omin > 59) return null;
+      offsetMinutes = (om[1] === "-" ? -1 : 1) * (oh * 60 + omin);
+    }
+  }
+  return { year, month, day, hour, minute, second, offsetMinutes };
+}
+
+/**
+ * Invoice paidAt -> UTC ISO instant. A date WITHOUT time is anchored at 12:00
+ * Berlin (berlinDateToUtcIso); a date WITH time is read as Berlin wall clock,
+ * unless it carries an explicit offset / Z, in which case that instant is
+ * used. Explicit ISO_DATETIME / MM/DD/YYYY mappings keep their dedicated
+ * parsers. Excel serial day numbers are NOT accepted (a per-cell parser cannot
+ * know that the whole column uses them).
+ */
+function parseInvoiceInstant(
+  input: string,
+  format: CommonOpts["dateFormat"]
+): string | null {
+  if (format === "ISO_DATETIME" || format === "MM/DD/YYYY") {
+    const legacy = parseDateTime(input, format);
+    return legacy;
+  }
+  const p = parseFlexibleDateParts(input);
+  if (!p) return null;
+  if (p.hour !== undefined && p.offsetMinutes !== undefined) {
+    const ms =
+      Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute ?? 0, p.second ?? 0) -
+      p.offsetMinutes * 60_000;
+    return new Date(ms).toISOString();
+  }
+  const iso =
+    p.hour === undefined
+      ? berlinDateToUtcIso(p.year, p.month, p.day)
+      : berlinWallClockToUtcIso(
+          p.year,
+          p.month,
+          p.day,
+          p.hour,
+          p.minute ?? 0,
+          p.second ?? 0
+        );
+  return iso ?? null;
+}
+
 // Plausibility counter (H3). A single-invoice amount outside 0 < x <= 100_000
 // EUR is logged with a running count but NOT dropped: the value could be a
 // legitimate large procedure, and dropping it would silently understate
 // revenue. The count lets the operator spot a systematic locale/parse defect.
 let implausibleAmountCount = 0;
 
-function guardPlausibleCents(cents: number, raw: string): number {
+function guardPlausibleCents(cents: number): number {
   const abs = Math.abs(cents);
   if (abs === 0 || abs > 100_000 * 100) {
     implausibleAmountCount++;
+    // Never log the cell value (patient-adjacent data): the running count is
+    // what lets the operator spot a systematic locale/parse defect.
     console.warn(
-      `[csv-mapper] implausible invoice amount ${JSON.stringify(raw)} -> ${cents} cents ` +
-        `(expected 0 < x <= 100000 EUR); count=${implausibleAmountCount}`
+      `[csv-mapper] implausible invoice amount (expected 0 < x <= 100000 EUR); count=${implausibleAmountCount}`
     );
   }
   return cents;
@@ -928,6 +1575,11 @@ function guardPlausibleCents(cents: number, raw: string): number {
 
 /**
  * Parse a CSV amount cell into SIGNED integer cents.
+ *
+ * Accepted notations (all common in German exports):
+ *   120,00   -120,00   120,00-   (120,00)   −120,00 (U+2212)   120,00 EUR
+ *   EUR 120,00   € 120,00   120,00 €   1 234,50 (NBSP / thin-space grouping)
+ * A trailing minus or parentheses mean negative (Storno / Gutschrift).
  *
  * Locale rule (H3): last-separator-wins, replicated from db-adapters/
  * normalizer.ts's normaliseDecimalString. The old code trusted the configured
@@ -943,19 +1595,38 @@ function parseAmountToCents(
   input: string,
   unit: "cents" | "eur"
 ): number | null {
-  const cleaned = input.replace(/[€\s]/g, "").replace(/EUR/gi, "");
-  if (!cleaned || !/\d/.test(cleaned)) return null;
+  // JS \s covers NBSP (U+00A0), thin space (U+2009) and narrow NBSP (U+202F).
+  let cleaned = input
+    .replace(/[−‒–—]/g, "-")
+    .replace(/[€\s]/g, "")
+    .replace(/EUR/gi, "");
+  let negative = false;
+  const paren = /^\((.*)\)$/.exec(cleaned);
+  if (paren) {
+    negative = true;
+    cleaned = paren[1];
+  }
+  if (cleaned.endsWith("-")) {
+    negative = true;
+    cleaned = cleaned.slice(0, -1);
+  }
+  if (cleaned.startsWith("-")) {
+    negative = true;
+    cleaned = cleaned.slice(1);
+  } else if (cleaned.startsWith("+")) {
+    cleaned = cleaned.slice(1);
+  }
+  // Only digits and one kind of grouping/decimal separator may remain.
+  if (!cleaned || !/^[\d.,]+$/.test(cleaned) || !/\d/.test(cleaned)) return null;
 
-  const negative = cleaned.startsWith("-");
-  const unsigned = cleaned.replace(/^[-+]/, "");
-  const normalised = normaliseDecimalString(unsigned);
+  const normalised = normaliseDecimalString(cleaned);
   if (normalised === undefined) return null;
   const num = Number(normalised);
   if (!Number.isFinite(num)) return null;
 
   const magnitude = unit === "cents" ? Math.round(num) : Math.round(num * 100);
   const signed = negative ? -magnitude : magnitude;
-  return guardPlausibleCents(signed, input);
+  return guardPlausibleCents(signed);
 }
 
 /**
@@ -990,27 +1661,77 @@ function normaliseDecimalString(s: string): string | undefined {
   return trailing.length === 3 ? parts[0] + trailing : `${parts[0]}.${trailing}`;
 }
 
+export type InvoiceStatusClass = "paid" | "open" | "storno" | "unknown";
+
+/** Lowercase, umlaut-folded (ä->ae, ö->oe, ü->ue, ß->ss), whitespace-collapsed. */
+function foldStatus(raw: string): string {
+  return raw
+    .toLowerCase()
+    .replace(/ä/g, "ae")
+    .replace(/ö/g, "oe")
+    .replace(/ü/g, "ue")
+    .replace(/ß/g, "ss")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /**
- * Is an invoice Zahlstatus value one that means "paid"? Case-insensitive.
- * Only a recognized paid token books revenue; empty, open, storniert, or an
- * unknown token is treated as not-paid so an "export all invoices" file
- * cannot inflate revenue (H2).
+ * Classify a Zahlstatus cell of a German PVS export.
+ *
+ * Precedence: storno, then open (including the negation forms "nicht bezahlt",
+ * "unbezahlt" which would otherwise match the paid token), then paid. Only a
+ * recognized paid token books revenue; empty or unrecognized values are
+ * "unknown" and treated as not paid by the caller (H2). Single letters match
+ * only when they are the WHOLE token: B = bezahlt, O = offen, S = storno.
+ * Teilzahlung / teilweise bezahlt classify as paid: each such row carries its
+ * own paid amount and the per-invoice aggregation sums them.
  */
+export function classifyInvoiceStatus(
+  raw: string | null | undefined
+): InvoiceStatusClass {
+  if (!raw) return "unknown";
+  const v = foldStatus(raw);
+  if (!v) return "unknown";
+  if (v === "s") return "storno";
+  if (v === "b") return "paid";
+  if (v === "o") return "open";
+  if (/^(storn|gutschr|gutgeschr)/.test(v)) return "storno";
+  // Negations first: they contain the paid tokens as a substring.
+  if (
+    /^(un(bezahlt|beglichen|gezahlt|ausgeglichen|erledigt)|(noch )?nicht\b|kein\b)/.test(
+      v
+    ) ||
+    /\bnicht (bezahlt|beglichen|gezahlt|ausgeglichen|erledigt)/.test(v)
+  ) {
+    return "open";
+  }
+  if (
+    /^(offen|ausstehend|faellig|ueberfaellig|uberfaellig|uberfallig|gemahnt|mahn|zahlung (offen|ausstehend|erwartet)|nein$|no$|false$|falsch$|0$)/.test(
+      v
+    )
+  ) {
+    return "open";
+  }
+  if (
+    /^((komplett|voll|vollstaendig|teilweise|teil) ?)?(bezahlt|beglichen|gezahlt|ausgeglichen)(?![a-z])/.test(
+      v
+    ) ||
+    /^(erledigt|teilzahlung|paid|settled|ja$|yes$|1$|true$|wahr$|zahlung eingegangen|zahlungseingang|eingegangen)/.test(
+      v
+    )
+  ) {
+    return "paid";
+  }
+  return "unknown";
+}
+
 function isPaidInvoiceStatus(input: string | null): boolean {
-  if (!input) return false;
-  const v = input.trim().toLowerCase();
-  return [
-    "bezahlt",
-    "beglichen",
-    "gezahlt",
-    "paid",
-    "settled",
-    "ja",
-    "yes",
-    "1",
-    "true",
-    "wahr",
-  ].includes(v);
+  return classifyInvoiceStatus(input) === "paid";
+}
+
+/** Storniert / Storno / Stornierung / Gutschrift status (not revenue, not a refund). */
+function isStornoInvoiceStatus(input: string | null): boolean {
+  return classifyInvoiceStatus(input) === "storno";
 }
 
 function isEmail(v: string): boolean {

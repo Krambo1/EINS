@@ -361,8 +361,8 @@ Read `audit_log WHERE action IN ('pvs_event_reject', 'pvs_agent_enroll_reject')
   - Staging: Vercel firewall (`vercel firewall add deny <IP>`).
   - Local dev: not applicable; rate limit alone is enough.
 
-  After blocking, file a Notion incident note in the "Security · PVS"
-  page with the IP, the trigger, and the time of block. Review weekly:
+  After blocking, file an incident note in the Obsidian vault (`10 EINS/Infrastruktur/`, note "Security · PVS")
+  with the IP, the trigger, and the time of block. Review weekly:
   scanner IPs cycle, so a permanent block is rarely needed.
 
 **Clearing a false-positive block**: if the IP turns out to be a
@@ -459,7 +459,7 @@ issue [TBD] when scaling past 20 Praxen.
   Karam.
 - **Praxis-side cooperation problems**: never block on a Praxis admin
   for more than 30 minutes; if they're unreachable, document what you
-  tried in the Praxis's Notion page and move on. The bridge is
+  tried in the Praxis's note in the Obsidian vault and move on. The bridge is
   designed to survive offline indefinitely.
 
 ---

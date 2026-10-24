@@ -3,7 +3,7 @@
 import * as React from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { ExplainerPopover } from "@eins/ui";
-import { withBrandLogos, brandIconsOnly } from "@/app/_components/Brand";
+import { withBrandLogos } from "@/app/_components/Brand";
 import { SegmentedShareBar } from "@/app/_components/SegmentedShareBar";
 
 // Tone vocabulary mirrors `./detail-helpers` but is inlined so this client
@@ -31,29 +31,28 @@ const statToneClass: Record<BreakdownTone, string> = {
  *  explanatory and intentionally left without a help bubble. */
 const ECON_INFO: Record<string, { term: string; text: string }> = {
   cpl: {
-    term: "CPL",
+    term: "Kosten pro Anfrage",
     text: "Kosten pro Anfrage: Werbebudget geteilt durch die Zahl der Anfragen aus dieser Quelle.",
   },
   cac: {
-    term: "CAC",
+    term: "Kosten pro Patient",
     text: "Kosten pro gewonnenem Patienten: Werbebudget geteilt durch die gewonnenen Behandlungen.",
   },
   ltv: {
-    term: "LTV",
-    text: "Lebenszeitwert: durchschnittlicher Umsatz pro Patient aus dieser Quelle über die gesamte Behandlungsdauer.",
+    term: "Wert pro Patient",
+    text: "Wert pro Patient: durchschnittlicher Umsatz pro Patient aus dieser Quelle über die gesamte Behandlungsdauer.",
   },
   roas: {
-    term: "ROAS",
-    text: "Werbeertrag: wie viel Umsatz je 1 € Werbebudget zurückkommt. 6,7× bedeutet 6,70 € Umsatz pro 1 € Budget.",
+    term: "Werbeertrag",
+    text: "Werbeertrag: wie viel Umsatz je 1 € Werbebudget zurückkommt. 6,7× bedeutet 6,70 € Umsatz pro 1 € Werbebudget.",
   },
 };
 
 /**
  * Quellen-Aufschlüsselung — aufklappbare Zeilen.
  *
- * The funnel (Anteil · Anfragen · Termine · Gewonnen) stays visible in a dense
- * hairline table; selecting a source row reveals its economics (Budget · CPL ·
- * CAC · LTV · ROAS) inline beneath it. The drawer's height is always reserved
+ * One list row per source (Anfragen, Werbebudget, gewonnen); selecting a row
+ * reveals its economics (CPL · CAC · LTV · ROAS) beneath it. The drawer's height is always reserved
  * (an invisible spacer stands in when nothing is open), so the card keeps a
  * fixed height whether a row is expanded or not — expanding, collapsing, or
  * switching rows never resizes it. Above the table sit the big period total
@@ -87,24 +86,7 @@ export interface BreakdownRow {
   roasTone?: BreakdownTone | null;
 }
 
-/**
- * Short, readable Quelle names for the mobile economics-drawer caption. On a
- * phone the funnel row shows each source as a logo alone (see `brandIconsOnly`),
- * so when a row is expanded the drawer prefixes its economics with the name
- * ("Meta:") to identify which Quelle is open. Keyed by the row's source `key`;
- * the full SOURCE_LABELS values ("Meta / Instagram") are too long for the narrow
- * Quelle column, so these are deliberately terse.
- */
-const SOURCE_SHORT_LABEL: Record<string, string> = {
-  meta: "Meta",
-  google: "Google",
-  formular: "Formular",
-  manuell: "Manuell",
-  whatsapp: "WhatsApp",
-  jameda: "Jameda",
-};
-
-/** Totals row pinned to the bottom of the table. Not expandable. */
+/** Totals line under the list. */
 export interface BreakdownTotals {
   /** Row label, e.g. "Gesamt". */
   label: string;
@@ -152,7 +134,7 @@ export function BreakdownStackChart({
 
   // No channels at all (not even placeholders) — nothing to lay out.
   if (sorted.length === 0) {
-    return <p className="py-4 text-sm text-fg-secondary">{emptyText}</p>;
+    return <p className="py-4 text-base text-fg-primary">{emptyText}</p>;
   }
 
   // The actually-open key, guarded against a stale value after a range switch
@@ -167,7 +149,7 @@ export function BreakdownStackChart({
   return (
     <div className="space-y-5">
       <div>
-        <div className="text-sm font-medium text-fg-secondary">
+        <div className="text-sm font-medium text-fg-primary">
           {centerLabel}
         </div>
         <div className="mt-1 font-display text-[2.75rem] font-semibold leading-none tabular-nums text-fg-primary md:text-[3.25rem]">
@@ -194,218 +176,101 @@ export function BreakdownStackChart({
         }}
       />
 
-      {/* Meta logo override: the brand lockup defaults to 2em tall (wide
-          wordmark + Instagram glyph). Render it at 1.9em here so it reads as
-          the dominant source brand, centred on its row.
+      {/* One row per source: name left, Anfragen right, budget and outcome
+          as a grey line below. Selecting a row opens its economics (2x2 grid)
+          beneath it. A list instead of a table, so nothing scrolls sideways
+          and no header has to break across lines in a half-width card.
+          Meta logo override: the brand lockup defaults to 2em tall; 1.9em
+          keeps it in line with the text. */}
+      <ul className="divide-y divide-border border-y border-border">
+        {sorted.map((r) => {
+          const isOpen = openKey === r.key;
+          const panelId = `breakdown-econ-${r.key}`;
+          const sub = [
+            r.budget ? `${r.budget} Werbebudget` : null,
+            r.gewonnen && r.gewonnen !== "0" ? `${r.gewonnen} gewonnen` : null,
+          ].filter(Boolean);
+          return (
+            <li key={r.key} className={isOpen ? "bg-bg-secondary" : undefined}>
+              <button
+                type="button"
+                aria-expanded={isOpen}
+                aria-controls={panelId}
+                onClick={() => toggle(r.key)}
+                className="flex w-full items-center gap-3 px-2 py-3 text-left transition-colors hover:bg-bg-secondary"
+              >
+                <span
+                  aria-hidden
+                  className="inline-block h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: toneVar[r.tone ?? "accent"] }}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-base text-fg-primary">{withBrandLogos(r.labelText)}</span>
+                  {sub.length > 0 && (
+                    <span className="mt-0.5 block text-sm text-fg-secondary tabular-nums">{sub.join(" · ")}</span>
+                  )}
+                </span>
+                <span className="shrink-0 text-right">
+                  <span className="block text-lg font-semibold leading-tight tabular-nums text-fg-primary">
+                    {r.anfragen ?? "0"}
+                  </span>
+                </span>
+                {isOpen ? (
+                  <ChevronDown className="h-5 w-5 shrink-0 text-fg-secondary" aria-hidden />
+                ) : (
+                  <ChevronRight className="h-5 w-5 shrink-0 text-fg-secondary" aria-hidden />
+                )}
+              </button>
+              {isOpen && <EconGrid row={r} panelId={panelId} />}
+            </li>
+          );
+        })}
+        {/* Reserve the drawer's height when nothing is expanded, so the card
+            stays the same height collapsed as it is with a row open. */}
+        {openKey === null && sorted[0] && (
+          <li aria-hidden className="invisible">
+            <EconGrid row={sorted[0]} />
+          </li>
+        )}
+      </ul>
 
-          overflow-x-auto: the 6-column funnel table has a min-content wider
-          than a single dashboard card on a phone. Without this wrapper the
-          table's intrinsic width blew out the top-metrics grid's shared
-          auto-track, dragging every sibling card past the viewport edge.
-          Same pattern as the Behandlungen/Standorte tables. */}
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-sm [&_.brand-meta-light]:!h-[1.9em] [&_.brand-meta-light]:!align-middle [&_.brand-meta-light]:!my-[-0.5em] [&_.brand-meta-light]:!ml-[-0.65em] [&_.brand-meta-light]:!mr-[-0.15em] [&_.brand-meta-dark]:!h-[1.9em] [&_.brand-meta-dark]:!align-middle [&_.brand-meta-dark]:!my-[-0.5em] [&_.brand-meta-dark]:!ml-[-0.65em] [&_.brand-meta-dark]:!mr-[-0.15em]">
-        <thead>
-          <tr className="text-[10px] font-medium uppercase tracking-wide text-fg-tertiary">
-            <th className="py-2 text-left font-medium">
-              <span className="sr-only">Quelle</span>
-            </th>
-            <th className="py-2 pl-2 text-right font-medium">Budget</th>
-            <th className="py-2 pl-2 text-right font-medium">Anfragen</th>
-            <th className="py-2 pl-2 text-right font-medium">Termine</th>
-            <th className="py-2 pl-2 text-right font-medium">Gewonnen</th>
-            <th className="w-9 py-2" aria-hidden />
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((r) => {
-            const isOpen = openKey === r.key;
-            const panelId = `breakdown-econ-${r.key}`;
-            return (
-              <React.Fragment key={r.key}>
-                <tr
-                  role="button"
-                  tabIndex={0}
-                  aria-expanded={isOpen}
-                  aria-controls={panelId}
-                  onClick={() => toggle(r.key)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      toggle(r.key);
-                    }
-                  }}
-                  className={`group cursor-pointer border-t border-border align-middle transition-colors hover:bg-bg-secondary ${
-                    isOpen ? "bg-bg-secondary" : ""
-                  }`}
-                >
-                  <td className="py-2.5 pr-1 md:pr-2">
-                    <span className="inline-flex items-center gap-2 md:gap-2.5">
-                      <span
-                        aria-hidden
-                        className="inline-block h-2 w-2 shrink-0 rounded-full"
-                        style={{ backgroundColor: toneVar[r.tone ?? "accent"] }}
-                      />
-                      {/* Mobile: logo/icon only, so the funnel columns reclaim
-                          the width the text labels would otherwise eat. Desktop
-                          keeps the full brand-decorated label. */}
-                      <span className="text-fg-primary md:hidden">
-                        {brandIconsOnly(r.labelText)}
-                      </span>
-                      <span className="hidden text-fg-primary md:inline">
-                        {withBrandLogos(r.labelText)}
-                      </span>
-                    </span>
-                  </td>
-                  <Cell value={r.budget} />
-                  <Cell value={r.anfragen} />
-                  <Cell value={r.termine} />
-                  <Cell value={r.gewonnen} tone="good" bold />
-                  <td className="w-9 py-2.5 pl-1.5 text-right">
-                    {/* Pill toggle so every row reads as expandable at rest:
-                        a mint chevron in a tertiary chip, which fills with the
-                        accent on row-hover and while open. Icon-swap rather
-                        than CSS-rotate: a transform on this in-table element
-                        resolves to `none` in this subtree, so we switch glyphs
-                        to signal open (▾) vs collapsed (▸). */}
-                    <span
-                      aria-hidden
-                      className={`inline-flex h-6 w-6 items-center justify-center rounded-full bg-bg-tertiary text-accent ring-accent ring-inset transition-shadow ${
-                        isOpen ? "ring-1" : "group-hover:ring-1"
-                      }`}
-                    >
-                      {isOpen ? (
-                        <ChevronDown
-                          className="h-[18px] w-[18px]"
-                          strokeWidth={2.5}
-                        />
-                      ) : (
-                        <ChevronRight
-                          className="h-[18px] w-[18px]"
-                          strokeWidth={2.5}
-                        />
-                      )}
-                    </span>
-                  </td>
-                </tr>
-                {isOpen && <EconRow row={r} panelId={panelId} />}
-              </React.Fragment>
-            );
-          })}
-          {/* Reserve the drawer's height when nothing is expanded, so the card
-              stays the same height collapsed as it is with a row open. */}
-          {openKey === null && sorted[0] && (
-            <EconRow row={sorted[0]} hidden />
-          )}
-          {totals && (
-            <tr className="border-t-2 border-border align-middle font-semibold">
-              <td className="py-3 pr-2 text-fg-primary">{totals.label}</td>
-              <Cell value={totals.budget} bold />
-              <Cell value={totals.anfragen} bold />
-              <Cell value={totals.termine} bold />
-              <Cell value={totals.gewonnen} tone="good" bold />
-              <td className="w-9 py-3" aria-hidden />
-            </tr>
-          )}
-        </tbody>
-        </table>
-      </div>
+      {totals && (
+        <p className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 text-sm text-fg-primary tabular-nums">
+          <span className="font-semibold">{totals.label}</span>
+          <span>
+            {[
+              totals.anfragen ? `${totals.anfragen} Anfragen` : null,
+              totals.budget ? `${totals.budget} Werbebudget` : null,
+              totals.gewonnen ? `${totals.gewonnen} gewonnen` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        </p>
+      )}
     </div>
   );
 }
 
 /**
- * The economics drawer row (CPL · CAC · LTV · ROAS). Rendered visible beneath an
- * open source row, or `hidden` (visibility-collapsed) as a height-reserving
- * spacer when no row is open — both render identical markup so the card height
- * is the same expanded or collapsed. (Budget is a top-level column; Anteil is
- * shown only in the hover card, not here.)
- *
- * The four metrics are laid out as real table cells in the Budget · Anfragen ·
- * Termine · Gewonnen columns (not a free grid) on every breakpoint, so each
- * economics value lines up right-aligned and tabular directly beneath the
- * funnel number above it. The Quelle column carries a caption that flips by
- * breakpoint: the source name ("Meta:") on mobile, where the funnel row shows
- * the source as a logo only and the name would otherwise be invisible once
- * expanded; the generic "Wirtschaftlichkeit" on desktop, where the row already
- * names the source. It shares the open row's `bg-bg-secondary` so the row and
- * its drawer form one highlighted block.
+ * Economics of one source (Kosten pro Anfrage, Kosten pro Patient, Wert pro
+ * Patient, Werbeertrag) as a 2x2 grid under its open row. Also rendered
+ * invisible as a height-reserving spacer when no row is open, so the card
+ * keeps the same height expanded or collapsed.
  */
-function EconRow({
-  row,
-  panelId,
-  hidden,
-}: {
-  row: BreakdownRow;
-  panelId?: string;
-  hidden?: boolean;
-}) {
-  // Mobile-only Quelle name for the caption cell. The funnel row above shows
-  // this source as a logo alone on mobile, so naming it here tells the owner
-  // which Quelle they expanded. Falls back to the full label for any source
-  // without a registered short name.
-  const sourceShort = SOURCE_SHORT_LABEL[row.key] ?? row.labelText;
+function EconGrid({ row, panelId }: { row: BreakdownRow; panelId?: string }) {
   return (
-    <tr
-      id={hidden ? undefined : panelId}
-      className={hidden ? "invisible" : "bg-bg-secondary"}
-      aria-hidden={hidden || undefined}
-    >
-      {/* Quelle column caption. Mobile: the source name ("Meta:") so the
-          logo-only funnel row is identifiable once expanded. Desktop: the
-          generic "Wirtschaftlichkeit", since the row there already names the
-          source. align-bottom seats the caption on the value line of the
-          economics cells to its right. */}
-      <td className="pb-3 pt-1 pr-1 align-bottom md:pr-2">
-        <span className="text-xs font-medium text-fg-secondary md:hidden">
-          {sourceShort}:
-        </span>
-        <span className="hidden text-xs text-fg-tertiary md:inline">
-          Wirtschaftlichkeit
-        </span>
-      </td>
-      {/* Economics column-aligned under their funnel number above (Budget ·
-          Anfragen · Termine · Gewonnen) on mobile and desktop alike. */}
-      <EconCell label="CPL" value={row.cpl} info={ECON_INFO.cpl} />
-      <EconCell label="CAC" value={row.cac} info={ECON_INFO.cac} />
-      <EconCell label="LTV" value={row.ltv} info={ECON_INFO.ltv} />
-      <EconCell
-        label="ROAS"
-        value={row.roas}
-        tone={row.roasTone ?? "good"}
-        info={ECON_INFO.roas}
-      />
-      <td className="w-9 pb-3 pt-1" aria-hidden />
-    </tr>
+    <div id={panelId} className="grid grid-cols-2 gap-x-4 gap-y-3 px-2 pb-4 pt-1 pl-7">
+      <EconItem label="Kosten pro Anfrage" value={row.cpl} info={ECON_INFO.cpl} />
+      <EconItem label="Kosten pro Patient" value={row.cac} info={ECON_INFO.cac} />
+      <EconItem label="Wert pro Patient" value={row.ltv} info={ECON_INFO.ltv} />
+      <EconItem label="Werbeertrag" value={row.roas} tone={row.roasTone ?? "good"} info={ECON_INFO.roas} />
+    </div>
   );
 }
 
-/** Right-aligned funnel cell. */
-function Cell({
-  value,
-  tone,
-  bold,
-}: {
-  value: string | null;
-  tone?: BreakdownTone;
-  bold?: boolean;
-}) {
-  return (
-    <td
-      className={`py-2.5 pl-2 text-right tabular-nums ${
-        tone ? statToneClass[tone] : "text-fg-primary"
-      } ${bold ? "font-semibold" : ""}`}
-    >
-      {value ?? <span className="text-fg-tertiary">–</span>}
-    </td>
-  );
-}
-
-/** One economics metric as a right-aligned table cell, so its value sits in the
- *  same column (and on the same right edge) as the funnel number above it:
- *  micro-label (with an optional (i) explainer for the non-obvious acronyms)
- *  over a value. */
-function EconCell({
+/** One economics metric: label (with explainer) over the value. */
+function EconItem({
   label,
   value,
   tone,
@@ -418,8 +283,8 @@ function EconCell({
 }) {
   const hasValue = value != null;
   return (
-    <td className="pb-3 pt-1 pl-2 align-bottom text-right">
-      <span className="flex items-center justify-end gap-0.5 text-[10px] uppercase tracking-wide text-fg-tertiary">
+    <div className="min-w-0">
+      <span className="flex items-center gap-0.5 text-sm leading-tight text-fg-primary">
         {label}
         {info && (
           <ExplainerPopover term={info.term} className="h-4 w-4">
@@ -438,7 +303,7 @@ function EconCell({
       >
         {hasValue ? value : "–"}
       </span>
-    </td>
+    </div>
   );
 }
 
@@ -468,7 +333,7 @@ function BreakdownHoverBody({
           className="inline-block h-2 w-2 shrink-0 rounded-full"
           style={{ background: color }}
         />
-        <span className="truncate text-xs font-semibold text-fg-primary">
+        <span className="truncate text-sm font-semibold text-fg-primary">
           {row.labelText}
         </span>
       </div>
@@ -478,11 +343,11 @@ function BreakdownHoverBody({
         <HoverRow label="Termine" value={row.termine} />
         <HoverRow label="Gewonnen" value={row.gewonnen} tone="good" />
         <div className="my-1.5 h-px bg-border" />
-        <HoverRow label="Budget" value={row.budget} />
-        <HoverRow label="CPL" value={row.cpl} />
-        <HoverRow label="CAC" value={row.cac} />
-        <HoverRow label="LTV" value={row.ltv} />
-        <HoverRow label="ROAS" value={row.roas} tone={row.roasTone ?? "good"} />
+        <HoverRow label="Werbebudget" value={row.budget} />
+        <HoverRow label="Kosten pro Anfrage" value={row.cpl} />
+        <HoverRow label="Kosten pro Patient" value={row.cac} />
+        <HoverRow label="Wert pro Patient" value={row.ltv} />
+        <HoverRow label="Werbeertrag" value={row.roas} tone={row.roasTone ?? "good"} />
       </div>
     </>
   );
@@ -500,9 +365,9 @@ function HoverRow({
   const hasValue = value != null;
   return (
     <div className="flex items-baseline justify-between gap-3">
-      <span className="text-[11px] text-fg-secondary">{label}</span>
+      <span className="text-sm text-fg-primary">{label}</span>
       <span
-        className={`text-xs font-semibold tabular-nums ${
+        className={`text-sm font-semibold tabular-nums ${
           !hasValue
             ? "text-fg-tertiary"
             : tone

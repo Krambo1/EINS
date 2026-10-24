@@ -114,7 +114,7 @@ export function ExplainerPopover({
         onCloseAutoFocus={(event) => event.preventDefault()}
       >
         {term && (
-          <p className="mb-1 text-sm font-semibold uppercase tracking-wide text-accent">
+          <p className="mb-1 text-sm font-semibold text-accent">
             {term}
           </p>
         )}

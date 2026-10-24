@@ -2,88 +2,101 @@
 
 import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { Button, Input, Label } from "@eins/ui";
+import { PASSWORD_MIN_LENGTH } from "@/auth/password-rules";
+import { AuthToast } from "../_components/AuthToast";
+import { PasswordInput } from "../_components/PasswordInput";
+import { PasswordRules } from "../_components/PasswordRules";
+import { AuthLabel, PendingDots, authCtaClass } from "../_components/auth-ui";
 import {
   setPasswordFromCookieAction,
-  setPasswordWithSessionAction,
   type SetPasswordState,
 } from "./actions";
 
 interface Props {
-  mode: "set_password" | "reset_password" | "invite";
+  mode: "set_password" | "reset_password";
+  /** The account's address, for password managers (hidden username field). */
+  email: string;
 }
 
-function SubmitButton() {
+function SubmitButton({ blocked }: { blocked: boolean }) {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending} className="w-full">
-      {pending ? "Wird gespeichert…" : "Passwort speichern"}
-    </Button>
+    <button
+      type="submit"
+      disabled={pending || blocked}
+      aria-busy={pending}
+      className={authCtaClass}
+    >
+      {pending ? <PendingDots label="Wird gespeichert" /> : "Passwort speichern"}
+    </button>
   );
 }
 
-export function SetPasswordForm({ mode }: Props) {
-  const useCookie = mode === "set_password" || mode === "reset_password";
-  const action = useCookie
-    ? setPasswordFromCookieAction
-    : setPasswordWithSessionAction;
-
+// `mode` only selects copy on the page; every mode uses the cookie action
+// (the session-based invite action is gone, B-8).
+export function SetPasswordForm({ mode: _mode, email }: Props) {
   const [state, formAction] = useActionState<SetPasswordState, FormData>(
-    action,
+    setPasswordFromCookieAction,
     undefined
   );
 
+  const [closedFor, setClosedFor] = useState<SetPasswordState>(undefined);
+  const error = state && !state.ok && closedFor !== state ? state.error : null;
+
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
-  const mismatch = pw && pw2 && pw !== pw2;
+  const mismatch = pw.length > 0 && pw2.length > 0 && pw !== pw2;
 
   return (
-    <form action={formAction} className="space-y-5">
-      <div className="space-y-2">
-        <Label htmlFor="password">Neues Passwort</Label>
-        <Input
+    <form action={formAction} onSubmit={() => setClosedFor(state)} className="space-y-6">
+      {/* Lets password managers file the new password under the right
+          account. Not read by the action. */}
+      <input
+        type="email"
+        name="username"
+        autoComplete="username"
+        value={email}
+        readOnly
+        hidden
+      />
+      <div>
+        <AuthLabel htmlFor="password" className="mb-2">
+          Neues Passwort
+        </AuthLabel>
+        <PasswordInput
           id="password"
           name="password"
-          type="password"
           autoComplete="new-password"
           required
-          minLength={12}
+          minLength={PASSWORD_MIN_LENGTH}
+          autoFocus
           value={pw}
           onChange={(e) => setPw(e.target.value)}
-          className="h-12 text-base"
+          aria-describedby="password-rules"
         />
-        <p className="text-xs text-fg-secondary">
-          Mindestens 12 Zeichen, mit mindestens 3 von 4: Großbuchstabe,
-          Kleinbuchstabe, Ziffer, Sonderzeichen.
-        </p>
       </div>
-      <div className="space-y-2">
-        <Label htmlFor="password2">Wiederholung</Label>
-        <Input
+      <div>
+        <AuthLabel htmlFor="password2" className="mb-2">
+          Passwort wiederholen
+        </AuthLabel>
+        <PasswordInput
           id="password2"
-          type="password"
+          name="password2"
           autoComplete="new-password"
           required
-          minLength={12}
+          minLength={PASSWORD_MIN_LENGTH}
+          toggleLabel="Wiederholung"
           value={pw2}
           onChange={(e) => setPw2(e.target.value)}
-          className="h-12 text-base"
         />
-        {mismatch && (
-          <p className="text-sm text-tone-bad">
-            Die Eingaben stimmen nicht überein.
-          </p>
-        )}
       </div>
-      {state && !state.ok && (
-        <div
-          role="alert"
-          className="rounded-xl border border-tone-bad/40 bg-tone-bad/10 p-3 text-sm text-fg-primary"
-        >
-          {state.error}
-        </div>
+      <PasswordRules id="password-rules" pw={pw} pw2={pw2} />
+      <SubmitButton blocked={mismatch} />
+      {error && (
+        <AuthToast tone="bad" onClose={() => setClosedFor(state)}>
+          {error}
+        </AuthToast>
       )}
-      <SubmitButton />
     </form>
   );
 }

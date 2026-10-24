@@ -1,13 +1,12 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull, sql } from "drizzle-orm";
 import { Badge } from "@eins/ui";
 import { requireAdmin } from "@/auth/admin-guards";
 import { db, schema } from "@/db/client";
 import {
   REQUEST_STATUSES,
   REQUEST_SOURCES,
-  AI_CATEGORIES,
   type RequestSource,
   type RequestStatus,
 } from "@/lib/constants";
@@ -40,12 +39,23 @@ import {
   type ChecklisteTabData,
 } from "./_components/ChecklisteTab";
 import { DateienTab, type DateienTabData } from "./_components/DateienTab";
+import { MesswegeTab } from "./_components/MesswegeTab";
+import { BeitraegeTab } from "./_components/BeitraegeTab";
+import { KlonTab } from "./_components/KlonTab";
+import { getCloneRecords, getStopRequestedPosts } from "@/server/clone";
+import { berlinDate } from "@/lib/guarantee-clock";
+import {
+  contentFormOptions,
+  listContentItemsForAdmin,
+  listUnknownPostCodes,
+} from "@/server/content";
 import type { DiscoveryAnswers } from "@/app/(portal)/onboarding/fragebogen/content";
 import {
   ALL_CHECKLIST_ITEMS,
   type ChecklistAnswer,
   type ChecklistStatus,
 } from "@/app/(portal)/onboarding/checkliste/content";
+import { isUuid } from "@/lib/ids";
 
 export const metadata = { title: "Praxis-Details" };
 
@@ -61,6 +71,9 @@ const TABS = [
   { key: "team", label: "Team" },
   { key: "stammdaten", label: "Stammdaten" },
   { key: "integrationen", label: "Integrationen" },
+  { key: "messwege", label: "Messwege" },
+  { key: "beitraege", label: "Beiträge" },
+  { key: "klon", label: "KI-Klon" },
   { key: "verwaltung", label: "Verwaltung" },
 ] as const;
 type TabKey = (typeof TABS)[number]["key"];
@@ -97,8 +110,11 @@ export default async function AdminClinicDetailPage({
   const tab: TabKey = (TABS.find((t) => t.key === tabParam)?.key ??
     "uebersicht") as TabKey;
 
+  if (!isUuid(id)) notFound();
   const clinic = await getAdminClinicById(id);
   if (!clinic) notFound();
+  const notice = typeof sp.hinweis === "string" ? sp.hinweis : null;
+  const actionError = typeof sp.fehler === "string" ? sp.fehler : null;
 
   let renderedTab: React.ReactNode;
 
@@ -280,7 +296,7 @@ export default async function AdminClinicDetailPage({
       .from(schema.clinicUsers)
       .where(eq(schema.clinicUsers.clinicId, clinic.id))
       .orderBy(desc(schema.clinicUsers.createdAt));
-    renderedTab = <TeamTab team={team} />;
+    renderedTab = <TeamTab team={team} clinicId={clinic.id} />;
   } else if (tab === "stammdaten") {
     renderedTab = <StammdatenTab clinic={clinic} />;
   } else if (tab === "integrationen") {
@@ -418,6 +434,80 @@ export default async function AdminClinicDetailPage({
         agentStatus={agent}
       />
     );
+  } else if (tab === "messwege") {
+    const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const [trackingNumbers, bookingLinks, events, unassigned] = await Promise.all([
+      db
+        .select()
+        .from(schema.trackingNumbers)
+        .where(eq(schema.trackingNumbers.clinicId, clinic.id))
+        .orderBy(desc(schema.trackingNumbers.active), desc(schema.trackingNumbers.createdAt)),
+      db
+        .select()
+        .from(schema.bookingLinks)
+        .where(eq(schema.bookingLinks.clinicId, clinic.id))
+        .orderBy(desc(schema.bookingLinks.active), desc(schema.bookingLinks.createdAt)),
+      db
+        .select({
+          id: schema.messwegEvents.id,
+          kind: schema.messwegEvents.kind,
+          outcome: schema.messwegEvents.outcome,
+          occurredAt: schema.messwegEvents.occurredAt,
+          requestId: schema.messwegEvents.requestId,
+        })
+        .from(schema.messwegEvents)
+        .where(eq(schema.messwegEvents.clinicId, clinic.id))
+        .orderBy(desc(schema.messwegEvents.receivedAt))
+        .limit(20),
+      // Across all Praxen: calls/bookings on a number or link nobody owns.
+      db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(schema.messwegEvents)
+        .where(
+          and(
+            isNull(schema.messwegEvents.clinicId),
+            gte(schema.messwegEvents.receivedAt, since)
+          )
+        ),
+    ]);
+    renderedTab = (
+      <MesswegeTab
+        data={{
+          clinicId: clinic.id,
+          trackingNumbers,
+          bookingLinks,
+          events,
+          unassignedLast30Days: unassigned[0]?.n ?? 0,
+        }}
+      />
+    );
+  } else if (tab === "beitraege") {
+    const [items, formOptions, unknownCodes] = await Promise.all([
+      listContentItemsForAdmin(clinic.id),
+      contentFormOptions(clinic.id),
+      listUnknownPostCodes(clinic.id),
+    ]);
+    renderedTab = (
+      <BeitraegeTab
+        data={{
+          clinicId: clinic.id,
+          items,
+          options: { treatments: formOptions.treatments, assets: formOptions.assets },
+          zielseiteOrigin: formOptions.zielseiteOrigin,
+          unknownCodes,
+        }}
+      />
+    );
+  } else if (tab === "klon") {
+    const [records, stopRequested] = await Promise.all([
+      getCloneRecords(clinic.id),
+      getStopRequestedPosts(clinic.id),
+    ]);
+    renderedTab = (
+      <KlonTab
+        data={{ clinicId: clinic.id, records, stopRequested, today: berlinDate(new Date()) }}
+      />
+    );
   } else if (tab === "verwaltung") {
     renderedTab = <VerwaltungTab clinic={clinic} />;
   } else {
@@ -448,6 +538,23 @@ export default async function AdminClinicDetailPage({
           )}
         </div>
       </header>
+
+      {notice && (
+        <p
+          role="status"
+          className="rounded-md border border-border bg-bg-secondary px-4 py-3 text-base text-fg-primary"
+        >
+          {notice}
+        </p>
+      )}
+      {actionError && (
+        <p
+          role="alert"
+          className="rounded-md border border-[var(--tone-bad-border)] bg-[var(--tone-bad-bg)] px-4 py-3 text-base text-tone-bad"
+        >
+          {actionError}
+        </p>
+      )}
 
       <div className="border-y border-border py-2">
         <ClinicTabsNav tabs={[...TABS]} current={tab} />

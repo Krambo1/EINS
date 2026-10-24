@@ -91,6 +91,7 @@ async function fetchProfileHtml(url: string): Promise<string> {
   }
   const res = await fetch(url, {
     method: "GET",
+    signal: AbortSignal.timeout(10_000),
     redirect: "follow",
     headers: {
       "User-Agent": USER_AGENT,

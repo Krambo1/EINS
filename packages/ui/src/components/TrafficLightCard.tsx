@@ -82,8 +82,8 @@ export function TrafficLightCard({
         <div className={cn("min-w-0 flex-1", compact ? "space-y-0.5" : "space-y-1")}>
           <p
             className={cn(
-              "font-semibold uppercase tracking-wide text-fg-secondary",
-              compact ? "text-[11px]" : "text-sm"
+              "font-medium text-fg-primary",
+              "text-sm"
             )}
           >
             {toneLabel ?? cfg.label}

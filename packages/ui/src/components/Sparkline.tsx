@@ -92,7 +92,7 @@ export function Sparkline({
   if (!values || values.length === 0) {
     return (
       <div
-        className={cn("h-9 w-full rounded bg-bg-secondary/40", className)}
+        className={cn("h-9 w-full rounded bg-[color-mix(in_srgb,var(--bg-secondary)_40%,transparent)]", className)}
         style={{ height }}
         aria-hidden
       />

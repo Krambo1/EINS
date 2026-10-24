@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { practicePrivacySheetSchema } from "./legal/practice-privacy";
 
 /**
  * Build-time validation for clinic + treatment configs.
@@ -269,7 +270,7 @@ export const clinicSchema = z.object({
     .optional(),
   responsePromise: noBanned(z.string().min(4).max(80), "responsePromise").optional(),
   connectors: connectorsSchema,
-  datenschutzMarkdown: z.string().min(200),
+  privacySheet: practicePrivacySheetSchema,
 });
 
 /* ── Treatment ─────────────────────────────────────────────────────────── */
@@ -317,6 +318,8 @@ const priceRangeSchema = z
 
 export const treatmentSchema = z.object({
   slug: z.string().regex(/^[a-z0-9-]+$/),
+  // Neutral public URL segment (no treatment word, see scripts/validate-clinics.ts).
+  urlCode: z.string().regex(/^[a-z][a-z0-9]{1,7}$/),
   clinicSlug: z.string().regex(/^_?[a-z0-9-]+$/),
   category: z.enum([
     "botox",

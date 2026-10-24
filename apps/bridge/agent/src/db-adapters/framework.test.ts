@@ -275,7 +275,7 @@ describe("framework: first poll snapshots columns", () => {
     });
     expect(outcome.emitted).toBe(1);
     expect(outcome.driftDetected).toBe(false);
-    expect(collected[0].pvsExternalEventId).toBe("tomedo:appointment:APPT-1");
+    expect(collected[0].pvsExternalEventId).toMatch(/^tomedo:appointment:APPT-1:[0-9a-f]{12}$/);
     expect(collected[0].kind).toBe("AppointmentCreated");
 
     const state = loadState("tomedo-db", "AppointmentCreated");
@@ -485,13 +485,26 @@ describe("framework: query errors classified as schema drift (review finding 2)"
       { code: "42703" }
     );
     driver.setError(pgErr);
-    const outcome = await pollOnce({
+    let outcome = await pollOnce({
       clinicId: "c1",
       vendor,
       stream: vendor.streams[0],
       driver,
       sink: () => void 0,
     });
+    // One schema-class error is not yet drift (a single flaky read must not halt
+    // the stream): it counts as a failure with backoff.
+    expect(outcome.driftDetected).toBe(false);
+    expect(loadState("tomedo-db", "AppointmentCreated").status).toBe("idle");
+    for (let i = 0; i < _internal.SCHEMA_ERROR_THRESHOLD - 1; i++) {
+      outcome = await pollOnce({
+        clinicId: "c1",
+        vendor,
+        stream: vendor.streams[0],
+        driver,
+        sink: () => void 0,
+      });
+    }
     expect(outcome.driftDetected).toBe(true);
     expect(outcome.driftReport).not.toBeNull();
     expect(outcome.driftReport!.missing).toContain("termin_zeit");
@@ -783,7 +796,7 @@ describe("framework: outbox enqueue failure aborts the batch (review finding H5)
       seen += 1;
       if (seen === 2) throw new Error("SQLITE_BUSY: database is locked");
     };
-    let now = 1_000_000;
+    let now = Date.parse("2026-05-21T00:00:00Z");
     const outcome = await pollOnce({
       clinicId: "c1",
       vendor,
@@ -925,10 +938,14 @@ describe("framework: bad-row normalization is skipped, not fatal (review finding
     };
     driver.setNext({
       columns: APPT_COLUMNS,
-      rows: [
-        { id: poison, patient_id: "PAT-1", termin_zeit: poison, modified_at: new Date("2026-05-20T10:00:00Z") },
-        { id: poison, patient_id: "PAT-2", termin_zeit: poison, modified_at: new Date("2026-05-20T10:01:00Z") },
-      ],
+      // At least MIN_FIRST_POLL_SAMPLE rows, otherwise the first poll is
+      // deferred instead of judged.
+      rows: Array.from({ length: _internal.MIN_FIRST_POLL_SAMPLE }, (_, i) => ({
+        id: poison,
+        patient_id: `PAT-${i}`,
+        termin_zeit: poison,
+        modified_at: new Date(Date.parse("2026-05-20T10:00:00Z") + i * 60_000),
+      })),
     });
     // Must resolve (not reject) and halt the stream rather than throwing.
     const outcome = await pollOnce({
@@ -992,20 +1009,27 @@ describe("framework: overlap window (review finding H8)", () => {
     return { vendor, driver: new StubDriver() };
   }
 
-  it("first poll binds the epoch sentinel with no lookback", async () => {
+  it("first poll binds the initial horizon (default 90 days back), not the epoch", async () => {
     const { vendor, driver } = await keysetVendorAndDriver();
     driver.setNext({
       columns: APPT_COLUMNS,
       rows: [apptRow("5", "2026-05-20T10:00:00Z")],
     });
+    const now = Date.parse("2026-05-21T12:00:00Z");
     await pollOnce({
       clinicId: "c1",
       vendor,
       stream: vendor.streams[0],
       driver,
       sink: () => void 0,
+      now: () => now,
     });
-    expect((driver.calls[0].params.cursor as Date).getTime()).toBe(0);
+    const bound = (driver.calls[0].params.cursor as Date).getTime();
+    const days = (now - bound) / 86_400_000;
+    // postgres timestamp columns are zone-less Berlin wall clock: the domain
+    // clock is up to 2 h ahead of UTC, so allow that slack.
+    expect(days).toBeGreaterThan(89.8);
+    expect(days).toBeLessThan(90.2);
     expect(driver.calls[0].params.cursorTiebreak).toBe(0);
   });
 
@@ -1033,9 +1057,9 @@ describe("framework: overlap window (review finding H8)", () => {
       sink: () => void 0,
     });
     const hwmMs = new Date("2026-05-20T10:00:00.000Z").getTime();
-    const lookback = _internal.lookbackMs(vendor, vendor.streams[0]);
+    // Default lookback is 30 minutes.
     expect((driver.calls[1].params.cursor as Date).getTime()).toBe(
-      hwmMs - lookback
+      hwmMs - 30 * 60_000
     );
     // The tiebreak is reset to 0 so a same-timestamp lower-id late row is
     // re-fetched (the whole point of the overlap).
@@ -1075,17 +1099,19 @@ describe("framework: overlap window (review finding H8)", () => {
     expect(driver.calls[1].params.cursorTiebreak).toBe(6);
   });
 
-  it("lookbackMs is the larger of the floor and 2x the poll interval", () => {
-    const lb = _internal.lookbackMs(
-      { defaultIntervalSeconds: 60, batchSize: 1 } as unknown as VendorConfig,
-      {} as unknown as StreamConfig
+  it("the lookback is configurable per vendor", async () => {
+    const vendor = await loadVendorConfigFromString(
+      KEYSET_CONFIG_YAML.replace("batchSize: 2", "batchSize: 2\nlookbackMinutes: 5"),
+      "keyset.yaml"
     );
-    expect(lb).toBe(_internal.LOOKBACK_FLOOR_MS);
-    const lbLong = _internal.lookbackMs(
-      { defaultIntervalSeconds: 600, batchSize: 1 } as unknown as VendorConfig,
-      {} as unknown as StreamConfig
-    );
-    expect(lbLong).toBe(2 * 600 * 1000);
+    const driver = new StubDriver();
+    driver.setNext({ columns: APPT_COLUMNS, rows: [apptRow("5", "2026-05-20T10:00:00Z")] });
+    const base = { clinicId: "c1", vendor, stream: vendor.streams[0], driver, sink: () => void 0 };
+    await pollOnce(base);
+    driver.setNext({ columns: APPT_COLUMNS, rows: [] });
+    await pollOnce(base);
+    const hwmMs = new Date("2026-05-20T10:00:00.000Z").getTime();
+    expect((driver.calls[1].params.cursor as Date).getTime()).toBe(hwmMs - 5 * 60_000);
   });
 });
 
@@ -1217,13 +1243,16 @@ describe("framework: non-numeric tiebreak handling (finding L11)", () => {
 describe("framework: catch-up scheduling (finding L13)", () => {
   it("schedules a short next run after a FULL batch (drain the backlog)", async () => {
     const { vendor, driver } = await vendorAndDriver();
-    seedSteadyState("2026-05-20T09:00:00.000Z");
+    // Empty cursor: the first read is the strict (non-overlap) path. With a
+    // cursor set, a full overlap page that is followed by an empty page means the
+    // window ended and the stream is caught up (finding 10), not draining.
+    seedSteadyState("");
     const smallBatch = { ...vendor, batchSize: 1 };
     driver.setNext({
       columns: APPT_COLUMNS,
       rows: [apptRow("1", "2026-05-20T10:00:00Z")],
     });
-    const T = 5_000_000;
+    const T = Date.parse("2026-05-20T12:00:00Z");
     await pollOnce({
       clinicId: "c1",
       vendor: smallBatch,

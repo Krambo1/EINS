@@ -1,132 +1,8 @@
 import "server-only";
-import { and, desc, eq, gte, isNotNull, ne, sql } from "drizzle-orm";
+import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { withClinicContext, schema } from "@/db/client";
 import { cacheClinicQuery, SHORT_REVALIDATE_S } from "./_cache";
-
-/**
- * Patient + recall helpers — Detail-mode panels: Top LTV, LTV by channel,
- * upcoming recalls, sibling requests for a single patient.
- */
-
-export interface TopPatientRow {
-  patientId: string;
-  fullName: string | null;
-  email: string | null;
-  phone: string | null;
-  lifetimeRevenueEur: number;
-  requestCount: number;
-  wonCount: number;
-  lastSeenAt: Date;
-  firstTouchSource: string | null;
-}
-
-async function topPatientsByLtvUncached(
-  clinicId: string,
-  userId: string,
-  limit = 10
-): Promise<TopPatientRow[]> {
-  return withClinicContext(clinicId, userId, async (tx) => {
-    const rows = await tx
-      .select({
-        patientId: schema.patients.id,
-        fullName: schema.patients.fullName,
-        email: schema.patients.email,
-        phone: schema.patients.phone,
-        lifetimeRevenueEur: schema.patients.lifetimeRevenueEur,
-        requestCount: schema.patients.requestCount,
-        wonCount: schema.patients.wonCount,
-        lastSeenAt: schema.patients.lastSeenAt,
-        firstTouchSource: schema.patients.firstTouchSource,
-      })
-      .from(schema.patients)
-      .where(eq(schema.patients.clinicId, clinicId))
-      .orderBy(desc(schema.patients.lifetimeRevenueEur))
-      .limit(limit);
-
-    return rows.map((r) => ({
-      ...r,
-      lifetimeRevenueEur: Number(r.lifetimeRevenueEur),
-      requestCount: Number(r.requestCount),
-      wonCount: Number(r.wonCount),
-    }));
-  });
-}
-
-export const topPatientsByLtv = cacheClinicQuery(
-  "topPatientsByLtv",
-  topPatientsByLtvUncached,
-  {}
-);
-
-export interface LtvByChannelRow {
-  channel: string;
-  patientCount: number;
-  totalRevenueEur: number;
-  avgLtvEur: number | null;
-}
-
-const CHANNEL_FOR_SOURCE: Record<string, string> = {
-  meta: "meta",
-  meta_lead_form: "meta",
-  google: "google",
-  google_form: "google",
-  formular: "direkt",
-  manuell: "direkt",
-  whatsapp: "direkt",
-  empfehlung: "empfehlung",
-};
-
-async function ltvByChannelUncached(
-  clinicId: string,
-  userId: string
-): Promise<LtvByChannelRow[]> {
-  return withClinicContext(clinicId, userId, async (tx) => {
-    const rows = await tx
-      .select({
-        firstTouchSource: schema.patients.firstTouchSource,
-        patientCount: sql<number>`count(*)::int`,
-        totalRevenueEur: sql<number>`coalesce(sum(${schema.patients.lifetimeRevenueEur}), 0)`,
-      })
-      .from(schema.patients)
-      .where(eq(schema.patients.clinicId, clinicId))
-      .groupBy(schema.patients.firstTouchSource);
-
-    const grouped = new Map<string, LtvByChannelRow>();
-    for (const r of rows) {
-      const channel =
-        (r.firstTouchSource && CHANNEL_FOR_SOURCE[r.firstTouchSource]) ??
-        r.firstTouchSource ??
-        "unbekannt";
-      const existing = grouped.get(channel);
-      const patientCount = Number(r.patientCount);
-      const totalRev = Number(r.totalRevenueEur);
-      if (!existing) {
-        grouped.set(channel, {
-          channel,
-          patientCount,
-          totalRevenueEur: totalRev,
-          avgLtvEur: patientCount > 0 ? totalRev / patientCount : null,
-        });
-      } else {
-        existing.patientCount += patientCount;
-        existing.totalRevenueEur += totalRev;
-      }
-    }
-    for (const v of grouped.values()) {
-      v.avgLtvEur =
-        v.patientCount > 0 ? Number((v.totalRevenueEur / v.patientCount).toFixed(2)) : null;
-    }
-    return Array.from(grouped.values()).sort(
-      (a, b) => (b.avgLtvEur ?? 0) - (a.avgLtvEur ?? 0)
-    );
-  });
-}
-
-export const ltvByChannel = cacheClinicQuery(
-  "ltvByChannel",
-  ltvByChannelUncached,
-  {}
-);
+import { canonicalSource } from "@/lib/sources";
 
 /**
  * Average lifetime value keyed by raw first-touch source (the same source
@@ -150,13 +26,21 @@ async function ltvBySourceUncached(
       .where(eq(schema.patients.clinicId, clinicId))
       .groupBy(schema.patients.firstTouchSource);
 
-    const out = new Map<string, number>();
+    // Keyed like bySource (reporting channel). first_touch_source keeps no
+    // UTM, so Zielseite patients land in "direkt" here. Several raw sources can
+    // share a channel, so sum first and divide once.
+    const sums = new Map<string, { count: number; revenue: number }>();
     for (const r of rows) {
       if (!r.firstTouchSource) continue;
-      const count = Number(r.patientCount);
-      if (count > 0) {
-        out.set(r.firstTouchSource, Number(r.totalRevenueEur) / count);
-      }
+      const key = canonicalSource(r.firstTouchSource);
+      const acc = sums.get(key) ?? { count: 0, revenue: 0 };
+      acc.count += Number(r.patientCount);
+      acc.revenue += Number(r.totalRevenueEur);
+      sums.set(key, acc);
+    }
+    const out = new Map<string, number>();
+    for (const [key, acc] of sums) {
+      if (acc.count > 0) out.set(key, acc.revenue / acc.count);
     }
     return out;
   });

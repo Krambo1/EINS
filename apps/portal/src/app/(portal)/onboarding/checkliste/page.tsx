@@ -1,14 +1,21 @@
 import Link from "next/link";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { ArrowLeft, Info } from "lucide-react";
 import { Card, CardContent } from "@eins/ui";
 import { requirePermissionOrRedirect } from "@/auth/guards";
-import { db, schema } from "@/db/client";
+import { db, schema, withClinicContext } from "@/db/client";
+import {
+  BOOKING_LINK_MEDIUM_LABELS,
+  TRACKING_NUMBER_CHANNEL_LABELS,
+  type BookingLinkMedium,
+  type TrackingNumberChannel,
+} from "@/lib/messweg";
 import { getStorage } from "@/server/storage";
 import {
   ABSCHLUSS_HINWEIS,
   ALL_CHECKLIST_ITEMS,
   CHECKLISTE_INTRO,
+  MESSWEGE_HINWEIS,
   REQUIRED_CHECKLIST_IDS,
   isDelivered,
   type ChecklistAnswer,
@@ -28,7 +35,46 @@ export const metadata = { title: "Checkliste zum Start" };
 export default async function ChecklistePage() {
   const session = await requirePermissionOrRedirect("onboarding.complete");
 
-  const [itemRows, fileRows] = await Promise.all([
+  // Messwege (Block G): read through the Praxis's RLS context, the tables
+  // only grant the app role SELECT on its own rows (migration 0098).
+  const messwegePromise = withClinicContext(
+    session.clinicId,
+    session.userId,
+    async (tx) => {
+      const numbers = await tx
+        .select({
+          id: schema.trackingNumbers.id,
+          e164: schema.trackingNumbers.e164,
+          channel: schema.trackingNumbers.channel,
+        })
+        .from(schema.trackingNumbers)
+        .where(
+          and(
+            eq(schema.trackingNumbers.clinicId, session.clinicId),
+            eq(schema.trackingNumbers.active, true)
+          )
+        )
+        .orderBy(asc(schema.trackingNumbers.createdAt));
+      const links = await tx
+        .select({
+          id: schema.bookingLinks.id,
+          url: schema.bookingLinks.url,
+          medium: schema.bookingLinks.medium,
+        })
+        .from(schema.bookingLinks)
+        .where(
+          and(
+            eq(schema.bookingLinks.clinicId, session.clinicId),
+            eq(schema.bookingLinks.active, true)
+          )
+        )
+        .orderBy(asc(schema.bookingLinks.createdAt));
+      return { numbers, links };
+    },
+    "onboarding:messwege"
+  );
+
+  const [itemRows, fileRows, messwege] = await Promise.all([
     db
       .select()
       .from(schema.checklistItems)
@@ -38,6 +84,7 @@ export default async function ChecklistePage() {
       .from(schema.checklistFiles)
       .where(eq(schema.checklistFiles.clinicId, session.clinicId))
       .orderBy(asc(schema.checklistFiles.uploadedAt)),
+    messwegePromise,
   ]);
 
   const filesWithUrls = await Promise.all(
@@ -58,6 +105,7 @@ export default async function ChecklistePage() {
       answer: {},
       files: [],
       verifiedAt: null,
+      updatedAt: null,
     };
   }
   for (const row of itemRows) {
@@ -67,6 +115,7 @@ export default async function ChecklistePage() {
       answer: (row.answer ?? {}) as ChecklistAnswer,
       files: [],
       verifiedAt: row.verifiedAt ? row.verifiedAt.toISOString() : null,
+      updatedAt: row.updatedAt ? row.updatedAt.toISOString() : null,
     };
   }
   for (const f of filesWithUrls) {
@@ -107,7 +156,7 @@ export default async function ChecklistePage() {
           <Info className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
           <p className="text-sm text-fg-primary">
             <span className="font-medium">So funktioniert es:</span> Sie liefern
-            jeden Punkt direkt hier im Portal (Häkchen, Datei-Upload, Link oder
+            jeden Punkt direkt hier im Portal (Häkchen, Datei hochladen, Link oder
             kurze Angabe). Wir prüfen jede Lieferung und bestätigen sie. Sie
             müssen nichts per E-Mail schicken. Bitte geben Sie niemals Passwörter
             weiter, wir fragen auch nie danach.
@@ -130,6 +179,60 @@ export default async function ChecklistePage() {
               </li>
             ))}
           </ul>
+        </CardContent>
+      </Card>
+
+      {/* Block G, live: the Praxis's own tracking numbers and booking links. */}
+      <Card className="p-5 md:p-6">
+        <CardContent className="space-y-3">
+          <h2 className="text-lg font-semibold">{MESSWEGE_HINWEIS.title}</h2>
+          {messwege.numbers.length === 0 && messwege.links.length === 0 ? (
+            <p className="text-base text-fg-primary">{MESSWEGE_HINWEIS.empty}</p>
+          ) : (
+            <>
+              <p className="text-sm text-fg-secondary">{MESSWEGE_HINWEIS.intro}</p>
+              {messwege.numbers.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-medium text-fg-secondary">
+                    {MESSWEGE_HINWEIS.numbersLabel}
+                  </h3>
+                  <ul className="mt-1 space-y-1">
+                    {messwege.numbers.map((n) => (
+                      <li key={n.id} className="text-base text-fg-primary">
+                        <span className="font-mono tabular-nums">{n.e164}</span>
+                        {" · "}
+                        {TRACKING_NUMBER_CHANNEL_LABELS[n.channel as TrackingNumberChannel] ??
+                          n.channel}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {messwege.links.length > 0 && (
+                <div>
+                  <h3 className="text-sm font-medium text-fg-secondary">
+                    {MESSWEGE_HINWEIS.linksLabel}
+                  </h3>
+                  <ul className="mt-1 space-y-1">
+                    {messwege.links.map((l) => (
+                      <li key={l.id} className="min-w-0 text-base text-fg-primary">
+                        <a
+                          href={l.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="break-all text-accent hover:underline"
+                        >
+                          {l.url}
+                        </a>
+                        {" · "}
+                        {BOOKING_LINK_MEDIUM_LABELS[l.medium as BookingLinkMedium] ?? l.medium}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          )}
         </CardContent>
       </Card>
     </div>

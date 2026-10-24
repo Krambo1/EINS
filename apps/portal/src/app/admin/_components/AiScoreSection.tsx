@@ -4,7 +4,7 @@ import { ADMIN_RANGE_KEYS, type DashboardRange } from "@/lib/dashboard-range";
 import type { AiCategoryDistribution } from "@/server/queries/admin";
 
 /**
- * KI-Bewertung — the AI lead-score distribution as a donut on its own card so
+ * KI-Bewertung: the AI lead-score distribution as a donut on its own card so
  * it sits beside the Anfragen-Pipeline instead of stacked inside it. Owns its own
  * time window via the rAi switcher.
  */
@@ -19,7 +19,7 @@ export function AiScoreSection({
     { name: "Sehr heiß", value: ai.hot, color: "var(--tone-bad)" },
     { name: "Warm", value: ai.warm, color: "var(--tone-warn)" },
     { name: "Kalt", value: ai.cold, color: "var(--tone-neutral)" },
-    { name: "Ungescort", value: ai.unscored, color: "var(--bg-tertiary)" },
+    { name: "Ohne Bewertung", value: ai.unscored, color: "var(--bg-tertiary)" },
   ].filter((s) => s.value > 0);
   const aiTotal = ai.hot + ai.warm + ai.cold + ai.unscored;
 
@@ -31,7 +31,7 @@ export function AiScoreSection({
         boxShadow: "var(--shadow-card)",
       }}
     >
-      <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
+      <CardHeader className="flex-row flex-wrap items-start justify-between gap-4 space-y-0">
         <CardTitle className="!text-xl !font-medium md:!text-2xl">
           KI-Bewertung
         </CardTitle>

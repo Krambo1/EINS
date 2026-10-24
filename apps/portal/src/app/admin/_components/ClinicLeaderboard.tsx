@@ -38,8 +38,20 @@ const RESPONSE_TONE_CLASS: Record<"good" | "warn" | "bad" | "neutral", string> =
   neutral: "",
 };
 
-export function ClinicLeaderboard({ rows }: { rows: LeaderboardRow[] }) {
-  const sorted = [...rows].sort((a, b) => (b.roas ?? -1) - (a.roas ?? -1));
+/**
+ * `showAds=false` (no ad data yet) hides the Budget and Werbeertrag columns
+ * and sorts by Anfragen instead of Werbeertrag.
+ */
+export function ClinicLeaderboard({
+  rows,
+  showAds = true,
+}: {
+  rows: LeaderboardRow[];
+  showAds?: boolean;
+}) {
+  const sorted = showAds
+    ? [...rows].sort((a, b) => (b.roas ?? -1) - (a.roas ?? -1))
+    : [...rows].sort((a, b) => b.leads - a.leads);
 
   return (
     <Card
@@ -51,29 +63,29 @@ export function ClinicLeaderboard({ rows }: { rows: LeaderboardRow[] }) {
     >
       <div className="flex flex-wrap items-center justify-between gap-2 px-6 pt-6">
         <CardTitle className="!text-xl !font-medium md:!text-2xl">
-          Praxis-Leaderboard
+          Praxen im Vergleich
         </CardTitle>
         <Link
           href="/admin/clinics"
-          className="text-sm text-accent hover:underline"
+          className="text-base text-accent hover:underline"
         >
           Alle Praxen →
         </Link>
       </div>
       <div className="mt-4 overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="border-y border-border bg-bg-secondary text-left text-xs font-medium text-fg-secondary">
+          <thead className="border-y border-border bg-bg-secondary text-left text-sm font-medium text-fg-primary">
             <tr>
               <th className="px-6 py-2">Praxis</th>
-              <th className="px-3 py-2 text-right">Budget</th>
+              {showAds && <th className="px-3 py-2 text-right">Budget</th>}
               <th className="px-3 py-2 text-right">Umsatz</th>
-              <th className="px-3 py-2 text-right">ROAS</th>
+              {showAds && <th className="px-3 py-2 text-right">Werbeertrag</th>}
               <th className="px-3 py-2 text-right">Anfragen</th>
-              <th className="px-3 py-2 text-right">Cases</th>
-              <th className="px-3 py-2 text-right">No-Show</th>
+              <th className="px-3 py-2 text-right">Abschlüsse</th>
+              <th className="px-3 py-2 text-right">Nicht erschienen</th>
               <th className="px-3 py-2 text-right">Median Antwort</th>
               <th className="px-3 py-2 text-right">Aktivität</th>
-              <th className="px-3 py-2">Health</th>
+              <th className="px-3 py-2">Zustand</th>
               <th className="px-3 py-2 pr-6 text-right">Aktion</th>
             </tr>
           </thead>
@@ -81,7 +93,7 @@ export function ClinicLeaderboard({ rows }: { rows: LeaderboardRow[] }) {
             {sorted.length === 0 && (
               <tr>
                 <td
-                  colSpan={11}
+                  colSpan={showAds ? 11 : 9}
                   className="px-6 py-10 text-center text-fg-secondary"
                 >
                   Noch keine Praxis angelegt.
@@ -114,15 +126,19 @@ export function ClinicLeaderboard({ rows }: { rows: LeaderboardRow[] }) {
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {formatEuro(r.spendEur)}
-                  </td>
+                  {showAds && (
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {formatEuro(r.spendEur)}
+                    </td>
+                  )}
                   <td className="px-3 py-2 text-right tabular-nums">
                     {formatMoney(r.revenueEur, r.currency)}
                   </td>
-                  <td className="px-3 py-2 text-right tabular-nums">
-                    {r.roas == null ? "–" : `${r.roas.toFixed(2)}×`}
-                  </td>
+                  {showAds && (
+                    <td className="px-3 py-2 text-right tabular-nums">
+                      {r.roas == null ? "–" : `${r.roas.toFixed(2)}×`}
+                    </td>
+                  )}
                   <td className="px-3 py-2 text-right tabular-nums">
                     {formatNumber(r.leads)}
                   </td>
@@ -141,13 +157,13 @@ export function ClinicLeaderboard({ rows }: { rows: LeaderboardRow[] }) {
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-right text-xs text-fg-secondary">
+                  <td className="px-3 py-2 text-right text-sm text-fg-primary">
                     {r.lastActivityAt
                       ? formatRelative(r.lastActivityAt)
                       : "–"}
                   </td>
                   <td className="px-3 py-2">
-                    <span className="inline-flex items-center gap-1.5 text-xs text-fg-secondary">
+                    <span className="inline-flex items-center gap-1.5 text-sm text-fg-primary">
                       <span
                         className={`inline-block h-2.5 w-2.5 rounded-full ${TONE_DOT[r.healthTone]}`}
                         aria-hidden
@@ -157,7 +173,7 @@ export function ClinicLeaderboard({ rows }: { rows: LeaderboardRow[] }) {
                   </td>
                   <td className="px-3 py-2 pr-6 text-right">
                     {r.archivedAt ? (
-                      <span className="text-xs text-fg-secondary">–</span>
+                      <span className="text-sm text-fg-primary">–</span>
                     ) : (
                       <form
                         action="/admin/start-impersonation"

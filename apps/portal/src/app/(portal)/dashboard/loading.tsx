@@ -7,11 +7,11 @@ export default function Loading() {
     <div className="space-y-10" aria-busy="true" aria-live="polite">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="space-y-2">
-          <div className="h-3 w-24 rounded bg-bg-secondary" />
+          <div className="h-4 w-24 rounded bg-bg-secondary" />
           <div className="h-9 w-48 animate-pulse rounded bg-bg-secondary" />
           <div className="h-4 w-72 rounded bg-bg-secondary" />
         </div>
-        <div className="h-4 w-40 rounded bg-bg-secondary" />
+        <div className="h-5 w-48 rounded bg-bg-secondary" />
       </div>
 
       <section className="grid gap-4 md:grid-cols-3">

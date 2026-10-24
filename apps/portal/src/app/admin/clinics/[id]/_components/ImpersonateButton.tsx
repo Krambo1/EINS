@@ -7,7 +7,7 @@ interface Props {
 }
 
 /**
- * "Als Benutzer öffnen" — opens the clinic portal in a new tab as the
+ * "Kundenansicht öffnen": opens the clinic portal in a new tab as the
  * given user via an admin-issued impersonation token.
  *
  * This is a real `<form target="_blank" method="POST">`, not a JS-driven
@@ -19,7 +19,7 @@ interface Props {
  *      submit IS a native gesture-driven navigation, no grant needed.
  *
  *   2. The previous implementation passed `"noopener"` to `window.open`
- *      and then null-checked the return value — but per spec, `noopener`
+ *      and then null-checked the return value, but per spec, `noopener`
  *      makes `window.open()` return null on success, so the "Popup
  *      blockiert" branch fired on every click whether or not the popup
  *      had actually opened.
@@ -43,7 +43,7 @@ export function ImpersonateButton({ targetUserId, targetEmail }: Props) {
         variant="outline"
         title={`Portal als ${targetEmail} öffnen`}
       >
-        Als Benutzer öffnen
+        Kundenansicht öffnen
       </Button>
     </form>
   );

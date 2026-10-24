@@ -5,11 +5,10 @@ import {
   CardHeader,
   CardTitle,
   Badge,
-  Separator,
 } from "@eins/ui";
 import { requirePermissionOrRedirect } from "@/auth/guards";
 import { db, schema } from "@/db/client";
-import { formatDateTime } from "@/lib/formatting";
+import { formatDate } from "@/lib/formatting";
 import {
   FEEDBACK_CATEGORY_LABELS,
   FEEDBACK_STATUS_LABELS,
@@ -51,13 +50,12 @@ export default async function FeedbackPage() {
 
       {previous.length > 0 && (
         <>
-          <Separator />
           <Card>
             <CardHeader>
               <CardTitle>Bisheriges Feedback Ihrer Praxis</CardTitle>
             </CardHeader>
             <CardContent>
-              <ul className="space-y-3">
+              <ul className="divide-y divide-border">
                 {previous.map((row) => {
                   const categoryLabel =
                     FEEDBACK_CATEGORY_LABELS[row.category as FeedbackCategory] ??
@@ -68,10 +66,13 @@ export default async function FeedbackPage() {
                   return (
                     <li
                       key={row.id}
-                      className="rounded-lg border border-border bg-bg-secondary p-3"
+                      className="py-4 first:pt-0 last:pb-0"
                     >
-                      <div className="flex flex-wrap items-center gap-2 text-sm">
-                        <Badge tone="accent">{categoryLabel}</Badge>
+                      <p className="whitespace-pre-wrap text-base text-fg-primary">
+                        {row.message}
+                      </p>
+                      {/* Same meta line as Beiträge: status first, then the facts. */}
+                      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg-secondary">
                         <Badge
                           tone={
                             row.status === "offen"
@@ -85,21 +86,14 @@ export default async function FeedbackPage() {
                         >
                           {statusLabel}
                         </Badge>
-                        <span className="text-fg-secondary">
-                          {formatDateTime(row.submittedAt)}
-                        </span>
-                        {row.pageUrl && (
-                          <span className="text-xs text-fg-tertiary">
-                            · {row.pageUrl}
-                          </span>
-                        )}
-                      </div>
-                      <p className="mt-2 whitespace-pre-wrap text-base text-fg-primary">
-                        {row.message}
+                        <span>· {categoryLabel}</span>
+                        <span className="tabular-nums">· {formatDate(row.submittedAt)}</span>
+                        {row.pageUrl && <span>· {row.pageUrl}</span>}
                       </p>
                       {row.karamNote && (
-                        <p className="mt-2 rounded-md border border-border bg-bg-primary p-2 text-sm italic text-fg-secondary">
-                          Antwort von EINS: {row.karamNote}
+                        <p className="mt-3 whitespace-pre-wrap border-l-2 border-border pl-4 text-sm text-fg-secondary">
+                          <span className="font-medium text-fg-primary">Antwort von EINS:</span>{" "}
+                          {row.karamNote}
                         </p>
                       )}
                     </li>

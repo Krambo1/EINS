@@ -4,73 +4,51 @@ import { cn } from "../lib/cn";
 /** Map from Request-Status → tone + Klartext label. */
 const statusConfig: Record<
   string,
-  { label: string; dot: string; bg: string; fg: string }
+  { label: string; dot: string }
 > = {
   neu: {
     label: "Neu",
     dot: "bg-accent",
-    bg: "bg-accent-soft",
-    fg: "text-accent",
   },
   kontaktiert: {
     label: "Kontaktiert",
     dot: "bg-accent",
-    bg: "bg-accent-soft",
-    fg: "text-accent",
   },
   nicht_erreicht: {
     label: "Nicht erreicht",
     dot: "bg-tone-warn",
-    bg: "bg-[var(--tone-warn-bg)]",
-    fg: "text-tone-warn",
   },
   qualifiziert: {
     label: "Qualifiziert",
     dot: "bg-tone-good",
-    bg: "bg-[var(--tone-good-bg)]",
-    fg: "text-tone-good",
   },
   termin_vereinbart: {
     label: "Termin vereinbart",
     dot: "bg-tone-good",
-    bg: "bg-[var(--tone-good-bg)]",
-    fg: "text-tone-good",
   },
   beratung_erschienen: {
     label: "Beratung erschienen",
     dot: "bg-tone-good",
-    bg: "bg-[var(--tone-good-bg)]",
-    fg: "text-tone-good",
   },
   no_show: {
     label: "Nicht erschienen",
     dot: "bg-tone-bad",
-    bg: "bg-[var(--tone-bad-bg)]",
-    fg: "text-tone-bad",
   },
   behandelt: {
     label: "Behandelt",
     dot: "bg-tone-good",
-    bg: "bg-[var(--tone-good-bg)]",
-    fg: "text-tone-good",
   },
   gewonnen: {
     label: "Gewonnen",
     dot: "bg-tone-good",
-    bg: "bg-[var(--tone-good-bg)]",
-    fg: "text-tone-good",
   },
   verloren: {
     label: "Verloren",
     dot: "bg-tone-bad",
-    bg: "bg-[var(--tone-bad-bg)]",
-    fg: "text-tone-bad",
   },
   spam: {
     label: "Spam",
     dot: "bg-fg-tertiary",
-    bg: "bg-bg-secondary",
-    fg: "text-fg-secondary",
   },
 };
 
@@ -79,18 +57,17 @@ export interface StatusPillProps {
   className?: string;
 }
 
+/** Request status as a coloured dot and plain dark text (same look as Badge). */
 export function StatusPill({ status, className }: StatusPillProps) {
   const cfg = statusConfig[status] ?? statusConfig.neu;
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium",
-        cfg.bg,
-        cfg.fg,
+        "inline-flex items-center gap-1.5 whitespace-nowrap align-middle text-sm font-medium leading-5 text-fg-primary",
         className
       )}
     >
-      <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot)} />
+      <span aria-hidden className={cn("h-2 w-2 shrink-0 rounded-full", cfg.dot)} />
       {cfg.label}
     </span>
   );

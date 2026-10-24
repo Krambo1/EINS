@@ -26,11 +26,11 @@ const LABELS: Record<BrandKey, string> = {
   manuell: "Manueller Eintrag",
 };
 
-const META_LIGHT = "/Meta_lockup_positive primary_RGB.svg";
-const META_DARK = "/Meta_lockup_negative primary_white_RGB.svg";
+// Symbol only (the infinity mark), cropped from the official lockup, so Meta
+// reads like every other source: logo first, then the name as plain text.
+const META_SYMBOL = "/meta-symbol.svg";
 
 const baseImg = "inline-block h-[1em] w-auto shrink-0 align-[-0.15em]";
-const metaImg = "inline-block h-[2em] w-auto shrink-0 align-[-0.55em]";
 const baseIcon = "inline-block h-[1em] w-[1em] shrink-0 align-[-0.15em]";
 
 export function BrandLogo({
@@ -40,27 +40,6 @@ export function BrandLogo({
   brand: BrandKey;
   className?: string;
 }) {
-  if (brand === "meta") {
-    return (
-      <>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={META_LIGHT}
-          alt=""
-          aria-hidden="true"
-          className={`brand-meta-light ${metaImg} ${className}`}
-        />
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={META_DARK}
-          alt=""
-          aria-hidden="true"
-          className={`brand-meta-dark ${metaImg} ${className}`}
-        />
-      </>
-    );
-  }
-
   const Icon = ICONS[brand];
   if (Icon) {
     return (
@@ -71,7 +50,7 @@ export function BrandLogo({
     );
   }
 
-  const src = SIMPLE_LOGOS[brand];
+  const src = brand === "meta" ? META_SYMBOL : SIMPLE_LOGOS[brand];
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
@@ -84,9 +63,10 @@ export function BrandLogo({
 }
 
 /**
- * Inline brand mention — renders the text followed by its logo, sized to 1em.
- * Use sparingly: only where naming the brand visually matters (labels, table
- * cells, card titles, platform tiles). Don't sprinkle into flowing prose.
+ * Inline brand mention: the logo first, then the name, sized to 1em. Same
+ * order for every source (Google, Meta, Jameda, Formular, manuell), so a
+ * column of sources lines up. Use sparingly: labels, table cells, card
+ * titles, platform tiles. Don't sprinkle into flowing prose.
  */
 export function Brand({
   brand,
@@ -95,28 +75,10 @@ export function Brand({
   brand: BrandKey;
   children?: ReactNode;
 }) {
-  if (brand === "meta") {
-    // The Meta lockup already includes the "Meta" wordmark, so strip a
-    // leading "Meta" from the label to avoid rendering the name twice.
-    const label = children ?? LABELS[brand];
-    let suffix: ReactNode = null;
-    if (typeof label === "string") {
-      const stripped = label.replace(/^Meta\s*/, "");
-      if (stripped) suffix = stripped;
-    } else if (label) {
-      suffix = label;
-    }
-    return (
-      <span className="whitespace-nowrap">
-        <BrandLogo brand={brand} />
-        {suffix ? <span className="ml-1">{suffix}</span> : null}
-      </span>
-    );
-  }
   return (
     <span className="whitespace-nowrap">
+      <BrandLogo brand={brand} className="mr-1" />
       {children ?? LABELS[brand]}
-      <BrandLogo brand={brand} className="ml-1" />
     </span>
   );
 }

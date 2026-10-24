@@ -17,6 +17,7 @@
  */
 
 import type { Clinic, Treatment } from "./types";
+import { practicePrivacyProblems } from "./legal/practice-privacy";
 import { clinicSchema, treatmentSchema } from "./schema";
 
 import { templateClinic } from "@/clinics/_template/clinic";
@@ -73,6 +74,10 @@ function validate() {
         `Clinic "${clinic.slug}" failed schema validation:\n${JSON.stringify(cParse.error.format(), null, 2)}`,
       );
     }
+    if (clinic.slug !== "_template") {
+      const problems = practicePrivacyProblems(clinic);
+      if (problems.length) throw new Error(`Clinic "${clinic.slug}" has an incomplete privacy sheet:\n${problems.join("\n")}`);
+    }
     for (const treatment of treatments.values()) {
       const tParse = treatmentSchema.safeParse(treatment);
       if (!tParse.success) {
@@ -97,6 +102,49 @@ export function getClinic(slug: string): Clinic | null {
 
 export function getTreatment(clinicSlug: string, treatmentSlug: string): Treatment | null {
   return REGISTRY.get(clinicSlug)?.treatments.get(treatmentSlug) ?? null;
+}
+
+/** Resolve a treatment by its neutral public URL code (the route segment). */
+export function getTreatmentByCode(clinicSlug: string, urlCode: string): Treatment | null {
+  const e = REGISTRY.get(clinicSlug);
+  if (!e) return null;
+  for (const t of e.treatments.values()) if (t.urlCode === urlCode) return t;
+  return null;
+}
+
+/**
+ * Problems with a clinic's neutral URL codes: a code repeats, equals any
+ * treatment slug or the clinic slug, or contains the treatment's slug/category word. Used by
+ * scripts/validate-clinics.ts.
+ */
+export function urlCodeProblems(clinicSlug: string): string[] {
+  const treatments = listTreatmentsForClinic(clinicSlug);
+  const slugs = new Set(treatments.map((t) => t.slug));
+  const seen = new Map<string, string>();
+  const out: string[] = [];
+  for (const t of treatments) {
+    const code = t.urlCode;
+    const prev = seen.get(code);
+    if (prev) out.push(`urlCode "${code}" used by both ${prev} and ${t.slug}`);
+    seen.set(code, t.slug);
+    if (slugs.has(code)) out.push(`urlCode "${code}" (${t.slug}) equals a treatment slug`);
+    // On a custom domain `/<clinicSlug>` passes the middleware untouched, so
+    // that code would 404.
+    if (code === clinicSlug) out.push(`urlCode "${code}" (${t.slug}) equals the clinic slug`);
+    const words = new Set(
+      [t.slug, t.category, t.slug.replace(/-/g, ""), t.category.replace(/-/g, ""), ...t.slug.split("-"), ...t.category.split("-")]
+        .filter((w) => w.length >= 3),
+    );
+    for (const w of words) {
+      // Whole word, or its first 4 letters ("lipo", "brus"), is too telling.
+      const hit = code.includes(w) ? w : w.length > 4 && code.includes(w.slice(0, 4)) ? w.slice(0, 4) : null;
+      if (hit) {
+        out.push(`urlCode "${code}" (${t.slug}) contains the treatment word "${hit}"`);
+        break;
+      }
+    }
+  }
+  return out;
 }
 
 export function listClinics(): Clinic[] {
@@ -126,7 +174,8 @@ export function listAllRoutes(): { clinicSlug: string; treatmentSlug: string }[]
   for (const { clinic, treatments } of REGISTRY.values()) {
     if (clinic.slug === "_template" && !EXPOSE_TEMPLATE) continue;
     for (const t of treatments.values()) {
-      out.push({ clinicSlug: clinic.slug, treatmentSlug: t.slug });
+      // The `[treatmentSlug]` route segment carries the neutral urlCode.
+      out.push({ clinicSlug: clinic.slug, treatmentSlug: t.urlCode });
     }
   }
   return out;

@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { driver, type Driver } from "driver.js";
 import { Compass, CheckCircle2, X } from "lucide-react";
 import "driver.js/dist/driver.css";
@@ -151,6 +151,8 @@ export function TourProvider({
   navCardInitiallyVisible?: boolean;
 }) {
   const router = useRouter();
+  // Routes with a fixed bottom action bar below `md` (Anfrage detail).
+  const hasBottomBar = /^\/anfragen\/[^/]+$/.test(usePathname() ?? "");
 
   const driverRef = useRef<Driver | null>(null);
   const stepsRef = useRef<TourStep[]>([]);
@@ -518,7 +520,7 @@ export function TourProvider({
               <X className="h-4 w-4" />
             </button>
 
-            <span className="flex h-11 w-11 items-center justify-center rounded-full border border-accent/40 text-accent">
+            <span className="flex h-11 w-11 items-center justify-center rounded-full border border-[var(--accent-glow)] text-accent">
               {isLastCentered ? (
                 <CheckCircle2 className="h-6 w-6" />
               ) : (
@@ -526,7 +528,7 @@ export function TourProvider({
               )}
             </span>
 
-            <p className="mt-4 text-xs font-medium text-fg-tertiary">
+            <p className="mt-4 text-sm font-medium text-fg-primary">
               Schritt {centeredIndex + 1} von {total}
             </p>
             <h2 className="mt-1 text-xl font-semibold text-fg-primary">
@@ -562,10 +564,14 @@ export function TourProvider({
         <div
           role="dialog"
           aria-label="Portal-Rundgang"
-          className="eins-tour-prompt fixed bottom-5 right-5 z-30 w-[min(22rem,calc(100vw-2.5rem))] rounded-2xl border border-border bg-bg-primary p-5 shadow-xl"
+          /* Below `md` the Anfrage detail page has a fixed action bar at the
+             bottom (about 81 px incl. safe area); the prompt sits above it. */
+          className={`eins-tour-prompt fixed bottom-5 right-5 z-30 w-[min(22rem,calc(100vw-2.5rem))] rounded-2xl border border-border bg-bg-primary p-5 shadow-xl ${
+            hasBottomBar ? "max-md:bottom-[calc(5.5rem+env(safe-area-inset-bottom))]" : ""
+          }`}
         >
           <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-accent/40 text-accent">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--accent-glow)] text-accent">
               <Compass className="h-5 w-5" />
             </span>
             <div className="min-w-0">

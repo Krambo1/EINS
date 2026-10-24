@@ -20,8 +20,9 @@
 --
 -- Enforcement lives in applyPvsEvent (apps/portal/src/server/pvs-events.ts):
 -- on the first collision it flips the gdt_agent row to false, raises a
--- standing dashboard alert, and rejects with billing_conflict (403,
--- non-retryable). This backfill pre-resolves clinics that already have both
+-- standing dashboard alert, and rejects with billing_conflict (originally
+-- 403; since 2026-10 the routes answer 422 so the agent dead-letters the
+-- event instead of treating it as an auth failure). This backfill pre-resolves clinics that already have both
 -- paths enrolled so they never double-count in the first place.
 
 SET statement_timeout = 0;

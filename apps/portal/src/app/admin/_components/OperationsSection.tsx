@@ -35,7 +35,7 @@ const PENDING_ITEMS: {
 ];
 
 /**
- * Operations — merges the SLA-breach top list and the pending-ops counts into a
+ * Operations: merges the SLA-breach top list and the pending-ops counts into a
  * single clinic-styled card, replacing the separate SlaAndResponseSection and
  * OperationsQuickAccess. The response-time median moved into the leaderboard.
  */
@@ -58,7 +58,7 @@ export function OperationsSection({
     >
       <CardHeader className="flex-row items-start justify-between gap-2 space-y-0">
         <CardTitle className="!text-xl !font-medium md:!text-2xl">
-          Operations
+          Aufgaben
         </CardTitle>
         <Link
           href="/admin/operations"
@@ -75,7 +75,7 @@ export function OperationsSection({
               <Link
                 key={item.href}
                 href={item.href}
-                className="group flex items-center justify-between gap-3 rounded-xl border border-border bg-bg-secondary px-4 py-3 text-sm font-medium text-fg-primary transition-colors hover:border-accent/60"
+                className="group flex items-center justify-between gap-3 rounded-xl border border-border bg-bg-secondary px-4 py-3 text-sm font-medium text-fg-primary transition-colors hover:border-accent"
               >
                 <span className="flex items-center gap-2">
                   {item.label}
@@ -90,7 +90,7 @@ export function OperationsSection({
         <div>
           <div className="mb-2 flex items-center justify-between gap-2">
             <span className="text-sm font-medium text-fg-secondary">
-              SLA-Verstöße: Praxen mit offenen Verstößen
+              Internes Antwortziel überschritten (nicht die 48-Werkstunden-Frist)
             </span>
             {totalBreaches > 0 && (
               <Badge tone="bad">{totalBreaches} offen</Badge>
@@ -98,11 +98,11 @@ export function OperationsSection({
           </div>
           {sla.length === 0 ? (
             <p className="rounded-md border border-[var(--tone-good-border)] bg-[var(--tone-good-bg)] px-4 py-3 text-sm text-tone-good">
-              Keine SLA-Verstöße. Alles im grünen Bereich.
+              Keine Anfrage über dem internen Antwortziel.
             </p>
           ) : (
             <table className="w-full text-sm">
-              <thead className="text-left text-xs font-medium text-fg-secondary">
+              <thead className="text-left text-sm font-medium text-fg-primary">
                 <tr>
                   <th className="py-2">Praxis</th>
                   <th className="py-2 text-right">Offen</th>

@@ -1,82 +1,95 @@
+import { createHash } from "node:crypto";
 import iconv from "iconv-lite";
 
 /**
- * GDT (Gerätedatenträger) field-record parser.
+ * GDT / BDT (xDT family) field-record parser.
  *
- * GDT files are line-oriented; each line is:
+ * Ground truth: "GDT V 2.1 (5/01)" by the Qualitätsring Medizinische Software
+ * (QMS), plus vendor docs (CGM Turbomed GDT-Anbindung, PADSY GDT FAQ).
  *
- *   LLLFFFCONTENT\r\n
+ * Line format (spec 2.6.1): `LLLFFFFcontent<CR><LF>`
+ *   LLL  = 3-digit length of the WHOLE line in bytes, INCLUDING CR LF
+ *   FFFF = 4-digit Feldkennung (field id)
+ *   content = field value in the declared character set
  *
- * where:
- *   LLL  = 3-digit zero-padded length of the entire line (incl. LLL + FFF + CRLF)
- *   FFF  = 4-digit Feldkennung (field id; we treat it as 4 chars to be safe)
- *   CONTENT = ASCII (often ISO-8859-1) payload up to LLL minus 9
+ * A Satz starts with FK 8000 (Satzart) followed by FK 8100 (Satzlänge = the
+ * byte length of the entire Satz incl. every CR LF). The spec explicitly
+ * allows several Sätze, of different Satzarten and patients, in one file.
  *
- * GDT carries entire "Satzart" sets in sequence; the most relevant for us:
+ * Satzarten (spec 3):
+ *   6300 Stammdaten anfordern            device → PVS
+ *   6301 Stammdaten übermitteln          PVS → device
+ *   6302 Neue Untersuchung anfordern     PVS → device
+ *   6310 Daten einer Untersuchung übermitteln  device → PVS
+ *   6311 Daten einer Untersuchung zeigen PVS → device
+ * BDT (Behandlungsdatenträger, full PVS export) uses the same line format;
+ * its patient master record is Satzart 6100.
  *
- *   6301 — Patientendaten an PVS senden (PVS exports patient data)
- *   8316 — Behandlungsdaten (treatment record)
- *   6310 — Erfassung neue Patientendaten
- *   6200 — Beschwerden / Befunde
- *
- * We parse all field records into a flat array and let normalize.ts pick
- * the fields it needs for each canonical event.
+ * Character set (spec 2.2 + FK 9206): the STANDARD is IBM CP437. FK 9206
+ * declares 1 = 7-bit (DIN 66003, German umlauts on [ \ ] { | } ~),
+ * 2 = CP437, 3 = ISO-8859-1 / CP1252 (ANSI). Several PVS also write UTF-8.
+ * Real exporters do not always declare 9206 correctly, so the declaration
+ * is a strong prior, not the final word: we decode under every candidate and
+ * pick the most plausible German text, with a bonus for the declared one.
  */
 
 export interface GdtRecord {
-  /** Field id, e.g. "8316" or "3101". */
+  /** Field id, e.g. "3101". */
   feldKennung: string;
-  /** Payload, ISO-8859-1 decoded. */
+  /** Decoded payload, surrounding whitespace trimmed. */
   value: string;
 }
 
-/** One Satz: everything from an FK 8000 record up to (excluding) the next
- *  FK 8000. GDT files carry exactly one; BDT batch files carry many. */
+/** One Satz: everything from an FK 8000 record up to the next FK 8000. */
 export interface GdtSatz {
   /** Satzart, the value of the leading FK 8000 (e.g. "6301"). */
   satzart: string;
   /** All records of this Satz, including the 8000 itself. */
   records: GdtRecord[];
+  /** FK 8100 Satzlänge as declared (bytes), if present and numeric. */
+  declaredLength?: number;
+  /** Actual byte length of this Satz in the file, terminators included. */
+  actualLength: number;
+  /** True when FK 8100 is present and matches the actual byte length.
+   *  A matching 8100 proves the Satz was written completely. Many PVS write
+   *  a wrong or zero 8100, so a mismatch is NOT treated as corruption. */
+  lengthVerified: boolean;
 }
 
-export type GdtEncoding = "utf8" | "iso-8859-15" | "cp1252";
+export type GdtEncoding =
+  | "utf8"
+  | "iso-8859-15"
+  | "cp1252"
+  | "cp437"
+  | "din66003";
 
 export interface GdtParseResult {
   /** All records in source order (across all Sätze). */
   records: GdtRecord[];
-  /** Satzart of the FIRST Satz (kept for logging + back-compat). */
+  /** Satzart of the FIRST Satz (logging + back-compat). */
   satzart?: string;
-  /** Sätze segmented at FK 8000 boundaries. A plain GDT file yields one;
-   *  a BDT batch export yields one per patient record. normalize.ts MUST
-   *  translate per Satz: flattening a multi-Satz file merges every
-   *  patient into one and sums all Honorar lines into a single invoice. */
+  /** Sätze segmented at FK 8000 boundaries. */
   saetze: GdtSatz[];
-  /** Sha-256 of raw bytes — used as dedup key in pvsExternalEventId. */
+  /** sha-256 of the raw bytes; used in event ids. */
   contentHash: string;
-  /** Encoding chosen by the probe; exposed for tests + ops visibility. */
+  /** Encoding chosen by the probe. */
   encoding: GdtEncoding;
-  /**
-   * L6: count of lines whose 3-digit LLL length prefix claimed MORE bytes than
-   * the line actually holds (LLL > actual bytes + CR LF). That is the signature
-   * of a torn / truncated line: the exporter wrote the length header for a value
-   * it never finished writing. Such lines are dropped rather than emitted with a
-   * silently truncated value; this counter lets parseGdtFile + the watcher warn
-   * loudly so a systematic truncation defect is visible instead of hidden.
-   */
+  /** Encoding declared by FK 9206 (first Satz), if any. */
+  declaredEncoding?: GdtEncoding;
+  /** True when the last line ends with a line terminator (CR LF mandatory
+   *  per spec). False is the signature of a file still being written OR of
+   *  an exporter that omits the final CR LF; the watcher decides which by
+   *  waiting for the file to be stable. */
+  endsWithTerminator: boolean;
+  /** Lines whose LLL claims MORE bytes than present (probable truncation).
+   *  Such lines are dropped instead of emitting a silently cut value. */
   suspectLineCount: number;
 }
 
-/**
- * Thrown when a file looks like a torn write (still being written when we
- * read it). GDT/BDT mandates a CR LF terminator after EVERY line including
- * the last, so a missing final terminator means the exporter had not
- * finished writing. The watcher treats this as "not yet processable": it
- * logs, does NOT enqueue, and does NOT advance the mtime cursor, so the
- * completed file is re-processed on the next change event or restart.
- * Parsing a torn file instead would poison the outbox: the truncated
- * parse wins the per-event-id dedup and the corrected re-parse is
- * silently discarded (reliability review C1).
- */
+/** Kept for API compatibility. parseGdtFile no longer throws it: a missing
+ *  final CR LF is reported via `endsWithTerminator` and resolved by the
+ *  watcher (stable file = complete file), because a PVS that omits the final
+ *  terminator would otherwise block its GDT channel forever. */
 export class TornGdtFileError extends Error {
   constructor(detail: string) {
     super(`GDT file appears incompletely written (torn write): ${detail}`);
@@ -85,181 +98,299 @@ export class TornGdtFileError extends Error {
 }
 
 export async function parseGdtFile(bytes: Buffer): Promise<GdtParseResult> {
-  const { text, encoding } = decodeBytesBestEffort(bytes);
-  if (text.length > 0 && !/\r?\n$/.test(text)) {
-    throw new TornGdtFileError(
-      "file does not end with a line terminator (CR LF is mandatory after every GDT line, including the last)"
-    );
-  }
-  const { records, suspectLineCount } = parseLines(text, encoding);
-  const saetze = segmentSaetze(records);
-  const satzart = saetze[0]?.satzart;
-  const hash = await sha256(bytes);
-  console.debug(
-    `[gdt-parser] decoded as ${encoding} (sha256=${hash.slice(0, 12)}, saetze=${saetze.length})`
-  );
+  const declaredEncoding = sniffDeclaredEncoding(bytes);
+  const { text, encoding } = decodeBytesBestEffort(bytes, {
+    declared: declaredEncoding,
+    allowDin66003: true,
+  });
+  const endsWithTerminator = text.length === 0 || /[\r\n]$/.test(text);
+  const { records, lineLengths, suspectLineCount } = parseLines(text, encoding);
+  const saetze = segmentSaetze(records, lineLengths);
+  const contentHash = createHash("sha256").update(bytes).digest("hex");
   if (suspectLineCount > 0) {
-    // L6: surface, do not swallow. These lines claimed a longer length than
-    // present (probable truncation) and their values were dropped.
     console.warn(
-      `[gdt-parser] ${suspectLineCount} line(s) claim a longer LLL length than present (probable truncation); their values were dropped (sha256=${hash.slice(0, 12)})`
+      `[gdt-parser] ${suspectLineCount} line(s) claim a longer LLL length than present (probable truncation); their values were dropped (sha256=${contentHash.slice(0, 12)})`
     );
   }
-  return { records, satzart, saetze, contentHash: hash, encoding, suspectLineCount };
+  if (declaredEncoding && declaredEncoding !== encoding) {
+    console.warn(
+      `[gdt-parser] FK 9206 declares ${declaredEncoding} but the content decodes as ${encoding}; using ${encoding} (sha256=${contentHash.slice(0, 12)})`
+    );
+  }
+  return {
+    records,
+    satzart: saetze[0]?.satzart,
+    saetze,
+    contentHash,
+    encoding,
+    declaredEncoding,
+    endsWithTerminator,
+    suspectLineCount,
+  };
 }
 
-const DIACRITICS = new Set(["ä", "ö", "ü", "ß", "Ä", "Ö", "Ü", "€"]);
-const MOJIBAKE_MARKERS = new Set(["}", "{", "|", "~"]);
-const REPLACEMENT_CHAR = "�";
-
-function isAsciiLetter(ch: string): boolean {
-  const code = ch.charCodeAt(0);
-  return (code >= 0x41 && code <= 0x5a) || (code >= 0x61 && code <= 0x7a);
+/**
+ * Read FK 9206 straight from the bytes. LLL, FK and the digit are ASCII in
+ * every candidate encoding, so a latin1 view is safe for this probe.
+ */
+function sniffDeclaredEncoding(bytes: Buffer): GdtEncoding | undefined {
+  const head = bytes.subarray(0, 4096).toString("latin1");
+  const m = head.match(/(?:^|[\r\n])\d{3}9206\s*(\d)/);
+  if (!m) return undefined;
+  switch (m[1]) {
+    case "1":
+      return "din66003";
+    case "2":
+      return "cp437";
+    case "3":
+      return "cp1252";
+    default:
+      return undefined;
+  }
 }
 
-function isAsciiConsonant(ch: string): boolean {
-  return isAsciiLetter(ch) && !"aeiouAEIOU".includes(ch);
+// ---------------------------------------------------------------------------
+// Decoding
+// ---------------------------------------------------------------------------
+
+/** DIN 66003 (German 7-bit ISO 646): these ASCII positions carry umlauts. */
+const DIN66003_MAP: Record<string, string> = {
+  "@": "§",
+  "[": "Ä",
+  "\\": "Ö",
+  "]": "Ü",
+  "{": "ä",
+  "|": "ö",
+  "}": "ü",
+  "~": "ß",
+};
+
+function decodeDin66003(bytes: Buffer): string {
+  let out = "";
+  const ascii = bytes.toString("latin1");
+  for (const ch of ascii) out += DIN66003_MAP[ch] ?? ch;
+  return out;
 }
 
+const GERMAN_LETTERS = new Set(["ä", "ö", "ü", "ß", "Ä", "Ö", "Ü"]);
+const DIN_MARKERS = new Set(["[", "\\", "]", "{", "|", "}", "~"]);
+
+function isLetter(ch: string | undefined): boolean {
+  return ch !== undefined && /\p{L}/u.test(ch);
+}
+
+/** Non-ASCII characters that are plausible inside German/Western names and
+ *  addresses: Latin-1 letters, €, °, §, µ, typographic quotes/dashes. */
+function isPlausibleNonAscii(ch: string): boolean {
+  const c = ch.codePointAt(0) ?? 0;
+  if (c >= 0xc0 && c <= 0xff && c !== 0xd7 && c !== 0xf7) return true; // À..ÿ minus × ÷
+  return "€°§µ„“”‚‘’–·".includes(ch) || c === 0xa0;
+}
+
+/**
+ * Plausibility score of decoded text as German PVS content.
+ *   +2  per German letter (äöüßÄÖÜ)
+ *   -4  per U+FFFD or C0/C1 control character (except CR, LF, TAB)
+ *   -2  per non-ASCII character that is implausible in names/addresses
+ *       (box drawing, Greek, math symbols: the shape of CP1252 bytes read as
+ *       CP437 and vice versa)
+ *   -1  per DIN 66003 marker character sitting between two letters
+ *       ("M}ller"): the shape of a 7-bit file read as ASCII
+ *   -2  per typographic punctuation char sitting between two letters
+ *       ("J„ger" = CP437 'ä' read as CP1252)
+ */
 function scoreDecoded(text: string): number {
-  // +1 per plausible German diacritic; -3 per U+FFFD; -1 per 7-bit-DIN-66003
-  // mojibake marker ({ | } ~) that sits between two ASCII consonants — the
-  // shape of "M}ller" / "Stra~e" when a file is actually DIN 66003 but
-  // read as ASCII/UTF-8/CP1252.
   let score = 0;
   for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    // Fast path: plain printable ASCII that is not a DIN 66003 marker.
+    if (c >= 0x20 && c < 0x7f && !DIN_MARKERS.has(text[i])) continue;
     const ch = text[i];
-    if (DIACRITICS.has(ch)) {
-      score += 1;
+    if (GERMAN_LETTERS.has(ch)) {
+      score += 2;
       continue;
     }
-    if (ch === REPLACEMENT_CHAR) {
-      score -= 3;
+    if (ch === "�") {
+      score -= 4;
       continue;
     }
-    if (
-      MOJIBAKE_MARKERS.has(ch) &&
-      i > 0 &&
-      i < text.length - 1 &&
-      isAsciiConsonant(text[i - 1]) &&
-      isAsciiConsonant(text[i + 1])
-    ) {
-      score -= 1;
+    if (c < 0x20 && ch !== "\r" && ch !== "\n" && ch !== "\t") {
+      score -= 4;
+      continue;
     }
+    if (c >= 0x7f && c <= 0x9f) {
+      score -= 4;
+      continue;
+    }
+    const between = isLetter(text[i - 1]) && isLetter(text[i + 1]);
+    if (c < 0x80) {
+      if (between && DIN_MARKERS.has(ch)) score -= 1;
+      continue;
+    }
+    if (c >= 0xd800 && c <= 0xdfff) continue; // UTF-16 surrogate half (emoji etc.)
+    if (!isPlausibleNonAscii(ch)) {
+      score -= 2;
+      continue;
+    }
+    if (between && "„“”‚‘’–·".includes(ch)) score -= 2;
   }
   return score;
 }
 
+const DECLARED_BONUS = 3;
+
 /**
- * Decode a byte buffer under all three plausible German-PVS encodings and
- * pick the best-scoring result. Exported so the CSV parser reuses the exact
- * same 3-candidate scoring probe (M-P1) instead of the old utf8-or-fallback
- * decode that silently accepted double-encoded UTF-8 and had no CP1252
- * candidate at all. See scoreDecoded for the scoring rule.
+ * Decode bytes under every plausible German-PVS encoding and keep the most
+ * plausible text. Exported for the Honorar-CSV parser (which does not allow
+ * the 7-bit DIN variant: CSV exports are never 7-bit).
+ *
+ * Order = tie-break preference: utf8, iso-8859-15, cp1252, cp437, din66003.
+ * A UTF-8 BOM forces utf8.
  */
-export function decodeBytesBestEffort(bytes: Buffer): {
-  text: string;
-  encoding: GdtEncoding;
-} {
-  // Decode the bytes under all three plausible 8-bit candidates and pick
-  // the one that produces the most plausibly-German output. The legacy
-  // approach (utf8 first, fall back to ISO-8859-15 only on U+FFFD) silently
-  // corrupted CP1252 files whose bytes happened to be valid UTF-8 — the
-  // common "Jürgen Müller" failure mode where 0xFC ("ü") gets replaced by
-  // U+FFFD without anyone noticing. Probing all three and scoring the
-  // result catches CP1252 vs ISO-8859-15 mismatches around €/¤ as well.
-  //
-  // Tie-break: utf8 > iso-8859-15 > cp1252 (array order; JS sort is stable
-  // since ES2019, which Node 20 honours).
-  const candidates: Array<{ encoding: GdtEncoding; text: string }> = [
-    { encoding: "utf8", text: bytes.toString("utf8") },
-    { encoding: "iso-8859-15", text: iconv.decode(bytes, "ISO-8859-15") },
-    { encoding: "cp1252", text: iconv.decode(bytes, "CP1252") },
-  ];
-  const scored = candidates.map((c) => ({ ...c, score: scoreDecoded(c.text) }));
-  scored.sort((a, b) => b.score - a.score);
-  const winner = scored[0];
-  return { text: winner.text, encoding: winner.encoding };
+export function decodeBytesBestEffort(
+  bytes: Buffer,
+  opts: { declared?: GdtEncoding; allowDin66003?: boolean } = {}
+): { text: string; encoding: GdtEncoding } {
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return { text: bytes.subarray(3).toString("utf8"), encoding: "utf8" };
+  }
+  const sevenBit = !bytes.some((b) => b > 0x7f);
+  const encodings: GdtEncoding[] = ["utf8", "iso-8859-15", "cp1252", "cp437"];
+  if (opts.allowDin66003 && sevenBit) encodings.push("din66003");
+  // Score on a sample: for big files (BDT exports can be tens of MB) only the
+  // lines carrying non-ASCII bytes or DIN markers can tell encodings apart,
+  // and decoding + scoring the whole file five times would be wasteful.
+  const sample = scoringSample(bytes);
+  let best: { encoding: GdtEncoding; score: number } | null = null;
+  for (const enc of encodings) {
+    let score = scoreDecoded(decodeAs(sample, enc));
+    if (opts.declared === enc) score += DECLARED_BONUS;
+    // A 9206=3 declaration ("ISO8859-1 (ANSI) CP 1252") also vouches for the
+    // ISO-8859-15 reading; they only differ in a handful of code points.
+    if (opts.declared === "cp1252" && enc === "iso-8859-15") {
+      score += DECLARED_BONUS - 1;
+    }
+    if (!best || score > best.score) best = { encoding: enc, score };
+  }
+  return { text: decodeAs(bytes, best!.encoding), encoding: best!.encoding };
 }
+
+function decodeAs(bytes: Buffer, enc: GdtEncoding): string {
+  switch (enc) {
+    case "utf8":
+      return bytes.toString("utf8");
+    case "din66003":
+      return decodeDin66003(bytes);
+    case "iso-8859-15":
+      return iconv.decode(bytes, "ISO-8859-15");
+    case "cp1252":
+      return iconv.decode(bytes, "CP1252");
+    case "cp437":
+      return iconv.decode(bytes, "CP437");
+  }
+}
+
+const SAMPLE_LIMIT = 1024 * 1024;
+const DIN_MARKER_BYTES = new Set([0x5b, 0x5c, 0x5d, 0x7b, 0x7c, 0x7d, 0x7e]);
+
+function scoringSample(bytes: Buffer): Buffer {
+  if (bytes.length <= SAMPLE_LIMIT) return bytes;
+  const parts: Buffer[] = [];
+  let total = 0;
+  let start = 0;
+  while (start < bytes.length && total < SAMPLE_LIMIT) {
+    let end = bytes.indexOf(0x0a, start);
+    if (end === -1) end = bytes.length - 1;
+    const line = bytes.subarray(start, end + 1);
+    if (line.some((b) => b > 0x7f || DIN_MARKER_BYTES.has(b))) {
+      parts.push(line);
+      total += line.length;
+    }
+    start = end + 1;
+  }
+  return parts.length > 0 ? Buffer.concat(parts) : bytes.subarray(0, SAMPLE_LIMIT);
+}
+
+// ---------------------------------------------------------------------------
+// Lines and Sätze
+// ---------------------------------------------------------------------------
 
 function parseLines(
   decoded: string,
   encoding: GdtEncoding
-): { records: GdtRecord[]; suspectLineCount: number } {
-  const lines = decoded.split(/\r?\n/);
+): { records: GdtRecord[]; lineLengths: number[]; suspectLineCount: number } {
   const records: GdtRecord[] = [];
+  const lineLengths: number[] = [];
   let suspectLineCount = 0;
-  for (const line of lines) {
+  const re = /([^\r\n]*)(\r\n|\n|\r|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(decoded)) !== null) {
+    const line = m[1];
+    const term = m[2];
+    if (line === "" && term === "") break; // end of input
+    const lineBytes = byteLen(line, encoding) + term.length;
     if (line.length < 7) continue;
-    // L6: validate the 3-digit LLL length prefix against the actual line bytes.
-    // GDT's LLL is the byte length of the WHOLE line INCLUDING its CR LF, so a
-    // conformant line has byteLen(line, encoding) + 2 === LLL. We only reject a
-    // line when it claims MORE bytes than exist (LLL > byteLen + 2): that is the
-    // torn / truncated case where a length header was written for a value the
-    // exporter never finished. Lines that are longer than claimed, or exporters
-    // that count LLL WITHOUT the terminator, still satisfy byteLen + 2 >= LLL
-    // and are left alone, so this does not false-positive on those conventions.
     const lll = line.slice(0, 3);
     if (/^\d{3}$/.test(lll)) {
+      // LLL counts the whole line INCLUDING CR LF. Reject only lines that
+      // claim MORE bytes than exist (torn/truncated). Lines longer than
+      // claimed, or exporters that count without the terminator, pass.
       const claimed = Number(lll);
-      const actualWithCrlf = byteLen(line, encoding) + 2;
-      if (claimed > actualWithCrlf) {
-        // Truncated line: drop it rather than push a silently truncated value.
+      if (claimed > byteLen(line, encoding) + 2) {
         suspectLineCount++;
         continue;
       }
     }
-    // First 3 chars = length (sanity-check but tolerate violations).
     const fk = line.slice(3, 7);
-    const value = line.slice(7).trim();
     if (!/^\d{4}$/.test(fk)) continue;
-    records.push({ feldKennung: fk, value });
+    records.push({ feldKennung: fk, value: line.slice(7).trim() });
+    lineLengths.push(lineBytes);
   }
-  return { records, suspectLineCount };
+  return { records, lineLengths, suspectLineCount };
 }
 
-/**
- * Byte length of a decoded line in its SOURCE encoding, so the LLL check
- * (which counts bytes) stays correct for multi-byte UTF-8 content as well as
- * the single-byte 8-bit codecs.
- */
+/** Byte length in the SOURCE encoding (all non-UTF-8 candidates are
+ *  single-byte code pages, so one char = one byte). */
 function byteLen(s: string, encoding: GdtEncoding): number {
-  return encoding === "utf8"
-    ? Buffer.byteLength(s, "utf8")
-    : iconv.encode(s, encoding).length;
+  return encoding === "utf8" ? Buffer.byteLength(s, "utf8") : s.length;
 }
 
-/**
- * Segment a flat record list into Sätze at FK 8000 boundaries (C2). BDT is
- * by definition a multi-record batch format: one file can carry hundreds of
- * patients, each introduced by its own FK 8000. Records BEFORE the first
- * 8000 belong to no Satz (structural preamble in non-conformant exports)
- * and are dropped from segmentation; they remain visible in `records`.
- */
-function segmentSaetze(records: GdtRecord[]): GdtSatz[] {
+function segmentSaetze(records: GdtRecord[], lineLengths: number[]): GdtSatz[] {
   const saetze: GdtSatz[] = [];
   let current: GdtSatz | null = null;
-  for (const r of records) {
+  records.forEach((r, i) => {
     if (r.feldKennung === "8000") {
-      current = { satzart: r.value, records: [r] };
+      current = {
+        satzart: r.value,
+        records: [r],
+        actualLength: lineLengths[i],
+        lengthVerified: false,
+      };
       saetze.push(current);
-      continue;
+      return;
     }
-    if (current) current.records.push(r);
+    if (!current) return; // preamble before the first 8000: no Satz
+    current.records.push(r);
+    current.actualLength += lineLengths[i];
+  });
+  for (const s of saetze) {
+    const raw = pickFirst(s.records, "8100");
+    if (raw && /^\d+$/.test(raw)) {
+      s.declaredLength = Number(raw);
+      s.lengthVerified = s.declaredLength === s.actualLength;
+    }
   }
   return saetze;
 }
 
-async function sha256(bytes: Buffer): Promise<string> {
-  const { createHash } = await import("node:crypto");
-  return createHash("sha256").update(bytes).digest("hex");
-}
-
 /** Convenience helpers used by normalize.ts. */
 export function pickFirst(records: GdtRecord[], fk: string): string | undefined {
-  return records.find((r) => r.feldKennung === fk)?.value;
+  const v = records.find((r) => r.feldKennung === fk)?.value;
+  return v === undefined || v === "" ? undefined : v;
 }
 
 export function pickAll(records: GdtRecord[], fk: string): string[] {
-  return records.filter((r) => r.feldKennung === fk).map((r) => r.value);
+  return records
+    .filter((r) => r.feldKennung === fk && r.value !== "")
+    .map((r) => r.value);
 }

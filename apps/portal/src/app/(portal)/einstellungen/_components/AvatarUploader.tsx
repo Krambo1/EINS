@@ -84,10 +84,15 @@ export function AvatarUploader({ currentUrl, name, email }: Props) {
         const blob = await renderCroppedBlob(pickedSrc, croppedArea);
         const fd = new FormData();
         fd.append("avatar", new File([blob], "avatar.webp", { type: blob.type }));
-        await uploadOwnAvatarAction(fd);
+        const result = await uploadOwnAvatarAction(fd);
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
         closeDialog();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Hochladen fehlgeschlagen.");
+      } catch {
+        // Network or cropping error; the raw message is not shown (F-02).
+        setError("Hochladen fehlgeschlagen. Bitte versuchen Sie es erneut.");
       }
     });
   };
@@ -95,9 +100,10 @@ export function AvatarUploader({ currentUrl, name, email }: Props) {
   const onRemove = () => {
     startRemove(async () => {
       try {
-        await removeOwnAvatarAction();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Entfernen fehlgeschlagen.");
+        const result = await removeOwnAvatarAction();
+        if (!result.ok) setError(result.error);
+      } catch {
+        setError("Entfernen fehlgeschlagen. Bitte versuchen Sie es erneut.");
       }
     });
   };

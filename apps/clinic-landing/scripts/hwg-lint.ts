@@ -27,6 +27,11 @@ const TARGET_DIRS = [
 const TARGET_FILES_GLOB = [
   resolve(ROOT, "components/sections"),
 ];
+// Page files that render patient-facing copy themselves (the practice start
+// page's copy lives in components/sections/practice-start.tsx, scanned above).
+const TARGET_FILES = [
+  resolve(ROOT, "app/[clinicSlug]/page.tsx"),
+];
 
 let violations = 0;
 
@@ -78,6 +83,7 @@ function scan(file: string) {
 
 for (const dir of TARGET_DIRS) walk(dir, scan);
 for (const dir of TARGET_FILES_GLOB) walk(dir, scan);
+for (const file of TARGET_FILES) scan(file);
 
 if (violations > 0) {
   console.error(`\n${violations} banned-phrase violation(s). Aborting.`);

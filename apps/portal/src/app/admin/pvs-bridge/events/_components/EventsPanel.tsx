@@ -9,6 +9,7 @@ import {
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Badge } from "@eins/ui";
 import { EventDetailDialog } from "./EventDetailDialog";
+import { DISPLAY_TIME_ZONE } from "@/lib/formatting";
 
 export interface EventRow {
   id: string;
@@ -35,6 +36,7 @@ const dtFormatter = new Intl.DateTimeFormat("de-DE", {
   hour: "2-digit",
   minute: "2-digit",
   second: "2-digit",
+  timeZone: DISPLAY_TIME_ZONE,
 });
 
 export function EventsPanel({ rows, truncated, hardCap }: Props) {

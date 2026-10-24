@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatMoney, formatEuro, formatClinicAggregate } from "./formatting";
+import { formatMoney, formatEuro, formatClinicAggregate, formatBytes } from "./formatting";
 
 /**
  * Multi-currency display (Phase 11). PVS revenue is held in the clinic's
@@ -64,5 +64,14 @@ describe("formatClinicAggregate", () => {
 
   it("treats an empty set as EUR (nothing summed)", () => {
     expect(formatClinicAggregate(0, [])).toEqual(formatMoney(0, "EUR"));
+  });
+});
+
+describe("formatBytes", () => {
+  it("keeps the upload-list format (B, whole KB, one-decimal MB, two-decimal GB)", () => {
+    expect(formatBytes(512)).toBe("512 B");
+    expect(formatBytes(40 * 1024 + 300)).toBe("40 KB");
+    expect(formatBytes(3.44 * 1024 * 1024)).toBe("3.4 MB");
+    expect(formatBytes(1.25 * 1024 * 1024 * 1024)).toBe("1.25 GB");
   });
 });

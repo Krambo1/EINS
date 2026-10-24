@@ -55,7 +55,7 @@ export function Hero({ clinic, treatment, privacyHref }: Props) {
           )}
         </div>
 
-        <div id="anfrage" className="scroll-mt-24">
+        <div id="anfrage" className="min-w-0 scroll-mt-24">
           <QuizCard clinic={clinic} treatment={treatment} privacyHref={privacyHref} />
         </div>
       </div>

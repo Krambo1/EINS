@@ -1,6 +1,7 @@
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { env, hasOpenAI } from "@/lib/env";
+import { describeErrorForLog } from "@/lib/error-log";
 import type { AiCategory } from "@/lib/constants";
 import type { LeadQuiz } from "@/server/leads";
 import { geocode } from "@/server/geocode/nominatim";
@@ -62,6 +63,9 @@ export async function processAiScore(job: AiScoreJob): Promise<void> {
     console.warn(`[ai-score] request ${requestId} not found — skipping`);
     return;
   }
+  // Idempotent (K-5): the request is scored inline after intake and may be
+  // queued for the worker as well. Whoever comes second does nothing.
+  if (req.aiScore !== null) return;
 
   // Rule-based path for clinic-landing pre-qualifier intake. We have the
   // patient's structured answers in `ai_signals.quiz`, so heuristic > LLM.
@@ -84,14 +88,16 @@ export async function processAiScore(job: AiScoreJob): Promise<void> {
     try {
       result = await scoreWithOpenAI(req);
     } catch (err) {
-      console.error("[ai-score] openai failed — falling back to heuristic:", err);
+      console.error("[ai-score] openai failed, falling back to heuristic:", JSON.stringify(describeErrorForLog(err)));
       result = scoreWithHeuristic(req);
     }
   } else {
     result = scoreWithHeuristic(req);
   }
 
-  await db
+  // Claim on ai_score IS NULL: two concurrent runs write one score and one
+  // timeline entry.
+  const claimed = await db
     .update(schema.requests)
     .set({
       aiScore: result.score,
@@ -99,7 +105,9 @@ export async function processAiScore(job: AiScoreJob): Promise<void> {
       aiReasoning: result.reasoning,
       aiPromptVersion: promptVersion,
     })
-    .where(eq(schema.requests.id, requestId));
+    .where(and(eq(schema.requests.id, requestId), isNull(schema.requests.aiScore)))
+    .returning({ id: schema.requests.id });
+  if (claimed.length === 0) return;
 
   await db.insert(schema.requestActivities).values({
     requestId,
@@ -183,7 +191,7 @@ async function scoreWithRules(
       notesIntentReasoning = `KI: ${llm.reasoning}`;
       llmRan = true;
     } catch (err) {
-      console.error("[ai-score] notes-llm failed — falling back to rule:", err);
+      console.error("[ai-score] notes-llm failed, falling back to rule:", JSON.stringify(describeErrorForLog(err)));
       const substantive = notesAreSubstantive(trimmedNotes);
       notesIntentPoints = substantive ? 7 : 0;
       notesIntentReasoning = substantive ? "Notizen substantiell (Regel-Fallback)" : "Notizen zu kurz (Regel-Fallback)";
@@ -314,7 +322,7 @@ function scoreWithHeuristic(
     reasoning:
       reasons.length > 0
         ? reasons.join(", ")
-        : "keine starken Signale — Standardbewertung",
+        : "keine starken Signale, Standardbewertung",
   };
 }
 
@@ -344,6 +352,7 @@ async function scoreNotesWithOpenAI(
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
+    signal: AbortSignal.timeout(15_000),
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${env.OPENAI_API_KEY}`,
@@ -403,6 +412,7 @@ async function scoreWithOpenAI(
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
+    signal: AbortSignal.timeout(15_000),
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${env.OPENAI_API_KEY}`,

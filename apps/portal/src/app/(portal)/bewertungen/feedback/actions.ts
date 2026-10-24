@@ -8,11 +8,31 @@ import { schema, withClinicContext } from "@/db/client";
 import { writeAudit } from "@/server/audit";
 import { can, ForbiddenError } from "@/lib/roles";
 import { PATIENT_FEEDBACK_STATUSES } from "@/lib/constants";
+import { flashError, flashMessageFromError } from "@/lib/flash";
 
 const IdSchema = z.string().uuid();
 
+/**
+ * Status buttons are plain server forms: a failure becomes a toast (action
+ * flash) instead of the error page (F-01). There is no typed input to keep.
+ */
 export async function setFeedbackStatusAction(formData: FormData) {
   const session = await requireSession();
+  try {
+    await setFeedbackStatus(session, formData);
+  } catch (err) {
+    await flashError(
+      "Status nicht gespeichert",
+      flashMessageFromError(err, "patient_feedback.status")
+    );
+    revalidatePath("/bewertungen/feedback", "layout");
+  }
+}
+
+async function setFeedbackStatus(
+  session: Awaited<ReturnType<typeof requireSession>>,
+  formData: FormData
+) {
   if (!can(session.role, "patient_feedback.manage"))
     throw new ForbiddenError("patient_feedback.manage");
 
@@ -63,8 +83,33 @@ export async function setFeedbackStatusAction(formData: FormData) {
   revalidatePath("/dashboard");
 }
 
-export async function setFeedbackNoteAction(formData: FormData) {
+/** `note` echoes the typed text on failure so the editor keeps it (F-01). */
+export type FeedbackNoteState =
+  | undefined
+  | { ok: true }
+  | { ok: false; error: string; note: string };
+
+export async function setFeedbackNoteAction(
+  _prev: FeedbackNoteState,
+  formData: FormData
+): Promise<FeedbackNoteState> {
   const session = await requireSession();
+  try {
+    await setFeedbackNote(session, formData);
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: flashMessageFromError(err, "patient_feedback.note"),
+      note: String(formData.get("internalNote") ?? ""),
+    };
+  }
+}
+
+async function setFeedbackNote(
+  session: Awaited<ReturnType<typeof requireSession>>,
+  formData: FormData
+) {
   if (!can(session.role, "patient_feedback.manage"))
     throw new ForbiddenError("patient_feedback.manage");
 

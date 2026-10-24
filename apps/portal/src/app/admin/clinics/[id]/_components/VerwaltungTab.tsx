@@ -5,8 +5,9 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-  Button,
 } from "@eins/ui";
+import { PendingSubmitButton } from "../../../_components/PendingSubmitButton";
+import { DangerSubmitButton } from "../../../_components/DangerSubmitButton";
 import { formatDateTime } from "@/lib/formatting";
 import type { schema } from "@/db/client";
 import {
@@ -26,8 +27,9 @@ export function VerwaltungTab({
         <CardHeader>
           <CardTitle>Praxis-Status</CardTitle>
           <CardDescription>
-            Archivierte Praxen sind für Nutzer gesperrt, bleiben aber in der
-            Datenbank. Der Vorgang ist umkehrbar.
+            Archivieren sperrt alle Zugänge der Praxis und meldet angemeldete
+            Personen ab. Die Daten bleiben in der Datenbank. Der Vorgang ist
+            umkehrbar: Reaktivieren gibt die gesperrten Zugänge wieder frei.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -35,19 +37,25 @@ export function VerwaltungTab({
             {isArchived ? (
               <form action={unarchiveClinicAction}>
                 <input type="hidden" name="id" value={clinic.id} />
-                <Button type="submit" variant="outline">
+                <PendingSubmitButton
+                  variant="outline"
+                  confirm="Praxis reaktivieren? Die Zugänge, die mit der Praxis gesperrt wurden, funktionieren danach wieder."
+                >
                   Praxis reaktivieren
-                </Button>
-                <p className="mt-2 text-xs text-fg-secondary">
+                </PendingSubmitButton>
+                <p className="mt-2 text-sm text-fg-primary">
                   Archiviert seit {formatDateTime(clinic.archivedAt)}.
                 </p>
               </form>
             ) : (
               <form action={archiveClinicAction}>
                 <input type="hidden" name="id" value={clinic.id} />
-                <Button type="submit" variant="outline">
+                <DangerSubmitButton
+                  confirm="Praxis archivieren? Alle Zugänge werden gesperrt und angemeldete Personen sofort abgemeldet."
+                  pendingLabel="Wird archiviert …"
+                >
                   Praxis archivieren
-                </Button>
+                </DangerSubmitButton>
               </form>
             )}
           </div>

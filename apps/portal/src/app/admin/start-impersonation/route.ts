@@ -3,8 +3,10 @@ import { z } from "zod";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { requireAdmin } from "@/auth/admin-guards";
 import { issueImpersonationToken } from "@/auth/impersonation";
+import { findActiveClinicUserById } from "@/auth/user-lookup";
 import { db, schema } from "@/db/client";
 import { env } from "@/lib/env";
+import { escapeHtml } from "@/server/email";
 
 /**
  * POST /admin/start-impersonation
@@ -78,22 +80,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return new NextResponse("missing_target", { status: 400 });
   }
 
-  // Confirm the target is a real, non-archived clinic_users row. The
-  // consumer route also re-checks; we re-check here so the admin gets a
-  // 404 immediately rather than landing on the clinic /login with a
-  // cryptic ?error=impersonation_no_user.
-  const [user] = await db
-    .select({
-      id: schema.clinicUsers.id,
-    })
-    .from(schema.clinicUsers)
-    .where(
-      and(
-        eq(schema.clinicUsers.id, targetUserId),
-        isNull(schema.clinicUsers.archivedAt)
-      )
-    )
-    .limit(1);
+  // Confirm the target is a real, non-archived clinic_users row in a
+  // non-archived Praxis (G-05). The consumer route also re-checks; we
+  // re-check here so the admin gets a 404 immediately rather than landing on
+  // the clinic /login with a cryptic ?error=impersonation_no_user.
+  const user = await findActiveClinicUserById(targetUserId);
   if (!user) {
     return new NextResponse("user_not_found_or_archived", { status: 404 });
   }
@@ -123,8 +114,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 <meta name="robots" content="noindex,nofollow">
 <title>Sitzung wird geöffnet…</title></head>
 <body style="font-family:system-ui,sans-serif;padding:2rem;color:#10101a">
-<form id="f" method="POST" action="${escapeHtmlAttr(action)}">
-<input type="hidden" name="token" value="${escapeHtmlAttr(token)}">
+<form id="f" method="POST" action="${escapeHtml(action)}">
+<input type="hidden" name="token" value="${escapeHtml(token)}">
 <noscript><button type="submit">Weiter zur Praxis-Ansicht</button></noscript>
 </form>
 <p>Sitzung wird geöffnet…</p>
@@ -140,15 +131,4 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       "Referrer-Policy": "no-referrer",
     },
   });
-}
-
-/** Minimal attribute escaper for the interstitial (token is base64url-safe,
- *  but escape defensively so a future value change can't break out). */
-function escapeHtmlAttr(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }

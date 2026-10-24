@@ -303,6 +303,16 @@ export async function redeemAgentEnrollment(input: {
           set: { lastSeenAt: new Date(), enrolledVia: "enrollment" },
         });
 
+      // Seed pvs_agent_status (first_heartbeat_at stays NULL = "enrolled, never
+      // beaten"). Without a row, a clinic whose agent never sends a single
+      // heartbeat is invisible to the hourly liveness scan, which only walks
+      // existing rows. created_at is the enrollment clock the scan uses for
+      // heartbeat_never (2 h). An existing row (re-enrollment) is left alone.
+      await tx
+        .insert(schema.pvsAgentStatus)
+        .values({ clinicId: input.clinicId, firstHeartbeatAt: null })
+        .onConflictDoNothing({ target: schema.pvsAgentStatus.clinicId });
+
       // Audit: always log the enrollment; additionally log the vendor
       // change if one happened.
       await tx.insert(schema.pvsLinkAudit).values({

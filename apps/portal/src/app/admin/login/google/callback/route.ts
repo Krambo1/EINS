@@ -73,6 +73,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     identity = await exchangeCodeForGoogleEmail({
       code,
       redirectUri: googleAdminRedirectUri(),
+      state: stateQuery,
     });
   } catch (err) {
     console.error("[oauth/google-login/admin] exchange failed:", err);

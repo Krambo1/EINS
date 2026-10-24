@@ -3,10 +3,18 @@ import { ROLE_LABELS, type Role } from "@/lib/constants";
 import { formatRelative } from "@/lib/formatting";
 import type { schema } from "@/db/client";
 import { ImpersonateButton } from "./ImpersonateButton";
+import { PendingSubmitButton } from "../../../_components/PendingSubmitButton";
+import { resendInviteAction } from "../../actions";
 
 type TeamMember = typeof schema.clinicUsers.$inferSelect;
 
-export function TeamTab({ team }: { team: TeamMember[] }) {
+export function TeamTab({
+  team,
+  clinicId,
+}: {
+  team: TeamMember[];
+  clinicId: string;
+}) {
   const active = team.filter((u) => !u.archivedAt).length;
   const pending = team.filter(
     (u) => !u.archivedAt && u.invitedAt && !u.lastLoginAt
@@ -31,8 +39,10 @@ export function TeamTab({ team }: { team: TeamMember[] }) {
         <CardHeader>
           <CardTitle>Team ({team.length})</CardTitle>
           <CardDescription>
-            Verwaltung erfolgt durch den Inhaber im Kundenportal. „Als Benutzer
-            öffnen" startet eine sichere Impersonation in einem neuen Tab.
+            Verwaltung erfolgt durch den Inhaber im Kundenportal.
+            „Kundenansicht öffnen“ öffnet das Portal dieser Person sicher in
+            einem neuen Tab. Wer noch kein Passwort hat, bekommt mit
+            „Einladung senden“ einen neuen Link.
           </CardDescription>
         </CardHeader>
         <CardContent className="p-0">
@@ -43,7 +53,7 @@ export function TeamTab({ team }: { team: TeamMember[] }) {
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="border-t border-border bg-bg-secondary text-left text-xs font-medium text-fg-secondary">
+                <thead className="border-t border-border bg-bg-secondary text-left text-sm font-medium text-fg-primary">
                   <tr>
                     <th className="px-4 py-2">E-Mail</th>
                     <th className="px-4 py-2">Name</th>
@@ -82,10 +92,21 @@ export function TeamTab({ team }: { team: TeamMember[] }) {
                         {u.archivedAt ? (
                           <span className="text-xs text-fg-secondary">–</span>
                         ) : (
-                          <ImpersonateButton
-                            targetUserId={u.id}
-                            targetEmail={u.email}
-                          />
+                          <div className="flex items-center justify-end gap-2">
+                            {!u.passwordHash && (
+                              <form action={resendInviteAction}>
+                                <input type="hidden" name="clinicId" value={clinicId} />
+                                <input type="hidden" name="userId" value={u.id} />
+                                <PendingSubmitButton size="sm" variant="outline">
+                                  Einladung senden
+                                </PendingSubmitButton>
+                              </form>
+                            )}
+                            <ImpersonateButton
+                              targetUserId={u.id}
+                              targetEmail={u.email}
+                            />
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -111,7 +132,7 @@ function Stat({
 }) {
   return (
     <div className="rounded-xl border border-border bg-bg-secondary p-4">
-      <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
+      <div className="text-sm font-medium text-fg-primary">
         {label}
       </div>
       <div

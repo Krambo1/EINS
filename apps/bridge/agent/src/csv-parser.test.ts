@@ -314,3 +314,133 @@ describe("csv-parser: parse-time caps (M-P9)", () => {
     expect(r.rows[0]).toEqual({ a: "1", b: "2" });
   });
 });
+
+describe("csv-parser: header location, sep= line, last row", () => {
+  const enc = (s: string) => Buffer.from(s, "latin1");
+  const isHeader = (h: string[]) => h.includes("Rechnungs-Nr.") && h.includes("Betrag");
+
+  it("honours a leading sep=; line (and does not treat it as the header)", () => {
+    const r = parseCsv(enc("sep=;\r\nRechnungs-Nr.;Betrag\r\nR1;10,00\r\n"));
+    expect(r.headers).toEqual(["Rechnungs-Nr.", "Betrag"]);
+    expect(r.delimiter).toBe(";");
+    expect(r.rows).toEqual([{ "Rechnungs-Nr.": "R1", Betrag: "10,00" }]);
+  });
+
+  it("sep= line forces the delimiter even if commas dominate the header", () => {
+    const r = parseCsv(enc("sep=;\r\nA;B,C;D\r\n1;2,5;3\r\n"));
+    expect(r.delimiter).toBe(";");
+    expect(r.headers).toEqual(["A", "B,C", "D"]);
+  });
+
+  it("skips a title line and a ;;; line when a header predicate is given", () => {
+    const r = parseCsv(
+      enc("Honorarbericht Praxis Dr. X\r\n;;;\r\n\r\nRechnungs-Nr.;Betrag\r\nR1;10,00\r\n"),
+      { isHeader }
+    );
+    expect(r.headerFound).toBe(true);
+    expect(r.headers).toEqual(["Rechnungs-Nr.", "Betrag"]);
+    expect(r.preambleLines).toBe(3);
+    expect(r.rows).toHaveLength(1);
+  });
+
+  it("reports headerFound=false when no line in the first 15 satisfies the predicate", () => {
+    const lines = Array.from({ length: 20 }, (_, i) => `x${i};y${i};z${i}`);
+    lines.push("Rechnungs-Nr.;Betrag", "R1;1,00");
+    const r = parseCsv(enc(lines.join("\r\n") + "\r\n"), { isHeader });
+    expect(r.headerFound).toBe(false);
+    expect(r.rows).toEqual([]);
+  });
+
+  it("tornWriteGuard:false keeps an unterminated last row (stable file)", () => {
+    const r = parseCsv(enc("Rechnungs-Nr.;Betrag\r\nR1;10,00\r\nR2;20,00"), { tornWriteGuard: false });
+    expect(r.rows.map((x) => x["Rechnungs-Nr."])).toEqual(["R1", "R2"]);
+    expect(r.droppedSuspectLastRow).toBe(false);
+  });
+
+  it("a single data row without trailing newline survives with tornWriteGuard:false", () => {
+    const r = parseCsv(enc("Rechnungs-Nr.;Betrag\r\nR1;10,00"), { tornWriteGuard: false });
+    expect(r.rows).toHaveLength(1);
+  });
+
+  it("an unbalanced trailing quote is still dropped and flagged without the guard", () => {
+    const r = parseCsv(enc('Rechnungs-Nr.;Betrag\r\nR1;10,00\r\nR2;"20,0'), { tornWriteGuard: false });
+    expect(r.droppedSuspectLastRow).toBe(true);
+    expect(r.rows).toHaveLength(1);
+  });
+
+  it("decodes CP1252 umlauts in the header", () => {
+    const r = parseCsv(Buffer.from("Bezeichnung;Übertrag\r\nKürzel;1\r\n", "latin1"));
+    expect(r.headers).toEqual(["Bezeichnung", "Übertrag"]);
+  });
+});
+
+describe("csv-parser: quote only opens at field start (review P0)", () => {
+  const enc = (s: string) => Buffer.from(s, "latin1");
+  const HEAD = "Rechnungs-Nr.;Patient-Nr.;Behandlung;Betrag;Zahldatum\r\n";
+
+  it('a literal inch mark inside an unquoted field does not swallow the following rows', () => {
+    const text =
+      HEAD +
+      'R1;P1;Botox 5" Nadel;100,00;01.10.2026\r\n' +
+      "R2;P2;Filler;200,00;02.10.2026\r\n" +
+      "R3;P3;Peeling;300,00;03.10.2026\r\n" +
+      "R4;P4;Laser;400,00;04.10.2026\r\n";
+    for (const tornWriteGuard of [true, false]) {
+      const r = parseCsv(enc(text), { tornWriteGuard });
+      expect(r.rows).toHaveLength(4);
+      expect(r.rows[0]).toEqual({
+        "Rechnungs-Nr.": "R1",
+        "Patient-Nr.": "P1",
+        Behandlung: 'Botox 5" Nadel',
+        Betrag: "100,00",
+        Zahldatum: "01.10.2026",
+      });
+      expect(r.rows[3]["Rechnungs-Nr."]).toBe("R4");
+      expect(r.droppedSuspectLastRow).toBe(false);
+    }
+  });
+
+  it("a quote closing before a non-delimiter stays literal inside a quoted field", () => {
+    const text = HEAD + 'R1;P1;"Botox 5" Nadel";100,00;01.10.2026\r\nR2;P2;x;1,00;02.10.2026\r\n';
+    const r = parseCsv(enc(text));
+    expect(r.rows).toHaveLength(2);
+    expect(r.rows[0].Behandlung).toBe('Botox 5" Nadel');
+    expect(r.rows[0].Betrag).toBe("100,00");
+  });
+
+  it("a field-start quote that never closes re-parses the tail literally instead of dropping rows", () => {
+    const text =
+      HEAD +
+      'R1;P1;"5 Zoll;100,00;01.10.2026\r\n' +
+      "R2;P2;ok;200,00;02.10.2026\r\n" +
+      "R3;P3;ok;300,00;03.10.2026\r\n";
+    const r = parseCsv(enc(text));
+    expect(r.rows.map((x) => x["Rechnungs-Nr."])).toEqual(["R1", "R2", "R3"]);
+    expect(r.rows[1].Betrag).toBe("200,00");
+  });
+
+  it("well-formed quoted fields with delimiter, newline and escaped quotes still work", () => {
+    const text = HEAD + 'R1;P1;"a;b\n""c""";5,00;01.10.2026\r\nR2;P2;x;1,00;02.10.2026\r\n';
+    const r = parseCsv(enc(text));
+    expect(r.rows).toHaveLength(2);
+    expect(r.rows[0].Behandlung).toBe('a;b\n"c"');
+    expect(r.rows[0].Betrag).toBe("5,00");
+  });
+});
+
+describe("csv-parser: lastLineUnterminated (review P2)", () => {
+  const enc = (s: string) => Buffer.from(s, "latin1");
+  it("is true when the last data line has no terminator (even with tornWriteGuard:false)", () => {
+    const r = parseCsv(enc("A;B\r\n1;2\r\n3;4"), { tornWriteGuard: false });
+    expect(r.rows).toHaveLength(2);
+    expect(r.lastLineUnterminated).toBe(true);
+  });
+  it("is false when the file ends with a terminator", () => {
+    const r = parseCsv(enc("A;B\r\n1;2\r\n3;4\r\n"), { tornWriteGuard: false });
+    expect(r.lastLineUnterminated).toBe(false);
+  });
+  it("is false for a header-only file and for a whitespace-only tail", () => {
+    expect(parseCsv(enc("A;B")).lastLineUnterminated).toBe(false);
+    expect(parseCsv(enc("A;B\r\n1;2\r\n  ")).lastLineUnterminated).toBe(false);
+  });
+});

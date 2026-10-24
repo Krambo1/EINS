@@ -19,11 +19,13 @@ import {
 } from "@eins/ui";
 import {
   Phone,
+  PhoneCall,
   MessageSquarePlus,
   ArrowRightLeft,
   CalendarClock,
   Loader2,
   Lock,
+  Mail,
 } from "lucide-react";
 import {
   CALL_OUTCOMES,
@@ -33,7 +35,15 @@ import {
   type CallOutcome,
   type RequestStatus,
 } from "@/lib/constants";
-import { logCall, addNote, changeStatus, scheduleFollowup } from "./actions";
+import {
+  logCall,
+  logMessage,
+  addNote,
+  changeStatus,
+  scheduleFollowup,
+  type ActionResult,
+} from "./actions";
+import { followupInputError } from "./_followup-date";
 
 const KEEP = "__keep__";
 
@@ -55,12 +65,19 @@ export function LeadCockpit({
   requestId,
   currentStatus,
   pvsControlled,
+  contactPhone = null,
+  contactEmail = null,
 }: {
   requestId: string;
   currentStatus: string;
   pvsControlled: boolean;
+  /** For the phone action bar (below `md`): one tap to call, one to log it. */
+  contactPhone?: string | null;
+  contactEmail?: string | null;
 }) {
   const transitions = STATUS_TRANSITIONS[currentStatus as RequestStatus] ?? [];
+  // Lifted so the phone action bar can open the same dialog.
+  const [callOpen, setCallOpen] = useState(false);
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -69,10 +86,19 @@ export function LeadCockpit({
         currentStatus={currentStatus}
         transitions={transitions}
         pvsControlled={pvsControlled}
+        open={callOpen}
+        onOpenChange={setCallOpen}
       />
+      <MobileActionBar
+        contactPhone={contactPhone}
+        contactEmail={contactEmail}
+        onLogCall={() => setCallOpen(true)}
+      />
+      <MessageDialog requestId={requestId} />
       <NoteDialog requestId={requestId} />
       <StatusDialog
         requestId={requestId}
+        currentStatus={currentStatus}
         transitions={transitions}
         pvsControlled={pvsControlled}
       />
@@ -85,14 +111,15 @@ export function LeadCockpit({
 function useAction(onDone: () => void) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const run = (action: (fd: FormData) => Promise<void>, fd: FormData) => {
+  const run = (action: (fd: FormData) => Promise<ActionResult>, fd: FormData) => {
     setError(null);
     startTransition(async () => {
       try {
-        await action(fd);
-        onDone();
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Aktion fehlgeschlagen.");
+        const res = await action(fd);
+        if (res.ok) onDone();
+        else setError(res.message);
+      } catch {
+        setError("Keine Verbindung. Bitte versuchen Sie es noch einmal.");
       }
     });
   };
@@ -128,18 +155,76 @@ function StatusOptions({ transitions }: { transitions: readonly RequestStatus[] 
   );
 }
 
+/**
+ * Phone only (below `md`): Anrufen plus the next step (log the call) stay
+ * reachable without scrolling. Fixed to the bottom, above the safe-area
+ * inset; the page adds bottom padding so it never covers the last content.
+ * On larger screens the contact row and this cockpit carry these actions.
+ */
+export function MobileActionBar({
+  contactPhone,
+  contactEmail,
+  onLogCall,
+}: {
+  contactPhone: string | null;
+  contactEmail: string | null;
+  onLogCall?: () => void;
+}) {
+  const primary = contactPhone ? (
+    <Button asChild size="lg" className="w-full justify-center">
+      <a href={`tel:${contactPhone}`}>
+        <Phone className="h-5 w-5" />
+        Anrufen
+      </a>
+    </Button>
+  ) : contactEmail ? (
+    <Button asChild size="lg" className="w-full justify-center">
+      <a href={`mailto:${contactEmail}`}>
+        <Mail className="h-5 w-5" />
+        E-Mail schreiben
+      </a>
+    </Button>
+  ) : null;
+  if (!primary && !onLogCall) return null;
+  return (
+    <div
+      role="region"
+      aria-label="Schnellaktionen"
+      className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-bg-primary px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_16px_rgba(0,0,0,0.06)] md:hidden"
+    >
+      <div className={`grid gap-2 ${primary && onLogCall ? "grid-cols-2" : "grid-cols-1"}`}>
+        {primary}
+        {onLogCall && (
+          <Button
+            size="lg"
+            variant="outline"
+            className="w-full justify-center"
+            onClick={onLogCall}
+          >
+            <PhoneCall className="h-5 w-5" />
+            Protokollieren
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CallDialog({
   requestId,
   currentStatus,
   transitions,
   pvsControlled,
+  open,
+  onOpenChange: setOpen,
 }: {
   requestId: string;
   currentStatus: string;
   transitions: readonly RequestStatus[];
   pvsControlled: boolean;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [outcome, setOutcome] = useState<CallOutcome>("erreicht");
   const [note, setNote] = useState("");
   const [statusAfter, setStatusAfter] = useState<string>(KEEP);
@@ -174,8 +259,16 @@ function CallDialog({
     fd.set("id", requestId);
     fd.set("outcome", outcome);
     if (note.trim()) fd.set("note", note);
-    if (statusAfter !== KEEP) fd.set("statusAfter", statusAfter);
+    if (statusAfter !== KEEP) {
+      fd.set("statusAfter", statusAfter);
+      fd.set("expectedStatus", currentStatus);
+    }
     if (followupAt) {
+      const dateError = followupInputError(followupAt);
+      if (dateError) {
+        setError(dateError);
+        return;
+      }
       fd.set("followupAt", followupAt);
       if (followupNote.trim()) fd.set("followupNote", followupNote);
     }
@@ -227,7 +320,7 @@ function CallDialog({
               maxLength={5000}
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="z. B. Patient:in meldet sich nächste Woche selbst."
+              placeholder="z. B. Patient meldet sich nächste Woche selbst."
             />
           </div>
 
@@ -272,6 +365,88 @@ function CallDialog({
           <ErrorLine message={error} />
         </div>
 
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline" disabled={isPending}>
+              Abbrechen
+            </Button>
+          </DialogClose>
+          <Button onClick={submit} disabled={isPending}>
+            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Speichern
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** K-20: a sent e-mail / WhatsApp message, logged as a contact attempt. */
+function MessageDialog({ requestId }: { requestId: string }) {
+  const [open, setOpen] = useState(false);
+  const [channel, setChannel] = useState<"email" | "whatsapp">("email");
+  const [note, setNote] = useState("");
+  const { isPending, error, setError, run } = useAction(() => {
+    setOpen(false);
+    setNote("");
+  });
+
+  const submit = () => {
+    const fd = new FormData();
+    fd.set("id", requestId);
+    fd.set("channel", channel);
+    if (note.trim()) fd.set("note", note);
+    run(logMessage, fd);
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        if (!o) setError(null);
+      }}
+    >
+      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>
+        <Mail className="h-4 w-4" />
+        Nachricht vermerken
+      </Button>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Gesendete Nachricht vermerken</DialogTitle>
+          <DialogDescription>
+            Sie haben der Person eine E-Mail oder WhatsApp-Nachricht geschrieben?
+            Das zählt als Kontaktversuch.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div>
+            <FieldLabel>Gesendet per</FieldLabel>
+            <Select
+              value={channel}
+              onValueChange={(v) => setChannel(v as "email" | "whatsapp")}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="email">E-Mail</SelectItem>
+                <SelectItem value="whatsapp">WhatsApp</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <FieldLabel>Notiz (optional)</FieldLabel>
+            <Textarea
+              rows={3}
+              maxLength={5000}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Zum Beispiel: Terminvorschläge geschickt."
+            />
+          </div>
+          <ErrorLine message={error} />
+        </div>
         <DialogFooter>
           <DialogClose asChild>
             <Button variant="outline" disabled={isPending}>
@@ -351,10 +526,12 @@ function NoteDialog({ requestId }: { requestId: string }) {
 
 function StatusDialog({
   requestId,
+  currentStatus,
   transitions,
   pvsControlled,
 }: {
   requestId: string;
+  currentStatus: string;
   transitions: readonly RequestStatus[];
   pvsControlled: boolean;
 }) {
@@ -384,6 +561,7 @@ function StatusDialog({
     const fd = new FormData();
     fd.set("id", requestId);
     fd.set("status", status);
+    fd.set("expectedStatus", currentStatus);
     run(changeStatus, fd);
   };
 
@@ -453,7 +631,11 @@ function FollowupDialog({ requestId }: { requestId: string }) {
   });
 
   const submit = () => {
-    if (!dueAt) return;
+    const dateError = followupInputError(dueAt);
+    if (dateError) {
+      setError(dateError);
+      return;
+    }
     const fd = new FormData();
     fd.set("id", requestId);
     fd.set("dueAt", dueAt);
@@ -510,7 +692,7 @@ function FollowupDialog({ requestId }: { requestId: string }) {
               Abbrechen
             </Button>
           </DialogClose>
-          <Button onClick={submit} disabled={isPending || !dueAt}>
+          <Button onClick={submit} disabled={isPending}>
             {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
             Planen
           </Button>

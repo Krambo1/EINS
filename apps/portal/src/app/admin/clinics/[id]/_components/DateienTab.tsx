@@ -4,6 +4,7 @@ import {
   markAllClientUploadsSeenAction,
   setClientUploadSeenAction,
 } from "../actions";
+import { DISPLAY_TIME_ZONE, formatBytes } from "@/lib/formatting";
 
 const GLOW_CARD = "!bg-bg-secondary";
 
@@ -135,14 +136,6 @@ export function DateienTab({ data }: { data: DateienTabData }) {
   );
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  if (bytes < 1024 * 1024 * 1024)
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-}
-
 function formatDateTime(d: Date): string {
   return d.toLocaleString("de-DE", {
     day: "2-digit",
@@ -150,5 +143,6 @@ function formatDateTime(d: Date): string {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: DISPLAY_TIME_ZONE,
   });
 }

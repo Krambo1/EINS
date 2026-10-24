@@ -21,11 +21,15 @@ import {
   REQUIRED_CHECKLIST_IDS,
   isClosed,
   isDelivered,
+  normalizeChecklistLink,
   type ChecklistAnswer,
   type ChecklistItem,
   type ChecklistStatus,
 } from "@/app/(portal)/onboarding/checkliste/content";
 import { setChecklistItemVerifiedAction } from "../actions";
+import Link from "next/link";
+import { isCloneChecklistItem } from "@/lib/clone-record";
+import { DISPLAY_TIME_ZONE, formatBytes } from "@/lib/formatting";
 
 export interface ChecklisteTabItemState {
   status: ChecklistStatus;
@@ -163,6 +167,14 @@ function AdminItemRow({
                   <Lock className="h-3 w-3" /> Inhaber
                 </span>
               )}
+              {isCloneChecklistItem(item.id) && (
+                <Link
+                  href={`/admin/clinics/${clinicId}?tab=klon`}
+                  className="text-xs text-accent hover:underline"
+                >
+                  KI-Klon-Nachweis
+                </Link>
+              )}
             </div>
           </div>
         </div>
@@ -261,6 +273,10 @@ function Answers({
     }
   }
   const link = typeof answer.link === "string" ? answer.link : "";
+  // Old answers may lack a scheme ("praxis.de/team"), which a browser would
+  // resolve relative to the admin host. Only http(s) becomes a link (F-16).
+  const href = link ? (normalizeChecklistLink(link) ?? link) : "";
+  const linkable = /^https?:\/\//i.test(href);
 
   if (rows.length === 0 && !link) return null;
 
@@ -276,15 +292,22 @@ function Answers({
         <div className="text-sm">
           <dt className="text-fg-secondary">Link</dt>
           <dd>
-            <a
-              href={link}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-fg-primary hover:text-accent"
-            >
-              <Link2 className="h-4 w-4" />
-              <span className="break-all">{link}</span>
-            </a>
+            {linkable ? (
+              <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 text-fg-primary hover:text-accent"
+              >
+                <Link2 className="h-4 w-4" />
+                <span className="break-all">{link}</span>
+              </a>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-fg-primary">
+                <Link2 className="h-4 w-4" />
+                <span className="break-all">{link}</span>
+              </span>
+            )}
           </dd>
         </div>
       )}
@@ -334,16 +357,11 @@ function Metric({
   );
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function formatDate(d: Date): string {
   return d.toLocaleDateString("de-DE", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
+    timeZone: DISPLAY_TIME_ZONE,
   });
 }

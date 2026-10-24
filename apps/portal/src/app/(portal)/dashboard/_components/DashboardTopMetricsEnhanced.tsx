@@ -1,7 +1,7 @@
 import "server-only";
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { ChevronRight, MoreHorizontal } from "lucide-react";
+import { AlertTriangle, ArrowRight, ChevronRight } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -14,19 +14,15 @@ import {
   metricStatusFromTone,
   type MetricTileTone,
 } from "@eins/ui";
-import {
-  kpiDailySeriesWithSparklineFresh,
+import type {
   currentGoals,
+  KpiSparklines,
+  openQueueDaily,
 } from "@/server/queries/kpis";
-import {
-  openQueueDailyInRangeWithComparison,
-  leadsDailyInRange,
-} from "@/server/queries/requests";
 import type {
   OpenLeadForDashboard,
 } from "@/server/queries/requests";
 import type { bySource } from "@/server/queries/attribution";
-import { ltvBySource } from "@/server/queries/patients";
 import {
   formatEuro,
   formatMoney,
@@ -36,21 +32,23 @@ import {
   type CurrencyCode,
 } from "@/lib/formatting";
 import { zipSeries } from "@/lib/chart-data";
+import { SLA_HOURS } from "@/lib/constants";
 import type { KpiSummary } from "@/server/queries/kpis";
 import {
-  DASHBOARD_RANGE_KEYS,
   dashboardRangeWindow,
   effectiveScalingDays,
   formatRelationshipDurationDe,
   type DashboardRange,
 } from "@/lib/dashboard-range";
-import { TimeRangeToggle } from "@/app/_components/TimeRangeToggle";
 import { BreakdownStackChart } from "./BreakdownStackChart";
+import { CardEmptyNote, CardRangeLabel } from "./card-notes";
+import { FIRST_INQUIRY_NOTE, RANGE_SENTENCE_START } from "./range-text";
 import type { BreakdownTone } from "./detail-helpers";
-import { SOURCE_LABELS, type RequestSource } from "@/lib/constants";
+import { reportingChannelLabel } from "@/lib/sources";
 
 type Goal = Awaited<ReturnType<typeof currentGoals>>[number];
 type SourceBreakdown = Awaited<ReturnType<typeof bySource>>;
+type OpenQueueSeries = Awaited<ReturnType<typeof openQueueDaily>>;
 
 export interface LeadsBreakdownSummary {
   leads: number;
@@ -60,19 +58,15 @@ export interface LeadsBreakdownSummary {
 }
 
 /**
- * Detail-mode top-metrics tile grid: enriches the base SimpleMetric grid
- * with delta vs prior period + per-card sparklines over each card's
- * independently selected `range`. Wrapped in <Suspense> with the
- * SimpleMetric grid as fallback so the page paints before this component's
- * parallel queries finish.
+ * Detail-mode top-metrics tile grid: delta vs prior period + per-card
+ * sparklines over each card's independently selected `range`. Pure render:
+ * every number is fetched by the page loader in one parallel wave (no second
+ * query wave in here), so the tiles appear as soon as that wave lands.
  */
-export async function DashboardTopMetricsEnhanced({
-  clinicId,
-  userId,
+export function DashboardTopMetricsEnhanced({
   currency,
   leadsBreakdown,
   revenueSummary,
-  openSummary,
   sourceBreakdown,
   slaBreaches,
   openRequests,
@@ -85,14 +79,20 @@ export async function DashboardTopMetricsEnhanced({
   relationshipStartedAt,
   openLeads,
   emptyWindowHint,
+  hasAnyRequest,
+  showRangeLabels,
+  leadsSpark,
+  leadsPriorSpark,
+  revenueSpark,
+  revenuePriorSpark,
+  openQueue,
+  openPriorQueue,
+  ltvMap,
 }: {
-  clinicId: string;
-  userId: string;
   /** Billing currency of this (single) Praxis; formats own-revenue figures. */
   currency: CurrencyCode;
   leadsBreakdown: LeadsBreakdownSummary;
   revenueSummary: KpiSummary;
-  openSummary: KpiSummary;
   sourceBreakdown: SourceBreakdown;
   slaBreaches: number;
   openRequests: number;
@@ -125,77 +125,29 @@ export async function DashboardTopMetricsEnhanced({
    * genuinely-empty (day-one) Praxis, so their existing states stay untouched.
    */
   emptyWindowHint?: { href: string };
+  /**
+   * Whether the Praxis has any Anfrage at all (clinic-wide, all time). Picks
+   * the empty-card sentence: day-one Praxis ("Füllt sich, sobald die erste
+   * Anfrage eingeht.") vs. a quiet window in an active Praxis.
+   */
+  hasAnyRequest: boolean;
+  /** Only true when the per-card ranges differ from each other (deep link):
+   *  then each card names its own period. Otherwise the page switch says it. */
+  showRangeLabels: boolean;
+  /** Dense Berlin-day series for the current / prior Anfragen window. */
+  leadsSpark: KpiSparklines;
+  leadsPriorSpark: KpiSparklines;
+  /** Dense Berlin-day series for the current / prior Umsatz window. */
+  revenueSpark: KpiSparklines;
+  revenuePriorSpark: KpiSparklines;
+  /** Open-queue size at the end of each Berlin day (current / prior window). */
+  openQueue: OpenQueueSeries;
+  openPriorQueue: OpenQueueSeries;
+  /** Lifetime value per source (not window-scoped). */
+  ltvMap: Map<string, number>;
 }) {
   const leadsWin = dashboardRangeWindow(leadsRange);
   const revenueWin = dashboardRangeWindow(revenueRange);
-  const openWin = dashboardRangeWindow(openRange);
-
-  // Prior windows — same length, sitting immediately before the current
-  // window. Used by each card's grey comparison line ("Vorperiode"). The
-  // single-millisecond gap matches the convention in
-  // `kpiSummaryWithComparisonUncached` so the periods don't overlap by a day.
-  const leadsPriorWin = priorWindow(leadsWin);
-  const revenuePriorWin = priorWindow(revenueWin);
-  const openPriorWin = priorWindow(openWin);
-
-  // Short-TTL cached path (SHORT_REVALIDATE_S). These series feed the leads /
-  // revenue / open sparklines, each scoped to its own card's window. Caching
-  // per (clinic, window) means toggling one card doesn't re-run the others'
-  // series queries on the route re-render; freshness stays within ~30s and is
-  // tag-busted by the kpi worker.
-  const [
-    leadsDaily,
-    leadsPriorDaily,
-    openQueue,
-    revenueSpark,
-    revenuePriorSpark,
-    openPriorQueue,
-    ltvMap,
-  ] = await Promise.all([
-    // Leads card's headline counts come from `leadsBreakdown` (passed in from
-    // page.tsx, computed against the live `requests` table).
-    // Here we only fetch the daily series for the sparkline + comparison line.
-    leadsDailyInRange(
-      clinicId,
-      userId,
-      leadsWin.from,
-      leadsWin.to
-    ),
-    leadsDailyInRange(
-      clinicId,
-      userId,
-      leadsPriorWin.from,
-      leadsPriorWin.to
-    ),
-    openQueueDailyInRangeWithComparison(
-      clinicId,
-      userId,
-      openWin.from,
-      openWin.to
-    ),
-    kpiDailySeriesWithSparklineFresh(
-      clinicId,
-      userId,
-      revenueWin.from,
-      revenueWin.to
-    ),
-    kpiDailySeriesWithSparklineFresh(
-      clinicId,
-      userId,
-      revenuePriorWin.from,
-      revenuePriorWin.to
-    ),
-    openQueueDailyInRangeWithComparison(
-      clinicId,
-      userId,
-      openPriorWin.from,
-      openPriorWin.to
-    ),
-    // Lifetime value per source — not window-scoped (LTV is a lifetime metric),
-    // surfaced inside each Quellen-Aufschlüsselung row's economics drawer.
-    ltvBySource(clinicId, userId),
-  ]);
-
 
   // Goals are stored monthly. Scale them linearly to whatever window the
   // user picked: 30 leads/month → 7 leads/week, 90 leads/quarter, etc.
@@ -249,7 +201,7 @@ export async function DashboardTopMetricsEnhanced({
     <div className="space-y-5">
       {emptyWindowHint && (
         <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 rounded-xl border border-border bg-bg-secondary px-4 py-3 text-sm">
-          <span className="text-fg-secondary">
+          <span className="text-fg-primary">
             Im gewählten Zeitraum gab es keine neuen Anfragen. Ihre Praxis hat
             aber Anfragen außerhalb dieses Zeitraums.
           </span>
@@ -279,24 +231,14 @@ export async function DashboardTopMetricsEnhanced({
                 durch das Formular der Zielseite bereits vorqualifiziert.
               </p>
               <p className="mt-2">
-                Das Monatsziel pflegen Sie in den Einstellungen. Der
-                Fortschrittsbalken skaliert automatisch auf den gewählten
-                Zeitraum.
+                Sobald ein Monatsziel hinterlegt ist, zeigt ein Balken, wie
+                weit Sie sind. Er passt sich automatisch an den gewählten
+                Zeitraum an.
               </p>
             </ExplainerPopover>
-            {/* On narrow cards the toggle would otherwise wrap below the
-                headline while staying pinned right (ml-auto), which reads
-                awkwardly. Below xl we lift it onto its own line *above* the
-                headline, left-aligned (order-first + basis-full forces a
-                full-width first line); at xl+ it returns inline, right-aligned
-                via xl:ml-auto. */}
-            <div className="order-first basis-full xl:order-none xl:basis-auto xl:ml-auto">
-              <TimeRangeToggle
-                value={leadsRange}
-                paramKey={DASHBOARD_RANGE_KEYS.leads}
-                ariaLabel="Zeitraum für Anfragen"
-              />
-            </div>
+            {showRangeLabels && (
+              <CardRangeLabel range={leadsRange} className="ml-auto" />
+            )}
           </>
         }
         value={formatNumber(leadsBreakdown.leads)}
@@ -314,15 +256,24 @@ export async function DashboardTopMetricsEnhanced({
         }
         hint={
           leadsCappedLabel ? (
-            <span className="text-fg-tertiary">
+            <span className="text-sm text-fg-primary">
               Ziel auf Laufzeit der Praxis angepasst ({leadsCappedLabel})
             </span>
           ) : undefined
         }
         chartSlot={
+          leadsBreakdown.leads === 0 ? (
+            <CardEmptyNote>
+              {hasAnyRequest
+                ? leadsRange === "heute"
+                  ? "Heute ist noch keine Anfrage eingegangen."
+                  : `${RANGE_SENTENCE_START[leadsRange]} ist keine Anfrage eingegangen.`
+                : FIRST_INQUIRY_NOTE}
+            </CardEmptyNote>
+          ) : (
           <TrendChart
-            data={zipSeries(leadsDaily.dates, leadsDaily.counts)}
-            comparisonData={zipSeries(leadsPriorDaily.dates, leadsPriorDaily.counts)}
+            data={zipSeries(leadsSpark.dates, leadsSpark.leads)}
+            comparisonData={zipSeries(leadsPriorSpark.dates, leadsPriorSpark.leads)}
             tone="accent"
             label="Anfragen"
             valueFormat="number"
@@ -331,6 +282,7 @@ export async function DashboardTopMetricsEnhanced({
             showYAxis={false}
             showGrid
           />
+          )
         }
         linkSlot={
           <TileLink href="/anfragen" ariaLabel="Zu allen Anfragen" />
@@ -346,22 +298,18 @@ export async function DashboardTopMetricsEnhanced({
                 Bestätigter Umsatz aus gewonnenen Anfragen im gewählten Zeitraum, der konkret über EINS generiert wurde.
               </p>
               <p className="mt-2">
-                <strong>ROAS</strong> (Return on Ad Spend) sagt: für jeden 1 €
-                Werbeausgabe kommen X € Umsatz zurück.
+                <strong>Werbeertrag</strong> sagt: für jeden 1 €
+                Werbebudget kommen X € Umsatz zurück.
               </p>
               <p className="mt-2">
-                Das Monatsziel pflegen Sie in den Einstellungen. Der
-                Fortschrittsbalken skaliert automatisch auf den gewählten
-                Zeitraum.
+                Sobald ein Monatsziel hinterlegt ist, zeigt ein Balken, wie
+                weit Sie sind. Er passt sich automatisch an den gewählten
+                Zeitraum an.
               </p>
             </ExplainerPopover>
-            <div className="order-first basis-full xl:order-none xl:basis-auto xl:ml-auto">
-              <TimeRangeToggle
-                value={revenueRange}
-                paramKey={DASHBOARD_RANGE_KEYS.revenue}
-                ariaLabel="Zeitraum für Umsatz"
-              />
-            </div>
+            {showRangeLabels && (
+              <CardRangeLabel range={revenueRange} className="ml-auto" />
+            )}
           </>
         }
         value={formatMoney(revenueSummary.revenueEur, currency)}
@@ -380,17 +328,24 @@ export async function DashboardTopMetricsEnhanced({
         }
         hint={
           revenueCappedLabel ? (
-            <span className="text-fg-tertiary">
+            <span className="text-sm text-fg-primary">
               Ziel auf Laufzeit der Praxis angepasst ({revenueCappedLabel})
             </span>
           ) : undefined
         }
         chartSlot={
+          revenueSummary.revenueEur === 0 ? (
+            <CardEmptyNote>
+              {hasAnyRequest
+                ? "Füllt sich, sobald eine Anfrage als gewonnen mit Umsatz eingetragen ist."
+                : FIRST_INQUIRY_NOTE}
+            </CardEmptyNote>
+          ) : (
           <TrendChart
-            data={zipSeries(revenueSpark.sparklines.dates, revenueSpark.sparklines.revenueEur)}
+            data={zipSeries(revenueSpark.dates, revenueSpark.revenueEur)}
             comparisonData={zipSeries(
-              revenuePriorSpark.sparklines.dates,
-              revenuePriorSpark.sparklines.revenueEur
+              revenuePriorSpark.dates,
+              revenuePriorSpark.revenueEur
             )}
             tone="accent"
             label="Umsatz"
@@ -400,6 +355,7 @@ export async function DashboardTopMetricsEnhanced({
             showYAxis={false}
             showGrid
           />
+          )
         }
       />
       <MetricTile
@@ -414,7 +370,7 @@ export async function DashboardTopMetricsEnhanced({
               </p>
               <p className="mt-2">
                 <strong>Überfällig</strong> heißt: noch kein erster Kontakt
-                versucht, obwohl die Anfrage älter als 3 Stunden ist.
+                versucht, obwohl die Anfrage älter als {SLA_HOURS} Stunden ist.
               </p>
               <p className="mt-2">
                 Zum Abarbeiten: Anfrage öffnen → Anruf protokollieren → Status auf{" "}
@@ -422,13 +378,9 @@ export async function DashboardTopMetricsEnhanced({
                 ändern.
               </p>
             </ExplainerPopover>
-            <div className="order-first basis-full xl:order-none xl:basis-auto xl:ml-auto">
-              <TimeRangeToggle
-                value={openRange}
-                paramKey={DASHBOARD_RANGE_KEYS.open}
-                ariaLabel="Zeitraum für Offene Anfragen"
-              />
-            </div>
+            {showRangeLabels && (
+              <CardRangeLabel range={openRange} className="ml-auto" />
+            )}
           </>
         }
         value={formatNumber(openRequests)}
@@ -437,6 +389,13 @@ export async function DashboardTopMetricsEnhanced({
         }
         tone={openTone}
         chartSlot={
+          openQueue.counts.every((c) => c === 0) ? (
+            <CardEmptyNote>
+              {hasAnyRequest
+                ? `${RANGE_SENTENCE_START[openRange]} war keine Anfrage offen.`
+                : FIRST_INQUIRY_NOTE}
+            </CardEmptyNote>
+          ) : (
           <TrendChart
             data={zipSeries(openQueue.dates, openQueue.counts)}
             comparisonData={zipSeries(openPriorQueue.dates, openPriorQueue.counts)}
@@ -448,6 +407,7 @@ export async function DashboardTopMetricsEnhanced({
             showYAxis={false}
             showGrid
           />
+          )
         }
         belowChartSlot={
           <OpenLeadsList leads={openLeads} totalOpen={openRequests} />
@@ -483,86 +443,53 @@ export async function DashboardTopMetricsEnhanced({
               </p>
             </ExplainerPopover>
           </div>
-          {/* Below xl: lift onto its own line above the title, left-aligned.
-              At xl+ the header's justify-between pins it inline-right. */}
-          <div className="order-first basis-full xl:order-none xl:basis-auto">
-            <TimeRangeToggle
-              value={sourcesRange}
-              paramKey={DASHBOARD_RANGE_KEYS.sources}
-              ariaLabel="Zeitraum für Quellen-Aufschlüsselung"
-            />
-          </div>
+          {showRangeLabels && <CardRangeLabel range={sourcesRange} />}
         </CardHeader>
         <CardContent>
+          {sourceRows.length === 0 ? (
+            <CardEmptyNote minHeight={160}>
+              {hasAnyRequest
+                ? sourcesRange === "heute"
+                  ? "Heute ist noch keine Anfrage eingegangen. Sobald eine eingeht, sehen Sie hier, woher sie kam."
+                  : `${RANGE_SENTENCE_START[sourcesRange]} ist keine Anfrage eingegangen.`
+                : "Füllt sich, sobald die erste Anfrage eingeht. Dann sehen Sie hier, woher sie kam."}
+            </CardEmptyNote>
+          ) : (
           <BreakdownStackChart
             centerLabel="Anfragen"
             emptyText="Keine Quellen-Daten."
-            totals={
-              sourceRows.length > 0
-                ? {
-                    label: "Gesamt",
-                    budget:
-                      sourceTotals.spend > 0
-                        ? formatEuro(sourceTotals.spend)
-                        : null,
-                    anfragen: formatNumber(sourceTotals.leads),
-                    termine: formatNumber(sourceTotals.appointments),
-                    gewonnen: formatNumber(sourceTotals.casesWon),
-                  }
-                : {
-                    label: "Gesamt",
-                    budget: null,
-                    anfragen: null,
-                    termine: null,
-                    gewonnen: null,
-                  }
-            }
-            rows={
-              sourceRows.length > 0
-                ? sourceRows.map((c) => {
-                    const labelStr =
-                      SOURCE_LABELS[c.source as RequestSource] ?? c.source;
-                    const ltv = ltvMap.get(c.source) ?? null;
-                    return {
-                      key: c.source,
-                      labelText: labelStr,
-                      value: c.leads,
-                      tone: sourceTone(c.source),
-                      anfragen: formatNumber(c.leads),
-                      termine: formatNumber(c.appointments),
-                      gewonnen: formatNumber(c.casesWon),
-                      budget:
-                        c.spendEur != null ? formatEuro(c.spendEur) : null,
-                      cpl: c.cplEur != null ? formatEuro(c.cplEur) : null,
-                      cac: c.cacEur != null ? formatEuro(c.cacEur) : null,
-                      ltv: ltv != null ? formatMoney(ltv, currency) : null,
-                      roas:
-                        c.roas != null
-                          ? `${c.roas.toFixed(1).replace(".", ",")}×`
-                          : null,
-                      roasTone: roasToneFor(c.roas),
-                    };
-                  })
-                : // No source data in the period (e.g. "Heute" before the first
-                  // Anfrage): still show the standard channels with "–" values
-                  // and an outlined bar instead of an empty card.
-                  PLACEHOLDER_SOURCES.map((s) => ({
-                    key: s,
-                    labelText: SOURCE_LABELS[s as RequestSource] ?? s,
-                    value: 0,
-                    tone: sourceTone(s),
-                    anfragen: null,
-                    termine: null,
-                    gewonnen: null,
-                    budget: null,
-                    cpl: null,
-                    cac: null,
-                    ltv: null,
-                    roas: null,
-                    roasTone: null,
-                  }))
-            }
+            totals={{
+              label: "Gesamt",
+              budget:
+                sourceTotals.spend > 0 ? formatEuro(sourceTotals.spend) : null,
+              anfragen: formatNumber(sourceTotals.leads),
+              termine: formatNumber(sourceTotals.appointments),
+              gewonnen: formatNumber(sourceTotals.casesWon),
+            }}
+            rows={sourceRows.map((c) => {
+              const labelStr = reportingChannelLabel(c.source);
+              const ltv = ltvMap.get(c.source) ?? null;
+              return {
+                key: c.source,
+                labelText: labelStr,
+                value: c.leads,
+                tone: sourceTone(c.source),
+                anfragen: formatNumber(c.leads),
+                termine: formatNumber(c.appointments),
+                gewonnen: formatNumber(c.casesWon),
+                budget: c.spendEur != null ? formatEuro(c.spendEur) : null,
+                cpl: c.cplEur != null ? formatEuro(c.cplEur) : null,
+                cac: c.cacEur != null ? formatEuro(c.cacEur) : null,
+                ltv: ltv != null ? formatMoney(ltv, currency) : null,
+                roas:
+                  c.roas != null
+                    ? `${c.roas.toFixed(1).replace(".", ",")}×`
+                    : null,
+                roasTone: roasToneFor(c.roas),
+              };
+            })}
           />
+          )}
         </CardContent>
       </Card>
       </section>
@@ -570,18 +497,20 @@ export async function DashboardTopMetricsEnhanced({
   );
 }
 
-// Standard channels shown as "–" placeholders when the period has no source
-// data yet (so the card isn't blank on e.g. the "Heute" range).
-const PLACEHOLDER_SOURCES = ["meta", "google", "formular", "manuell"] as const;
-
 // Distinct slice color per source so the donut never repeats hues.
 function sourceTone(source: string): BreakdownTone {
+  // Keys are reporting channels (lib/sources.ts); organic and paid get
+  // different hues so the two never read as one slice.
   switch (source) {
-    case "meta":
+    case "meta_anzeige":
       return "accent";
-    case "google":
+    case "google_anzeige":
       return "good";
-    case "formular":
+    case "instagram_organisch":
+    case "facebook_organisch":
+    case "tiktok_organisch":
+    case "profil_link":
+    case "dm_link":
       return "warn";
     case "whatsapp":
       return "bad";
@@ -599,22 +528,6 @@ function roasToneFor(roas: number | null | undefined): BreakdownTone | null {
   if (roas >= 2) return "good";
   if (roas >= 1) return "neutral";
   return "warn";
-}
-
-/**
- * Equivalent prior window — same number of days, ending one millisecond
- * before `win.from` so the two ranges don't overlap by a day. Mirrors the
- * convention in `kpiSummaryWithComparisonUncached`.
- */
-function priorWindow(win: { from: Date; to: Date; days: number }): {
-  from: Date;
-  to: Date;
-  days: number;
-} {
-  const lengthMs = win.to.getTime() - win.from.getTime();
-  const priorTo = new Date(win.from.getTime() - 1);
-  const priorFrom = new Date(priorTo.getTime() - lengthMs);
-  return { from: priorFrom, to: priorTo, days: win.days };
 }
 
 /**
@@ -641,11 +554,15 @@ function OpenLeadsList({
         {leads.map((r) => {
           const name = r.contactName ?? "Unbekannt";
           const rightChip = r.slaBreached ? (
-            <span className="text-xs font-medium text-tone-bad">
-              Seit 3h+ überfällig
+            <span className="inline-flex items-center gap-1 text-sm font-medium text-fg-primary">
+              <AlertTriangle
+                className="h-3.5 w-3.5 text-tone-bad"
+                aria-hidden
+              />
+              Überfällig
             </span>
           ) : (
-            <span className="tabular-nums text-xs text-fg-secondary">
+            <span className="tabular-nums text-sm text-fg-primary">
               {formatRelative(r.createdAt)}
             </span>
           );
@@ -661,7 +578,7 @@ function OpenLeadsList({
                       {name}
                     </span>
                     {r.treatmentLabel && (
-                      <span className="truncate text-xs text-fg-secondary">
+                      <span className="truncate text-sm text-fg-secondary">
                         {r.treatmentLabel}
                       </span>
                     )}
@@ -678,20 +595,16 @@ function OpenLeadsList({
             </li>
           );
         })}
-        {totalOpen > leads.length && (
-          <li>
-            <Link
-              href="/anfragen?status=neu"
-              className="-mx-2 flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs text-fg-tertiary transition-colors hover:bg-bg-tertiary hover:text-fg-secondary"
-            >
-              <span>
-                +{formatNumber(totalOpen - leads.length)} weitere offen
-              </span>
-              <MoreHorizontal aria-hidden className="h-3.5 w-3.5 shrink-0" />
-            </Link>
-          </li>
-        )}
       </ul>
+      {totalOpen > leads.length && (
+        <Link
+          href="/anfragen?status=neu"
+          className="inline-flex items-center gap-1 text-sm text-fg-secondary hover:text-accent"
+        >
+          {formatNumber(totalOpen - leads.length)} weitere offene Anfragen
+          <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+        </Link>
+      )}
     </div>
   );
 }

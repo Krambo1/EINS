@@ -20,6 +20,7 @@ import {
   type ChecklistItem,
   type DeliveryType,
 } from "@/app/(portal)/onboarding/checkliste/content";
+import { DISPLAY_TIME_ZONE } from "@/lib/formatting";
 
 /**
  * Asset-Liefer-Checkliste as a downloadable, branded PDF.
@@ -245,6 +246,7 @@ export async function generateChecklistePdf(): Promise<Buffer> {
     year: "numeric",
     month: "long",
     day: "numeric",
+    timeZone: DISPLAY_TIME_ZONE,
   });
 
   const doc = (

@@ -206,7 +206,7 @@ export function AdminSearchDialog({ open, onOpenChange }: DialogProps) {
         <Command.Input
           value={query}
           onValueChange={setQuery}
-          placeholder="Suchen: Praxen, Anfragen, Operations, Umsatz…"
+          placeholder="Suchen: Praxen, Anfragen, Aufgaben, Umsatz…"
           className={cn(
             "flex h-12 w-full bg-transparent text-base text-fg-primary",
             "placeholder:text-fg-tertiary focus:outline-none"
@@ -316,13 +316,13 @@ export function AdminSearchDialog({ open, onOpenChange }: DialogProps) {
             {!pinnedIds.has("quick-operations") && (
               <ResultItem
                 value="quick-operations"
-                title="Operations öffnen"
+                title="Aufgaben öffnen"
                 subtitle="/admin/operations"
                 keywords={["operations", "sla", "queue"]}
                 onSelect={() =>
                   handleSelect({
                     id: "quick-operations",
-                    title: "Operations öffnen",
+                    title: "Aufgaben öffnen",
                     subtitle: "/admin/operations",
                     href: "/admin/operations",
                   })
@@ -331,7 +331,7 @@ export function AdminSearchDialog({ open, onOpenChange }: DialogProps) {
                 onTogglePin={() =>
                   togglePin({
                     id: "quick-operations",
-                    title: "Operations öffnen",
+                    title: "Aufgaben öffnen",
                     subtitle: "/admin/operations",
                     href: "/admin/operations",
                   })

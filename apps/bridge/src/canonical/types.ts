@@ -100,6 +100,8 @@ export interface InvoicePaidEvent extends BaseEvent {
   amountCents: number;
   currency?: "EUR" | "CHF";
   paidAt: string;
+  /** Producer revision (see portal InvoicePaidSchema.sourceRevision). */
+  sourceRevision?: number;
 }
 
 export interface InvoiceRefundedEvent extends BaseEvent {
@@ -107,6 +109,9 @@ export interface InvoiceRefundedEvent extends BaseEvent {
   pvsPatientId: string;
   pvsInvoiceId: string;
   pvsAppointmentId?: string;
+  /** The refund / credit-note document's own id. Distinct ids against one
+   *  pvsInvoiceId are summed by derive; same id (or none) = latest wins. */
+  pvsRefundId?: string;
   /** POSITIVE magnitude of the amount given back (integer cents). The derive
    *  worker subtracts it from the patient total and the matching appointment
    *  bucket. A dedicated kind (not a negative InvoicePaid) keeps amounts
@@ -114,6 +119,7 @@ export interface InvoiceRefundedEvent extends BaseEvent {
   refundedAmountCents: number;
   currency?: "EUR" | "CHF";
   refundedAt: string;
+  sourceRevision?: number;
   reason?: string;
 }
 

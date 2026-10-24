@@ -1,5 +1,15 @@
 import type { PvsLinkRow } from "../../db/client.js";
 import { fetchWithTimeout } from "../../http.js";
+import {
+  MAX_RETRIES,
+  abortableSleep,
+  parseRetryAfter,
+  truncateText as truncate,
+  VendorHttpError,
+  walkPages,
+  type Page,
+  type PageOptions,
+} from "../_shared/paging.js";
 
 /**
  * Pabau REST client wrapper.
@@ -41,12 +51,6 @@ import { fetchWithTimeout } from "../../http.js";
 const PAGE_SIZE = 100;
 const DEFAULT_API_PATH = "api/v1";
 const DEFAULT_BASE = "https://api.oauth.pabau.com";
-/** Upper bound on a single 429 back-off, so a bogus Retry-After can't park the
- *  sequential scheduler for hours. */
-const MAX_RETRY_AFTER_MS = 5 * 60_000;
-/** Cap on consecutive 429 retries for one request; on the cap we throw and let
- *  recordFailure back the link off instead of looping forever. */
-const MAX_RETRIES = 5;
 
 interface PabauConfig {
   /** Full base URL with the API segment. e.g. "https://api.oauth.pabau.com/api/v1". */
@@ -56,7 +60,21 @@ interface PabauConfig {
    *  We default to api_token everywhere else for onboarding simplicity. */
   oauthClientId?: string;
   oauthClientSecret?: string;
+  /** Aborts every in-flight request and back-off sleep (scheduler deadline). */
+  signal?: AbortSignal;
 }
+
+export type PabauStream = "patients" | "appointments" | "encounters" | "invoices" | "recalls";
+
+const STREAM_PATHS: Record<PabauStream, string> = {
+  patients: "/patients",
+  appointments: "/bookings",
+  // Pabau's "treatment_notes" endpoint represents completed treatments for
+  // aesthetic accounts (some accounts surface them under "/medical_forms").
+  encounters: "/treatment_notes",
+  invoices: "/invoices",
+  recalls: "/recalls",
+};
 
 export interface PabauPatient {
   id: string | number;
@@ -110,6 +128,11 @@ export interface PabauInvoice {
   currency?: string | null;
   paid_at?: string | null;
   status?: string | null;
+  /** On a credit note: the invoice it belongs to. Pabau accounts name this
+   *  differently, the normalizer accepts the common spellings. */
+  parent_invoice_id?: string | number | null;
+  original_invoice_id?: string | number | null;
+  credit_note_for?: string | number | null;
   modified_at: string;
 }
 
@@ -140,7 +163,7 @@ export class PabauClient {
 
   constructor(private readonly cfg: PabauConfig) {}
 
-  static from(link: PvsLinkRow): PabauClient {
+  static from(link: PvsLinkRow, opts: { signal?: AbortSignal } = {}): PabauClient {
     const cfg = link.connectionConfig as {
       pabauEndpoint?: string;
       pabauApiPath?: string;
@@ -161,6 +184,7 @@ export class PabauClient {
       apiToken: cfg.pabauApiToken ?? "",
       oauthClientId: cfg.pabauClientId,
       oauthClientSecret: cfg.pabauClientSecret,
+      signal: opts.signal,
     });
   }
 
@@ -184,25 +208,37 @@ export class PabauClient {
 
   /** ------ Streams: one async iterable per resource. ------ */
 
+  /** Pages of one stream (bounded, abortable, resumable by page number). */
+  pages<T = unknown>(
+    stream: PabauStream,
+    modifiedSince: string,
+    opts: PageOptions = {}
+  ): AsyncIterable<Page<T>> {
+    return this.paginate<T>(STREAM_PATHS[stream], modifiedSince, opts);
+  }
+
   streamPatients(modifiedSince: string): AsyncIterable<PabauPatient> {
-    return this.paginate<PabauPatient>("/patients", modifiedSince);
+    return this.flatten<PabauPatient>("patients", modifiedSince);
   }
   streamAppointments(modifiedSince: string): AsyncIterable<PabauAppointment> {
-    return this.paginate<PabauAppointment>("/bookings", modifiedSince);
+    return this.flatten<PabauAppointment>("appointments", modifiedSince);
   }
   streamEncounters(modifiedSince: string): AsyncIterable<PabauEncounter> {
-    // Pabau's "treatment_notes" endpoint represents completed treatments
-    // for aesthetic accounts. Some accounts surface them under
-    // "/medical_forms" instead; the per-account flavor is configured at
-    // enrollment via connection_config.pabauEncounterPath. We accept an
-    // override to avoid hardcoding.
-    return this.paginate<PabauEncounter>("/treatment_notes", modifiedSince);
+    return this.flatten<PabauEncounter>("encounters", modifiedSince);
   }
   streamInvoices(modifiedSince: string): AsyncIterable<PabauInvoice> {
-    return this.paginate<PabauInvoice>("/invoices", modifiedSince);
+    return this.flatten<PabauInvoice>("invoices", modifiedSince);
   }
   streamRecalls(modifiedSince: string): AsyncIterable<PabauRecall> {
-    return this.paginate<PabauRecall>("/recalls", modifiedSince);
+    return this.flatten<PabauRecall>("recalls", modifiedSince);
+  }
+
+  private async *flatten<T>(stream: PabauStream, modifiedSince: string): AsyncIterable<T> {
+    for await (const page of this.pages<T>(stream, modifiedSince, {
+      maxPages: Number.POSITIVE_INFINITY,
+    })) {
+      for (const row of page.rows) yield row;
+    }
   }
 
   /** ------ Internals ------ */
@@ -214,7 +250,10 @@ export class PabauClient {
     const url = `${this.cfg.endpoint.replace(/\/$/, "")}${pathAndQuery}`;
     let retries = 0;
     for (;;) {
-      const res = await fetchWithTimeout(url, { headers: await this.authHeaders() });
+      const res = await fetchWithTimeout(url, {
+        headers: await this.authHeaders(),
+        signal: this.cfg.signal,
+      });
       if (res.status !== 429) return res;
       if (retries >= MAX_RETRIES) {
         throw new Error(
@@ -223,53 +262,58 @@ export class PabauClient {
       }
       retries += 1;
       const retryAfter = parseRetryAfter(res.headers.get("retry-after"));
-      await sleep(retryAfter);
+      await abortableSleep(retryAfter, this.cfg.signal);
       // After waiting we may need to re-mint a token if it has lapsed.
       await this.ensureToken();
     }
   }
 
-  private async *paginate<T>(
+  private paginate<T>(
     path: string,
-    modifiedSince: string
-  ): AsyncIterable<T> {
-    let page = 1;
-    for (;;) {
-      const url =
-        `${path}?modified_since=${encodeURIComponent(modifiedSince)}` +
-        `&per_page=${PAGE_SIZE}&page=${page}`;
-      const res = await this.get(url);
-      if (!res.ok) {
-        throw new Error(`pabau GET ${path} page=${page} ${res.status}: ${await safeText(res)}`);
-      }
-      const body = (await res.json()) as PageEnvelope<T>;
-      // A 200 whose body carries neither a `data` nor an `items` array is an
-      // error envelope (changed shape, auth notice), NOT a healthy empty page.
-      // Treating it as `[]` would silently mark the stream permanently drained,
-      // the likeliest onboarding silent-death mode. Fail loudly instead.
-      const items = Array.isArray(body.data)
-        ? body.data
-        : Array.isArray(body.items)
-          ? body.items
-          : null;
-      if (items === null) {
-        throw new Error(
-          `pabau GET ${path} page=${page} ${res.status}: response envelope missing 'data'/'items' array: ${truncate(
-            JSON.stringify(body)
-          )}`
-        );
-      }
-      for (const item of items) yield item;
-      // H17: stop on an EMPTY page, not on a short one. If the server clamps
-      // per_page below what we request it returns a "short" page that is not
-      // the end; the old `< PAGE_SIZE` check dropped everything after it.
-      // Page-number paging stays consistent under a clamp (the server uses
-      // its own effective page size), so incrementing page until an empty
-      // page is safe. The result set can mutate between requests; poll
-      // overlap plus portal-side dedup absorb that window.
-      if (items.length === 0) return;
-      page += 1;
-    }
+    modifiedSince: string,
+    opts: PageOptions = {}
+  ): AsyncIterable<Page<T>> {
+    return walkPages<T>({
+      label: `pabau GET ${path}`,
+      startAt: opts.startAt ?? 1,
+      maxPages: opts.maxPages ?? Number.POSITIVE_INFINITY,
+      signal: opts.signal ?? this.cfg.signal,
+      // Page-number paging stays consistent under a server-side page-size clamp
+      // (the server uses its own effective size), so the position is simply
+      // page+1 until an empty page. The result set can mutate between requests;
+      // poll overlap plus portal-side dedup absorb that window.
+      advance: (at) => at + 1,
+      fetchPage: async (page) => {
+        const url =
+          `${path}?modified_since=${encodeURIComponent(modifiedSince)}` +
+          `&per_page=${PAGE_SIZE}&page=${page}`;
+        const res = await this.get(url);
+        if (!res.ok) {
+          throw new VendorHttpError(
+            `pabau GET ${path} page=${page} ${res.status}: ${await safeText(res)}`,
+            res.status
+          );
+        }
+        const body = (await res.json()) as PageEnvelope<T>;
+        // A 200 whose body carries neither a `data` nor an `items` array is an
+        // error envelope (changed shape, auth notice), NOT a healthy empty page.
+        // Treating it as `[]` would silently mark the stream permanently drained,
+        // the likeliest onboarding silent-death mode. Fail loudly instead.
+        const items = Array.isArray(body.data)
+          ? body.data
+          : Array.isArray(body.items)
+            ? body.items
+            : null;
+        if (items === null) {
+          throw new Error(
+            `pabau GET ${path} page=${page} ${res.status}: response envelope missing 'data'/'items' array: ${truncate(
+              JSON.stringify(body)
+            )}`
+          );
+        }
+        return items;
+      },
+    });
   }
 
   private async ensureToken(): Promise<void> {
@@ -289,6 +333,7 @@ export class PabauClient {
         client_id: this.cfg.oauthClientId,
         client_secret: this.cfg.oauthClientSecret,
       }),
+      signal: this.cfg.signal,
     });
     if (!res.ok) {
       throw new Error(`pabau oauth ${res.status}: ${await safeText(res)}`);
@@ -317,31 +362,6 @@ export class PabauClient {
     }
     throw new Error("pabau: no token available");
   }
-}
-
-/** Pabau's Retry-After is in seconds (per HTTP spec). Some proxies emit an
- *  HTTP-date; we accept either. */
-function parseRetryAfter(raw: string | null): number {
-  if (!raw) return 5_000;
-  const asInt = Number.parseInt(raw, 10);
-  if (Number.isFinite(asInt) && asInt > 0) {
-    return Math.min(asInt * 1000, MAX_RETRY_AFTER_MS);
-  }
-  const asDate = Date.parse(raw);
-  if (Number.isFinite(asDate)) {
-    const delta = asDate - Date.now();
-    return delta > 0 ? Math.min(delta, MAX_RETRY_AFTER_MS) : 5_000;
-  }
-  return 5_000;
-}
-
-/** Cap a string for safe inclusion in an error/log line. */
-function truncate(s: string, max = 200): string {
-  return s.length > max ? `${s.slice(0, max)}...` : s;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
 }
 
 async function safeText(res: Response): Promise<string> {

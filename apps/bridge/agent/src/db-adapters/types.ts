@@ -62,6 +62,14 @@ export interface DbConnectionParams {
   options?: Record<string, unknown>;
 }
 
+/** Per-query driver hints derived from the stream's YAML. Drivers ignore what
+ *  does not apply to them. */
+export interface QueryOptions {
+  /** MSSQL only: SQL type the Date cursor is bound as. Default "datetime"
+   *  (legacy 1/300 s ticks); "datetime2" only for datetime2 columns. */
+  cursorSqlType?: "datetime" | "datetime2";
+}
+
 export interface DbDriver {
   /** Engine name. Must match `driver:` in the vendor YAML.
    *
@@ -100,7 +108,8 @@ export interface DbDriver {
    *  better-sqlite3 cannot bind a Date. */
   query(
     sql: string,
-    params: Record<string, string | number | Date>
+    params: Record<string, string | number | Date>,
+    options?: QueryOptions
   ): Promise<QueryResult>;
 
   /** Close the underlying connection / pool. Called on agent shutdown and
@@ -138,6 +147,9 @@ export type TransformName =
   /** trim + cap at 4000 chars */
   | "bemerkung";
 
+/** Opt-in German decimal text heuristic for amount transforms. */
+export type DecimalFormat = "de";
+
 export type FieldMapping =
   /** Direct column reference: just the column name. */
   | string
@@ -150,6 +162,10 @@ export type FieldMapping =
       template?: string;
       /** Built-in transform applied to the resolved value. */
       transform?: TransformName;
+      /** Amount text only: "de" = the cell is German-formatted text ("1.234,56",
+       *  lone ".234" = thousands). Default: "." is the decimal point (DB driver
+       *  values like "12.500" from numeric(12,3) are NOT thousands). */
+      decimalFormat?: DecimalFormat;
       /** Static literal (e.g. for currency: "EUR"). When set, takes
        *  precedence over from/template. */
       literal?: string | number;
@@ -206,7 +222,57 @@ export interface StreamConfig {
   tiebreakType?: "integer" | "string";
   /** Optional poll cadence override. Default per-vendor at the file level. */
   intervalSeconds?: number;
+  /** How the cursor is stored in the DB column and therefore how it is BOUND
+   *  (see CursorFormat). Overrides the vendor-level value. */
+  cursorFormat?: CursorFormat;
+  /** Time zone of zone-less timestamps this stream reads. Overrides the
+   *  vendor-level value. */
+  timezone?: DbTimezone;
+  /** Overlap window (minutes) re-read below the cursor on every caught-up
+   *  poll. Overrides the vendor-level value. */
+  lookbackMinutes?: number;
+  /** Days of history read on the very first poll. Overrides the vendor-level
+   *  value. 0 = the whole history. */
+  initialHorizonDays?: number;
+  /** Stream-wide default for FieldMapping.decimalFormat (amount transforms). */
+  decimalFormat?: DecimalFormat;
+  /** MSSQL only: the SQL type of the cursor column, which decides how the Date
+   *  cursor is bound. Default "datetime": legacy `datetime` columns store 1/300 s
+   *  ticks, and a ms-rounded JS Date widened to datetime2 never equals the stored
+   *  value (re-read loops / skipped rows at a batch boundary). Declare
+   *  "datetime2" only when the column really is datetime2. */
+  cursorSqlType?: "datetime" | "datetime2";
+  /** Table the empty-stream diagnostic counts rows in. Derived from the first
+   *  FROM of `query` when omitted; set it when the query is a subselect/CTE
+   *  or a join where the first table is not the stream's base table. */
+  diagnosticTable?: string;
+  /** Optional status column of the base table. When the stream returns no
+   *  rows although the table has some, the DISTINCT values of this column
+   *  (never any other column) are reported so a wrong status literal is
+   *  visible ("bezahlt" vs 'B'). */
+  statusColumn?: string;
 }
+
+/**
+ * How the cursor column stores its value, which decides how :cursor is bound.
+ *   native      the engine's own temporal type (Date bind). Default for every
+ *               engine except sqlite.
+ *   iso_text    TEXT 'YYYY-MM-DD HH:MM:SS' (sqlite default; sorts lexically)
+ *   iso_t_text  TEXT ISO-8601 'YYYY-MM-DDTHH:MM:SS.sssZ'
+ *   epoch_s     INTEGER/REAL seconds since 1970 (UTC)
+ *   epoch_ms    INTEGER/REAL milliseconds since 1970 (UTC)
+ *   julian      REAL Julian day number (sqlite julianday())
+ */
+export type CursorFormat =
+  | "native"
+  | "iso_text"
+  | "iso_t_text"
+  | "epoch_s"
+  | "epoch_ms"
+  | "julian";
+
+/** Zone of zone-less DATE/TIMESTAMP columns. `utc` for a real timestamptz. */
+export type DbTimezone = "Europe/Berlin" | "utc";
 
 export interface VendorConfig {
   /** Stable id; used as `(vendorId, streamKind)` cursor key. Same as the
@@ -225,8 +291,17 @@ export interface VendorConfig {
   };
   /** Default cadence for streams that don't override. */
   defaultIntervalSeconds: number;
-  /** Per-stream batch size in the LIMIT clause. */
+  /** Per-stream batch size in the LIMIT clause (1..5000). */
   batchSize: number;
+  /** Zone of zone-less timestamps in this PVS database. Default
+   *  "Europe/Berlin"; "utc" when the columns are real timestamptz. */
+  timezone?: DbTimezone;
+  /** Cursor storage format. Default "iso_text" for sqlite, else "native". */
+  cursorFormat?: CursorFormat;
+  /** Days of history backfilled on the first poll. Default 90; 0 = all. */
+  initialHorizonDays?: number;
+  /** Late-commit overlap re-read below the cursor, minutes. Default 30. */
+  lookbackMinutes?: number;
   streams: StreamConfig[];
 }
 
@@ -242,6 +317,13 @@ export type StreamStatus =
   // failing transform). Halts the stream exactly like schema_drift: a terminal
   // state cleared only by an operator config fix, never a silent retry.
   | "config_invalid"
+  // The stream's query returns nothing although its base table has rows: most
+  // likely a wrong status literal or table filter. Not a halt (the stream keeps
+  // polling and recovers by itself once rows appear); visible on the heartbeat.
+  | "suspect_empty"
+  // The database rejected the credential. Connect attempts STOP (a shared
+  // vendor account can be locked out by retries) until the credential changes.
+  | "auth_failed"
   | "disabled";
 
 export interface StreamState {
@@ -262,6 +344,23 @@ export interface StreamState {
   columnSnapshot: string[] | null;
 }
 
+/** Optional engine-specific capability: sample the storage class of the cursor
+ *  column (sqlite typeof()) by wrapping the stream query. Returns a map of
+ *  storage class -> row count, e.g. { text: 40 }. */
+export interface StorageTypeSampler {
+  sampleStorageTypes(
+    sql: string,
+    params: Record<string, string | number | Date>,
+    column: string
+  ): Promise<Record<string, number>>;
+  /** Same sample taken straight from a table (first rows), for when the stream
+   *  query itself returns nothing. */
+  sampleTableStorageTypes?(
+    table: string,
+    column: string
+  ): Promise<Record<string, number>>;
+}
+
 export interface DriftReport {
   vendorId: string;
   streamKind: CanonicalEventKind;
@@ -270,6 +369,25 @@ export interface DriftReport {
   missing: string[];
   added: string[];
   detectedAt: string;
+  /** Catalog introspection (table/column names, types, row counts; never row
+   *  data) captured when the halt happened. Optional. */
+  catalog?: CatalogSummary;
+}
+
+/** Compact catalog snapshot attached to a drift report. */
+export interface CatalogSummary {
+  engine: string;
+  /** Tables the YAML queries reference that the catalog does not contain. */
+  missingTables: string[];
+  /** table.column pairs the YAML references that the catalog does not have. */
+  missingColumns: string[];
+  tables: Array<{
+    name: string;
+    rowCount: number | null;
+    columns: Array<{ name: string; type: string }>;
+  }>;
+  /** Names of further tables that were omitted to keep the report small. */
+  otherTables: string[];
 }
 
 // ---------- first-poll value validation (Phase 5) ------------------------

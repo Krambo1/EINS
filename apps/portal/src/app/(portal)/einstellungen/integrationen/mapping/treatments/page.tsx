@@ -6,7 +6,6 @@ import {
   CardHeader,
   CardTitle,
   CardDescription,
-  Badge,
 } from "@eins/ui";
 import { requireSession } from "@/auth/guards";
 import { db, schema } from "@/db/client";
@@ -50,15 +49,16 @@ export default async function TreatmentsMappingPage() {
         <div className="mb-2 flex items-center gap-2 text-sm">
           <Link
             href="/einstellungen/integrationen"
-            className="text-muted-foreground hover:underline"
+            className="inline-flex min-h-11 items-center font-medium text-fg-primary hover:underline"
           >
             ← Übersicht
           </Link>
         </div>
         <h1 className="text-2xl font-semibold">PVS-Behandlungen zuordnen</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Behandlungs-Codes aus Ihrer PVS müssen einmalig EINS-Behandlungen
-          zugeordnet werden, damit die Behandlungs-Attribution in den KPIs stimmt.
+        <p className="mt-1 text-base text-fg-primary">
+          Ihre Praxis-Software (PVS) führt Behandlungen unter eigenen Kürzeln.
+          Ordnen Sie jedes Kürzel einmal einer Behandlung im Portal zu, dann
+          stimmen die Zahlen je Behandlung in Ihrer Auswertung.
         </p>
       </header>
 
@@ -68,7 +68,7 @@ export default async function TreatmentsMappingPage() {
             <CardTitle className="text-base">Noch keine PVS-Behandlungen</CardTitle>
             <CardDescription>
               Sobald die ersten Termine oder Behandlungen aus Ihrer PVS ankommen,
-              erscheinen die zugehörigen Codes hier.
+              erscheinen die zugehörigen Kürzel hier.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -76,11 +76,11 @@ export default async function TreatmentsMappingPage() {
         <Card>
           <CardContent className="p-0">
             <table className="w-full text-sm">
-              <thead className="bg-muted/30 text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <thead className="bg-bg-secondary text-left text-sm font-medium text-fg-primary">
                 <tr>
-                  <th className="p-3">PVS-Code</th>
-                  <th className="p-3">PVS-Bezeichnung</th>
-                  <th className="p-3">EINS-Behandlung</th>
+                  <th className="hidden p-3 sm:table-cell">Kürzel aus Ihrer Praxissoftware</th>
+                  <th className="p-3">Name in Ihrer Praxissoftware</th>
+                  <th className="p-3">Behandlung im Portal</th>
                   <th className="p-3">Status</th>
                 </tr>
               </thead>

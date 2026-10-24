@@ -7,6 +7,10 @@ import {
 } from "@eins/ui";
 import { eq } from "drizzle-orm";
 import { requireSession } from "@/auth/guards";
+import {
+  impersonationBlockedMessage,
+  isImpersonating,
+} from "@/auth/impersonation-guard";
 import { db, schema } from "@/db/client";
 import { formatRelative } from "@/lib/formatting";
 import { ChangePasswordForm } from "./ChangePasswordForm";
@@ -17,6 +21,7 @@ export const dynamic = "force-dynamic";
 
 export default async function SicherheitPage() {
   const session = await requireSession();
+  const impersonating = isImpersonating(session);
 
   const [user] = await db
     .select({
@@ -45,7 +50,13 @@ export default async function SicherheitPage() {
               Zuletzt geändert {formatRelative(user.passwordSetAt)}.
             </p>
           )}
-          <ChangePasswordForm />
+          {impersonating ? (
+            <p className="text-sm text-fg-secondary">
+              {impersonationBlockedMessage("password")}
+            </p>
+          ) : (
+            <ChangePasswordForm />
+          )}
         </CardContent>
       </Card>
 
@@ -55,15 +66,20 @@ export default async function SicherheitPage() {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-fg-secondary">
-            Beendet alle aktiven Sitzungen. Beim nächsten Login müssen Sie
-            sich wieder anmelden; auf diesem Browser werden Sie sofort
-            ausgeloggt.
+            Beendet alle aktiven Sitzungen. Danach müssen Sie sich auf jedem
+            Gerät neu anmelden, auch in diesem Browser.
           </p>
-          <form action={logoutAllDevicesAction}>
-            <Button variant="outline" type="submit">
-              Überall abmelden
-            </Button>
-          </form>
+          {impersonating ? (
+            <p className="text-sm text-fg-secondary">
+              {impersonationBlockedMessage("logout_all_devices")}
+            </p>
+          ) : (
+            <form action={logoutAllDevicesAction}>
+              <Button variant="outline" type="submit">
+                Überall abmelden
+              </Button>
+            </form>
+          )}
         </CardContent>
       </Card>
     </div>

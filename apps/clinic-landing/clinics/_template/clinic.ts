@@ -1,4 +1,5 @@
 import type { Clinic } from "@/lib/types";
+import privacySheet from "./privacy-sheet.json";
 
 /**
  * Canonical placeholder clinic.
@@ -87,8 +88,8 @@ export const templateClinic: Clinic = {
       "Über [N] dokumentierte Behandlungen seit [Jahr]",
     ],
     memberships: [
-      "[Mitgliedschaft 1 — z.B. DGÄPC]",
-      "[Mitgliedschaft 2 — z.B. VDÄPC]",
+      "[Mitgliedschaft 1, z.B. DGÄPC]",
+      "[Mitgliedschaft 2, z.B. VDÄPC]",
     ],
     quote:
       "Ich behandle nur, was zu Ihrem Gesicht passt. Manchmal ist die ehrlichste Empfehlung, weniger zu machen.",
@@ -138,7 +139,7 @@ export const templateClinic: Clinic = {
   ],
 
   legal: {
-    berufsbezeichnung: "[Ärztin / Arzt — Bezeichnung exakt wie verliehen]",
+    berufsbezeichnung: "[Ärztin / Arzt: Bezeichnung exakt wie verliehen]",
     verleihungsstaat: "Bundesrepublik Deutschland",
     kammer: {
       name: "[Zuständige Landesärztekammer]",
@@ -147,7 +148,7 @@ export const templateClinic: Clinic = {
     },
     berufsordnungUrl: "https://example.com/berufsordnung",
     heilberufekammergesetzUrl: "https://example.com/heilberufekammergesetz",
-    ustId: "[USt-IdNr falls vorhanden — sonst diesen Eintrag entfernen]",
+    ustId: "[USt-IdNr falls vorhanden, sonst diesen Eintrag entfernen]",
     berufshaftpflicht: {
       versicherer: "[Berufshaftpflicht-Versicherer]",
       adresse: "[Anschrift des Versicherers]",
@@ -192,55 +193,5 @@ export const templateClinic: Clinic = {
     tiktokPixelId: undefined,
   },
 
-  datenschutzMarkdown: `## Datenschutzerklärung
-
-Diese Datenschutzerklärung beschreibt, wie [Praxis-Name] personenbezogene Daten verarbeitet, die im Zusammenhang mit dem Besuch dieser Website oder der Anfrage einer Behandlung erhoben werden.
-
-## 1. Verantwortlicher
-
-[Praxis-Name]
-[Straße und Hausnummer]
-[PLZ Stadt]
-
-E-Mail: info@example.com
-Telefon: +49 000 0000000
-
-## 2. Welche Daten erhoben werden
-
-Beim Aufruf dieser Website werden technisch notwendige Daten verarbeitet (IP-Adresse, User-Agent, Zeitstempel). Die IP-Adresse wird vor jeder Speicherung anonymisiert (das letzte Oktett wird auf 0 gesetzt).
-
-Wenn Sie das Anfrage-Formular ausfüllen, übermitteln Sie freiwillig: Vorname, E-Mail-Adresse, Telefonnummer (optional), Stadt sowie Ihre Antworten auf die Vorqualifizierungs-Fragen.
-
-## 3. Zwecke und Rechtsgrundlagen
-
-- **Beantwortung Ihrer Anfrage** — Art. 6 Abs. 1 lit. b DSGVO (Vertragsanbahnung). Ihre Angaben aus dem Vorqualifizierungs-Formular (gewünschte Behandlung, Zeitfenster, Stadt, ggf. Erfahrung, Telefon-Bereitschaft) werden regelbasiert (deterministisch) eingeordnet, um die Bearbeitung Ihrer Anfrage zu priorisieren. Diese Einordnung ersetzt keine medizinische Beurteilung und führt zu keiner automatisierten Entscheidung im Sinne von Art. 22 Abs. 1 DSGVO — die abschließende Sichtung erfolgt stets durch eine Mitarbeiterin oder einen Mitarbeiter der Praxis.
-- **KI-gestützte Auswertung Ihrer Freitext-Notizen (nur mit Einwilligung)** — Art. 6 Abs. 1 lit. a, Art. 9 Abs. 2 lit. a und Art. 49 Abs. 1 lit. a DSGVO. Wenn Sie der KI-Verarbeitung im Formular ausdrücklich zustimmen, wird der Inhalt des optionalen Notiz-Felds an **OpenAI, Inc.** (1455 3rd Street, San Francisco, CA 94158, USA) übermittelt und dort durch ein Sprachmodell (gpt-4o-mini) hinsichtlich Ihrer Kaufabsicht in eine Punktzahl zwischen 0 und 15 eingeordnet. Diese Punktzahl fließt in die regelbasierte Gesamteinordnung ein; die finale Entscheidung trifft weiterhin ausschließlich ein Mensch. Ohne Ihre Einwilligung findet **keine** KI-Verarbeitung statt; die Notiz wird ausschließlich praxisseitig gelesen.
-- **Versand der Bestätigungs-E-Mail (Double-Opt-In)** — Art. 6 Abs. 1 lit. c DSGVO i.V.m. § 7 Abs. 2 UWG, sowie zur Beweissicherung der erteilten Marketing-Einwilligung.
-- **Versand von Informationen zu Behandlungen und Terminen (nur mit bestätigter Einwilligung)** — Art. 6 Abs. 1 lit. a DSGVO. Der Versand erfolgt erst, nachdem Sie den Bestätigungs-Link in der E-Mail angeklickt haben (Double-Opt-In).
-- **Reichweitenmessung (nur mit Einwilligung)** — Art. 6 Abs. 1 lit. a DSGVO i.V.m. § 25 Abs. 1 TDDDG.
-- **Werbenetzwerk-Pixel und Conversions API (nur mit Einwilligung)** — Art. 6 Abs. 1 lit. a DSGVO i.V.m. § 25 Abs. 1 TDDDG.
-
-Sie können Ihre Einwilligung jederzeit mit Wirkung für die Zukunft widerrufen — für Cookies über die Cookie-Einstellungen, für Marketing-E-Mails über den Abmelde-Link in jeder E-Mail, für die KI-Verarbeitung Ihrer Notizen oder anderweitig per formloser Nachricht an die unter Ziffer 1 genannte Kontaktadresse. Die Rechtmäßigkeit der bis zum Widerruf erfolgten Verarbeitung bleibt unberührt.
-
-## 4. Empfänger und Drittlandtransfer
-
-Bei aktivem Marketing-Consent werden über den Meta-Pixel und die Meta Conversions API gehashte personenbezogene Daten an Meta Platforms Ireland Ltd. übermittelt. Eine Übermittlung in die USA findet auf Grundlage des EU-US Data Privacy Framework und der EU-Standardvertragsklauseln statt.
-
-Für den Versand transaktionaler E-Mails (insbesondere der Bestätigungs-E-Mail im Rahmen des Double-Opt-In-Verfahrens) setzen wir den Dienstleister **Resend, Inc.** (2261 Market Street, San Francisco, CA 94114, USA) als Auftragsverarbeiter (Art. 28 DSGVO) ein. Eine Übermittlung in die USA findet auf Grundlage des EU-US Data Privacy Framework und ergänzender Standardvertragsklauseln statt.
-
-Bei erteilter KI-Einwilligung übermitteln wir den Inhalt Ihres Notiz-Felds an **OpenAI, Inc.** (1455 3rd Street, San Francisco, CA 94158, USA) als Auftragsverarbeiter (Art. 28 DSGVO). Übermittelt wird ausschließlich der Freitext Ihrer Notiz — kein Name, keine E-Mail, keine Telefonnummer, keine sonstigen Formularfelder. Rechtsgrundlage des Drittlandtransfers ist Ihre ausdrückliche Einwilligung gemäß Art. 49 Abs. 1 lit. a DSGVO; ergänzend gelten die EU-Standardvertragsklauseln und (soweit anwendbar) die Zertifizierung des Empfängers unter dem EU-US Data Privacy Framework. OpenAI verarbeitet die Inhalte ausschließlich zur Beantwortung der konkreten Anfrage und nicht zum Training von Modellen (API-Standardrichtlinie).
-
-## 5. Speicherdauer
-
-Anfragedaten werden bis zur abschließenden Bearbeitung Ihrer Anfrage gespeichert und danach gemäß den gesetzlichen Aufbewahrungspflichten gelöscht oder eingeschränkt verarbeitet.
-
-## 6. Ihre Rechte
-
-Sie haben das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Datenübertragbarkeit sowie Widerspruch. Sie haben außerdem das Recht, sich bei der zuständigen Aufsichtsbehörde zu beschweren.
-
-## 7. Hosting
-
-Diese Website wird in einem Rechenzentrum innerhalb der Europäischen Union gehostet (Frankfurt/Main, Vercel Inc., bzw. EU-Region des Hosting-Providers).
-
-> **Hinweis für den Mandanten**: Diese Datenschutzerklärung ist eine Vorlage. Vor Go-Live ist eine anwaltliche Sichtprüfung unter Berücksichtigung Ihrer konkreten Praxis-Konfiguration zwingend erforderlich.`,
+  privacySheet,
 };

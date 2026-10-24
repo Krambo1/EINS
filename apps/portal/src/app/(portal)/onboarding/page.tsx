@@ -20,14 +20,8 @@ import {
   FileText,
   CheckCircle2,
   Circle,
-  Lock,
 } from "lucide-react";
-import {
-  REQUIRED_CHECKLIST_IDS,
-  BLOCKER_CHECKLIST_IDS,
-  isDelivered,
-  type ChecklistStatus,
-} from "./checkliste/content";
+import { getOnboardingGateStatus } from "@/server/queries/onboardingGate";
 
 export const metadata = { title: "Erste Schritte" };
 
@@ -41,79 +35,75 @@ export const metadata = { title: "Erste Schritte" };
 export default async function OnboardingPage() {
   const session = await requirePermissionOrRedirect("onboarding.complete");
 
-  const [clinic] = await db
-    .select()
-    .from(schema.clinics)
-    .where(eq(schema.clinics.id, session.clinicId))
-    .limit(1);
-
-  const [teamRow] = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(schema.clinicUsers)
-    .where(
-      and(
-        eq(schema.clinicUsers.clinicId, session.clinicId),
-        isNull(schema.clinicUsers.archivedAt)
-      )
-    );
+  // All reads are independent: one parallel wave instead of seven sequential
+  // round trips. The gate status is the same React-cached call the layout
+  // already made for this request (no second Fragebogen/Checkliste read).
+  const [
+    [clinic],
+    [teamRow],
+    credentials,
+    assetRows,
+    goalRows,
+    [discoveryRow],
+    gate,
+  ] = await Promise.all([
+    db
+      .select({
+        hwgContactEmail: schema.clinics.hwgContactEmail,
+        defaultDoctorEmail: schema.clinics.defaultDoctorEmail,
+      })
+      .from(schema.clinics)
+      .where(eq(schema.clinics.id, session.clinicId))
+      .limit(1),
+    db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(schema.clinicUsers)
+      .where(
+        and(
+          eq(schema.clinicUsers.clinicId, session.clinicId),
+          isNull(schema.clinicUsers.archivedAt)
+        )
+      ),
+    db
+      .select({ platform: schema.platformCredentials.platform })
+      .from(schema.platformCredentials)
+      .where(eq(schema.platformCredentials.clinicId, session.clinicId)),
+    db
+      .select({ id: schema.assets.id })
+      .from(schema.assets)
+      .where(eq(schema.assets.clinicId, session.clinicId))
+      .limit(1),
+    db
+      .select({ id: schema.goals.id })
+      .from(schema.goals)
+      .where(eq(schema.goals.clinicId, session.clinicId))
+      .limit(1),
+    db
+      .select({ status: schema.discoveryFragebogen.status })
+      .from(schema.discoveryFragebogen)
+      .where(eq(schema.discoveryFragebogen.clinicId, session.clinicId))
+      .limit(1),
+    getOnboardingGateStatus(session.clinicId),
+  ]);
   const teamCount = teamRow?.count ?? 0;
-
-  const credentials = await db
-    .select({ platform: schema.platformCredentials.platform })
-    .from(schema.platformCredentials)
-    .where(eq(schema.platformCredentials.clinicId, session.clinicId));
-
-  const assetRows = await db
-    .select({ id: schema.assets.id })
-    .from(schema.assets)
-    .where(eq(schema.assets.clinicId, session.clinicId))
-    .limit(1);
-
-  const goalRows = await db
-    .select({ id: schema.goals.id })
-    .from(schema.goals)
-    .where(eq(schema.goals.clinicId, session.clinicId))
-    .limit(1);
-
-  const [discoveryRow] = await db
-    .select({ status: schema.discoveryFragebogen.status })
-    .from(schema.discoveryFragebogen)
-    .where(eq(schema.discoveryFragebogen.clinicId, session.clinicId))
-    .limit(1);
   const discoverySubmitted = discoveryRow?.status === "eingereicht";
 
-  const checklistRows = await db
-    .select({
-      itemId: schema.checklistItems.itemId,
-      status: schema.checklistItems.status,
-    })
-    .from(schema.checklistItems)
-    .where(eq(schema.checklistItems.clinicId, session.clinicId));
-  const checklistStatus = new Map(
-    checklistRows.map((r) => [r.itemId, r.status as ChecklistStatus])
-  );
-  const checklistTotal = REQUIRED_CHECKLIST_IDS.length;
-  const checklistDelivered = REQUIRED_CHECKLIST_IDS.filter((id) =>
-    isDelivered(checklistStatus.get(id))
-  ).length;
-  const checklistDone = checklistDelivered >= checklistTotal;
+  const checklistTotal = gate.requiredTotal;
+  const checklistDelivered = gate.requiredDelivered;
+  const checklistDone = gate.checklistComplete;
 
-  // Access gate (keep in lockstep with getOnboardingGateStatus): the data tabs
-  // unlock once the Fragebogen is submitted AND the Blocker checklist items are
-  // delivered. Until then the portal redirected the Inhaber here.
-  const blockersTotal = BLOCKER_CHECKLIST_IDS.length;
-  const blockersDelivered = BLOCKER_CHECKLIST_IDS.filter((id) =>
-    isDelivered(checklistStatus.get(id))
-  ).length;
-  const gateComplete =
-    discoverySubmitted && blockersDelivered >= blockersTotal;
+  // Access gate: same source as the layout redirect (getOnboardingGateStatus),
+  // so this page and the redirect can never disagree.
+  const blockersTotal = gate.blockersTotal;
+  const blockersDelivered = gate.blockersDelivered;
+  const gateComplete = gate.gateComplete;
 
   const steps: Step[] = [
     {
       key: "fragebogen",
       title: "Fragebogen zum Start ausfüllen",
       description:
-        "Etwa 15 bis 20 Minuten zu Behandlungen, Zielen und Ihrer heutigen Patientengewinnung. Darauf bauen Kampagnen, Zielseite und Video auf.",
+        "Etwa 15 bis 20 Minuten zu Behandlungen, Zielen und Ihrer heutigen Patientengewinnung. Darauf bauen Ihre Beiträge, Zielseite und Anzeigen auf.",
       done: discoverySubmitted,
       hint: discoveryRow && !discoverySubmitted
         ? "Entwurf gespeichert. Sie können jederzeit weitermachen."
@@ -125,7 +115,7 @@ export default async function OnboardingPage() {
       key: "checkliste",
       title: "Checkliste zum Start liefern",
       description:
-        "Zugänge, Logo, Fotos, Einwilligungen und ein paar Angaben, alles direkt im Portal. Daraus bauen wir Anzeigen, Zielseiten und Videos.",
+        "Zugänge, Logo, Bildmaterial, Klon-Aufnahme, Einwilligung und ein paar Angaben, alles direkt im Portal. Daraus bauen wir Ihren KI-Klon, Ihre Zielseite und Ihre ersten Beiträge.",
       done: checklistDone,
       hint: checklistDone
         ? "Alle Pflichtpunkte geliefert."
@@ -139,7 +129,7 @@ export default async function OnboardingPage() {
       key: "profile",
       title: "Praxis-Angaben hinterlegen",
       description:
-        "Name, HWG-Verantwortliche, Ansprechperson – damit in Verträgen und HWG-Prüfungen alles stimmt.",
+        "Name, HWG-Verantwortliche, Ansprechperson, damit in Verträgen und HWG-Prüfungen alles stimmt.",
       done: Boolean(clinic?.hwgContactEmail && clinic.defaultDoctorEmail),
       action: { label: "Zu den Einstellungen", href: "/einstellungen" },
       icon: <FileText className="h-5 w-5" />,
@@ -161,7 +151,7 @@ export default async function OnboardingPage() {
       key: "integrations",
       title: "Meta und Google Ads verbinden",
       description:
-        "Einmal OAuth-Zustimmung, danach synchronisieren wir Budget und Anfragen täglich.",
+        "Einmal zustimmen, danach holen wir Werbezahlen und Anfragen täglich ab. Werbebudget brauchen Sie zu Beginn nicht: Wir starten organisch.",
       done: credentials.length >= 1,
       hint: credentials.length === 1
         ? "Eine Plattform verbunden. Zweite fehlt noch."
@@ -178,16 +168,16 @@ export default async function OnboardingPage() {
       key: "goals",
       title: "Monatsziel festlegen",
       description:
-        "Was bedeutet für Sie ein guter Monat? Anfragen oder Umsatz – wir arbeiten in diese Richtung.",
+        "Was bedeutet für Sie ein guter Monat? Anfragen oder Umsatz, wir arbeiten in diese Richtung.",
       done: goalRows.length > 0,
       action: { label: "Zur Übersicht", href: "/dashboard" },
       icon: <CheckCircle2 className="h-5 w-5" />,
     },
     {
       key: "media",
-      title: "Erste Medien bereitstellen",
+      title: "Erste Beiträge ansehen",
       description:
-        "Wir produzieren in den ersten vier Wochen Ihr Kernpaket. Sobald die ersten Videos und Fotos fertig sind, erscheinen sie im Portal.",
+        "Ihre ersten Beiträge entstehen in Woche 1 bis 2. Sobald sie fertig sind, erscheinen sie im Portal. Veröffentlicht wird erst nach Ihrer Freigabe.",
       done: assetRows.length > 0,
       action: { label: "Medien ansehen", href: "/medien" },
       icon: <Camera className="h-5 w-5" />,
@@ -197,7 +187,7 @@ export default async function OnboardingPage() {
       title: "Vertriebsleitfaden lesen",
       description:
         "Wie aus einer Anfrage eine Behandlung wird. Kurz, konkret, auf Ihre Rezeption zugeschnitten.",
-      done: false, // We don't track reads — always visible as recommended.
+      done: false, // We don't track reads: always visible as recommended.
       action: { label: "Zum Leitfaden", href: "/leitfaden" },
       icon: <Phone className="h-5 w-5" />,
     },
@@ -206,6 +196,8 @@ export default async function OnboardingPage() {
   const completed = steps.filter((s) => s.done).length;
   const total = steps.length;
   const pct = Math.round((completed / total) * 100);
+  // Only the first open step with an action gets the primary button.
+  const primaryKey = steps.find((s) => !s.done && s.action)?.key;
 
   return (
     <div className="space-y-8">
@@ -219,83 +211,72 @@ export default async function OnboardingPage() {
         </p>
       </header>
 
-      {/* Access-gate status: until Fragebogen + Start-Basics are in, the data
-          tabs stay locked and the Inhaber is kept here. */}
-      {gateComplete ? (
-        <Card className="border-[var(--tone-good-border)] p-5 md:p-6">
-          <CardContent className="flex items-start gap-3">
-            <CheckCircle2 className="mt-0.5 h-6 w-6 shrink-0 text-tone-good" />
-            <div>
-              <p className="font-semibold text-fg-primary">
-                Ihr Portal ist freigeschaltet.
-              </p>
-              <p className="mt-1 text-sm text-fg-secondary">
-                Sie können jetzt alle Bereiche nutzen. Die übrigen Schritte
-                unten helfen, das Beste aus EINS herauszuholen.
-              </p>
+      {/* One block: setup progress plus, until Fragebogen + Grundlagen zum Start are in
+          and the data tabs unlock, what is still missing. */}
+      <Card className="p-5 md:p-6">
+        <CardContent className="divide-y divide-border">
+          <div className="pb-5">
+            <div className="flex flex-wrap items-baseline justify-between gap-3">
+              <div>
+                <div className="text-sm text-fg-secondary">
+                  Ihr Einrichtungsstand
+                </div>
+                <div className="mt-1 font-display text-2xl font-semibold tabular-nums md:text-3xl">
+                  {completed} / {total} Schritte
+                </div>
+              </div>
+              <Badge tone={pct === 100 ? "good" : "accent"}>{pct} %</Badge>
             </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <Card className="border-accent/40 p-5 md:p-6">
-          <CardContent className="flex items-start gap-3">
-            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-accent/40 text-accent">
-              <Lock className="h-5 w-5" />
-            </span>
-            <div className="min-w-0">
+            <div className="mt-4 h-3 overflow-hidden rounded-full bg-bg-secondary">
+              <div
+                className="h-full rounded-full bg-accent transition-all"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </div>
+          {gateComplete ? (
+            <div className="flex items-start gap-3 pt-5">
+              <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-tone-good" />
+              <div>
+                <p className="font-semibold text-fg-primary">
+                  Ihr Portal ist freigeschaltet.
+                </p>
+                <p className="mt-1 text-sm text-fg-secondary">
+                  Sie können jetzt alle Bereiche nutzen. Die übrigen Schritte
+                  unten helfen, das Beste aus EINS herauszuholen.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="pt-5">
               <p className="font-semibold text-fg-primary">
-                Nur noch wenig bis zur Freischaltung
+                Bis zur Freischaltung fehlt noch
               </p>
               <p className="mt-1 text-sm text-fg-secondary">
-                Sobald Ihr Fragebogen und die wichtigsten Start-Basics vorliegen,
+                Sobald Ihr Fragebogen und die wichtigsten Grundlagen zum Start vorliegen,
                 schalten wir Übersicht, Anfragen und alle weiteren Bereiche frei.
               </p>
-              <ul className="mt-3 space-y-1.5 text-sm">
-                <li
-                  className={
-                    discoverySubmitted ? "text-tone-good" : "text-fg-primary"
-                  }
-                >
-                  {discoverySubmitted ? "Erledigt: " : "Offen: "}
-                  Fragebogen einreichen
-                </li>
-                <li
-                  className={
-                    blockersDelivered >= blockersTotal
-                      ? "text-tone-good"
-                      : "text-fg-primary"
-                  }
-                >
-                  {blockersDelivered >= blockersTotal ? "Erledigt: " : "Offen: "}
-                  {blockersDelivered} von {blockersTotal} Start-Basics in der
-                  Checkliste liefern
-                </li>
+              <ul className="mt-3 space-y-1.5 text-sm text-fg-primary">
+                {[
+                  { done: discoverySubmitted, text: "Fragebogen einreichen" },
+                  {
+                    done: blockersDelivered >= blockersTotal,
+                    text: `${blockersDelivered} von ${blockersTotal} Grundlagen zum Start in der Checkliste liefern`,
+                  },
+                ].map((item) => (
+                  <li key={item.text} className="flex items-center gap-2">
+                    {item.done ? (
+                      <CheckCircle2 className="h-4 w-4 shrink-0 text-tone-good" aria-hidden />
+                    ) : (
+                      <Circle className="h-4 w-4 shrink-0 text-fg-secondary" aria-hidden />
+                    )}
+                    <span className="sr-only">{item.done ? "Erledigt: " : "Offen: "}</span>
+                    {item.text}
+                  </li>
+                ))}
               </ul>
             </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Progress */}
-      <Card className="p-5 md:p-6">
-        <CardContent>
-          <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <div>
-              <div className="text-sm text-fg-secondary">
-                Ihr Einrichtungsstand
-              </div>
-              <div className="mt-1 font-display text-2xl font-semibold tabular-nums md:text-3xl">
-                {completed} / {total} Schritte
-              </div>
-            </div>
-            <Badge tone={pct === 100 ? "good" : "accent"}>{pct} %</Badge>
-          </div>
-          <div className="mt-4 h-3 overflow-hidden rounded-full bg-bg-secondary">
-            <div
-              className="h-full rounded-full bg-accent transition-all"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
+          )}
         </CardContent>
       </Card>
 
@@ -304,7 +285,9 @@ export default async function OnboardingPage() {
         {steps.map((s, i) => (
           <li key={s.key}>
             <Card className="p-5 md:p-6">
-              <CardContent className="flex flex-wrap items-start gap-4">
+              <CardContent
+                className={`flex flex-wrap gap-4 ${s.done ? "items-center" : "items-start"}`}
+              >
                 <div
                   className={`grid h-12 w-12 shrink-0 place-items-center rounded-full border ${
                     s.done
@@ -328,15 +311,21 @@ export default async function OnboardingPage() {
                     </span>
                     {s.done && <Badge tone="good">Erledigt</Badge>}
                   </div>
-                  <p className="mt-1 text-base text-fg-primary">
-                    {s.description}
-                  </p>
+                  {!s.done && (
+                    <p className="mt-1 text-base text-fg-primary">
+                      {s.description}
+                    </p>
+                  )}
                   {s.hint && (
                     <p className="mt-1 text-sm text-fg-secondary">{s.hint}</p>
                   )}
                 </div>
                 {!s.done && s.action && (
-                  <Button asChild className="w-full md:w-auto">
+                  <Button
+                    asChild
+                    variant={s.key === primaryKey ? "default" : "outline"}
+                    className="w-full md:w-auto"
+                  >
                     <Link href={s.action.href}>{s.action.label}</Link>
                   </Button>
                 )}
@@ -349,12 +338,13 @@ export default async function OnboardingPage() {
       {pct === 100 && (
         <Card className="p-5 md:p-6">
           <CardHeader>
-            <CardTitle>Herzlichen Glückwunsch – alles eingerichtet.</CardTitle>
+            <CardTitle>Herzlichen Glückwunsch, alles eingerichtet.</CardTitle>
           </CardHeader>
           <CardContent className="space-y-2 text-base text-fg-primary">
             <p>
               Ihr Portal ist startklar. Ab jetzt sehen Sie in der Übersicht
-              laufend, wie Ihre Werbung läuft und welche Anfragen hereinkommen.
+              laufend, wie Ihre Beiträge und Anzeigen laufen und welche Anfragen
+              hereinkommen.
             </p>
             <p>
               Wir bleiben im Hintergrund dran. Melden Sie sich jederzeit, wenn

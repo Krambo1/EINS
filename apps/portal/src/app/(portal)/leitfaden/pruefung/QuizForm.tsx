@@ -103,7 +103,7 @@ export function QuizForm() {
             >
               <fieldset disabled={submitted !== null}>
                 <legend className="mb-4 text-base font-semibold text-fg-primary">
-                  <span className="mr-2 inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-bg-secondary px-2 text-xs font-medium text-fg-secondary">
+                  <span className="mr-2 inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-bg-secondary px-2 text-sm font-medium text-fg-primary">
                     {idx + 1}
                   </span>
                   {q.prompt}
@@ -178,7 +178,7 @@ export function QuizForm() {
                 Bestanden mit {submitted.score} von {submitted.total} Punkten.
               </p>
               <p className="text-sm">
-                Glückwunsch — Sie haben die Leitfaden-Prüfung abgeschlossen. Der
+                Glückwunsch, Sie haben die Leitfaden-Prüfung abgeschlossen. Der
                 Hinweis-Punkt neben „Leitfaden“ in der Navigation verschwindet
                 beim nächsten Page-Refresh.
               </p>
@@ -191,7 +191,7 @@ export function QuizForm() {
             <AlertCircle className="mt-0.5 h-6 w-6 shrink-0" />
             <div className="space-y-2">
               <p className="text-lg font-semibold">
-                {submitted.score} von {submitted.total} richtig — leider noch
+                {submitted.score} von {submitted.total} richtig, leider noch
                 nicht bestanden.
               </p>
               <p className="text-sm">
@@ -207,10 +207,10 @@ export function QuizForm() {
       </div>
 
       <div className="flex items-center justify-between gap-4">
-        <p className="text-xs text-fg-secondary">
+        <p className="text-sm text-fg-secondary">
           Bestehen: {PASS_THRESHOLD}/{TOTAL_QUESTIONS}. Versuche unbegrenzt.
-          Antworten werden serverseitig ausgewertet und im Audit-Log
-          gespeichert.
+          Antworten werten wir auf unserem Server aus und speichern sie
+          im Protokoll.
         </p>
         {submitted ? (
           <Button type="button" onClick={onRetake} variant="secondary">

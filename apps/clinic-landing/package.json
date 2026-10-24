@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": "20.x"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "next dev -p 3002",
@@ -13,7 +13,9 @@
     "lint:hwg": "tsx scripts/hwg-lint.ts",
     "validate": "tsx scripts/validate-clinics.ts && tsx scripts/hwg-lint.ts",
     "validate:clinics": "tsx scripts/validate-clinics.ts",
-    "typecheck": "tsc --noEmit"
+    "privacy:sheet": "tsx scripts/privacy-sheet.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test lib/post-code.test.ts lib/attribution.test.ts lib/self-reported-source.test.ts lib/legal/practice-privacy.test.ts"
   },
   "dependencies": {
     "@radix-ui/react-accordion": "^1.2.1",

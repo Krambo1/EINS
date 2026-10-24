@@ -24,6 +24,7 @@ import {
 import { formatDateTime } from "@/lib/formatting";
 import { EventsFilters } from "./_components/EventsFilters";
 import { EventsPanel } from "./_components/EventsPanel";
+import { isUuid } from "@/lib/ids";
 
 export const metadata = { title: "PVS-Bridge Event-Trace" };
 
@@ -283,10 +284,4 @@ function defaultFrom(range: string, now: Date): Date {
 function pickOne(v: string | string[] | undefined): string | undefined {
   if (Array.isArray(v)) return v[0];
   return v;
-}
-
-function isUuid(s: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-    s
-  );
 }

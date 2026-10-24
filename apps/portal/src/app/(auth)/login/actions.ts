@@ -1,16 +1,27 @@
 "use server";
 
+import { createHash } from "node:crypto";
 import { redirect } from "next/navigation";
-import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
-import { db, schema } from "@/db/client";
 import { issueMagicLink } from "@/auth/magic-link";
 import { verifyPassword } from "@/auth/password";
 import { createSession } from "@/auth/session";
+import { findActiveClinicUserByEmail } from "@/auth/user-lookup";
+import { safeNextPath } from "@/auth/safe-next";
+import {
+  AUTH_BUCKETS,
+  emailBucketId,
+  ipBucketId,
+} from "@/auth/rate-limit-policy";
 import { getTrustedClientIp } from "@/lib/client-ip";
 import { rateLimit } from "@/server/rate-limit";
+import {
+  releaseRateLimitSlots,
+  reserveRateLimitSlot,
+  type RateLimitSlot,
+} from "@/server/rate-limit-slot";
 import { writeAudit } from "@/server/audit";
-import { defaultLandingPath } from "@/lib/roles";
+import { postLoginPath } from "@/auth/post-login-path";
 import type { Role } from "@/lib/constants";
 
 /**
@@ -43,22 +54,49 @@ export type LoginActionState =
   | { ok: true }
   | undefined;
 
-async function checkLoginRateLimits(email: string): Promise<LoginActionState> {
-  const ip = (await getTrustedClientIp()) ?? "unknown";
-  const perEmail = await rateLimit("login:email", email, {
-    limit: 10,
-    windowSeconds: 60 * 60,
-  });
-  const perIp = await rateLimit("login:ip", ip, {
-    limit: 30,
-    windowSeconds: 60 * 60,
-  });
-  if (!perEmail.ok || !perIp.ok) {
-    return {
-      ok: false,
-      error:
-        "Zu viele Anmelde-Versuche. Bitte warten Sie einen Moment und versuchen Sie es erneut.",
-    };
+const ERR_TOO_MANY_PASSWORD =
+  "Zu viele falsche Anmelde-Versuche. Bitte warten Sie etwas oder melden Sie sich per E-Mail-Link an.";
+const ERR_TOO_MANY_LINKS =
+  "Es wurden gerade schon mehrere Links angefordert. Bitte warten Sie ein paar Minuten und prüfen Sie Ihr Postfach.";
+
+/**
+ * Password buckets count FAILED attempts only (B-5). Each attempt reserves a
+ * slot in both buckets atomically BEFORE the Argon2 verify (V3 Neben 2), so a
+ * parallel burst can never run more than 10 guesses per address or 30 per IP
+ * and window. A correct password gives both slots back, so successful logins
+ * of a whole Praxis team behind one NAT still never fill them. Returns the
+ * held slots, or null when either bucket is full (nothing stays reserved).
+ */
+async function reservePasswordAttempt(
+  email: string,
+  ip: string
+): Promise<Array<RateLimitSlot | null> | null> {
+  const results = await Promise.all([
+    reserveRateLimitSlot(AUTH_BUCKETS.passwordFailByEmail.scope, emailBucketId(email), AUTH_BUCKETS.passwordFailByEmail),
+    reserveRateLimitSlot(AUTH_BUCKETS.passwordFailByIp.scope, ipBucketId(ip), AUTH_BUCKETS.passwordFailByIp),
+  ]);
+  const held = results.map((r) => (r.ok ? r.slot : null));
+  if (results.every((r) => r.ok)) return held;
+  // One bucket refused: hand back the slot the other one gave us, a refused
+  // attempt is not counted (same as the old peek).
+  await releaseRateLimitSlots(held);
+  return null;
+}
+
+/**
+ * Link requests (magic link + reset) have their own buckets, so a password
+ * lockout never blocks the recovery path (B-5).
+ */
+async function checkLinkRateLimits(email: string): Promise<LoginActionState> {
+  const ip = ipBucketId(await getTrustedClientIp());
+  const id = emailBucketId(email);
+  const [burst, hour, perIp] = await Promise.all([
+    rateLimit(AUTH_BUCKETS.linkByEmailBurst.scope, id, AUTH_BUCKETS.linkByEmailBurst),
+    rateLimit(AUTH_BUCKETS.linkByEmailHour.scope, id, AUTH_BUCKETS.linkByEmailHour),
+    rateLimit(AUTH_BUCKETS.linkByIp.scope, ip, AUTH_BUCKETS.linkByIp),
+  ]);
+  if (!burst.ok || !hour.ok || !perIp.ok) {
+    return { ok: false, error: ERR_TOO_MANY_LINKS };
   }
   return undefined;
 }
@@ -91,31 +129,23 @@ export async function passwordLoginAction(
   }
   const email = parsed.data.email.toLowerCase();
   const rememberMe = formData.get("remember") === "on";
+  const next = safeNextPath(formData.get("next"));
+  const ip = ipBucketId(await getTrustedClientIp());
 
-  const rl = await checkLoginRateLimits(email);
-  if (rl) return rl;
+  const slots = await reservePasswordAttempt(email, ip);
+  if (!slots) {
+    return { ok: false, error: ERR_TOO_MANY_PASSWORD };
+  }
 
-  const [user] = await db
-    .select({
-      id: schema.clinicUsers.id,
-      clinicId: schema.clinicUsers.clinicId,
-      passwordHash: schema.clinicUsers.passwordHash,
-      role: schema.clinicUsers.role,
-    })
-    .from(schema.clinicUsers)
-    .where(
-      and(
-        eq(schema.clinicUsers.email, email),
-        isNull(schema.clinicUsers.archivedAt)
-      )
-    )
-    .limit(1);
+  // Active user in an active Praxis, oldest membership first (B-7, G-05).
+  const user = await findActiveClinicUserByEmail(email);
 
   // verifyPassword läuft auch wenn user oder passwordHash fehlen, sonst leakt
   // die Wall-Clock-Zeit die Account-/Passwort-Existenz. Siehe DUMMY_HASH in
   // @/auth/password.
   const ok = await verifyPassword(user?.passwordHash, parsed.data.password);
   if (!user || !ok) {
+    // The reserved slots stay taken: they are the failure count.
     await writeAudit({
       actorEmail: email,
       action: "login",
@@ -133,6 +163,8 @@ export async function passwordLoginAction(
     return { ok: false, error: "E-Mail oder Passwort stimmt nicht." };
   }
 
+  // Correct password: not a failure, give both slots back (B-5 semantics).
+  await releaseRateLimitSlots(slots);
   await createSession(user.id, { rememberMe });
   await writeAudit({
     clinicId: user.clinicId,
@@ -143,7 +175,11 @@ export async function passwordLoginAction(
     diff: { method: "password", ok: true, rememberMe },
   });
 
-  redirect(defaultLandingPath(user.role as Role | null));
+  // One redirect to the final page: a second bounce by the portal layout
+  // (onboarding gate) after an action redirect loops the client router.
+  redirect(
+    await postLoginPath({ clinicId: user.clinicId, role: user.role as Role | null }, next)
+  );
 }
 
 /**
@@ -167,15 +203,22 @@ export async function requestMagicLinkAction(
   }
   const email = parsed.data.email.toLowerCase();
 
-  const rl = await checkLoginRateLimits(email);
+  const rl = await checkLinkRateLimits(email);
   if (rl) return rl;
 
+  // Result deliberately ignored: known and unknown addresses get the same
+  // answer (enumeration defence). Delivery runs after the response.
   await issueMagicLink({ email, intent: "login" });
   await writeAudit({
     actorEmail: email,
     action: "magic_link_request",
     entityKind: "login",
-    diff: { email },
+    // L-14: no typed address in the diff, only domain and a short hash
+    // (same pattern as the Resend webhook).
+    diff: {
+      emailDomain: email.split("@")[1] ?? null,
+      emailRef: createHash("sha256").update(email).digest("hex").slice(0, 12),
+    },
   });
 
   redirect("/login?sent=1");
@@ -201,7 +244,7 @@ export async function requestPasswordResetAction(
   }
   const email = parsed.data.email.toLowerCase();
 
-  const rl = await checkLoginRateLimits(email);
+  const rl = await checkLinkRateLimits(email);
   if (rl) return rl;
 
   await issueMagicLink({ email, intent: "reset_password" });

@@ -15,7 +15,7 @@ export function N8nSecretReveal() {
     if (
       secret !== null &&
       !confirm(
-        "Wirklich rotieren? Das alte Geheimnis wird sofort ungültig — bereits deployte Workflows funktionieren nicht mehr, bis Sie das neue Geheimnis dort eintragen."
+        "Wirklich rotieren? Das alte Geheimnis wird sofort ungültig, bereits deployte Workflows funktionieren nicht mehr, bis Sie das neue Geheimnis dort eintragen."
       )
     ) {
       return;
@@ -46,26 +46,26 @@ export function N8nSecretReveal() {
         ) : (
           <KeyRound className="mr-2 h-4 w-4" />
         )}
-        {secret ? "Neu rotieren" : "Geheimnis generieren"}
+        {secret ? "Neuen Schlüssel erzeugen" : "Schlüssel erzeugen"}
       </Button>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      {error && <p className="text-sm text-tone-bad">{error}</p>}
 
       {secret && (
-        <div className="space-y-3 rounded-md border bg-muted/30 p-3">
+        <div className="space-y-3 rounded-md border bg-bg-secondary p-3">
           <p className="flex items-center gap-2 text-sm font-medium">
             <AlertTriangle className="h-4 w-4 text-amber-600" />
-            Dieses Geheimnis wird nur jetzt angezeigt.
+            Dieser Schlüssel wird nur jetzt angezeigt.
           </p>
           <div className="flex items-center gap-2">
-            <code className="flex-1 overflow-x-auto rounded bg-background p-2 font-mono text-xs">
+            <code className="flex-1 overflow-x-auto rounded bg-bg-primary p-2 font-mono text-sm">
               {secret}
             </code>
-            <Button size="sm" variant="outline" onClick={copy}>
+            <Button size="sm" variant="outline" onClick={copy} aria-label="Schlüssel kopieren">
               {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-sm text-fg-secondary">
             In n8n eintragen als „X-EINS-Signature"-HMAC-Key, Algorithmus
             SHA-256, ausgegeben als <code>sha256=&lt;hex&gt;</code>.
           </p>

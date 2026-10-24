@@ -6,11 +6,8 @@ import {
   formatNumber,
   formatPercent,
 } from "@/lib/formatting";
-import {
-  REQUEST_STATUS_LABELS,
-  SOURCE_LABELS,
-  type RequestSource,
-} from "@/lib/constants";
+import { REQUEST_STATUS_LABELS } from "@/lib/constants";
+import { reportingChannelLabel } from "@/lib/sources";
 import {
   KPI_THRESHOLDS,
   toneForHigherBetter,
@@ -26,6 +23,21 @@ const PERIOD_OPTIONS: { key: string; label: string; days: number }[] = [
   { key: "180d", label: "Halbjahr", days: 180 },
   { key: "365d", label: "Jahr", days: 365 },
 ];
+
+const GOAL_METRIC_LABEL: Record<string, string> = {
+  leads: "Anfragen",
+  total_requests: "Anfragen gesamt",
+  revenue: "Umsatz",
+  cases_won: "Gewonnene Patienten",
+  appointments: "Termine",
+  spend: "Werbebudget",
+};
+
+const PLATFORM_LABEL: Record<string, string> = {
+  meta: "Meta",
+  google: "Google",
+  csv: "CSV-Import",
+};
 
 const PLATFORM_COLOR: Record<string, string> = {
   meta: "#1877F2",
@@ -44,13 +56,12 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
   const spendPoints = daily.map((d) => ({ date: d.date, value: d.spendEur }));
   const revenuePoints = daily.map((d) => ({ date: d.date, value: d.revenueEur }));
   const cplTone = toneForLowerBetter(summary.cpl, KPI_THRESHOLDS.cpl);
-  const cppTone = toneForLowerBetter(summary.cpp, KPI_THRESHOLDS.cpp);
   const roasTone = toneForHigherBetter(summary.roas, KPI_THRESHOLDS.roas);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
+        <span className="text-sm font-medium text-fg-primary">
           Zeitraum
         </span>
         {PERIOD_OPTIONS.map((p) => (
@@ -61,10 +72,10 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
               query: { tab: "leistung", period: p.key },
             }}
             scroll={false}
-            className={`rounded-full border px-3 py-1 text-xs transition-colors ${
+            className={`rounded-full border px-3 py-1 text-sm transition-colors ${
               p.key === periodKey
                 ? "border-accent bg-fg-primary text-bg-primary"
-                : "border-border text-fg-secondary hover:border-accent hover:text-accent"
+                : "border-border text-fg-primary hover:border-accent hover:text-accent"
             }`}
           >
             {p.label}
@@ -74,7 +85,7 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <MetricTile
-          label="Spend"
+          label="Werbebudget"
           value={formatEuro(summary.spendEur)}
           sublabel={`${formatNumber(summary.leads)} Anfragen`}
         />
@@ -85,15 +96,15 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
           tone="accent"
         />
         <MetricTile
-          label="CPL"
+          label="Kosten je Anfrage"
           value={summary.cpl == null ? "–" : formatEuro(summary.cpl)}
           sublabel={`Ziel ≤ ${KPI_THRESHOLDS.cpl.good} €`}
           tone={cplTone}
         />
         <MetricTile
-          label="ROAS"
+          label="Werbeertrag"
           value={summary.roas == null ? "–" : `${summary.roas.toFixed(2)}×`}
-          sublabel={summary.cpp == null ? "" : `CPP ${formatEuro(summary.cpp)}`}
+          sublabel={summary.cpp == null ? "" : `Kosten pro Patient ${formatEuro(summary.cpp)}`}
           tone={roasTone}
         />
       </div>
@@ -101,7 +112,7 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
       <Card>
         <CardContent className="space-y-4 pt-6">
           <h2 className="text-xl font-medium md:text-2xl">
-            Spend &amp; Umsatz
+            Werbebudget und Umsatz
           </h2>
           <div className="rounded-xl border border-border bg-bg-primary p-3">
             <TrendChart
@@ -125,12 +136,12 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
           <CardContent className="space-y-4 pt-6">
             <h2 className="text-xl font-medium md:text-2xl">Quellen</h2>
             {bySource.length === 0 ? (
-              <p className="text-sm text-fg-secondary">
+              <p className="text-sm text-fg-primary">
                 Keine Anfragen in diesem Zeitraum.
               </p>
             ) : (
               <table className="w-full text-sm">
-                <thead className="text-left text-xs font-medium text-fg-secondary">
+                <thead className="text-left text-sm font-medium text-fg-primary">
                   <tr>
                     <th className="py-2">Quelle</th>
                     <th className="py-2 text-right">Anfragen</th>
@@ -141,7 +152,7 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
                   {bySource.map((s) => (
                     <tr key={s.source} className="border-t border-border">
                       <td className="py-2">
-                        {withBrandLogos(SOURCE_LABELS[s.source as RequestSource] ?? s.source)}
+                        {withBrandLogos(reportingChannelLabel(s.source))}
                       </td>
                       <td className="py-2 text-right tabular-nums">
                         {formatNumber(s.leads)}
@@ -162,12 +173,12 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
             <h2 className="text-xl font-medium md:text-2xl">Plattformen</h2>
             <Donut
               slices={byPlatform.map((p) => ({
-                name: p.platform.toUpperCase(),
+                name: PLATFORM_LABEL[p.platform] ?? p.platform,
                 value: p.spendEur,
                 color: PLATFORM_COLOR[p.platform] ?? "#cbd5e1",
               }))}
               centerLabel={formatEuro(summary.spendEur)}
-              centerSubLabel="Spend"
+              centerSubLabel="Werbebudget"
               valueFormat="euro"
               height={200}
             />
@@ -179,7 +190,7 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
                     style={{ background: PLATFORM_COLOR[p.platform] }}
                     aria-hidden
                   />
-                  <span className="flex-1 capitalize">{p.platform}</span>
+                  <span className="flex-1">{PLATFORM_LABEL[p.platform] ?? p.platform}</span>
                   <span className="tabular-nums text-fg-secondary">
                     {formatEuro(p.spendEur)}
                   </span>
@@ -192,7 +203,7 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
 
       <Card>
         <CardContent className="space-y-4 pt-6">
-          <h2 className="text-xl font-medium md:text-2xl">Funnel</h2>
+          <h2 className="text-xl font-medium md:text-2xl">Strecke</h2>
           <FunnelBar
             stages={funnel.map((b) => ({
               label: REQUEST_STATUS_LABELS[b.status] ?? b.status,
@@ -214,12 +225,12 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
         <CardContent className="space-y-4 pt-6">
           <h2 className="text-xl font-medium md:text-2xl">Ziele</h2>
           {goals.length === 0 ? (
-            <p className="text-sm text-fg-secondary">
+            <p className="text-sm text-fg-primary">
               Keine aktiven Ziele für diese Praxis.
             </p>
           ) : (
             <table className="w-full text-sm">
-              <thead className="text-left text-xs font-medium text-fg-secondary">
+              <thead className="text-left text-sm font-medium text-fg-primary">
                 <tr>
                   <th className="py-2">Ziel</th>
                   <th className="py-2 text-right">Aktuell</th>
@@ -235,8 +246,8 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
                     ratio >= 1 ? "good" : ratio >= 0.7 ? "warn" : ratio >= 0.4 ? "neutral" : "bad";
                   return (
                     <tr key={g.metric + g.periodStart} className="border-t border-border">
-                      <td className="py-2 capitalize">
-                        {g.metric.replace(/_/g, " ")}
+                      <td className="py-2">
+                        {GOAL_METRIC_LABEL[g.metric] ?? g.metric}
                       </td>
                       <td className="py-2 text-right tabular-nums">
                         {g.metric === "revenue"

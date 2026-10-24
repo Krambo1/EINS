@@ -7,7 +7,6 @@ import {
   CardTitle,
   CardDescription,
   Badge,
-  Button,
 } from "@eins/ui";
 import { requireSession } from "@/auth/guards";
 import { db, schema } from "@/db/client";
@@ -73,16 +72,16 @@ export default async function LinkingFailuresPage() {
         <div className="mb-2 flex items-center gap-2 text-sm">
           <Link
             href="/einstellungen/integrationen"
-            className="text-muted-foreground hover:underline"
+            className="inline-flex min-h-11 items-center font-medium text-fg-primary hover:underline"
           >
             ← Übersicht
           </Link>
         </div>
         <h1 className="text-2xl font-semibold">Nicht zuordenbare Patienten</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          PVS-Events, deren Patient nicht eindeutig einer EINS-Anfrage zugeordnet
-          werden konnte. Bestätigen Sie die richtige Person oder ignorieren Sie
-          den Eintrag.
+        <p className="mt-1 text-base text-fg-primary">
+          Meldungen aus Ihrer Praxis-Software (PVS), bei denen wir die Person
+          nicht sicher einer Anfrage im Portal zuordnen konnten. Bestätigen Sie
+          die richtige Person oder ignorieren Sie den Eintrag.
         </p>
       </header>
 
@@ -91,8 +90,8 @@ export default async function LinkingFailuresPage() {
           <CardHeader>
             <CardTitle className="text-base">Alles zugeordnet ✓</CardTitle>
             <CardDescription>
-              Keine offenen Linking-Failures. Wenn die PVS Events sendet und EINS
-              den Patienten nicht zuordnen kann, erscheinen sie hier.
+              Nichts offen. Kann EINS eine Person aus Ihrer Praxis-Software
+              nicht sicher zuordnen, erscheint sie hier.
             </CardDescription>
           </CardHeader>
         </Card>
@@ -113,39 +112,43 @@ export default async function LinkingFailuresPage() {
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <CardTitle className="text-base">
-                        PVS-Patient {String(snap.fullName ?? snap.pvsPatientId)}
+                        Aus der Praxis-Software:{" "}
+                        {String(snap.fullName ?? snap.pvsPatientId)}
                       </CardTitle>
                       <CardDescription>
-                        seit {formatDateTime(f.createdAt)} · PVS-ID:{" "}
+                        seit {formatDateTime(f.createdAt)} · Nummer in der
+                        Praxis-Software:{" "}
                         <code>{f.pvsPatientId}</code>
                       </CardDescription>
                     </div>
-                    <Badge tone="neutral">{cands.length} Vorschläge</Badge>
+                    <Badge tone="neutral">
+                      {cands.length === 1 ? "1 Vorschlag" : `${cands.length} Vorschläge`}
+                    </Badge>
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <dl className="mb-3 grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
+                  <dl className="mb-3 grid gap-x-4 gap-y-2 text-sm sm:grid-cols-2">
                     {typeof snap.email === "string" && snap.email && (
                       <div>
-                        <dt className="text-muted-foreground">E-Mail</dt>
+                        <dt className="font-medium text-fg-primary">E-Mail</dt>
                         <dd>{snap.email}</dd>
                       </div>
                     )}
                     {typeof snap.phone === "string" && snap.phone && (
                       <div>
-                        <dt className="text-muted-foreground">Telefon</dt>
+                        <dt className="font-medium text-fg-primary">Telefon</dt>
                         <dd>{snap.phone}</dd>
                       </div>
                     )}
                     {typeof snap.dob === "string" && snap.dob && (
                       <div>
-                        <dt className="text-muted-foreground">Geburtsdatum</dt>
+                        <dt className="font-medium text-fg-primary">Geburtsdatum</dt>
                         <dd>{snap.dob}</dd>
                       </div>
                     )}
                     {typeof snap.bemerkung === "string" && snap.bemerkung && (
                       <div className="sm:col-span-2">
-                        <dt className="text-muted-foreground">Bemerkung</dt>
+                        <dt className="font-medium text-fg-primary">Bemerkung</dt>
                         <dd>{snap.bemerkung}</dd>
                       </div>
                     )}

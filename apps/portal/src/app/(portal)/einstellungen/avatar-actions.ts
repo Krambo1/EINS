@@ -6,6 +6,7 @@ import { requireSession } from "@/auth/guards";
 import { db, schema } from "@/db/client";
 import { writeAudit } from "@/server/audit";
 import { getStorage } from "@/server/storage";
+import { sniffImageType } from "./_image-type";
 
 /**
  * Avatar upload pipeline.
@@ -25,113 +26,129 @@ import { getStorage } from "@/server/storage";
  */
 
 const MAX_BYTES = 2 * 1024 * 1024; // 2 MB — generous for a 512×512 WebP
-const ALLOWED_TYPES = new Set([
-  "image/webp",
-  "image/jpeg",
-  "image/png",
-]);
 
-function extensionFor(mime: string): "webp" | "jpg" | "png" {
-  if (mime === "image/png") return "png";
-  if (mime === "image/jpeg") return "jpg";
-  return "webp";
-}
+/**
+ * Result instead of a thrown Error: a thrown message is replaced by Next's
+ * English production text before it reaches the uploader (F-02 / B-16).
+ */
+export type AvatarActionResult = { ok: true } | { ok: false; error: string };
 
-export async function uploadOwnAvatarAction(formData: FormData) {
+const UPLOAD_FAILED = "Das Bild konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.";
+
+export async function uploadOwnAvatarAction(formData: FormData): Promise<AvatarActionResult> {
   const session = await requireSession();
 
   const file = formData.get("avatar");
   if (!(file instanceof File)) {
-    throw new Error("Keine Datei empfangen.");
-  }
-  if (!ALLOWED_TYPES.has(file.type)) {
-    throw new Error("Nur WebP-, JPEG- oder PNG-Bilder werden akzeptiert.");
+    return { ok: false, error: "Keine Datei empfangen." };
   }
   if (file.size === 0) {
-    throw new Error("Datei ist leer.");
+    return { ok: false, error: "Die Datei ist leer." };
   }
   if (file.size > MAX_BYTES) {
-    throw new Error("Bild ist zu groß (max. 2 MB).");
+    return { ok: false, error: "Das Bild ist zu groß (max. 2 MB)." };
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  const ext = extensionFor(file.type);
-  const newKey = `avatars/${session.userId}.${ext}`;
-
-  // If the user previously uploaded under a different extension (e.g.
-  // switched from PNG to WebP), the old object would otherwise linger.
-  const [existing] = await db
-    .select({ avatarKey: schema.clinicUsers.avatarKey })
-    .from(schema.clinicUsers)
-    .where(eq(schema.clinicUsers.id, session.userId))
-    .limit(1);
-
-  const storage = getStorage();
-  await storage.put(newKey, buffer, { contentType: file.type });
-
-  if (existing?.avatarKey && existing.avatarKey !== newKey) {
-    try {
-      await storage.remove(existing.avatarKey);
-    } catch {
-      // Idempotent — a leftover object is harmless.
-    }
+  // B-16: the stored type comes from the file's bytes, never from the
+  // client-supplied File.type, so a renamed SVG/HTML file cannot be stored
+  // and later served under an image content type.
+  const sniffed = sniffImageType(buffer);
+  if (!sniffed) {
+    return { ok: false, error: "Nur WebP-, JPEG- oder PNG-Bilder werden akzeptiert." };
   }
+  const newKey = `avatars/${session.userId}.${sniffed.ext}`;
 
-  await db
-    .update(schema.clinicUsers)
-    .set({ avatarKey: newKey, avatarUpdatedAt: new Date() })
-    .where(eq(schema.clinicUsers.id, session.userId));
+  try {
+    // If the user previously uploaded under a different extension (e.g.
+    // switched from PNG to WebP), the old object would otherwise linger.
+    const [existing] = await db
+      .select({ avatarKey: schema.clinicUsers.avatarKey })
+      .from(schema.clinicUsers)
+      .where(eq(schema.clinicUsers.id, session.userId))
+      .limit(1);
 
-  await writeAudit({
-    clinicId: session.clinicId,
-    actorId: session.userId,
-    actorEmail: session.email,
-    action: "update",
-    entityKind: "clinic_user",
-    entityId: session.userId,
-    diff: { avatarKey: "<set>" },
-  });
+    const storage = getStorage();
+    await storage.put(newKey, buffer, { contentType: sniffed.mime });
+
+    if (existing?.avatarKey && existing.avatarKey !== newKey) {
+      try {
+        await storage.remove(existing.avatarKey);
+      } catch {
+        // Idempotent — a leftover object is harmless.
+      }
+    }
+
+    await db
+      .update(schema.clinicUsers)
+      .set({ avatarKey: newKey, avatarUpdatedAt: new Date() })
+      .where(eq(schema.clinicUsers.id, session.userId));
+
+    await writeAudit({
+      clinicId: session.clinicId,
+      actorId: session.userId,
+      actorEmail: session.email,
+      action: "update",
+      entityKind: "clinic_user",
+      entityId: session.userId,
+      diff: { avatarKey: "<set>" },
+    });
+  } catch (err) {
+    console.error("[avatar] upload failed", {
+      name: err instanceof Error ? err.name : typeof err,
+    });
+    return { ok: false, error: UPLOAD_FAILED };
+  }
 
   // Avatars surface on virtually every authenticated route — revalidate the
   // top-level page groups so the new picture appears without a hard reload.
   revalidatePath("/einstellungen");
   revalidatePath("/dashboard");
   revalidatePath("/anfragen");
+  return { ok: true };
 }
 
-export async function removeOwnAvatarAction() {
+export async function removeOwnAvatarAction(): Promise<AvatarActionResult> {
   const session = await requireSession();
 
-  const [me] = await db
-    .select({ avatarKey: schema.clinicUsers.avatarKey })
-    .from(schema.clinicUsers)
-    .where(eq(schema.clinicUsers.id, session.userId))
-    .limit(1);
+  try {
+    const [me] = await db
+      .select({ avatarKey: schema.clinicUsers.avatarKey })
+      .from(schema.clinicUsers)
+      .where(eq(schema.clinicUsers.id, session.userId))
+      .limit(1);
 
-  if (me?.avatarKey) {
-    try {
-      await getStorage().remove(me.avatarKey);
-    } catch {
-      // Idempotent: leftover object is harmless.
+    if (me?.avatarKey) {
+      try {
+        await getStorage().remove(me.avatarKey);
+      } catch {
+        // Idempotent: leftover object is harmless.
+      }
     }
+
+    await db
+      .update(schema.clinicUsers)
+      .set({ avatarKey: null, avatarUpdatedAt: null })
+      .where(eq(schema.clinicUsers.id, session.userId));
+
+    await writeAudit({
+      clinicId: session.clinicId,
+      actorId: session.userId,
+      actorEmail: session.email,
+      action: "update",
+      entityKind: "clinic_user",
+      entityId: session.userId,
+      diff: { avatarKey: null },
+    });
+  } catch (err) {
+    console.error("[avatar] remove failed", {
+      name: err instanceof Error ? err.name : typeof err,
+    });
+    return { ok: false, error: "Das Bild konnte nicht entfernt werden. Bitte versuchen Sie es erneut." };
   }
-
-  await db
-    .update(schema.clinicUsers)
-    .set({ avatarKey: null, avatarUpdatedAt: null })
-    .where(eq(schema.clinicUsers.id, session.userId));
-
-  await writeAudit({
-    clinicId: session.clinicId,
-    actorId: session.userId,
-    actorEmail: session.email,
-    action: "update",
-    entityKind: "clinic_user",
-    entityId: session.userId,
-    diff: { avatarKey: null },
-  });
 
   revalidatePath("/einstellungen");
   revalidatePath("/dashboard");
   revalidatePath("/anfragen");
+  return { ok: true };
 }

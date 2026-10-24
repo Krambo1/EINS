@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { MockAgent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import {
   _resetAgentFetchForTests,
+  _setUndiciLoaderForTests,
   agentFetch,
   configureGlobalDispatcher,
   tlsHint,
@@ -19,12 +20,13 @@ describe("agentFetch proxy wiring (H12)", () => {
     }
     setGlobalDispatcher(savedDispatcher);
     _resetAgentFetchForTests();
+    _setUndiciLoaderForTests(null);
     vi.restoreAllMocks();
   });
 
   it("delegates to globalThis.fetch when no proxy is configured", async () => {
     for (const v of PROXY_VARS) delete process.env[v];
-    expect(configureGlobalDispatcher(() => {})).toBe(false);
+    expect(await configureGlobalDispatcher(() => {})).toBe(false);
     const spy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValue(new Response("direct"));
@@ -42,7 +44,7 @@ describe("agentFetch proxy wiring (H12)", () => {
     // fetch, the mock could never intercept and the globalThis spy would fire.
     for (const v of PROXY_VARS) delete process.env[v];
     process.env.HTTPS_PROXY = "http://127.0.0.1:9";
-    expect(configureGlobalDispatcher(() => {})).toBe(true);
+    expect(await configureGlobalDispatcher(() => {})).toBe(true);
 
     const mock = new MockAgent();
     mock.disableNetConnect();
@@ -59,6 +61,21 @@ describe("agentFetch proxy wiring (H12)", () => {
     expect(await res.text()).toBe("via-npm-undici-dispatcher");
     expect(globalSpy).not.toHaveBeenCalled();
     await mock.close();
+  });
+
+  it("pass 2: an undici that cannot load disables only the proxy, not the agent", async () => {
+    // undici 8.x needs Node >= 22.19 and the bundle ships Node 20: a static
+    // import killed every agent mode at startup. Now the import is lazy and a
+    // failure falls back to the direct connection with a loud log line.
+    for (const v of PROXY_VARS) delete process.env[v];
+    process.env.HTTPS_PROXY = "http://127.0.0.1:9";
+    _setUndiciLoaderForTests(() => Promise.reject(new Error("Unexpected token")));
+    const errors: string[] = [];
+    expect(await configureGlobalDispatcher(() => {}, (m) => errors.push(m))).toBe(false);
+    expect(errors.join(" ")).toMatch(/Proxy HTTPS_PROXY.*undici/);
+    const spy = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("direct"));
+    await agentFetch("http://portal.test/ping");
+    expect(spy).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -4,11 +4,16 @@ import { consumeAdminPasswordSetupToken } from "@/auth/admin-password";
 import { issuePasswordSetupCookie } from "@/auth/password-setup-cookie";
 import { writeAudit } from "@/server/audit";
 import { adminOrigin } from "@/lib/env";
+import { isCrossSiteRequest } from "@/auth/request-origin";
 
 /**
- * Admin landing endpoint for ANY admin token in a magic-link URL.
+ * Admin token consumption endpoint.
  *
- *   GET /admin/login/callback?token=<url-safe-token>
+ *   GET  /admin/login/callback?token=…  → 303 to /admin/login/link?token=…
+ *        (read-only page with a button). NEVER consumes: mail scanners
+ *        prefetch links with GET (B-1). Kept for links mailed before the change.
+ *   POST /admin/login/callback (form field `token`, sent by that button)
+ *        → consumes as described below.
  *
  * Two flavors share this endpoint, distinguished by the token's `purpose`
  * column in the `admin_tokens` table:
@@ -31,6 +36,35 @@ export async function GET(request: NextRequest) {
   if (!token) {
     return NextResponse.redirect(new URL("/admin/login?error=missing", adminOrigin()));
   }
+  const target = new URL("/admin/login/link", adminOrigin());
+  target.searchParams.set("token", token);
+  const res = NextResponse.redirect(target, { status: 303 });
+  res.headers.set("Referrer-Policy", "no-referrer");
+  res.headers.set("Cache-Control", "no-store");
+  return res;
+}
+
+export async function POST(request: NextRequest) {
+  // Login-CSRF guard: the button lives on our own /admin/login/link page.
+  if (isCrossSiteRequest(request.headers)) {
+    return NextResponse.redirect(
+      new URL("/admin/login?error=invalid_or_expired", adminOrigin()),
+      { status: 303 }
+    );
+  }
+  let token: string | null = null;
+  try {
+    const form = await request.formData();
+    const raw = form.get("token");
+    token = typeof raw === "string" && raw.length > 0 ? raw : null;
+  } catch {
+    token = null;
+  }
+  if (!token) {
+    return NextResponse.redirect(new URL("/admin/login?error=missing", adminOrigin()), {
+      status: 303,
+    });
+  }
 
   // Password-setup first. Returns null if the token wasn't an adm:pwd: token.
   const setup = await consumeAdminPasswordSetupToken(token);
@@ -46,7 +80,8 @@ export async function GET(request: NextRequest) {
       diff: { intent: "reset_password", stage: "callback" },
     });
     return NextResponse.redirect(
-      new URL("/admin/set-password", adminOrigin())
+      new URL("/admin/set-password", adminOrigin()),
+      { status: 303 }
     );
   }
 
@@ -60,12 +95,14 @@ export async function GET(request: NextRequest) {
     email = await consumeAdminMagicLink(token);
   } catch {
     return NextResponse.redirect(
-      new URL("/admin/login?error=invalid_or_expired", adminOrigin())
+      new URL("/admin/login?error=invalid_or_expired", adminOrigin()),
+      { status: 303 }
     );
   }
   if (!email) {
     return NextResponse.redirect(
-      new URL("/admin/login?error=invalid_or_expired", adminOrigin())
+      new URL("/admin/login?error=invalid_or_expired", adminOrigin()),
+      { status: 303 }
     );
   }
 
@@ -75,5 +112,5 @@ export async function GET(request: NextRequest) {
     entityKind: "admin_login",
   });
 
-  return NextResponse.redirect(new URL("/admin", adminOrigin()));
+  return NextResponse.redirect(new URL("/admin", adminOrigin()), { status: 303 });
 }

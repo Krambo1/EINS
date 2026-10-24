@@ -1,15 +1,27 @@
 import chokidar from "chokidar";
-import type { Stats } from "node:fs";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { readFile as fsReadFile, readdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { parseCsv } from "./csv-parser.js";
 import {
+  AUTO_MAPPING_VERSION,
+  aggregateInvoiceRows,
+  detectMapping,
   mapCsvRow,
-  autoDetectMapping,
   type CsvMapping,
 } from "./csv-mapper.js";
-import { enqueue } from "./outbox.js";
-import { getWatcherCursor, setWatcherCursor } from "./watcher-state.js";
+import type { CanonicalEvent } from "./normalize.js";
+import { enqueueMany } from "./outbox.js";
+import {
+  ledgerSummary,
+  pruneLedger,
+  recordFileDone,
+  recordFileFailed,
+  recordFileIgnored,
+  shouldProcessFile,
+  type FileIdentity,
+  type LedgerSummary,
+} from "./file-ledger.js";
 
 /**
  * Honorar-CSV folder watcher.
@@ -19,8 +31,8 @@ import { getWatcherCursor, setWatcherCursor } from "./watcher-state.js";
  *
  *   1. The Praxis configures medatixx (or any PVS) to write a nightly
  *      Honorar-CSV export to a known folder.
- *   2. The agent picks up new files, parses them, emits InvoicePaid
- *      events to the same outbox the GDT watcher uses.
+ *   2. The agent picks up new files, parses them, emits InvoicePaid /
+ *      InvoiceRefunded events to the same outbox the GDT watcher uses.
  *   3. The portal aggregates per-patient revenue via the existing
  *      pvs-status-derive worker — no portal-side changes needed.
  *
@@ -29,16 +41,31 @@ import { getWatcherCursor, setWatcherCursor } from "./watcher-state.js";
  *   - Auto-detected per-file from the header row using common medatixx /
  *     Albis / DURIA / T2Med column names.
  *
- * If neither produces a usable mapping the file is logged and skipped —
- * we never guess column meanings.
+ * If neither produces a usable mapping the file is recorded as IGNORED with a
+ * reason — we never guess column meanings.
  *
- * P1-5: removed the manual setTimeout debounce (chokidar's
- * awaitWriteFinish already provides stability) and switched to
- * ignoreInitial: true with mtime-cursor catch-up. See watcher.ts for
- * the long-form rationale.
+ * File bookkeeping: the per-file ledger (file-ledger.ts), NOT a per-folder
+ * mtime cursor. A file is (re)processed when it is unseen, when its size /
+ * mtime / mapping fingerprint changed, or when a previous attempt FAILED and
+ * its backoff elapsed. That fixes three silent-loss modes of the old cursor:
+ * a file that failed once (EBUSY, enqueue error) was stranded as soon as a
+ * newer file succeeded; a file skipped for "no mapping" was never re-read
+ * after the mapping was fixed; and files copied in with an old mtime were
+ * invisible.
+ *
+ * Triggers: chokidar (low latency) plus a rescan at start and every
+ * RESCAN_INTERVAL_MS (catches missed events, e.g. on SMB shares). Everything
+ * runs through ONE serialized queue, so a file is never processed twice
+ * concurrently.
+ *
+ * Privacy: logs carry file BASENAMES, counts and column header NAMES only,
+ * never cell values, patient ids or invoice numbers.
  */
 
 const STABILITY_THRESHOLD_MS = 2000;
+const RESCAN_INTERVAL_MS = 5 * 60_000;
+/** Events per outbox transaction (one fsync each). */
+const ENQUEUE_CHUNK = 1_000;
 /**
  * P3-1 / Section 6 of pvs-redteam.md: byte-size + row-count caps so a
  * hostile or accidental CSV bomb can't OOM the Praxis workstation.
@@ -51,313 +78,544 @@ const STABILITY_THRESHOLD_MS = 2000;
 const CSV_MAX_BYTES = 32 * 1024 * 1024;
 const CSV_MAX_ROWS = 1_000_000;
 
-export function watchHonorarFolder(opts: {
+export interface CsvWatcherStatus {
+  folder: string;
+  /** Ledger counts for this folder (null if the ledger is unavailable). */
+  ledger: LedgerSummary | null;
+  /** ISO time the last file was fully processed (events enqueued). */
+  lastProcessedAt: string | null;
+  /** Reason the most recent file was ignored (e.g. no_mapping). */
+  lastIgnoreReason: string | null;
+  /** Column NAMES detected in the last file's header (never cell values). */
+  lastHeaderColumns: string[];
+  /** Count summary of the last processed file (no values). */
+  lastFile: {
+    name: string;
+    rows: number;
+    invoices: number;
+    inserted: number;
+    duplicates: number;
+  } | null;
+  lastRescanAt: string | null;
+  /** Pass 2: rows of the last processed file that could not be read (sent to
+   *  the heartbeat; a partly unreadable export was only logged before). */
+  skippedRows?: number | null;
+  /** Pass 2: reason categories of those rows, e.g. "invalid_amountx3". */
+  lastSkipReason?: string | null;
+}
+
+export interface CsvWatcherHandle {
+  stop: () => void;
+  status: () => CsvWatcherStatus;
+  /** Run one rescan pass now (queued like every other trigger). */
+  rescan: () => Promise<void>;
+  /** Resolves when everything queued so far has been processed. */
+  whenIdle: () => Promise<void>;
+}
+
+export interface WatchHonorarOptions {
   folder: string;
   clinicId: string;
   /** Optional pre-configured mapping. When absent, auto-detect per file. */
   mapping?: CsvMapping;
-}): { stop: () => void } {
-  const watcher = chokidar.watch(opts.folder, {
-    persistent: true,
-    awaitWriteFinish: {
-      stabilityThreshold: STABILITY_THRESHOLD_MS,
-      pollInterval: 200,
-    },
-    ignoreInitial: true,
-  });
+  /** Test seams / tuning. */
+  rescanIntervalMs?: number;
+  readFile?: (path: string) => Promise<Buffer>;
+  enqueueMany?: typeof enqueueMany;
+  /** false = no chokidar (tests drive `rescan()`); default true. */
+  useChokidar?: boolean;
+}
 
-  // M-P9 part 3: serialize live file processing through a single promise chain.
-  // chokidar fires add/change concurrently; running process() concurrently made
-  // the per-file mtime cursor race, so after a crash a slower older file could
-  // be skipped (its newer sibling had already advanced the cursor past it).
-  // Chaining guarantees each file is fully processed, and its cursor advanced,
-  // before the next one starts.
-  let processingChain: Promise<void> = Promise.resolve();
-  function enqueueProcessing(path: string): void {
-    processingChain = processingChain
-      .then(() => process(path))
-      .catch((err) => {
-        // process() has its own try/catch; this is a belt-and-suspenders guard
-        // so one rejected link cannot break the chain for every later file.
-        console.error(
-          `[csv-watcher] queued processing failed for ${basename(path)}:`,
-          err
-        );
-      });
+let activeStatus: (() => CsvWatcherStatus) | null = null;
+
+/** Status of the running Honorar watcher, or null when none is running. */
+export function getCsvWatcherStatus(): CsvWatcherStatus | null {
+  return activeStatus ? activeStatus() : null;
+}
+
+function isUncPath(p: string): boolean {
+  return p.startsWith("\\\\") || p.startsWith("//");
+}
+
+/** Stable fingerprint of the effective mapping configuration. */
+function mappingFingerprint(mapping: CsvMapping | undefined): string {
+  if (!mapping) return `auto-v${AUTO_MAPPING_VERSION}`;
+  const h = createHash("sha256").update(JSON.stringify(mapping)).digest("hex");
+  return `mapping-${h.slice(0, 16)}`;
+}
+
+/** Error text safe for logs/heartbeat: code or class name, never a path. */
+function describeError(err: unknown): string {
+  if (err && typeof err === "object") {
+    const e = err as { code?: unknown; name?: unknown };
+    if (typeof e.code === "string" && e.code) return e.code;
+    if (typeof e.name === "string" && e.name) return e.name;
+  }
+  return "Error";
+}
+
+/** Strip the cell value that some mapper reasons append ("invalid x: <value>"). */
+function reasonCategory(reason: string): string {
+  return reason.split(/[:(]/)[0].trim() || "unknown";
+}
+
+function trimmedMapping(mapping: CsvMapping): CsvMapping {
+  const columns: Record<string, string | undefined> = {};
+  for (const [k, v] of Object.entries(mapping.columns)) {
+    columns[k] = typeof v === "string" ? v.trim() : v;
+  }
+  return { ...mapping, columns } as CsvMapping;
+}
+
+function mappedColumnNames(mapping: CsvMapping): string[] {
+  return Object.values(mapping.columns).filter(
+    (h): h is string => typeof h === "string" && h.length > 0
+  );
+}
+
+export function watchHonorarFolder(opts: WatchHonorarOptions): CsvWatcherHandle {
+  const explicitMapping = opts.mapping ? trimmedMapping(opts.mapping) : undefined;
+  const fingerprint = mappingFingerprint(opts.mapping);
+  const enqueueBatch = opts.enqueueMany ?? enqueueMany;
+  const readFile = opts.readFile ?? ((p: string) => fsReadFile(p));
+  let stopped = false;
+
+  const st: CsvWatcherStatus = {
+    folder: opts.folder,
+    ledger: null,
+    lastProcessedAt: null,
+    lastIgnoreReason: null,
+    lastHeaderColumns: [],
+    lastFile: null,
+    lastRescanAt: null,
+    skippedRows: null,
+    lastSkipReason: null,
+  };
+  function status(): CsvWatcherStatus {
+    let ledger: LedgerSummary | null = null;
+    try {
+      ledger = ledgerSummary(opts.folder);
+    } catch {
+      ledger = null;
+    }
+    return { ...st, ledger, lastHeaderColumns: [...st.lastHeaderColumns] };
   }
 
-  watcher.on("add", (path) => {
-    if (!isCsvFile(path)) return;
-    enqueueProcessing(path);
-  });
-  watcher.on("change", (path) => {
-    if (!isCsvFile(path)) return;
-    enqueueProcessing(path);
-  });
+  // ---- one serialized queue for chokidar events and rescans --------------
+  let chain: Promise<void> = Promise.resolve();
+  const pendingPaths = new Set<string>();
+  let rescanPending = false;
+  function enqueueTask(task: () => Promise<void>, label: string): void {
+    chain = chain.then(task).catch((err) => {
+      // Every task has its own try/catch; this guard only keeps one rejected
+      // link from breaking the chain for every later file.
+      console.error(`[csv-watcher] ${label} failed: ${describeError(err)}`);
+    });
+  }
+  function enqueueFile(path: string): void {
+    if (stopped || pendingPaths.has(path)) return;
+    pendingPaths.add(path);
+    enqueueTask(async () => {
+      pendingPaths.delete(path);
+      if (stopped) return;
+      await processFile(path);
+    }, "file processing");
+  }
+  function enqueueRescan(): Promise<void> {
+    if (stopped) return Promise.resolve();
+    if (!rescanPending) {
+      rescanPending = true;
+      enqueueTask(async () => {
+        rescanPending = false;
+        if (stopped) return;
+        await rescanFolder();
+      }, "rescan");
+    }
+    return chain;
+  }
+
+  /** Header predicate handed to the parser (title lines etc. are skipped). */
+  function isHeaderRow(headers: string[]): boolean {
+    if (explicitMapping) {
+      const set = new Set(headers);
+      return mappedColumnNames(explicitMapping).every((c) => set.has(c));
+    }
+    const d = detectMapping(headers);
+    return d.ok || d.reason === "ambiguous_amount_columns";
+  }
+
+  async function enqueueEvents(
+    events: CanonicalEvent[]
+  ): Promise<{ inserted: number; duplicates: number }> {
+    let inserted = 0;
+    let duplicates = 0;
+    for (let i = 0; i < events.length; i += ENQUEUE_CHUNK) {
+      const chunk = events.slice(i, i + ENQUEUE_CHUNK).map((e) => ({
+        payload: JSON.stringify(e),
+        contentHash: e.pvsExternalEventId,
+      }));
+      // One transaction (one fsync) per chunk, then yield so heartbeat and
+      // flush timers run during a 25k-row backlog.
+      const r = enqueueBatch(chunk);
+      inserted += r.inserted;
+      duplicates += r.duplicates;
+      if (i + ENQUEUE_CHUNK < events.length) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    }
+    return { inserted, duplicates };
+  }
+
+  function ignore(id: FileIdentity, base: string, reason: string): void {
+    st.lastIgnoreReason = reason;
+    console.warn(
+      `[csv-watcher] ${base} produced ZERO events: ${reason}. Ignored until the file or the mapping changes.`
+    );
+    recordFileIgnored(id, reason);
+  }
 
   /**
    * L22: log the file BASENAME only, never the full path. Some PVS write
-   * patient identifiers into the export filename; the containing folder
-   * (a config value) stays loggable elsewhere, but per-file log lines must
-   * not carry the filename verbatim into logs that may be shipped for support.
+   * patient identifiers into the export filename.
    */
-  async function process(path: string): Promise<void> {
+  async function processFile(path: string): Promise<void> {
     const base = basename(path);
-    /**
-     * L4/L5: ONE rule for "this file produced zero events" (empty file, no
-     * usable column mapping, or every row failed to map). The rule:
-     *   1. Never silently lose data: emit a LOUD per-file summary (warn level)
-     *      with counts so an operator can see it in the log.
-     *   2. Never warn forever: advance the mtime cursor past the file so it is
-     *      not re-processed on every restart. Because the cursor keys on mtime,
-     *      a genuinely new content version (rewrite) gets a fresh mtime and is
-     *      re-processed, so this is effectively "warn once per content version".
-     * The torn-write guard (droppedSuspectLastRow) is the ONE exception that
-     * deliberately does NOT advance the cursor; it is handled separately below.
-     */
-    async function advanceCursorPastFile(): Promise<void> {
-      try {
-        const st = (await stat(path).catch(() => null)) ?? preStat;
-        if (st) setWatcherCursor(opts.folder, st.mtimeMs);
-      } catch {
-        // cursor advance failure is non-fatal; next restart re-attempts.
-      }
-    }
-    let preStat: Stats | null = null;
+    let id: FileIdentity | null = null;
     try {
-      // P3-1 byte-size guard: stat first, skip before reading if the
-      // file is past the cap. Same rationale as watcher.ts; defends
-      // the Praxis workstation against allocation explosion.
-      preStat = await stat(path).catch(() => null);
-      if (preStat && preStat.size > CSV_MAX_BYTES) {
-        console.warn(
-          `[csv-watcher] ${base} exceeds CSV_MAX_BYTES (${preStat.size} > ${CSV_MAX_BYTES}); skipped`
-        );
-        try {
-          setWatcherCursor(opts.folder, preStat.mtimeMs);
-        } catch {
-          // cursor advance failure is non-fatal.
-        }
+      const preStat = await stat(path).catch(() => null);
+      if (!preStat || !preStat.isFile()) return;
+      id = {
+        watchPath: opts.folder,
+        fileName: base,
+        size: preStat.size,
+        mtimeMs: preStat.mtimeMs,
+        fingerprint,
+      };
+      if (!shouldProcessFile(id)) return;
+
+      // A rescan can meet a file the exporter is still writing. Leave very
+      // fresh files for chokidar's awaitWriteFinish event / the next rescan
+      // (a future mtime from clock skew must not park the file forever).
+      const ageMs = Date.now() - preStat.mtimeMs;
+      if (ageMs >= 0 && ageMs < STABILITY_THRESHOLD_MS) return;
+
+      // P3-1 byte-size guard: skip before reading if past the cap.
+      if (preStat.size > CSV_MAX_BYTES) {
+        ignore(id, base, `file_too_large: ${preStat.size} > ${CSV_MAX_BYTES} bytes`);
         return;
       }
 
-      const bytes = await readFile(path);
-      // M-P9 parts 1+2: pass the caps INTO the parser. maxBytes gates the
-      // multi-candidate decode before it runs three passes over the buffer;
-      // maxRows stops row-object allocation early instead of building millions
-      // of rows first and checking afterwards.
+      let bytes: Buffer;
+      try {
+        bytes = await readFile(path);
+      } catch (err) {
+        // EBUSY / EPERM while the PVS or a virus scanner holds the file:
+        // retry with backoff instead of stranding it.
+        const msg = `read_failed: ${describeError(err)}`;
+        const next = recordFileFailed(id, msg);
+        console.warn(
+          `[csv-watcher] ${base} ${msg}; retry after ${new Date(next).toISOString()}`
+        );
+        return;
+      }
+
+      // M-P9: caps INTO the parser (bytes gate the multi-candidate decode,
+      // rows stop row-object allocation early). The watcher already waited
+      // for write stability, so an unterminated last line is a real row
+      // (tornWriteGuard off); the pre/post stat check below still catches a
+      // file that grows while we parse.
       const parsed = parseCsv(bytes, {
         maxRows: CSV_MAX_ROWS,
         maxBytes: CSV_MAX_BYTES,
+        isHeader: isHeaderRow,
+        tornWriteGuard: false,
       });
       if (parsed.headers.length === 0) {
-        // L4: zero-byte / empty file produced zero events. Warn once, then
-        // advance the cursor so it never re-warns on restart (was: return
-        // without advancing -> re-warn forever).
-        console.warn(
-          `[csv-watcher] ${base} produced ZERO events: file is empty (no header row). Cursor advanced; will retry only if the file content changes.`
-        );
-        await advanceCursorPastFile();
+        st.lastHeaderColumns = [];
+        ignore(id, base, "empty_file: no header row");
         return;
       }
-      // P3-1 / M-P9 row-count guard: the parser stopped building rows once the
-      // cap was reached (parsed.rowCapExceeded), so a CSV with pathologically
-      // many rows never fully materialises. Skip it loudly.
+      st.lastHeaderColumns = parsed.headers.filter((h) => h !== "");
+      if (!parsed.headerFound) {
+        ignore(
+          id,
+          base,
+          `no_header_found: no usable header in the first 15 lines (columns seen: ${st.lastHeaderColumns.join(", ")})`
+        );
+        return;
+      }
       if (parsed.rowCapExceeded) {
-        console.warn(
-          `[csv-watcher] ${base} exceeds CSV_MAX_ROWS (${CSV_MAX_ROWS}); parsing stopped early and file skipped`
-        );
-        try {
-          if (preStat) setWatcherCursor(opts.folder, preStat.mtimeMs);
-        } catch {
-          // non-fatal.
+        ignore(id, base, `row_cap_exceeded: more than ${CSV_MAX_ROWS} rows`);
+        return;
+      }
+
+      let mapping: CsvMapping;
+      if (explicitMapping) {
+        mapping = explicitMapping;
+      } else {
+        const d = detectMapping(parsed.headers);
+        if (!d.ok) {
+          if (d.reason === "ambiguous_amount_columns") {
+            ignore(id, base, `ambiguous_amount_columns: ${d.columns.join(", ")}`);
+          } else {
+            ignore(
+              id,
+              base,
+              `no_mapping: no usable column mapping (columns: ${st.lastHeaderColumns.join(", ")})`
+            );
+          }
+          return;
         }
-        return;
+        mapping = d.mapping;
       }
 
-      const mapping = opts.mapping ?? autoDetectMapping(parsed.headers);
-      if (!mapping) {
-        // L5: "no usable header mapping" is a zero-events outcome. Apply the
-        // single rule (see advanceCursorPastFile): loud warn with the headers
-        // that failed to map, THEN advance the cursor so we do not re-warn on
-        // every restart (was: return without advancing -> warn forever, while
-        // the "all rows failed" case below advanced -> inconsistent drift).
-        console.warn(
-          `[csv-watcher] ${base} produced ZERO events: no usable column mapping (headers: ${parsed.headers.join(", ")}). Cursor advanced; will retry only if the file content changes.`
-        );
-        await advanceCursorPastFile();
-        return;
-      }
-
-      // M-P3: duplicate headers. A duplicate collides in the per-row record
-      // (last column wins), which silently swaps meaning. If a duplicated
-      // header is one the resolved mapping actually maps (e.g. two "Betrag"
-      // columns → a netto/brutto swap), the file is ambiguous at the data
-      // level: fail it loudly as a config/format error rather than guess which
-      // column is authoritative. Harmless unmapped duplicates only warn.
+      // M-P3: a duplicated header that the mapping actually uses collides in
+      // the per-row record (two "Betrag" columns -> netto/brutto swap): refuse
+      // the file as a format error rather than guess. Unmapped duplicates warn.
       if (parsed.duplicateHeaders.length > 0) {
-        const mappedHeaders = new Set(
-          Object.values(mapping.columns).filter(
-            (h): h is string => typeof h === "string" && h.length > 0
-          )
-        );
-        const ambiguous = parsed.duplicateHeaders.filter((h) =>
-          mappedHeaders.has(h)
-        );
+        const mapped = new Set(mappedColumnNames(mapping));
+        const ambiguous = parsed.duplicateHeaders.filter((h) => mapped.has(h));
         if (ambiguous.length > 0) {
-          console.error(
-            `[csv-watcher] ${base} has duplicate mapped column(s): ${ambiguous.join(", ")}. ` +
-              `Ambiguous meaning (e.g. netto vs brutto Betrag); file skipped as a config/format error. ` +
-              `Fix the PVS export to emit each column once.`
-          );
-          await advanceCursorPastFile();
+          ignore(id, base, `duplicate_mapped_columns: ${ambiguous.join(", ")}`);
           return;
         }
         console.warn(
-          `[csv-watcher] ${base} has duplicate header(s) not used by the mapping: ` +
-            `${parsed.duplicateHeaders.join(", ")}; continuing.`
+          `[csv-watcher] ${base} has duplicate header(s) not used by the mapping: ${parsed.duplicateHeaders.join(", ")}; continuing.`
         );
       }
-
-      // M-P3: ragged rows (cell count != header count). Tolerated as before
-      // (extra cells dropped, missing cells blanked) but surfaced as one
-      // rate-limited per-file warning so a systematic column shift is visible.
       if (parsed.raggedRowCount > 0) {
         console.warn(
-          `[csv-watcher] ${base} has ${parsed.raggedRowCount} ragged row(s) whose column count ` +
-            `did not match the ${parsed.headers.length}-column header; extra cells dropped, missing cells blanked.`
+          `[csv-watcher] ${base} has ${parsed.raggedRowCount} ragged row(s) whose column count did not match the ${parsed.headers.length}-column header; extra cells dropped, missing cells blanked.`
         );
       }
 
-      // Torn-write guard (C1): the parser dropped the last physical row
-      // because the file did not end with a line terminator. Warn loudly;
-      // the cursor is NOT advanced below, so the completed file (or a
-      // legitimately newline-less export, until the export setting is
-      // fixed) is re-processed on the next change event or restart.
-      if (parsed.droppedSuspectLastRow) {
-        console.warn(
-          `[csv-watcher] ${base} does not end with a line terminator; last row skipped as a torn-write guard. ` +
-            `If this export legitimately omits the final newline, configure the PVS export to terminate the last line.`
-        );
-      }
-
-      // Torn-write guard, part 2 (C1): if the file changed while we were
-      // parsing, the exporter is still writing. Enqueue nothing: a partial
-      // parse would win the per-event-id outbox dedup and the corrected
-      // re-parse would be silently discarded.
+      // Torn-write guard, part 2: if the file changed while we were reading
+      // and parsing, the exporter is still writing. Enqueue nothing and do
+      // NOT record the file: the next pass sees the new size/mtime.
       const postStat = await stat(path).catch(() => null);
       if (
-        preStat &&
         postStat &&
         (postStat.size !== preStat.size || postStat.mtimeMs !== preStat.mtimeMs)
       ) {
         console.warn(
-          `[csv-watcher] ${base} changed while being processed; skipping this pass (will re-process on the next change event)`
+          `[csv-watcher] ${base} changed while being processed; leaving it for the next pass`
         );
         return;
       }
 
-      let emitted = 0;
-      let skipped = 0;
-      // H4: one deterministic occurredAt fallback for every row of this file,
-      // from the PRE-read stat mtime (matching the parsed bytes). Re-processing
-      // the same file after watcher-state loss then yields byte-identical
-      // events the portal dedups. Null preStat → undefined → wall-clock path.
-      const fileModifiedAtIso = preStat
-        ? new Date(preStat.mtimeMs).toISOString()
-        : undefined;
-      for (let i = 0; i < parsed.rows.length; i++) {
-        const result = mapCsvRow({
+      // H4: deterministic occurredAt fallback from the PRE-read mtime.
+      const fileModifiedAtIso = new Date(preStat.mtimeMs).toISOString();
+      let events: CanonicalEvent[] = [];
+      let invoices = 0;
+      let allRowsUnusable = false;
+      let skippedRows = 0;
+      let skipReason: string | null = null;
+      const notes: string[] = [];
+
+      if (mapping.stream === "invoices") {
+        const agg = aggregateInvoiceRows({
           clinicId: opts.clinicId,
-          fileHash: parsed.contentHash,
-          rowIndex: i,
-          row: parsed.rows[i],
+          rows: parsed.rows,
           mapping,
-          fileModifiedAtIso,
+          // Pass 2: a later export of an invoice wins in derive even when its
+          // dates are not later (storno re-exported with the original date).
+          sourceRevision: Math.floor(preStat.mtimeMs),
         });
-        if (!result.ok) {
-          skipped++;
-          // Row-level warnings are noisy on big files; only log the first
-          // five and a summary.
-          if (skipped <= 5) {
-            console.warn(
-              `[csv-watcher] ${base} row ${i + 2}: ${result.reason}`
-            );
-          }
-          continue;
-        }
-        for (const event of result.events) {
-          enqueue(JSON.stringify(event), event.pvsExternalEventId);
-          emitted++;
-        }
-      }
-      // P1-5: advance the cursor AFTER successful enqueue so a parse-or-
-      // mapping failure doesn't strand the cursor past an unprocessed file.
-      // C1: when the torn-write guard dropped the last row, leave the cursor
-      // where it is so the file is re-processed once the write completes.
-      if (!parsed.droppedSuspectLastRow) {
-        try {
-          const st = await stat(path);
-          setWatcherCursor(opts.folder, st.mtimeMs);
-        } catch {
-          // stat failed; events are enqueued: let the outbox dedup catch
-          // the re-process on next restart.
-        }
-      }
-      // L5: consistent, loud per-file summary. When a file mapped fine but
-      // produced ZERO events (every row failed to map), warn instead of the
-      // quiet info line: same loudness as the no-mapping / empty cases above,
-      // and the cursor already advanced (see !droppedSuspectLastRow) so it will
-      // not re-warn until the content changes. A file that emitted at least one
-      // event logs at info level as before.
-      const summary = `[csv-watcher] ${base} rows=${parsed.rows.length} emitted=${emitted} skipped=${skipped}`;
-      if (emitted === 0 && parsed.rows.length > 0) {
-        console.warn(
-          `${summary}: produced ZERO events (all rows failed to map). Cursor advanced; will retry only if the file content changes.`
+        events = agg.events;
+        const s = agg.stats;
+        invoices = s.invoices;
+        notes.push(
+          `paidInvoices=${s.paidInvoices} refundInvoices=${s.refundInvoices}`,
+          `skipped(footer=${s.skippedFooter} notPaid=${s.skippedNotPaid} storno=${s.skippedStorno} invalid=${s.invalidRows})`
         );
+        if (s.netZeroInvoices > 0) notes.push(`netZero=${s.netZeroInvoices}`);
+        if (s.conflictingInvoices > 0) {
+          notes.push(`conflictingInvoices=${s.conflictingInvoices} (ignored: same invoice number, different patients)`);
+        }
+        const invalidDetail = Object.entries(s.invalidReasons)
+          .map(([r, n]) => `${reasonCategory(r)}x${n}`)
+          .join(",");
+        if (invalidDetail) notes.push(`invalidReasons=${invalidDetail}`);
+        skippedRows = s.invalidRows;
+        skipReason = invalidDetail || null;
+        allRowsUnusable =
+          s.rows > 0 &&
+          s.invalidRows === s.rows;
+        if (
+          s.conflictingInvoices > 0 ||
+          s.skippedStorno > 0 ||
+          s.invalidRows > 0
+        ) {
+          notes.push("WARN");
+        }
+      } else {
+        let failed = 0;
+        const reasons = new Map<string, number>();
+        for (let i = 0; i < parsed.rows.length; i++) {
+          const result = mapCsvRow({
+            clinicId: opts.clinicId,
+            fileHash: parsed.contentHash,
+            rowIndex: i,
+            row: parsed.rows[i],
+            mapping,
+            fileModifiedAtIso,
+          });
+          if (!result.ok) {
+            failed++;
+            const cat = reasonCategory(result.reason);
+            reasons.set(cat, (reasons.get(cat) ?? 0) + 1);
+            continue;
+          }
+          for (const e of result.events) events.push(e);
+        }
+        allRowsUnusable = parsed.rows.length > 0 && failed === parsed.rows.length;
+        notes.push(`skipped=${failed}`);
+        skippedRows = failed;
+        skipReason = [...reasons].map(([r, n]) => `${r}x${n}`).join(",") || null;
+        if (failed > 0) {
+          notes.push(
+            `reasons=${[...reasons].map(([r, n]) => `${r}x${n}`).join(",")}`,
+            "WARN"
+          );
+        }
+      }
+
+      if (parsed.droppedSuspectLastRow) {
+        notes.push(
+          "last row dropped: file ends inside an unbalanced quote (damaged row)",
+          "WARN"
+        );
+      }
+      if (allRowsUnusable) {
+        ignore(
+          id,
+          base,
+          `all_rows_invalid: none of ${parsed.rows.length} rows could be mapped (${notes.join(" ")})`
+        );
+        return;
+      }
+
+      // One transaction per 1000 events instead of one fsync per row.
+      const { inserted, duplicates } = await enqueueEvents(events);
+      recordFileDone(id);
+      st.lastProcessedAt = new Date().toISOString();
+      st.lastIgnoreReason = null;
+      st.skippedRows = skippedRows;
+      st.lastSkipReason = skipReason;
+      st.lastFile = {
+        name: base,
+        rows: parsed.rows.length,
+        invoices,
+        inserted,
+        duplicates,
+      };
+      const warn = notes.includes("WARN");
+      const summary =
+        `[csv-watcher] ${base} stream=${mapping.stream} rows=${parsed.rows.length}` +
+        (mapping.stream === "invoices" ? ` invoices=${invoices}` : "") +
+        ` events=${events.length} inserted=${inserted} duplicates=${duplicates} ` +
+        notes.filter((n) => n !== "WARN").join(" ");
+      if (warn || (events.length === 0 && parsed.rows.length > 0)) {
+        console.warn(summary);
       } else {
         console.log(summary);
       }
     } catch (err) {
-      console.error(`[csv-watcher] failed for ${base}:`, err);
+      const msg = `process_failed: ${describeError(err)}`;
+      console.error(`[csv-watcher] ${base} ${msg}`);
+      if (id) {
+        try {
+          recordFileFailed(id, msg);
+        } catch {
+          // ledger unavailable: the next rescan retries (file stays unseen).
+        }
+      }
     }
   }
 
-  // P1-5 startup catch-up.
-  void (async () => {
+  /**
+   * List the folder, prune ledger rows of vanished files, then process every
+   * file the ledger says needs it, oldest mtime first, one at a time.
+   */
+  async function rescanFolder(): Promise<void> {
     try {
-      const cursor = getWatcherCursor(opts.folder);
-      const entries = await readdir(opts.folder).catch(() => []);
-      const toProcess: Array<{ path: string; mtimeMs: number }> = [];
+      const entries = await readdir(opts.folder).catch(() => null);
+      st.lastRescanAt = new Date().toISOString();
+      if (entries === null) {
+        console.warn(`[csv-watcher] rescan: folder not readable`);
+        return; // never prune on a failed listing (offline share)
+      }
+      const present = new Set<string>();
+      const files: Array<{ path: string; mtimeMs: number }> = [];
       for (const entry of entries) {
         if (!isCsvFile(entry)) continue;
         const full = join(opts.folder, entry);
-        const st = await stat(full).catch(() => null);
-        if (!st || !st.isFile()) continue;
-        if (st.mtimeMs > cursor) {
-          toProcess.push({ path: full, mtimeMs: st.mtimeMs });
-        }
+        const s = await stat(full).catch(() => null);
+        if (!s || !s.isFile()) continue;
+        present.add(entry);
+        files.push({ path: full, mtimeMs: s.mtimeMs });
       }
-      toProcess.sort((a, b) => a.mtimeMs - b.mtimeMs);
-      console.log(
-        `[csv-watcher] startup catch-up: ${toProcess.length} file(s) newer than cursor=${cursor}`
-      );
-      // M-P9 part 3: feed catch-up files through the same serialization chain
-      // as live events, so a live add/change that arrives mid-catch-up cannot
-      // interleave and advance the cursor out of mtime order.
-      for (const f of toProcess) {
-        enqueueProcessing(f.path);
+      try {
+        pruneLedger(opts.folder, present);
+      } catch (err) {
+        console.error(`[csv-watcher] ledger prune failed: ${describeError(err)}`);
+      }
+      files.sort((a, b) => a.mtimeMs - b.mtimeMs);
+      for (const f of files) {
+        if (stopped) return;
+        await processFile(f.path);
+        await new Promise<void>((resolve) => setImmediate(resolve));
       }
     } catch (err) {
-      console.error(`[csv-watcher] startup catch-up failed:`, err);
+      console.error(`[csv-watcher] rescan failed: ${describeError(err)}`);
     }
-  })();
+  }
 
+  // ---- triggers -----------------------------------------------------------
+  let watcher: ReturnType<typeof chokidar.watch> | null = null;
+  if (opts.useChokidar !== false) {
+    watcher = chokidar.watch(opts.folder, {
+      persistent: true,
+      awaitWriteFinish: {
+        stabilityThreshold: STABILITY_THRESHOLD_MS,
+        pollInterval: 200,
+      },
+      // The startup rescan below is the catch-up path.
+      ignoreInitial: true,
+      // fs.watch on SMB shares misses events: poll UNC folders.
+      ...(isUncPath(opts.folder) ? { usePolling: true, interval: 5000 } : {}),
+    });
+    watcher.on("add", (p) => {
+      if (isCsvFile(p)) enqueueFile(p);
+    });
+    watcher.on("change", (p) => {
+      if (isCsvFile(p)) enqueueFile(p);
+    });
+    watcher.on("error", (err) => {
+      // Keep going: the periodic rescan still covers the folder.
+      console.error(`[csv-watcher] watcher error: ${describeError(err)}`);
+    });
+  }
+
+  const timer = setInterval(
+    () => void enqueueRescan(),
+    opts.rescanIntervalMs ?? RESCAN_INTERVAL_MS
+  );
+  timer.unref?.();
+  void enqueueRescan();
+
+  activeStatus = status;
   console.log(`[csv-watcher] watching ${opts.folder}`);
   return {
     stop() {
-      void watcher.close();
+      stopped = true;
+      clearInterval(timer);
+      if (activeStatus === status) activeStatus = null;
+      if (watcher) void watcher.close();
     },
+    status,
+    rescan: () => enqueueRescan(),
+    whenIdle: () => chain,
   };
 }
 

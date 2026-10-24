@@ -1,23 +1,47 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/auth/session";
+import { safeNextPath } from "@/auth/safe-next";
 import { hasGoogleLogin } from "@/lib/env";
 import { defaultLandingPath } from "@/lib/roles";
+import { Accent, AuthHeader, CheckInbox } from "../_components/auth-ui";
 import { LoginForm } from "./LoginForm";
 
 export const metadata = { title: "Anmelden" };
 
 interface LoginPageProps {
-  searchParams: Promise<{ error?: string; sent?: string; reset?: string }>;
+  searchParams: Promise<{
+    error?: string;
+    sent?: string;
+    reset?: string;
+    next?: string;
+  }>;
 }
 
+// `?error=` codes come from link and token flows only (callback, Google,
+// impersonation, requireSession). Wrong passwords are reported inline by the
+// form action, so none of these may say "Passwort stimmt nicht" (B-9).
 const ERROR_MESSAGES: Record<string, string> = {
-  invalid: "E-Mail oder Passwort stimmt nicht.",
-  consumed: "Der Link wurde bereits verwendet. Bitte melden Sie sich neu an.",
+  invalid:
+    "Der Link ist ungültig oder abgelaufen. Bitte fordern Sie einen neuen an.",
+  consumed:
+    "Der Link wurde bereits verwendet. Jeder Link gilt nur einmal. Bitte melden Sie sich an oder fordern Sie einen neuen an.",
   expired: "Der Link ist abgelaufen. Bitte fordern Sie einen neuen an.",
-  no_user: "Kein Konto zu dieser Adresse gefunden.",
-  missing_token: "Der Link enthielt kein Token.",
+  no_user:
+    "Zu diesem Link gibt es keinen aktiven Zugang. Bitte wenden Sie sich an Ihre Praxis oder an EINS.",
+  missing_token:
+    "Der Link ist unvollständig. Bitte öffnen Sie ihn direkt aus der E-Mail.",
   session_expired:
     "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
+  impersonation_missing_token:
+    "Die Kundenansicht konnte nicht geöffnet werden. Bitte starten Sie sie im Admin-Bereich erneut.",
+  impersonation_invalid:
+    "Die Kundenansicht konnte nicht geöffnet werden. Bitte starten Sie sie im Admin-Bereich erneut.",
+  impersonation_expired:
+    "Der Link für die Kundenansicht ist abgelaufen. Bitte starten Sie die Kundenansicht im Admin-Bereich erneut.",
+  impersonation_consumed:
+    "Der Link für die Kundenansicht wurde schon verwendet. Bitte starten Sie die Kundenansicht im Admin-Bereich erneut.",
+  impersonation_no_user:
+    "Dieser Zugang oder diese Praxis ist nicht mehr aktiv.",
   google_no_account:
     "Zu dieser Google-Adresse gibt es kein Konto. Bitte melden Sie sich mit Ihrer hinterlegten geschäftlichen E-Mail-Adresse an.",
   google_unverified:
@@ -28,42 +52,54 @@ const ERROR_MESSAGES: Record<string, string> = {
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
+  const params = await searchParams;
+  const next = safeNextPath(params.next);
+
   const session = await getSession();
   if (session) {
-    redirect(defaultLandingPath(session.role));
+    redirect(next ?? defaultLandingPath(session.role));
   }
 
-  const params = await searchParams;
-  const error = params.error ? ERROR_MESSAGES[params.error] : undefined;
+  // Own keys only: a crafted `?error=constructor` must not resolve to an
+  // Object.prototype member (that crashed the page with a 500).
+  const error =
+    typeof params.error === "string" && Object.hasOwn(ERROR_MESSAGES, params.error)
+      ? ERROR_MESSAGES[params.error]
+      : undefined;
   const sent = params.sent === "1";
   const reset = params.reset === "1";
 
+  // After a link request. Same screen for known and unknown addresses
+  // (enumeration defence), and the address is deliberately not echoed: it is
+  // not in the URL and must not be put there.
+  if (sent) {
+    return (
+      <CheckInbox>
+        Wenn die Adresse bei uns hinterlegt ist, haben wir Ihnen einen
+        Anmeldelink geschickt. Er gilt 15 Minuten lang und nur einmal.
+      </CheckInbox>
+    );
+  }
+
   return (
-    <div className="w-full rounded-2xl border border-border bg-bg-primary p-8 shadow-[var(--shadow-card-sm)]">
-      <h1 className="text-2xl font-semibold">Willkommen zurück.</h1>
-      <p className="mt-2 text-base text-fg-secondary">
-        Melden Sie sich mit Ihrer geschäftlichen E-Mail-Adresse an.
-      </p>
-      {sent && (
-        <div
-          role="status"
-          className="mt-6 rounded-xl border border-tone-good/40 bg-tone-good/10 p-3 text-sm text-fg-primary"
-        >
-          Wenn die Adresse bei uns hinterlegt ist, haben wir Ihnen einen Link
-          per E-Mail geschickt.
-        </div>
-      )}
-      {reset && (
-        <div
-          role="status"
-          className="mt-6 rounded-xl border border-tone-good/40 bg-tone-good/10 p-3 text-sm text-fg-primary"
-        >
-          Passwort gesetzt. Bitte melden Sie sich jetzt an.
-        </div>
-      )}
-      <div className="mt-8">
-        <LoginForm initialError={error} googleEnabled={hasGoogleLogin()} />
-      </div>
+    <div>
+      <AuthHeader
+        title={
+          <>
+            Willkommen <Accent>zurück.</Accent>
+          </>
+        }
+      >
+        Melden Sie sich in Ihrem EINS Portal an.
+      </AuthHeader>
+      <LoginForm
+        initialError={error}
+        initialNotice={
+          reset ? "Passwort gesetzt. Bitte melden Sie sich jetzt an." : undefined
+        }
+        googleEnabled={hasGoogleLogin()}
+        next={next}
+      />
     </div>
   );
 }

@@ -40,22 +40,21 @@ export default async function LeitfadenPruefungPage() {
         <p className="text-base text-fg-primary md:text-lg">
           {TOTAL_QUESTIONS} Fragen aus dem Vertriebsleitfaden. Zum Bestehen
           benötigen Sie {PASS_THRESHOLD} richtige Antworten. Versuche sind
-          unbegrenzt; nur ein Bestehen wird zur Erfüllung der EINS-Garantie
-          gewertet.
+          unbegrenzt.
         </p>
       </header>
 
       <div className="rounded-2xl border border-border bg-bg-secondary p-4 text-sm text-fg-secondary">
         <strong className="text-fg-primary">Hinweis:</strong> Diese Prüfung ist
-        Teil der vertraglichen Mitwirkungspflicht laut EINS-Garantie
-        („MFA-Schulung — mindestens ein Praxis-Mitarbeiter absolviert das
-        initiale Schulungs-Modul im Portal“). Antworten werden serverseitig
-        ausgewertet, jeder Versuch wird im Audit-Log dokumentiert.
+        eine Schulung für Ihr Praxisteam. Wir empfehlen, dass mindestens eine
+        Person pro Praxis besteht. Eine Bedingung für Ihre Zusammenarbeit mit
+        EINS ist das nicht. Antworten werden serverseitig ausgewertet, jeder
+        Versuch wird im Protokoll festgehalten.
         {alreadyPassed && (
           <>
             {" "}
-            Sie haben die Prüfung bereits bestanden — ein erneuter Versuch ist
-            möglich, ändert aber nichts an Ihrem Pass-Status.
+            Sie haben die Prüfung bereits bestanden. Ein erneuter Versuch ist
+            möglich, ändert aber nichts daran, dass Sie bestanden haben.
           </>
         )}
       </div>

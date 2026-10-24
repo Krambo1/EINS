@@ -3,7 +3,7 @@
  *
  * Source of truth for the tone-thresholds the admin UI uses to colour
  * health/leaderboard signals. Mirrors the EINS "Grundlagen"
- * Notion page for CPL/CPP targets.
+ * Obsidian note (10 EINS/Infrastruktur/) for CPL/CPP targets.
  */
 
 export const KPI_THRESHOLDS = {

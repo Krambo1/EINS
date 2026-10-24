@@ -89,11 +89,11 @@ const EVENT_KIND_LABELS: Record<
   string,
   { label: string; tone: "warn" | "bad" }
 > = {
-  schema_drift: { label: "Schema-Drift erkannt", tone: "warn" },
-  stream_error: { label: "Stream-Fehler", tone: "bad" },
+  schema_drift: { label: "Datenaufbau hat sich geändert", tone: "warn" },
+  stream_error: { label: "Datenstrom gestört", tone: "bad" },
   auth_expired: { label: "Anmeldedaten abgelaufen", tone: "bad" },
   connection_lost: { label: "Verbindung verloren", tone: "bad" },
-  rate_limited: { label: "Rate-Limit erreicht", tone: "warn" },
+  rate_limited: { label: "Zu viele Abfragen, kurze Pause", tone: "warn" },
   config_invalid: { label: "Konfiguration prüfen", tone: "bad" },
 };
 
@@ -169,7 +169,7 @@ const STATUS_LABELS: Record<
 > = {
   unconfigured: { label: "Nicht eingerichtet", tone: "neutral" },
   akkreditierung: { label: "Akkreditierung läuft", tone: "warn" },
-  pending: { label: "Wartet auf erste Sync", tone: "warn" },
+  pending: { label: "Wartet auf erste Daten", tone: "warn" },
   connected: { label: "Verbunden", tone: "good" },
   error: { label: "Fehler", tone: "bad" },
   disconnected: { label: "Getrennt", tone: "neutral" },
@@ -266,10 +266,14 @@ export default async function IntegrationenPage() {
       <header className="flex items-baseline justify-between">
         <div>
           <h1 className="text-2xl font-semibold">PVS-Integration</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Verbindung Ihrer Praxis-Software (Tomedo, medatixx, RED, etc.) mit dem
-            EINS Portal. Sobald aktiv, leitet das Portal Status (Termin, behandelt,
-            gewonnen) und Umsatz aus echten PVS-Daten ab: keine manuellen Einträge mehr.
+          <p className="mt-1 text-base text-fg-primary">
+            Verbindung Ihrer Praxis-Software (Tomedo, medatixx, RED usw.) mit dem
+            EINS Portal. Sobald aktiv, übernimmt das Portal Termin, Behandlung und
+            Umsatz direkt aus Ihrer Praxis-Software: keine manuellen Einträge mehr.
+          </p>
+          <p className="mt-1 text-sm text-fg-secondary">
+            PVS heißt Praxisverwaltungssystem: die Software, in der Ihre Praxis
+            Termine, Patienten und Rechnungen führt.
           </p>
         </div>
       </header>
@@ -284,8 +288,8 @@ export default async function IntegrationenPage() {
             </CardTitle>
             <CardDescription>
               {link?.lastEventAt
-                ? `Letztes Event: ${formatRelative(link.lastEventAt)}`
-                : "Noch keine Events empfangen"}
+                ? `Letzte Meldung aus der Praxis-Software: ${formatRelative(link.lastEventAt)}`
+                : "Noch keine Meldung aus der Praxis-Software erhalten"}
             </CardDescription>
           </div>
           <div className="flex flex-col items-end gap-1">
@@ -296,13 +300,9 @@ export default async function IntegrationenPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid grid-cols-2 gap-4 text-sm">
+          <div className="text-sm">
             <div>
-              <div className="text-muted-foreground">Praxis-ID</div>
-              <code className="text-xs">{session.clinicId}</code>
-            </div>
-            <div>
-              <div className="text-muted-foreground">Zuletzt aktualisiert</div>
+              <div className="font-medium text-fg-primary">Zuletzt aktualisiert</div>
               <div>
                 {link?.updatedAt ? formatDateTime(link.updatedAt) : "k. A."}
               </div>
@@ -319,7 +319,7 @@ export default async function IntegrationenPage() {
               <Button asChild variant="outline">
                 <Link href="/einstellungen/integrationen/setup/csv">
                   <FileSpreadsheet className="mr-2 h-4 w-4" />
-                  CSV nachladen
+                  CSV-Datei nachladen
                 </Link>
               </Button>
             )}
@@ -337,11 +337,11 @@ export default async function IntegrationenPage() {
                 PVS-Verbindung benötigt Aufmerksamkeit
               </CardTitle>
               <CardDescription>
-                Der EINS-Agent meldet {healthRows.length}{" "}
+                Der EINS-Agent (das kleine Programm auf Ihrem Praxisrechner)
+                meldet {healthRows.length}{" "}
                 {healthRows.length === 1 ? "offenen Vorfall" : "offene Vorfälle"}.
-                Solange ein Stream auf Schema-Drift steht, sendet er bewusst
-                keine Events mehr, damit kein leerer Datenstrom in die Auswertung
-                läuft.
+                Solange sich der Datenaufbau geändert hat, sendet er bewusst
+                nichts, damit keine falschen Zahlen in Ihre Auswertung laufen.
               </CardDescription>
             </div>
             <Badge tone="warn">{healthRows.length}</Badge>
@@ -357,24 +357,24 @@ export default async function IntegrationenPage() {
               return (
                 <div
                   key={row.id}
-                  className="rounded-lg border bg-muted/40 p-3 text-sm"
+                  className="rounded-lg border border-border bg-bg-secondary p-3 text-sm"
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge tone={kindInfo.tone}>{kindInfo.label}</Badge>
                     <span className="font-medium">
                       {healthVendorLabel(row.pvsVendor)}
                     </span>
-                    <span className="text-muted-foreground">
+                    <span className="text-fg-secondary">
                       ·{" "}
                       {STREAM_LABELS[row.streamKind] ?? row.streamKind}
                     </span>
-                    <span className="ml-auto text-xs text-muted-foreground">
+                    <span className="ml-auto text-sm text-fg-secondary">
                       {formatRelative(row.detectedAt)}
                     </span>
                   </div>
                   <p className="mt-1 text-sm">{row.message}</p>
                   {detail.length > 0 && (
-                    <ul className="mt-2 list-disc pl-5 text-xs text-muted-foreground">
+                    <ul className="mt-2 list-disc break-words pl-5 text-sm text-fg-secondary">
                       {detail.map((line, i) => (
                         <li key={i}>{line}</li>
                       ))}
@@ -383,11 +383,12 @@ export default async function IntegrationenPage() {
                 </div>
               );
             })}
-            <p className="text-xs text-muted-foreground">
-              Behebung: Praxis-IT prüft die im Onboarding-Doc beschriebenen
-              Schritte (Spaltenname in der vendor YAML angleichen, Anmeldedaten
-              rotieren, Firewall-Regel) und startet den Agent neu. Der nächste
-              erfolgreiche Poll markiert den Vorfall automatisch als behoben.
+            <p className="text-sm text-fg-secondary">
+              Behebung: Ihre Praxis-IT geht die Schritte aus der
+              Einrichtungsanleitung durch (Spaltenname in der Anbieter-Datei
+              angleichen, Zugangsdaten erneuern, Firewall-Regel prüfen) und
+              startet den EINS-Agent neu. Sobald wieder Daten ankommen, gilt der
+              Vorfall automatisch als behoben.
             </p>
           </CardContent>
         </Card>
@@ -404,12 +405,12 @@ export default async function IntegrationenPage() {
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-semibold">{openFailureCount}</div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              PVS-Events, deren Patient nicht eindeutig einer EINS-Anfrage
-              zugeordnet werden konnte.
+            <p className="mt-1 text-sm text-fg-secondary">
+              Meldungen aus der Praxis-Software, bei denen wir die Person nicht
+              sicher einer Anfrage im Portal zuordnen konnten.
             </p>
             <Button asChild variant="outline" size="sm" className="mt-3">
-              <Link href="/einstellungen/integrationen/links">Inbox öffnen</Link>
+              <Link href="/einstellungen/integrationen/links">Liste öffnen</Link>
             </Button>
           </CardContent>
         </Card>
@@ -418,17 +419,18 @@ export default async function IntegrationenPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Wand2 className="h-4 w-4" />
-              Offene Behandlungs-Mappings
+              Offene Behandlungs-Zuordnungen
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-semibold">{unmappedTreatmentCount}</div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              PVS-Behandlungscodes, die noch keiner EINS-Behandlung zugeordnet sind.
+            <p className="mt-1 text-sm text-fg-secondary">
+              Behandlungen aus Ihrer Praxis-Software, die noch keiner
+              Behandlung im Portal zugeordnet sind.
             </p>
             <Button asChild variant="outline" size="sm" className="mt-3">
               <Link href="/einstellungen/integrationen/mapping/treatments">
-                Mapping öffnen
+                Zuordnen
               </Link>
             </Button>
           </CardContent>
@@ -438,17 +440,18 @@ export default async function IntegrationenPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <Database className="h-4 w-4" />
-              Offene Standort-Mappings
+              Offene Standort-Zuordnungen
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-semibold">{unmappedLocationCount}</div>
-            <p className="mt-1 text-xs text-muted-foreground">
-              PVS-Standorte, die noch keinem EINS-Standort zugeordnet sind.
+            <p className="mt-1 text-sm text-fg-secondary">
+              Standorte aus Ihrer Praxis-Software, die noch keinem Standort im
+              Portal zugeordnet sind.
             </p>
             <Button asChild variant="outline" size="sm" className="mt-3">
               <Link href="/einstellungen/integrationen/mapping/locations">
-                Mapping öffnen
+                Zuordnen
               </Link>
             </Button>
           </CardContent>
@@ -461,12 +464,12 @@ export default async function IntegrationenPage() {
           <div>
             <CardTitle className="flex items-center gap-2">
               <Target className="h-5 w-5" />
-              Conversion-Tracking: Meta + Google
+              Abschluss-Meldungen an Meta und Google
             </CardTitle>
             <CardDescription>
-              Sendet bei jeder bezahlten Rechnung den echten EUR-Wert zurück an
-              Meta CAPI und Google Ads OCI. Algorithmus lernt auf
-              Umsatz-Patient:innen statt auf billige Klicks.
+              Meldet Meta und Google, welche Anzeigen zu echten Anfragen
+              geführt haben, nur mit Einwilligung der Person. Meta erfährt nur
+              die Anfrage, Google zusätzlich den Rechnungsbetrag.
             </CardDescription>
           </div>
           <Badge tone={adsConversionReady ? "good" : "neutral"}>
@@ -474,9 +477,9 @@ export default async function IntegrationenPage() {
           </Badge>
         </CardHeader>
         <CardContent>
-          <Button asChild variant="outline">
+          <Button asChild variant="outline" className="h-auto min-h-11 whitespace-normal py-2 text-left">
             <Link href="/einstellungen/integrationen/ads-conversion">
-              Conversion-Einstellungen öffnen
+              Einstellungen für Abschluss-Meldungen öffnen
             </Link>
           </Button>
         </CardContent>

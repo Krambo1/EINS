@@ -29,8 +29,9 @@ import {
 } from "@/server/queries/patient-feedback";
 import { setFeedbackStatusAction } from "../actions";
 import { FeedbackReplyEditor } from "./_reply-editor";
+import { isUuid } from "@/lib/ids";
 
-export const metadata = { title: "Patientenfeedback — Rückmeldung" };
+export const metadata = { title: "Patientenfeedback: Rückmeldung" };
 
 const STATUS_TONE: Record<PatientFeedbackStatus, "warn" | "neutral" | "good"> = {
   neu: "warn",
@@ -44,8 +45,6 @@ const PUBLIC_PLATFORM_LABEL: Record<"google" | "jameda", string> = {
   jameda: "Jameda",
 };
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 export default async function PatientenfeedbackDetailPage({
   params,
 }: {
@@ -54,7 +53,7 @@ export default async function PatientenfeedbackDetailPage({
   const session = await requirePermissionOrRedirect("patient_feedback.view");
   const { id } = await params;
 
-  if (!UUID_RE.test(id)) notFound();
+  if (!isUuid(id)) notFound();
 
   const feedback = await getPatientFeedback(
     session.clinicId,
@@ -135,13 +134,13 @@ export default async function PatientenfeedbackDetailPage({
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <p className="text-fg-primary">
-              Patient:in hat die Bewertungs-Anfrage geöffnet und sich für eine
+              Der Patient hat die Bewertungs-Anfrage geöffnet und sich für eine
               öffentliche Bewertung bei{" "}
               <span className="font-medium">{platformLabel}</span> entschieden.
             </p>
             <p className="text-fg-secondary">
               Es liegt kein vertraulicher Freitext und keine Einwilligung zur
-              Kontaktaufnahme vor &mdash; die eigentliche Bewertung erscheint
+              Kontaktaufnahme vor, die eigentliche Bewertung erscheint
               automatisch bei {platformLabel}, sobald sie veröffentlicht wurde.
             </p>
             {(feedback.contactName || feedback.contactEmail) && (
@@ -151,7 +150,7 @@ export default async function PatientenfeedbackDetailPage({
                   {feedback.contactName ?? "Ohne Namen"}
                 </span>
                 {feedback.contactEmail && (
-                  <span className="ml-1 text-fg-tertiary">
+                  <span className="ml-1 text-fg-secondary">
                     &middot; {feedback.contactEmail}
                   </span>
                 )}
@@ -168,12 +167,12 @@ export default async function PatientenfeedbackDetailPage({
             </CardHeader>
             <CardContent>
               {feedback.freeText ? (
-                <blockquote className="whitespace-pre-wrap border-l-4 border-fg-primary/30 pl-4 text-base leading-relaxed text-fg-primary">
+                <blockquote className="whitespace-pre-wrap border-l-4 border-[color-mix(in_srgb,var(--fg-primary)_30%,transparent)] pl-4 text-base leading-relaxed text-fg-primary">
                   {feedback.freeText}
                 </blockquote>
               ) : (
-                <p className="text-sm italic text-fg-tertiary">
-                  Patient:in hat keinen Freitext hinterlassen — nur die
+                <p className="text-sm italic text-fg-secondary">
+                  Der Patient hat keinen Freitext hinterlassen, nur die
                   Stern-Bewertung.
                 </p>
               )}
@@ -203,14 +202,14 @@ export default async function PatientenfeedbackDetailPage({
                     {feedback.contactEmail}
                   </a>
                 ) : (
-                  <span className="text-fg-tertiary">Nicht angegeben</span>
+                  <span className="text-fg-secondary">Nicht angegeben</span>
                 )}
               </div>
               {feedback.contactBackOk ? (
                 <div className="space-y-3">
                   <p className="inline-flex items-center gap-2 rounded-lg bg-bg-secondary px-3 py-2 text-fg-primary">
                     <PhoneCall className="h-4 w-4" />
-                    Patient:in erlaubt aktiv die Kontaktaufnahme zu dieser
+                    Der Patient erlaubt aktiv die Kontaktaufnahme zu dieser
                     Rückmeldung.
                   </p>
                   {feedback.contactEmail && (
@@ -233,7 +232,7 @@ export default async function PatientenfeedbackDetailPage({
                 </div>
               ) : (
                 <p className="rounded-lg bg-bg-secondary px-3 py-2 text-fg-secondary">
-                  Kein Rückrufwunsch &mdash; bitte ungefragt nicht kontaktieren.
+                  Kein Rückrufwunsch: bitte ungefragt nicht kontaktieren.
                 </p>
               )}
             </CardContent>

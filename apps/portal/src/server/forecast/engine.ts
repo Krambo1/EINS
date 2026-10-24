@@ -31,7 +31,6 @@ import type {
 } from "@/server/queries/forecast";
 
 export const FORECAST_HORIZON_WEEKS = 13;
-export const FORECAST_HORIZON_DAYS = FORECAST_HORIZON_WEEKS * 7;
 export const MIN_SAMPLE_WON = 30;
 const DEFAULT_RESAMPLES = 500;
 

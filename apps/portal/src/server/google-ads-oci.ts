@@ -17,7 +17,15 @@ import { decryptString, encryptString } from "@/lib/crypto";
  * worker reuses the existing OAuth connection: no separate consent flow.
  */
 
-const GOOGLE_ADS_API_VERSION = "v18";
+/**
+ * Google Ads REST API version, shared with worker/processors/sync-google.ts
+ * (E-17). Google sunsets each version roughly a year after release; v18 was
+ * already gone. Override with GOOGLE_ADS_API_VERSION (e.g. "v24") without a
+ * code change when Google announces the next sunset. A 404 from the API is
+ * reported as "version sunset?" by both callers.
+ */
+export const GOOGLE_ADS_API_VERSION =
+  process.env.GOOGLE_ADS_API_VERSION?.trim() || "v23";
 
 export interface UploadClickConversionArgs {
   clinicId: string;
@@ -46,7 +54,7 @@ export interface UploadClickConversionArgs {
   orderId: string;
   /** Optional SHA-256 of lowercased email for enhanced conversions. */
   hashedEmail?: string;
-  /** Optional SHA-256 of digits-only phone for enhanced conversions. */
+  /** Optional SHA-256 of the E.164 phone ("+49...") for enhanced conversions. */
   hashedPhone?: string;
 }
 
@@ -123,6 +131,65 @@ export function formatGoogleConversionDateTime(d: Date): string {
   );
 }
 
+/**
+ * Pass 2: the conversion time Google accepts. A PVS payment date often has no
+ * time (midnight) or predates the click by hours (invoice dated the day of
+ * the Beratung, lead created that afternoon); Google rejects that row with
+ * CONVERSION_PRECEDES_CLICK, permanently. A future-dated payment is rejected
+ * as well. Clamp into [click + 1 min, now].
+ */
+export function clampConversionTime(
+  occurredAt: Date,
+  clickAt: Date | null,
+  now: Date
+): Date {
+  let t = occurredAt.getTime();
+  if (clickAt) t = Math.max(t, clickAt.getTime() + 60_000);
+  t = Math.min(t, now.getTime());
+  return new Date(t);
+}
+
+/** Upload errors a later retry can fix (Google docs: retry after hours). */
+const OCI_RETRYABLE_CODES = [
+  "TOO_RECENT_CONVERSION_ACTION",
+  "CLICK_NOT_FOUND",
+  "TOO_RECENT_EVENT",
+  "INTERNAL_ERROR",
+  "TRANSIENT_ERROR",
+  "RESOURCE_EXHAUSTED",
+  "RESOURCE_TEMPORARILY_EXHAUSTED",
+  "CONCURRENT_MODIFICATION",
+];
+/** The conversion is already in Google: the retry of a lost response. */
+const OCI_ALREADY_SENT_CODES = [
+  "CLICK_CONVERSION_ALREADY_EXISTS",
+  "ORDER_ID_ALREADY_IN_USE",
+  "DUPLICATE_ORDER_ID",
+];
+
+/**
+ * Pass 2: what a failed upload means. Every failure used to be retried 3
+ * times within ~35 s and then marked failed for good, so a minute of Google
+ * trouble or a 429 lost the Purchase, while a duplicate (the conversion is
+ * already there) was reported as a failure.
+ */
+export function classifyOciFailure(
+  result: UploadClickConversionResult
+): "already_sent" | "retry" | "permanent" {
+  const text = JSON.stringify(result.body ?? {});
+  if (OCI_ALREADY_SENT_CODES.some((c) => text.includes(c))) return "already_sent";
+  if (result.status === 0) {
+    // No HTTP response: network, timeout. A missing click id is ours.
+    return text.includes("no_click_id") ? "permanent" : "retry";
+  }
+  if (result.status === 429 || result.status >= 500) return "retry";
+  if (OCI_RETRYABLE_CODES.some((c) => text.includes(c))) return "retry";
+  // 401: the access token was refreshed right before the call, so a retry
+  // with a fresh token is worth it.
+  if (result.status === 401) return "retry";
+  return "permanent";
+}
+
 interface ClickConversionPayload {
   conversionAction: string;
   conversionDateTime: string;
@@ -132,6 +199,7 @@ interface ClickConversionPayload {
   gclid?: string;
   wbraid?: string;
   gbraid?: string;
+  consent: { adUserData: "GRANTED" };
   userIdentifiers?: Array<{
     hashedEmail?: string;
     hashedPhoneNumber?: string;
@@ -150,6 +218,13 @@ export function buildClickConversionPayload(
     conversionValue: Number(args.valueEur.toFixed(2)),
     currencyCode: args.currency ?? "EUR",
     orderId: args.orderId,
+    // Pass 2 (EU user consent policy / DMA): Google needs the consent signal
+    // for EEA users, or the uploaded conversion and its hashed user data may
+    // not be used. The worker only gets here with the person's active ads
+    // consent (googlePurchaseSkipReason), whose text covers passing this to
+    // Google so the Praxis can show its ads more precisely. adPersonalization
+    // is left unset: nothing in the consent text asks for more.
+    consent: { adUserData: "GRANTED" },
   };
   if (args.gclid) payload.gclid = args.gclid;
   else if (args.wbraid) payload.wbraid = args.wbraid;
@@ -208,6 +283,11 @@ export async function uploadClickConversion(
       .partialFailureError;
     if (res.ok && partial && partial.message) {
       return { ok: false, status: res.status, body: json };
+    }
+    if (res.status === 404) {
+      console.error(
+        `[google-ads-oci] 404 from Google Ads API ${GOOGLE_ADS_API_VERSION}: version sunset? Set GOOGLE_ADS_API_VERSION.`
+      );
     }
     return { ok: res.ok, status: res.status, body: json };
   } catch (err) {

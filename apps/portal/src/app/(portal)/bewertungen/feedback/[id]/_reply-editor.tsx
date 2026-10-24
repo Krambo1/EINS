@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useActionState, useRef, useState } from "react";
 import { Button } from "@eins/ui";
-import { setFeedbackNoteAction } from "../actions";
+import { setFeedbackNoteAction, type FeedbackNoteState } from "../actions";
 import {
   REPLY_BUCKET_LABELS,
   REPLY_BUCKET_ORDER,
@@ -30,6 +30,12 @@ export function FeedbackReplyEditor({
   defaultNote: string;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [state, action, pending] = useActionState<FeedbackNoteState, FormData>(
+    setFeedbackNoteAction,
+    undefined
+  );
+  // A failed save keeps the typed text (the form resets to defaultValue).
+  const failed = state && !state.ok ? state : null;
   const [bucket, setBucket] = useState<ReplyBucket>(bucketForRating(rating));
 
   function insertTemplate(text: string) {
@@ -44,7 +50,7 @@ export function FeedbackReplyEditor({
 
   return (
     <form
-      action={setFeedbackNoteAction}
+      action={action}
       className="space-y-3 border-t border-border pt-4"
     >
       <input type="hidden" name="id" value={feedbackId} />
@@ -93,12 +99,17 @@ export function FeedbackReplyEditor({
         name="internalNote"
         rows={6}
         maxLength={5000}
-        defaultValue={defaultNote}
-        placeholder="z. B. Patient:in zurückgerufen am 12.04., Beschwerde berechtigt, Ablauf intern besprochen. Oder eine Antwortvorlage einfügen und anpassen."
+        defaultValue={failed ? failed.note : defaultNote}
+        placeholder="z. B. Patienten zurückgerufen am 12.04., Beschwerde berechtigt, Ablauf intern besprochen. Oder eine Antwortvorlage einfügen und anpassen."
         className="w-full rounded-xl border border-border bg-bg-primary px-3 py-2 text-sm"
       />
+      {failed && (
+        <p className="text-sm text-tone-bad" role="alert">
+          {failed.error}
+        </p>
+      )}
       <div className="flex justify-end">
-        <Button type="submit" size="sm">
+        <Button type="submit" size="sm" disabled={pending}>
           Notiz speichern
         </Button>
       </div>

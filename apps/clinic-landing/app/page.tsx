@@ -28,7 +28,7 @@ export default function Index() {
                 {treatments.map((t) => (
                   <li key={t.slug}>
                     <Link
-                      href={`/${c.slug}/${t.slug}`}
+                      href={`/${c.slug}/${t.urlCode}`}
                       className="card flex h-full items-center justify-between transition-colors hover:border-brand-primary/60"
                     >
                       <span className="font-medium text-brand-fg">{t.h1}</span>

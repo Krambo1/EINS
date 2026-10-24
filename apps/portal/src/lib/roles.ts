@@ -28,7 +28,7 @@ export const PERMISSIONS = {
   "documents.view.all": ["inhaber"], // Verträge, AVV — owner only
   "documents.view.marketing": ["inhaber", "marketing", "frontdesk"],
   "documents.view.all_roles": ["inhaber", "marketing", "frontdesk"],
-  // Leitfaden — viewable + quiz testable by every clinic role (Mitwirkungspflicht)
+  // Leitfaden — viewable + quiz testable by every clinic role (Schulung fürs Praxisteam)
   "leitfaden.view": ["inhaber", "marketing", "frontdesk"],
   "leitfaden.quiz": ["inhaber", "marketing", "frontdesk"],
   // Einstellungen — owner only (team, OAuth tokens, audit log)

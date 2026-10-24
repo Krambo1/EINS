@@ -1,5 +1,15 @@
 import type { PvsLinkRow } from "../../db/client.js";
 import { fetchWithTimeout } from "../../http.js";
+import {
+  MAX_RETRIES,
+  abortableSleep,
+  parseRetryAfter,
+  truncateText as truncate,
+  VendorHttpError,
+  walkPages,
+  type Page,
+  type PageOptions,
+} from "../_shared/paging.js";
 
 /**
  * Consentz REST client wrapper.
@@ -32,12 +42,6 @@ import { fetchWithTimeout } from "../../http.js";
  */
 
 const PAGE_SIZE = 100;
-/** Upper bound on a single 429 back-off, so a bogus Retry-After can't park the
- *  sequential scheduler for hours. */
-const MAX_RETRY_AFTER_MS = 5 * 60_000;
-/** Cap on consecutive 429 retries for one request; on the cap we throw and let
- *  recordFailure back the link off instead of looping forever. */
-const MAX_RETRIES = 5;
 
 interface ConsentzConfig {
   endpoint: string;
@@ -46,7 +50,19 @@ interface ConsentzConfig {
    *  multi-clinic accounts use this to scope reads to one clinic; for
    *  single-clinic accounts the header is ignored server-side. */
   tenantId?: string;
+  /** Aborts every in-flight request and back-off sleep (scheduler deadline). */
+  signal?: AbortSignal;
 }
+
+export type ConsentzStream = "patients" | "appointments" | "encounters" | "payments" | "recalls";
+
+const STREAM_PATHS: Record<ConsentzStream, string> = {
+  patients: "/clients",
+  appointments: "/appointments",
+  encounters: "/treatment-notes",
+  payments: "/payments",
+  recalls: "/recalls",
+};
 
 export interface ConsentzClient_Patient {
   id: string | number;
@@ -96,6 +112,10 @@ export interface ConsentzPayment {
   currency?: string | null;
   paid_at?: string | null;
   status?: string | null;
+  /** On a refund: the payment it belongs to (accepted spellings, see the normalizer). */
+  parent_payment_id?: string | number | null;
+  original_payment_id?: string | number | null;
+  refund_of?: string | number | null;
   updated_at: string;
 }
 
@@ -121,7 +141,7 @@ interface PageEnvelope<T> {
 export class ConsentzClient {
   constructor(private readonly cfg: ConsentzConfig) {}
 
-  static from(link: PvsLinkRow): ConsentzClient {
+  static from(link: PvsLinkRow, opts: { signal?: AbortSignal } = {}): ConsentzClient {
     const cfg = link.connectionConfig as {
       consentzEndpoint?: string;
       consentzApiToken?: string;
@@ -136,6 +156,7 @@ export class ConsentzClient {
       endpoint: cfg.consentzEndpoint.replace(/\/$/, ""),
       apiToken: cfg.consentzApiToken,
       tenantId: cfg.consentzTenantId,
+      signal: opts.signal,
     });
   }
 
@@ -154,25 +175,39 @@ export class ConsentzClient {
     }
   }
 
+  /** Pages of one stream (bounded, abortable, resumable by page number). */
+  pages<T = unknown>(
+    stream: ConsentzStream,
+    modifiedSince: string,
+    opts: PageOptions = {}
+  ): AsyncIterable<Page<T>> {
+    return this.paginate<T>(STREAM_PATHS[stream], modifiedSince, opts);
+  }
+
   streamPatients(modifiedSince: string): AsyncIterable<ConsentzClient_Patient> {
-    return this.paginate<ConsentzClient_Patient>("/clients", modifiedSince);
+    return this.flatten<ConsentzClient_Patient>("patients", modifiedSince);
   }
   streamAppointments(modifiedSince: string): AsyncIterable<ConsentzAppointment> {
-    return this.paginate<ConsentzAppointment>("/appointments", modifiedSince);
+    return this.flatten<ConsentzAppointment>("appointments", modifiedSince);
   }
   streamEncounters(
     modifiedSince: string
   ): AsyncIterable<ConsentzTreatmentNote> {
-    return this.paginate<ConsentzTreatmentNote>(
-      "/treatment-notes",
-      modifiedSince
-    );
+    return this.flatten<ConsentzTreatmentNote>("encounters", modifiedSince);
   }
   streamPayments(modifiedSince: string): AsyncIterable<ConsentzPayment> {
-    return this.paginate<ConsentzPayment>("/payments", modifiedSince);
+    return this.flatten<ConsentzPayment>("payments", modifiedSince);
   }
   streamRecalls(modifiedSince: string): AsyncIterable<ConsentzRecall> {
-    return this.paginate<ConsentzRecall>("/recalls", modifiedSince);
+    return this.flatten<ConsentzRecall>("recalls", modifiedSince);
+  }
+
+  private async *flatten<T>(stream: ConsentzStream, modifiedSince: string): AsyncIterable<T> {
+    for await (const page of this.pages<T>(stream, modifiedSince, {
+      maxPages: Number.POSITIVE_INFINITY,
+    })) {
+      for (const row of page.rows) yield row;
+    }
   }
 
   // ---- internals ----
@@ -181,7 +216,10 @@ export class ConsentzClient {
     const url = `${this.cfg.endpoint}${pathAndQuery}`;
     let retries = 0;
     for (;;) {
-      const res = await fetchWithTimeout(url, { headers: this.authHeaders() });
+      const res = await fetchWithTimeout(url, {
+        headers: this.authHeaders(),
+        signal: this.cfg.signal,
+      });
       if (res.status !== 429) return res;
       if (retries >= MAX_RETRIES) {
         throw new Error(
@@ -190,52 +228,53 @@ export class ConsentzClient {
       }
       retries += 1;
       const retryAfter = parseRetryAfter(res.headers.get("retry-after"));
-      await sleep(retryAfter);
+      await abortableSleep(retryAfter, this.cfg.signal);
     }
   }
 
-  private async *paginate<T>(
+  private paginate<T>(
     path: string,
-    modifiedSince: string
-  ): AsyncIterable<T> {
-    let page = 1;
-    for (;;) {
-      const q =
-        `${path}?updated_since=${encodeURIComponent(modifiedSince)}` +
-        `&per_page=${PAGE_SIZE}&page=${page}`;
-      const res = await this.get(q);
-      if (!res.ok) {
-        throw new Error(
-          `consentz GET ${path} page=${page} ${res.status}: ${await safeText(res)}`
-        );
-      }
-      const body = (await res.json()) as PageEnvelope<T>;
-      // A 200 whose body carries neither a `data` nor an `items` array is an
-      // error envelope (changed shape, auth notice), NOT a healthy empty page.
-      // Treating it as `[]` would silently mark the stream permanently drained,
-      // the likeliest onboarding silent-death mode. Fail loudly instead.
-      const items = Array.isArray(body.data)
-        ? body.data
-        : Array.isArray(body.items)
-          ? body.items
-          : null;
-      if (items === null) {
-        throw new Error(
-          `consentz GET ${path} page=${page} ${res.status}: response envelope missing 'data'/'items' array: ${truncate(
-            JSON.stringify(body)
-          )}`
-        );
-      }
-      for (const item of items) yield item;
-      // H17: stop on an EMPTY page, not on a short one. A server that clamps
-      // per_page returns a "short" page that is not the end; the old
-      // `< PAGE_SIZE` check dropped everything after it. Page-number paging
-      // stays consistent under a clamp, so page until an empty page. The
-      // result set can mutate between requests; poll overlap plus portal-side
-      // dedup absorb that window.
-      if (items.length === 0) return;
-      page += 1;
-    }
+    modifiedSince: string,
+    opts: PageOptions = {}
+  ): AsyncIterable<Page<T>> {
+    return walkPages<T>({
+      label: `consentz GET ${path}`,
+      startAt: opts.startAt ?? 1,
+      maxPages: opts.maxPages ?? Number.POSITIVE_INFINITY,
+      signal: opts.signal ?? this.cfg.signal,
+      // H17: page until an EMPTY page (a clamped per_page returns a "short" page
+      // that is not the end). The result set can mutate between requests; poll
+      // overlap plus portal-side dedup absorb that window.
+      advance: (at) => at + 1,
+      fetchPage: async (page) => {
+        const q =
+          `${path}?updated_since=${encodeURIComponent(modifiedSince)}` +
+          `&per_page=${PAGE_SIZE}&page=${page}`;
+        const res = await this.get(q);
+        if (!res.ok) {
+          throw new VendorHttpError(
+            `consentz GET ${path} page=${page} ${res.status}: ${await safeText(res)}`,
+            res.status
+          );
+        }
+        const body = (await res.json()) as PageEnvelope<T>;
+        // A 200 whose body carries neither a `data` nor an `items` array is an
+        // error envelope (changed shape, auth notice), NOT a healthy empty page.
+        const items = Array.isArray(body.data)
+          ? body.data
+          : Array.isArray(body.items)
+            ? body.items
+            : null;
+        if (items === null) {
+          throw new Error(
+            `consentz GET ${path} page=${page} ${res.status}: response envelope missing 'data'/'items' array: ${truncate(
+              JSON.stringify(body)
+            )}`
+          );
+        }
+        return items;
+      },
+    });
   }
 
   private authHeaders(): Record<string, string> {
@@ -246,29 +285,6 @@ export class ConsentzClient {
     if (this.cfg.tenantId) h["x-tenant-id"] = this.cfg.tenantId;
     return h;
   }
-}
-
-function parseRetryAfter(raw: string | null): number {
-  if (!raw) return 5_000;
-  const asInt = Number.parseInt(raw, 10);
-  if (Number.isFinite(asInt) && asInt > 0) {
-    return Math.min(asInt * 1000, MAX_RETRY_AFTER_MS);
-  }
-  const asDate = Date.parse(raw);
-  if (Number.isFinite(asDate)) {
-    const delta = asDate - Date.now();
-    return delta > 0 ? Math.min(delta, MAX_RETRY_AFTER_MS) : 5_000;
-  }
-  return 5_000;
-}
-
-/** Cap a string for safe inclusion in an error/log line. */
-function truncate(s: string, max = 200): string {
-  return s.length > max ? `${s.slice(0, max)}...` : s;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
 }
 
 async function safeText(res: Response): Promise<string> {

@@ -46,6 +46,7 @@ export async function processSyncReviewsGoogle(
   const url = `${ENDPOINT}/${encodeURIComponent(clinic.placeId)}`;
   const res = await fetch(url, {
     method: "GET",
+    signal: AbortSignal.timeout(10_000),
     headers: {
       "X-Goog-Api-Key": env.GOOGLE_PLACES_API_KEY!,
       "X-Goog-FieldMask": FIELD_MASK,

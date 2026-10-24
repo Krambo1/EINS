@@ -50,6 +50,8 @@ export const QUEUES = {
    * heartbeating while delivering no events at all.
    */
   pvsAgentHealthScan: "pvs-agent-health-scan",
+  /** PVS Bridge: 15-min sweep that re-applies events stuck unapplied. */
+  pvsApplySweep: "pvs-apply-sweep",
   /**
    * Nightly per-praxis 90-day cashflow forecast snapshot. Bootstrap Monte
    * Carlo over historical close rates + time-to-close + DSO; writes one row
@@ -74,6 +76,16 @@ export const QUEUES = {
    * widget on the praxis dashboard reads from there.
    */
   anomalyScan: "anomaly-scan",
+  /**
+   * Wiederbehandlungs-Kalender: per-clinic rebuild of treatment intervals +
+   * retreatment_cycles from pvs_event_log. Daily fan-out, plus on demand when
+   * the Praxis changes a calendar setting.
+   */
+  retreatmentRefresh: "retreatment-refresh",
+  /** Wiederbehandlungs-Kalender: daily scan that emails due reminders. */
+  retreatmentReminderTick: "retreatment-reminder-tick",
+  /** Beiträge: hourly, late approval batches become a Verzug in the Garantie-Uhr. */
+  contentApprovalVerzug: "content-approval-verzug",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -88,6 +100,66 @@ export const DEFAULT_RETRY = {
   retryDelay: 5,
   retryBackoff: true,
 } as const;
+
+/**
+ * PVS queues: a lost job here means a silently stale revenue/status picture,
+ * so they retry for ~1 h of backoff (8 tries from 30 s: 30 s, 1 min, 2 min ...
+ * 64 min) instead of giving up after a minute, and land in a dead-letter queue
+ * once exhausted. The hourly agent-health scan emails ops when that queue is
+ * non-empty.
+ */
+export const PVS_RETRY = {
+  retryLimit: 8,
+  retryDelay: 30,
+  retryBackoff: true,
+} as const;
+
+/**
+ * Pass 2: ads conversion uploads (Meta CAPI, Google OCI). DEFAULT_RETRY gave
+ * up after ~35 s (5 s, 10 s, 20 s), so a minute of platform trouble or a 429
+ * marked the Purchase failed for good. 8 retries from 60 s back off to about
+ * 4 h in total. The processors' attempt cap is ADS_MAX_ATTEMPTS.
+ */
+export const ADS_RETRY = {
+  retryLimit: 8,
+  retryDelay: 60,
+  retryBackoff: true,
+} as const;
+
+/** Attempt cap stored on the outbox row: the first try plus every retry. */
+export const ADS_MAX_ATTEMPTS = ADS_RETRY.retryLimit + 1;
+
+const ADS_RETRY_QUEUES: ReadonlySet<string> = new Set([
+  QUEUES.capiPurchase,
+  QUEUES.ociPurchase,
+]);
+
+/** Terminal queue for PVS jobs that exhausted PVS_RETRY. Nobody works it. */
+export const PVS_DEAD_LETTER_QUEUE = "pvs-dead-letter";
+
+/** Dead-lettered jobs are kept this long so an operator can inspect them. */
+export const PVS_DEAD_LETTER_RETENTION_MINUTES = 30 * 24 * 60;
+
+export const PVS_RETRY_QUEUES: ReadonlySet<string> = new Set([
+  QUEUES.pvsStatusDerive,
+  QUEUES.pvsLinkBackfill,
+  QUEUES.pvsLeadTokenWrite,
+  QUEUES.pvsAgentHealthScan,
+  QUEUES.pvsReconcile,
+  QUEUES.pvsPartitionRotate,
+  QUEUES.pvsApplySweep,
+]);
+
+/** Retry options for a queue: PVS queues get the longer policy. */
+export function retryOptionsFor(queue: string): {
+  retryLimit: number;
+  retryDelay: number;
+  retryBackoff: boolean;
+} {
+  if (PVS_RETRY_QUEUES.has(queue)) return { ...PVS_RETRY };
+  if (ADS_RETRY_QUEUES.has(queue)) return { ...ADS_RETRY };
+  return { ...DEFAULT_RETRY };
+}
 
 /**
  * Queues that previously relied on a custom `jobId` to coalesce

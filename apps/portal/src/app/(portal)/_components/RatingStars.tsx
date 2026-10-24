@@ -24,7 +24,7 @@ export function RatingStars({
       className={`relative inline-flex shrink-0 leading-none ${className ?? ""}`}
       style={{ width: innerWidth, height: size }}
     >
-      <span className="flex text-fg-tertiary/50">
+      <span className="flex text-[color-mix(in_srgb,var(--fg-tertiary)_50%,transparent)]">
         {[0, 1, 2, 3, 4].map((i) => (
           <Star key={i} size={size} aria-hidden />
         ))}

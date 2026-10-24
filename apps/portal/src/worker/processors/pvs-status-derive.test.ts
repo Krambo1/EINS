@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
+  aggregateRequestBuckets,
+  appointmentIsRecentEnough,
+  assignBucketsToRequests,
   clampActivityTimestamp,
   clampKpiRebuildRange,
+  conversionsToSend,
   deriveStatusForBucket,
   foldEvents,
+  isRefundExplained,
   revenueSwingExceedsThreshold,
+  type RequestCandidate,
 } from "./pvs-status-derive";
 
 /** Build a fold input event. foldEvents reads payload.kind + the kind-specific
@@ -142,13 +148,18 @@ describe("foldEvents · #9 appt-less invoice attribution (play it safe)", () => 
     expect(b.byAppt.get("A1")?.invoiceCents).toBe(30000);
   });
 
-  it("never guesses: a truly appt-less, no-encounter invoice stays in patient total only", () => {
+  it("never guesses an APPOINTMENT: a truly appt-less, no-encounter invoice gets its own synthetic bucket", () => {
+    // Pass 2: it used to stay in the patient total only, so Honorar-CSV
+    // revenue (no appointment ids) never reached a lead. It is now attributed
+    // by date like any bucket (assignBucketsToRequests), but never invents an
+    // appointment link.
     const events = [
       ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", amountCents: 40000, paidAt: "2026-05-21T10:00:00.000Z" }, "2026-05-21T10:00:00.000Z", "e1"),
     ];
     const b = foldEvents(events);
-    expect(b.invoiceTotalsCents).toBe(40000); // visible at the patient aggregate
-    expect(b.byAppt.size).toBe(0); // but never attached to a request/campaign
+    expect(b.invoiceTotalsCents).toBe(40000);
+    expect(b.byAppt.size).toBe(1);
+    expect([...b.byAppt.values()][0]!.synthetic).toBe(true);
   });
 
   it("does not bridge when the encounter itself has no appointment", () => {
@@ -158,7 +169,8 @@ describe("foldEvents · #9 appt-less invoice attribution (play it safe)", () => 
     ];
     const b = foldEvents(events);
     expect(b.invoiceTotalsCents).toBe(25000);
-    expect(b.byAppt.size).toBe(0);
+    // No real appointment bucket: only the invoice's synthetic one.
+    expect([...b.byAppt.values()].every((x) => x.synthetic)).toBe(true);
   });
 });
 
@@ -322,5 +334,359 @@ describe("foldEvents · M-D6 dual-path revenue detection (defense in depth)", ()
     ];
     const b = foldEvents(events);
     expect(b.revenueSources.size).toBe(0);
+  });
+});
+
+describe("foldEvents · orphan refunds (B2)", () => {
+  it("a refund without a folded InvoicePaid never reduces revenue of OTHER invoices", () => {
+    const events = [
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "NEW1", pvsAppointmentId: "A1", amountCents: 50000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e1"),
+      // Refund of a pre-cutover invoice: no InvoicePaid for it in the log.
+      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "OLD", pvsAppointmentId: "A1", refundedAmountCents: 30000, refundedAt: "2026-05-26T10:00:00.000Z" }, "2026-05-26T10:00:00.000Z", "e2"),
+    ];
+    const b = foldEvents(events);
+    expect(b.invoiceTotalsCents).toBe(50000);
+    expect(b.byAppt.get("A1")?.invoiceCents).toBe(50000);
+  });
+
+  it("a refund from a different bridgeSource than the payment is an orphan", () => {
+    const events = [
+      ev({ kind: "InvoicePaid", bridgeSource: "gdt_agent", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 50000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e1"),
+      ev({ kind: "InvoiceRefunded", bridgeSource: "medatixx", pvsInvoiceId: "I1", refundedAmountCents: 50000, refundedAt: "2026-05-26T10:00:00.000Z" }, "2026-05-26T10:00:00.000Z", "e2"),
+    ];
+    expect(foldEvents(events).invoiceTotalsCents).toBe(50000);
+  });
+});
+
+describe("foldEvents · latest-wins tie-break (B3)", () => {
+  it("equal occurredAt: the higher event log id wins, whatever the row order", () => {
+    const at = "2026-05-20T10:00:00.000Z";
+    const stale = ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 10000, paidAt: at }, at, "aaa");
+    const fixed = ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 12000, paidAt: at }, at, "bbb");
+    expect(foldEvents([stale, fixed]).invoiceTotalsCents).toBe(12000);
+    expect(foldEvents([fixed, stale]).invoiceTotalsCents).toBe(12000);
+  });
+
+  it("equal occurredAt: the LATER insert (ingestedAt) wins over a higher random id", () => {
+    const at = "2026-05-20T10:00:00.000Z";
+    // The corrected re-export was ingested later but happens to get a
+    // lexically SMALLER uuid: ingestedAt must decide, not the id.
+    const stale = {
+      ...ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 10000, paidAt: at }, at, "fff"),
+      ingestedAt: new Date("2026-05-20T10:05:00.000Z"),
+    };
+    const fixed = {
+      ...ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 12000, paidAt: at }, at, "000"),
+      ingestedAt: new Date("2026-06-02T08:00:00.000Z"),
+    };
+    expect(foldEvents([stale, fixed]).invoiceTotalsCents).toBe(12000);
+    expect(foldEvents([fixed, stale]).invoiceTotalsCents).toBe(12000);
+  });
+});
+
+describe("appointmentIsRecentEnough (B4)", () => {
+  const bucket = (scheduledAt: string | null) =>
+    ({
+      scheduledAt: scheduledAt ? new Date(scheduledAt) : null,
+      completedAt: null,
+      earliestInvoiceAt: null,
+      noShowAt: null,
+    }) as unknown as Parameters<typeof appointmentIsRecentEnough>[0];
+  const created = new Date("2026-05-10T12:00:00.000Z");
+
+  it("rejects a 2019 appointment for a brand-new lead", () => {
+    expect(appointmentIsRecentEnough(bucket("2019-03-01T09:00:00.000Z"), created)).toBe(false);
+  });
+  it("accepts an appointment after the lead was created and within 1 day before", () => {
+    expect(appointmentIsRecentEnough(bucket("2026-05-20T09:00:00.000Z"), created)).toBe(true);
+    expect(appointmentIsRecentEnough(bucket("2026-05-09T13:00:00.000Z"), created)).toBe(true);
+    expect(appointmentIsRecentEnough(bucket("2026-05-09T11:00:00.000Z"), created)).toBe(false);
+  });
+  it("an undated bucket cannot be shown to be recent", () => {
+    expect(appointmentIsRecentEnough(bucket(null), created)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------
+// Pass 2 (2026-10-07): attribution + refunds + status corrections
+// ---------------------------------------------------------------
+
+const req = (id: string, createdAt: string | null, extra: Partial<RequestCandidate> = {}): RequestCandidate => ({
+  id,
+  createdAt: createdAt ? new Date(createdAt) : null,
+  pvsAppointmentId: null,
+  status: "neu",
+  ...extra,
+});
+
+describe("pass 2 · several appointments of one lead all count", () => {
+  it("a consultation and a later treatment appointment both land on the lead (revenue sums)", () => {
+    const events = [
+      ev({ kind: "AppointmentCreated", pvsAppointmentId: "A1", scheduledAt: "2026-05-20T09:00:00.000Z" }, "2026-05-19T09:00:00.000Z", "e1"),
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 100000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e2"),
+      ev({ kind: "AppointmentCreated", pvsAppointmentId: "A2", scheduledAt: "2026-06-10T09:00:00.000Z" }, "2026-06-01T09:00:00.000Z", "e3"),
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I2", pvsAppointmentId: "A2", amountCents: 200000, paidAt: "2026-06-10T10:00:00.000Z" }, "2026-06-10T10:00:00.000Z", "e4"),
+    ];
+    const b = foldEvents(events);
+    // The lead already carries A1 from an earlier derive run: before pass 2
+    // A2 found no request (A1's request was excluded) and its 2000 EUR vanished.
+    const assigned = assignBucketsToRequests(
+      [...b.byAppt.values()],
+      [req("R1", "2026-05-15T12:00:00.000Z", { pvsAppointmentId: "A1" })]
+    );
+    expect(assigned.get("R1")?.map((x) => x.pvsAppointmentId).sort()).toEqual(["A1", "A2"]);
+    const agg = aggregateRequestBuckets(assigned.get("R1")!);
+    expect(agg.invoiceCents).toBe(300000);
+    expect(agg.status).toBe("gewonnen");
+    expect(agg.wonAt?.toISOString()).toBe("2026-05-20T10:00:00.000Z");
+  });
+
+  it("each appointment goes to the lead that existed at its date", () => {
+    const events = [
+      ev({ kind: "AppointmentCreated", pvsAppointmentId: "A1", scheduledAt: "2026-02-10T09:00:00.000Z" }, "2026-02-01T09:00:00.000Z", "e1"),
+      ev({ kind: "AppointmentCreated", pvsAppointmentId: "A2", scheduledAt: "2026-07-10T09:00:00.000Z" }, "2026-07-01T09:00:00.000Z", "e2"),
+    ];
+    const b = foldEvents(events);
+    const assigned = assignBucketsToRequests([...b.byAppt.values()], [
+      req("OLD", "2026-02-01T12:00:00.000Z"),
+      req("NEW", "2026-07-05T12:00:00.000Z"),
+    ]);
+    expect(assigned.get("OLD")?.map((x) => x.pvsAppointmentId)).toEqual(["A1"]);
+    expect(assigned.get("NEW")?.map((x) => x.pvsAppointmentId)).toEqual(["A2"]);
+  });
+
+  it("an appointment already linked to a request stays on it, even a different patient's", () => {
+    const b = foldEvents([
+      ev({ kind: "AppointmentCreated", pvsAppointmentId: "A1", scheduledAt: "2026-05-20T09:00:00.000Z" }, "2026-05-19T09:00:00.000Z", "e1"),
+    ]);
+    const assigned = assignBucketsToRequests(
+      [...b.byAppt.values()],
+      [req("MINE", "2026-05-18T12:00:00.000Z")],
+      [req("LINKED", "2026-01-01T12:00:00.000Z", { pvsAppointmentId: "A1" })]
+    );
+    expect(assigned.get("LINKED")?.length).toBe(1);
+    expect(assigned.has("MINE")).toBe(false);
+  });
+
+  it("spam requests never receive PVS revenue", () => {
+    const b = foldEvents([
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", amountCents: 50000, paidAt: "2026-05-21T10:00:00.000Z" }, "2026-05-21T10:00:00.000Z", "e1"),
+    ]);
+    const assigned = assignBucketsToRequests([...b.byAppt.values()], [
+      req("SPAM", "2026-05-20T12:00:00.000Z", { status: "spam" }),
+    ]);
+    expect(assigned.size).toBe(0);
+  });
+
+  it("status is the furthest stage across the lead's appointments", () => {
+    const b = foldEvents([
+      ev({ kind: "AppointmentCreated", pvsAppointmentId: "A1", scheduledAt: "2026-05-20T09:00:00.000Z" }, "2026-05-19T09:00:00.000Z", "e1"),
+      ev({ kind: "AppointmentStatusChanged", pvsAppointmentId: "A1", newStatus: "no_show" }, "2026-05-20T09:30:00.000Z", "e2"),
+      ev({ kind: "AppointmentCreated", pvsAppointmentId: "A2", scheduledAt: "2026-05-27T09:00:00.000Z" }, "2026-05-21T09:00:00.000Z", "e3"),
+    ]);
+    expect(aggregateRequestBuckets([...b.byAppt.values()]).status).toBe("termin_vereinbart");
+  });
+});
+
+describe("pass 2 · invoices without an appointment reach the lead", () => {
+  it("an invoice with no appointment and no encounter becomes its own bucket on the recent lead", () => {
+    const b = foldEvents([
+      ev({ kind: "InvoicePaid", bridgeSource: "gdt_agent", pvsInvoiceId: "I1", amountCents: 40000, paidAt: "2026-05-21T10:00:00.000Z" }, "2026-05-21T10:00:00.000Z", "e1"),
+    ]);
+    expect(b.invoiceTotalsCents).toBe(40000);
+    const buckets = [...b.byAppt.values()];
+    expect(buckets).toHaveLength(1);
+    expect(buckets[0]!.synthetic).toBe(true);
+    const assigned = assignBucketsToRequests(buckets, [req("R1", "2026-05-10T12:00:00.000Z")]);
+    const agg = aggregateRequestBuckets(assigned.get("R1")!);
+    expect(agg.status).toBe("gewonnen");
+    expect(agg.invoiceCents).toBe(40000);
+    // A synthetic bucket never becomes the request's PVS appointment.
+    expect(agg.primary).toBeNull();
+  });
+
+  it("never attaches a payment made before the lead existed", () => {
+    const b = foldEvents([
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", amountCents: 40000, paidAt: "2025-11-02T10:00:00.000Z" }, "2025-11-02T10:00:00.000Z", "e1"),
+    ]);
+    const assigned = assignBucketsToRequests([...b.byAppt.values()], [req("R1", "2026-05-10T12:00:00.000Z")]);
+    expect(assigned.size).toBe(0);
+  });
+});
+
+describe("pass 2 · refunds", () => {
+  const paid = ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 100000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "p1");
+
+  it("two distinct partial refunds (own pvsRefundId) of one invoice are summed", () => {
+    const b = foldEvents([
+      paid,
+      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "I1", pvsRefundId: "GS1", refundedAmountCents: 20000, refundedAt: "2026-05-25T10:00:00.000Z" }, "2026-05-25T10:00:00.000Z", "r1"),
+      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "I1", pvsRefundId: "GS2", refundedAmountCents: 30000, refundedAt: "2026-05-28T10:00:00.000Z" }, "2026-05-28T10:00:00.000Z", "r2"),
+    ]);
+    expect(b.invoiceTotalsCents).toBe(50000);
+    expect(b.byAppt.get("A1")?.invoiceCents).toBe(50000);
+    expect(b.byAppt.get("A1")?.refundedCents).toBe(50000);
+  });
+
+  it("verifier: a CSV credit (no refund id) older than the latest net invoice is not subtracted again", () => {
+    // Oct export +1000 (rev 1); Nov export holds only the -300 credit (rev 2);
+    // an Oct+Nov export nets the invoice to 700 (rev 3). The 700 already
+    // contains the credit: subtracting it again gave 400.
+    const b = foldEvents([
+      ev({ kind: "InvoicePaid", bridgeSource: "gdt_agent", pvsInvoiceId: "X", amountCents: 100000, paidAt: "2026-10-05T10:00:00.000Z", sourceRevision: 1 }, "2026-10-05T10:00:00.000Z", "p1"),
+      ev({ kind: "InvoiceRefunded", bridgeSource: "gdt_agent", pvsInvoiceId: "X", refundedAmountCents: 30000, refundedAt: "2026-11-03T10:00:00.000Z", sourceRevision: 2 }, "2026-11-03T10:00:00.000Z", "r1"),
+      ev({ kind: "InvoicePaid", bridgeSource: "gdt_agent", pvsInvoiceId: "X", amountCents: 70000, paidAt: "2026-11-03T10:00:00.000Z", sourceRevision: 3 }, "2026-11-03T10:00:00.000Z", "p2"),
+    ]);
+    expect(b.invoiceTotalsCents).toBe(70000);
+  });
+
+  it("verifier: a CSV credit newer than the latest invoice version still nets it", () => {
+    const b = foldEvents([
+      ev({ kind: "InvoicePaid", bridgeSource: "gdt_agent", pvsInvoiceId: "X", amountCents: 100000, paidAt: "2026-10-05T10:00:00.000Z", sourceRevision: 1 }, "2026-10-05T10:00:00.000Z", "p1"),
+      ev({ kind: "InvoiceRefunded", bridgeSource: "gdt_agent", pvsInvoiceId: "X", refundedAmountCents: 30000, refundedAt: "2026-11-03T10:00:00.000Z", sourceRevision: 2 }, "2026-11-03T10:00:00.000Z", "r1"),
+    ]);
+    expect(b.invoiceTotalsCents).toBe(70000);
+  });
+
+  it("a credit note with its own refund id is always netted, even before a later invoice version", () => {
+    const b = foldEvents([
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "X", amountCents: 100000, paidAt: "2026-10-05T10:00:00.000Z" }, "2026-10-05T10:00:00.000Z", "p1"),
+      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "X", pvsRefundId: "GS1", refundedAmountCents: 30000, refundedAt: "2026-11-03T10:00:00.000Z" }, "2026-11-03T10:00:00.000Z", "r1"),
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "X", amountCents: 100000, paidAt: "2026-11-05T10:00:00.000Z" }, "2026-11-05T10:00:00.000Z", "p2"),
+    ]);
+    expect(b.invoiceTotalsCents).toBe(70000);
+  });
+
+  it("a corrected version of the same refund id replaces, not adds", () => {
+    const b = foldEvents([
+      paid,
+      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "I1", pvsRefundId: "GS1", refundedAmountCents: 20000, refundedAt: "2026-05-25T10:00:00.000Z" }, "2026-05-25T10:00:00.000Z", "r1"),
+      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "I1", pvsRefundId: "GS1", refundedAmountCents: 25000, refundedAt: "2026-05-26T10:00:00.000Z" }, "2026-05-26T10:00:00.000Z", "r2"),
+    ]);
+    expect(b.invoiceTotalsCents).toBe(75000);
+  });
+
+  it("refunds of one invoice never eat another invoice's revenue (clamped per invoice)", () => {
+    const b = foldEvents([
+      paid,
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I2", pvsAppointmentId: "A1", amountCents: 30000, paidAt: "2026-05-21T10:00:00.000Z" }, "2026-05-21T10:00:00.000Z", "p2"),
+      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "I1", pvsRefundId: "GS1", refundedAmountCents: 80000, refundedAt: "2026-05-25T10:00:00.000Z" }, "2026-05-25T10:00:00.000Z", "r1"),
+      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "I1", pvsRefundId: "GS2", refundedAmountCents: 80000, refundedAt: "2026-05-26T10:00:00.000Z" }, "2026-05-26T10:00:00.000Z", "r2"),
+    ]);
+    expect(b.invoiceTotalsCents).toBe(30000);
+    expect(b.byAppt.get("A1")?.invoiceCents).toBe(30000);
+  });
+
+  it("a refund of an appointment-less invoice nets that invoice's own bucket", () => {
+    const b = foldEvents([
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", amountCents: 40000, paidAt: "2026-05-21T10:00:00.000Z" }, "2026-05-21T10:00:00.000Z", "p1"),
+      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "I1", refundedAmountCents: 40000, refundedAt: "2026-05-25T10:00:00.000Z" }, "2026-05-25T10:00:00.000Z", "r1"),
+    ]);
+    const agg = aggregateRequestBuckets([...b.byAppt.values()]);
+    expect(agg.invoiceCents).toBe(0);
+    expect(agg.refundedCents).toBe(40000);
+  });
+
+  it("a full refund is refund-explained (the downgrade is applied, revenue written as 0)", () => {
+    const b = foldEvents([
+      ev({ kind: "AppointmentCreated", pvsAppointmentId: "A1", scheduledAt: "2026-05-20T09:00:00.000Z" }, "2026-05-19T09:00:00.000Z", "e0"),
+      ev({ kind: "EncounterCompleted", pvsEncounterId: "E1", pvsAppointmentId: "A1", completedAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "e1"),
+      paid,
+      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "I1", refundedAmountCents: 100000, refundedAt: "2026-05-25T10:00:00.000Z" }, "2026-05-25T10:00:00.000Z", "r1"),
+    ]);
+    const agg = aggregateRequestBuckets([...b.byAppt.values()]);
+    expect(agg.status).toBe("behandelt");
+    expect(isRefundExplained(agg)).toBe(true);
+  });
+
+  it("a storno re-emitted as amount 0 (CSV invoice book) is refund-explained", () => {
+    // CSV exports carry no refund document: a cancelled invoice just shows
+    // 0 € on the next export, and the agent re-emits the invoice with 0.
+    const b = foldEvents([
+      ev({ kind: "AppointmentCreated", pvsAppointmentId: "A1", scheduledAt: "2026-05-20T09:00:00.000Z" }, "2026-05-19T09:00:00.000Z", "e0"),
+      paid,
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 0, paidAt: "2026-05-20T10:00:00.000Z", sourceRevision: 2 }, "2026-05-20T10:00:00.000Z", "p2"),
+    ]);
+    expect(b.invoiceTotalsCents).toBe(0);
+    const agg = aggregateRequestBuckets([...b.byAppt.values()]);
+    expect(agg.invoiceCents).toBe(0);
+    expect(agg.refundedCents).toBe(100000);
+    expect(isRefundExplained(agg)).toBe(true);
+    expect(conversionsToSend([...b.byAppt.values()])).toEqual([]);
+  });
+
+  it("a lowered amount keeps the lower revenue and records the drop", () => {
+    const b = foldEvents([
+      paid,
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 60000, paidAt: "2026-05-20T10:00:00.000Z", sourceRevision: 2 }, "2026-05-20T10:00:00.000Z", "p2"),
+    ]);
+    expect(b.byAppt.get("A1")?.invoiceCents).toBe(60000);
+    expect(b.byAppt.get("A1")?.refundedCents).toBe(40000);
+    expect(isRefundExplained(aggregateRequestBuckets([...b.byAppt.values()]))).toBe(false);
+  });
+
+  it("a payment that was never there is NOT refund-explained", () => {
+    const b = foldEvents([
+      ev({ kind: "AppointmentCreated", pvsAppointmentId: "A1", scheduledAt: "2026-05-20T09:00:00.000Z" }, "2026-05-19T09:00:00.000Z", "e0"),
+    ]);
+    expect(isRefundExplained(aggregateRequestBuckets([...b.byAppt.values()]))).toBe(false);
+  });
+});
+
+describe("pass 2 · appointment status corrections", () => {
+  it("a no-show corrected to checked_in is no longer a no-show", () => {
+    const b = foldEvents([
+      ev({ kind: "AppointmentCreated", pvsAppointmentId: "A1", scheduledAt: "2026-05-20T09:00:00.000Z" }, "2026-05-19T09:00:00.000Z", "e0"),
+      ev({ kind: "AppointmentStatusChanged", pvsAppointmentId: "A1", newStatus: "no_show" }, "2026-05-20T09:20:00.000Z", "e1"),
+      ev({ kind: "AppointmentStatusChanged", pvsAppointmentId: "A1", newStatus: "checked_in" }, "2026-05-20T09:25:00.000Z", "e2"),
+    ]);
+    const bucket = b.byAppt.get("A1")!;
+    expect(deriveStatusForBucket(bucket)).toBe("beratung_erschienen");
+    expect(bucket.noShowAt).toBeNull();
+  });
+
+  it("status 'completed' without an EncounterCompleted is behandelt", () => {
+    const b = foldEvents([
+      ev({ kind: "AppointmentCreated", pvsAppointmentId: "A1", scheduledAt: "2026-05-20T09:00:00.000Z" }, "2026-05-19T09:00:00.000Z", "e0"),
+      ev({ kind: "AppointmentStatusChanged", pvsAppointmentId: "A1", newStatus: "completed" }, "2026-05-20T11:00:00.000Z", "e1"),
+    ]);
+    expect(deriveStatusForBucket(b.byAppt.get("A1")!)).toBe("behandelt");
+  });
+});
+
+describe("pass 2 · ads conversions", () => {
+  it("a zero-amount invoice and a fully refunded invoice are never sent as a purchase", () => {
+    const b = foldEvents([
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I0", pvsAppointmentId: "A1", amountCents: 0, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "p0"),
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 50000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:01.000Z", "p1"),
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I2", pvsAppointmentId: "A1", amountCents: 30000, paidAt: "2026-05-21T10:00:00.000Z" }, "2026-05-21T10:00:00.000Z", "p2"),
+      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "I2", refundedAmountCents: 30000, refundedAt: "2026-05-22T10:00:00.000Z" }, "2026-05-22T10:00:00.000Z", "r2"),
+      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "I1", refundedAmountCents: 10000, refundedAt: "2026-05-22T10:00:00.000Z" }, "2026-05-22T11:00:00.000Z", "r1"),
+    ]);
+    const sends = conversionsToSend([...b.byAppt.values()]);
+    expect(sends.map((s) => [s.eventLogId, s.valueCents])).toEqual([["p1", 40000]]);
+  });
+});
+
+describe("pass 2 · attribution is stable when a later lead appears", () => {
+  it("a lead that existed before the payment keeps it over one created in the 1-day slack", () => {
+    const b = foldEvents([
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", amountCents: 40000, paidAt: "2026-05-21T10:00:00.000Z" }, "2026-05-21T10:00:00.000Z", "e1"),
+    ]);
+    const assigned = assignBucketsToRequests([...b.byAppt.values()], [
+      req("EARLY", "2026-05-01T12:00:00.000Z"),
+      req("EVENING", "2026-05-21T20:00:00.000Z"),
+    ]);
+    expect([...assigned.keys()]).toEqual(["EARLY"]);
+  });
+
+  it("the slack still applies when no earlier lead exists", () => {
+    const b = foldEvents([
+      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", amountCents: 40000, paidAt: "2026-05-21T10:00:00.000Z" }, "2026-05-21T10:00:00.000Z", "e1"),
+    ]);
+    const assigned = assignBucketsToRequests([...b.byAppt.values()], [
+      req("EVENING", "2026-05-21T20:00:00.000Z"),
+    ]);
+    expect([...assigned.keys()]).toEqual(["EVENING"]);
   });
 });

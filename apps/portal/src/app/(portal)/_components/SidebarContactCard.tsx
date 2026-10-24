@@ -15,7 +15,7 @@ export interface SidebarContact {
 
 /**
  * Sidebar contact card. Lives in the flex gap above the bottom-anchored
- * "System" group in {@link PortalShell}, a warm path to a Strategie-Gespräch
+ * "Hilfe" entry in {@link PortalShellClient}, a warm path to a Strategie-Gespräch
  * (EINS's primary KPI).
  *
  * Two states, controlled by the parent (which persists the choice to a
@@ -72,10 +72,10 @@ export function SidebarContactCard({
           <Headset className="h-4 w-4" aria-hidden />
         </span>
         <span className="min-w-0 flex-1 leading-tight">
-          <span className="block truncate text-[0.8rem] font-semibold text-fg-primary">
+          <span className="block truncate text-sm font-semibold text-fg-primary">
             {contact.name}
           </span>
-          <span className="block truncate text-[0.7rem] text-fg-secondary">
+          <span className="block truncate text-sm text-fg-secondary">
             Gespräch buchen
           </span>
         </span>

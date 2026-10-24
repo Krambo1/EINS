@@ -2,25 +2,36 @@ import { Suspense } from "react";
 import { requireSession } from "@/auth/guards";
 import {
   currentGoals,
-  kpiSummary,
-  kpiSummaryFresh,
+  dashboardLiveDays,
+  noShowForWindow,
+  openQueueDaily,
+  sparklinesForWindow,
+  summaryForWindow,
 } from "@/server/queries/kpis";
 import {
   requestStatusCounts,
   slaBreachedCount,
-  leadsInRangeWithComparison,
   openLeadsForDashboard,
 } from "@/server/queries/requests";
 import { bySource } from "@/server/queries/attribution";
+import { ltvBySource } from "@/server/queries/patients";
 import { getClinicRelationshipStart } from "@/server/queries/clinic";
 import {
   DASHBOARD_RANGE_KEYS,
+  berlinDay,
+  berlinHour,
   dashboardRangeWindow,
   parseDashboardRange,
+  priorDashboardWindow,
 } from "@/lib/dashboard-range";
+import { DISPLAY_TIME_ZONE } from "@/lib/formatting";
 import { DashboardTopMetricsEnhanced } from "./_components/DashboardTopMetricsEnhanced";
 import { DashboardDetailBundle } from "./_components/DashboardDetailBundle";
 import { DetailBundleSkeleton } from "./_components/DetailBundleSkeleton";
+import {
+  DashboardRangeSwitch,
+  DashboardRangeSwitchSkeleton,
+} from "./_components/DashboardRangeSwitch";
 import { ForecastStrip } from "./_components/ForecastStrip";
 import {
   AnomalyAlertsWidget,
@@ -41,7 +52,8 @@ export const metadata = { title: "Übersicht" };
  * Patient:in nach Feierabend mit einer Schlafwunsch-Begrüßung zu konfrontieren.
  */
 function germanGreeting(d: Date): string {
-  const h = d.getHours();
+  // Berlin wall clock: the server runs in UTC.
+  const h = berlinHour(d);
   if (h >= 5 && h < 10) return "Guten Morgen";
   if (h >= 10 && h < 17) return "Guten Tag";
   if (h >= 17 && h < 22) return "Guten Abend";
@@ -55,15 +67,15 @@ export default function DashboardPage({
 }) {
   // The page shell renders SYNCHRONOUSLY — it does not await session or
   // searchParams. Every async dependency lives inside one of the Suspense
-  // boundaries below. This is load-bearing for the per-card TimeRangeToggle:
-  // a toggle flips a `?param=` value, which re-renders this dynamic segment.
+  // boundaries below. This is load-bearing for the page-level DashboardRangeSwitch:
+  // the switch flips the `?r...=` values, which re-renders this dynamic segment.
   // If the page component itself awaited (session/searchParams) at its root,
   // that suspension would bubble to the segment's `loading.tsx` boundary and
   // repaint the ENTIRE content area as a skeleton on every toggle — which on
   // mobile tears out the card you scrolled to and snaps the viewport back to
   // the top. Keeping the shell synchronous means a toggle only re-renders the
   // single inner boundary whose query window changed; React's startTransition
-  // (in TimeRangeToggle) then keeps the already-revealed content in place
+  // (in DashboardRangeSwitch) then keeps the already-revealed content in place
   // instead of flashing a skeleton. `loading.tsx` only ever shows on a genuine
   // first load, never on a toggle.
   return (
@@ -72,7 +84,14 @@ export default function DashboardPage({
         <DashboardGreeting />
       </Suspense>
 
-      {/* Top metrics — four MetricTile cards, each with its own range toggle.
+      {/* One range switch for every card (writes all per-card params at once,
+          so loaders and the single live query path stay unchanged). Client
+          component reading searchParams itself; no server await here. */}
+      <Suspense fallback={<DashboardRangeSwitchSkeleton />}>
+        <DashboardRangeSwitch />
+      </Suspense>
+
+      {/* Top metrics — four MetricTile cards; ranges come from the switch above.
           Data fetching happens INSIDE this Suspense boundary's child so the
           shell paints immediately and TTFB is no longer held hostage by the
           parallel range-window queries. */}
@@ -119,7 +138,7 @@ async function DashboardGreeting() {
       className="flex flex-wrap items-end justify-between gap-4"
     >
       <div>
-        <p className="text-sm text-fg-secondary">{greeting},</p>
+        <p className="text-base text-fg-primary">{greeting},</p>
         <h1 className="text-3xl font-semibold md:text-4xl">
           {session.fullName ?? session.email.split("@")[0]}.
         </h1>
@@ -127,12 +146,13 @@ async function DashboardGreeting() {
           So läuft es aktuell in Ihrer Praxis.
         </p>
       </div>
-      <div className="text-sm text-fg-secondary">
+      <div className="text-base font-medium text-fg-primary md:text-lg">
         {now.toLocaleDateString("de-DE", {
           weekday: "long",
           day: "2-digit",
           month: "long",
           year: "numeric",
+          timeZone: DISPLAY_TIME_ZONE,
         })}
       </div>
     </div>
@@ -159,6 +179,32 @@ async function AnomalyAlertsLoader() {
   );
 }
 
+/**
+ * Earliest Berlin day any dashboard card needs (its window or the comparison
+ * window before it). Both loaders compute the same value from the same
+ * searchParams, so `dashboardLiveDays` is read once per render (React cache).
+ */
+function earliestDashboardDay(sp: Record<string, string | undefined>): string {
+  let earliest = berlinDay();
+  for (const key of Object.values(DASHBOARD_RANGE_KEYS)) {
+    const prior = priorDashboardWindow(dashboardRangeWindow(parseDashboardRange(sp[key])));
+    if (prior.fromDate < earliest) earliest = prior.fromDate;
+  }
+  return earliest;
+}
+
+/**
+ * True when every card shows the window picked on the page-level switch. Then
+ * the cards stay silent about the period; only a deep link with differing
+ * per-card params makes each card name its own.
+ */
+function cardsShowOwnRange(sp: Record<string, string | undefined>): boolean {
+  // Same eight params the switch writes (no `total`, it has no card here).
+  const { total: _total, ...cardKeys } = DASHBOARD_RANGE_KEYS;
+  const ranges = Object.values(cardKeys).map((k) => parseDashboardRange(sp[k]));
+  return !ranges.every((r) => r === ranges[0]);
+}
+
 async function DashboardTopMetricsLoader({
   searchParams,
 }: {
@@ -178,29 +224,27 @@ async function DashboardTopMetricsLoader({
   const revenueWindow = dashboardRangeWindow(revenueRange);
   const openWindow = dashboardRangeWindow(openRange);
   const sourcesWindow = dashboardRangeWindow(sourcesRange);
+  const leadsPrior = priorDashboardWindow(leadsWindow);
+  const revenuePrior = priorDashboardWindow(revenueWindow);
+  const openPrior = priorDashboardWindow(openWindow);
 
+  // ONE parallel wave for every top tile. The Anfragen and Umsatz numbers
+  // (headline, comparison, sparklines) all come from one live read of the
+  // per-day rows (`dashboardLiveDays`), not from `kpi_daily`, so they are
+  // correct even when no worker job ran.
   const [
-    leadsBreakdown,
-    revenueSummary,
-    openSummary,
+    liveDays,
     sourceBreakdown,
     goals,
     statusCounts,
     slaBreaches,
     relationshipStartedAt,
     openLeads,
+    openQueue,
+    openPriorQueue,
+    ltvMap,
   ] = await Promise.all([
-    leadsInRangeWithComparison(
-      clinicId,
-      userId,
-      leadsWindow.from,
-      leadsWindow.to
-    ),
-    // Cached version (60 s default cap + worker `revalidateTag('kpi:<id>')`
-    // on rebuilds keeps freshness). The brief intra-day staleness is the
-    // explicit tradeoff for cutting two ~340 ms calls per dashboard render.
-    kpiSummary(clinicId, userId, revenueWindow.from, revenueWindow.to),
-    kpiSummary(clinicId, userId, openWindow.from, openWindow.to),
+    dashboardLiveDays(clinicId, userId, earliestDashboardDay(sp), berlinDay()),
     bySource(clinicId, userId, sourcesWindow.from, sourcesWindow.to),
     currentGoals(clinicId, userId),
     requestStatusCounts(clinicId, userId),
@@ -211,7 +255,28 @@ async function DashboardTopMetricsLoader({
     // SLA-überfällig → oldest. Capped at 3; OpenLeadsList renders a "+N
     // weitere" hint when the headline count exceeds the listed rows.
     openLeadsForDashboard(clinicId, userId, 3),
+    openQueueDaily(clinicId, userId, openWindow.from, openWindow.to),
+    openQueueDaily(clinicId, userId, openPrior.from, openPrior.to),
+    // Lifetime value per source: not window-scoped, shown in each source row.
+    ltvBySource(clinicId, userId),
   ]);
+
+  const leadsSummary = summaryForWindow(liveDays, leadsWindow);
+  const leadsPriorSummary = summaryForWindow(liveDays, leadsPrior);
+  const leadsBreakdown = {
+    leads: leadsSummary.leads,
+    won: leadsSummary.casesWon,
+    priorLeads: leadsPriorSummary.leads,
+    leadsDeltaPct:
+      leadsPriorSummary.leads > 0
+        ? Number(
+            ((leadsSummary.leads - leadsPriorSummary.leads) / leadsPriorSummary.leads).toFixed(4)
+          )
+        : leadsSummary.leads > 0
+          ? null
+          : 0,
+  };
+  const revenueSummary = summaryForWindow(liveDays, revenueWindow);
 
   const leadsGoal = goals.find((g) => g.metric === "leads");
   const revenueGoal = goals.find((g) => g.metric === "revenue");
@@ -219,10 +284,11 @@ async function DashboardTopMetricsLoader({
 
   // Empty-window hint: the selected Anfragen window has zero leads, yet the
   // Praxis has Anfragen all-time (statusCounts is clinic-wide, not windowed).
-  // That's the stale-window case a fresh boot hits ("Monat" empty because the
+  // That's the stale-window case a fresh boot hits ("30 Tage" empty because the
   // newest data is older than 30 days). A brand-new Praxis (no Anfragen at all)
   // is excluded so its day-one empty state is untouched, and we don't offer the
-  // link when already on "Max". The link widens all four top cards to Max.
+  // link when already on "Max". The link widens every card to Max (same as
+  // picking "Max" in the page-level switch).
   const totalRequestsAllTime = Object.values(statusCounts).reduce(
     (sum, n) => sum + n,
     0
@@ -237,26 +303,32 @@ async function DashboardTopMetricsLoader({
     for (const [key, val] of Object.entries(sp)) {
       if (typeof val === "string") fullHistoryParams.set(key, val);
     }
-    fullHistoryParams.set(DASHBOARD_RANGE_KEYS.leads, "max");
-    fullHistoryParams.set(DASHBOARD_RANGE_KEYS.revenue, "max");
-    fullHistoryParams.set(DASHBOARD_RANGE_KEYS.open, "max");
-    fullHistoryParams.set(DASHBOARD_RANGE_KEYS.sources, "max");
+    for (const key of [
+      DASHBOARD_RANGE_KEYS.leads,
+      DASHBOARD_RANGE_KEYS.revenue,
+      DASHBOARD_RANGE_KEYS.open,
+      DASHBOARD_RANGE_KEYS.sources,
+      DASHBOARD_RANGE_KEYS.funnel,
+      DASHBOARD_RANGE_KEYS.locations,
+      DASHBOARD_RANGE_KEYS.treatments,
+      DASHBOARD_RANGE_KEYS.noShow,
+    ]) {
+      fullHistoryParams.set(key, "max");
+    }
     emptyWindowHint = { href: `/dashboard?${fullHistoryParams.toString()}` };
   }
 
   return (
     <DashboardTopMetricsEnhanced
-      clinicId={clinicId}
-      userId={userId}
       currency={currency}
       leadsBreakdown={leadsBreakdown}
       revenueSummary={revenueSummary}
-      openSummary={openSummary}
       sourceBreakdown={sourceBreakdown}
       slaBreaches={slaBreaches}
       openRequests={openRequests}
       leadsGoal={leadsGoal}
       revenueGoal={revenueGoal}
+      showRangeLabels={cardsShowOwnRange(sp)}
       leadsRange={leadsRange}
       revenueRange={revenueRange}
       openRange={openRange}
@@ -264,6 +336,14 @@ async function DashboardTopMetricsLoader({
       relationshipStartedAt={relationshipStartedAt}
       openLeads={openLeads}
       emptyWindowHint={emptyWindowHint}
+      hasAnyRequest={totalRequestsAllTime > 0}
+      leadsSpark={sparklinesForWindow(liveDays, leadsWindow)}
+      leadsPriorSpark={sparklinesForWindow(liveDays, leadsPrior)}
+      revenueSpark={sparklinesForWindow(liveDays, revenueWindow)}
+      revenuePriorSpark={sparklinesForWindow(liveDays, revenuePrior)}
+      openQueue={openQueue}
+      openPriorQueue={openPriorQueue}
+      ltvMap={ltvMap}
     />
   );
 }
@@ -283,27 +363,28 @@ async function DashboardDetailLoader({
   );
   const noShowRange = parseDashboardRange(sp[DASHBOARD_RANGE_KEYS.noShow]);
 
-  // Funnel card owns its own time window via the rFunnel param, with the prior
-  // window driving the cost-per-lead delta chip on the funnel footer. Goes
-  // through kpiSummaryFresh (short-TTL cache) rather than the uncached path so
-  // switching a *different* dashboard card doesn't re-run the funnel's two
-  // queries for an unchanged window; freshness stays within ~30s and is
-  // tag-busted by the kpi worker.
+  // Funnel (rFunnel) and No-Show (rNoShow) cards each own a window plus the
+  // comparison window before it. All four are sliced out of the same live
+  // per-day read the top tiles use (deduped per render by React cache).
   const win = dashboardRangeWindow(funnelRange);
-  const lengthMs = win.to.getTime() - win.from.getTime();
-  const priorTo = new Date(win.from.getTime() - 1);
-  const priorFrom = new Date(priorTo.getTime() - lengthMs);
-  const [summary, priorSummary] = await Promise.all([
-    kpiSummaryFresh(clinicId, userId, win.from, win.to),
-    kpiSummaryFresh(clinicId, userId, priorFrom, priorTo),
-  ]);
+  const noShowWin = dashboardRangeWindow(noShowRange);
+  const liveDays = await dashboardLiveDays(
+    clinicId,
+    userId,
+    earliestDashboardDay(sp),
+    berlinDay()
+  );
   return (
     <DashboardDetailBundle
       clinicId={clinicId}
       userId={userId}
       currency={currency}
-      summary={summary}
-      priorSummary={priorSummary}
+      summary={summaryForWindow(liveDays, win)}
+      priorSummary={summaryForWindow(liveDays, priorDashboardWindow(win))}
+      noShow={noShowForWindow(liveDays, noShowWin)}
+      noShowPrior={noShowForWindow(liveDays, priorDashboardWindow(noShowWin))}
+      canManageReviews={session.role === "inhaber"}
+      showRangeLabels={cardsShowOwnRange(sp)}
       funnelRange={funnelRange}
       locationsRange={locationsRange}
       treatmentsRange={treatmentsRange}
@@ -321,11 +402,11 @@ function GreetingSkeleton() {
       className="flex flex-wrap items-end justify-between gap-4"
     >
       <div className="space-y-2">
-        <div className="h-3 w-24 rounded bg-bg-secondary" />
+        <div className="h-4 w-24 rounded bg-bg-secondary" />
         <div className="h-9 w-48 animate-pulse rounded bg-bg-secondary" />
         <div className="h-4 w-72 rounded bg-bg-secondary" />
       </div>
-      <div className="h-4 w-40 rounded bg-bg-secondary" />
+      <div className="h-5 w-48 rounded bg-bg-secondary" />
     </div>
   );
 }

@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import {
   Badge,
   Button,
@@ -38,13 +37,14 @@ import {
   type ChecklistItem,
   type ChecklistStatus,
 } from "./content";
-import { uploadFileToTarget } from "@/lib/upload-client";
+import { uploadErrorMessage, uploadFileToTarget } from "@/lib/upload-client";
 import {
   createChecklistUploadTargetAction,
   finalizeChecklistFileAction,
   removeChecklistFile,
   saveChecklistItem,
 } from "./actions";
+import { formatBytes } from "@/lib/formatting";
 
 export interface ClientChecklistFile {
   id: string;
@@ -59,6 +59,8 @@ export interface ClientChecklistItemState {
   files: ClientChecklistFile[];
   /** ISO string, set once EINS has confirmed the item. */
   verifiedAt: string | null;
+  /** ISO string of the row's last change; remounts the card when it moves. */
+  updatedAt: string | null;
 }
 
 export type ClientChecklistState = Record<string, ClientChecklistItemState>;
@@ -96,7 +98,7 @@ export function ChecklisteForm({
           </div>
           <p className="mt-3 text-sm text-fg-secondary">
             Sobald Sie einen Punkt geliefert haben, prüfen wir ihn und bestätigen
-            ihn mit dem Siegel „Geprüft“. Die fünf Blocker-Punkte (Block A) zählen
+            ihn mit dem Siegel „Geprüft“. Die fünf Grundlagen zum Start (Block A) zählen
             erst als endgültig erledigt, wenn wir sie geprüft haben.
           </p>
         </CardContent>
@@ -119,7 +121,10 @@ export function ChecklisteForm({
             <div className="space-y-4">
               {block.items.map((item) => (
                 <ItemCard
-                  key={item.id}
+                  // Remount when the server row changed (own save, EINS
+                  // verification, a second person), so local inputs never
+                  // hold a stale answer that a later save would write back.
+                  key={`${item.id}:${initialState[item.id]?.updatedAt ?? ""}`}
                   item={item}
                   state={
                     initialState[item.id] ?? {
@@ -127,6 +132,7 @@ export function ChecklisteForm({
                       answer: {},
                       files: [],
                       verifiedAt: null,
+                      updatedAt: null,
                     }
                   }
                 />
@@ -150,7 +156,6 @@ function ItemCard({
   item: ChecklistItem;
   state: ClientChecklistItemState;
 }) {
-  const router = useRouter();
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [answer, setAnswer] = useState<ChecklistAnswer>(state.answer);
@@ -180,17 +185,18 @@ function ItemCard({
       return;
     }
     start(async () => {
-      const res = await saveChecklistItem({
-        itemId: item.id,
-        answer: opts.answer ?? answer,
-        selfChecked: opts.selfChecked,
-        nichtVorhanden: opts.nichtVorhanden,
-      });
-      if (!res.ok) {
-        setError(saveErrorText(res.error));
-        return;
+      try {
+        const res = await saveChecklistItem({
+          itemId: item.id,
+          answer: opts.answer ?? answer,
+          selfChecked: opts.selfChecked,
+          nichtVorhanden: opts.nichtVorhanden,
+        });
+        // Success: the action revalidates this page, no extra refresh needed.
+        if (!res.ok) setError(saveErrorText(res.error));
+      } catch {
+        setError(saveErrorText("network"));
       }
-      router.refresh();
     });
   }
 
@@ -211,45 +217,51 @@ function ItemCard({
       // Direct-to-storage: mint a target, upload the bytes straight to
       // object storage, then register the file. The bytes never pass
       // through a server action (serverless request caps).
-      const minted = await createChecklistUploadTargetAction({
-        itemId: item.id,
-        filename: file.name,
-        size: file.size,
-        contentType: file.type || undefined,
-      });
-      if (!minted.ok) {
-        setError(uploadErrorText(minted.error));
-        return;
-      }
       try {
-        await uploadFileToTarget(minted.target, file);
+        const minted = await createChecklistUploadTargetAction({
+          itemId: item.id,
+          filename: file.name,
+          size: file.size,
+          contentType: file.type || undefined,
+        });
+        if (!minted.ok) {
+          setError(uploadErrorText(minted.error));
+          return;
+        }
+        try {
+          await uploadFileToTarget(minted.target, file);
+        } catch (err) {
+          setError(uploadErrorMessage(err));
+          return;
+        }
+        const res = await finalizeChecklistFileAction({
+          itemId: item.id,
+          key: minted.target.key,
+          filename: file.name,
+          contentType: file.type || undefined,
+        });
+        // Success: the action revalidates this page.
+        if (!res.ok) setError(uploadErrorText(res.error));
       } catch {
-        setError(uploadErrorText("upload_failed"));
-        return;
+        setError(uploadErrorText("network"));
       }
-      const res = await finalizeChecklistFileAction({
-        itemId: item.id,
-        key: minted.target.key,
-        filename: file.name,
-        contentType: file.type || undefined,
-      });
-      if (!res.ok) {
-        setError(uploadErrorText(res.error));
-        return;
-      }
-      router.refresh();
     });
   }
 
-  function onRemoveFile(fileId: string) {
+  function onRemoveFile(fileId: string, name: string) {
     setError(null);
+    if (!window.confirm(`Datei "${name}" wirklich entfernen?`)) return;
     start(async () => {
-      const res = await removeChecklistFile({ fileId });
-      if (!res.ok) {
-        setError("Datei konnte nicht entfernt werden. Bitte erneut versuchen.");
-        return;
+      try {
+        const res = await removeChecklistFile({ fileId });
+        if (!res.ok) {
+          setError("Datei konnte nicht entfernt werden. Bitte erneut versuchen.");
+        }
+      } catch {
+        setError(
+          "Datei konnte nicht entfernt werden. Bitte prüfen Sie Ihre Internetverbindung und versuchen Sie es erneut."
+        );
       }
-      router.refresh();
     });
   }
 
@@ -277,7 +289,7 @@ function ItemCard({
           <StatusIcon status={state.status} />
           <div>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="font-mono text-xs text-fg-tertiary">
+              <span className="font-mono text-sm text-fg-secondary">
                 {item.id}
               </span>
               <span className="font-medium text-fg-primary">{item.title}</span>
@@ -290,9 +302,9 @@ function ItemCard({
               ) : (
                 <Badge>Optional</Badge>
               )}
-              {item.blocker && <Badge tone="bad">Blocker</Badge>}
+              {item.blocker && <Badge tone="bad">Grundlage zum Start</Badge>}
               {item.role === "inhaber" && (
-                <span className="inline-flex items-center gap-1 text-xs text-fg-tertiary">
+                <span className="inline-flex items-center gap-1 text-sm text-fg-secondary">
                   <Lock className="h-3 w-3" /> Inhaber
                 </span>
               )}
@@ -369,14 +381,14 @@ function ItemCard({
                           >
                             <FileText className="h-4 w-4 shrink-0" />
                             <span className="truncate">{f.name}</span>
-                            <span className="shrink-0 text-fg-tertiary">
+                            <span className="shrink-0 text-fg-secondary">
                               {formatBytes(f.sizeBytes)}
                             </span>
                           </a>
                           <button
                             type="button"
                             disabled={pending}
-                            onClick={() => onRemoveFile(f.id)}
+                            onClick={() => onRemoveFile(f.id, f.name)}
                             className="shrink-0 text-fg-tertiary hover:text-tone-bad disabled:opacity-50"
                             aria-label="Datei entfernen"
                           >
@@ -404,8 +416,8 @@ function ItemCard({
                     {state.files.length > 0 ? "Weitere Datei" : "Datei hochladen"}
                   </Button>
                   {profile && (
-                    <p className="text-xs text-fg-tertiary">
-                      {profile.hint}, max. 25 MB pro Datei.
+                    <p className="text-sm text-fg-secondary">
+                      {profile.hint}, höchstens 25 MB pro Datei.
                     </p>
                   )}
                 </div>
@@ -427,9 +439,16 @@ function ItemCard({
                       inputMode="url"
                       placeholder="https://drive.google.com/…"
                       value={typeof answer.link === "string" ? answer.link : ""}
+                      aria-invalid={fieldErrors.link ? true : undefined}
                       onChange={(e) => setField("link", e.target.value)}
                     />
                   </div>
+                  {fieldErrors.link && (
+                    <p className="flex items-start gap-1.5 text-sm text-tone-bad">
+                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                      {fieldErrors.link}
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -448,8 +467,8 @@ function ItemCard({
                         <Label htmlFor={fid} className="text-sm">
                           {field.label}
                           {field.optional && (
-                            <span className="ml-1 text-xs text-fg-tertiary">
-                              optional
+                            <span className="ml-1 text-sm font-medium text-fg-primary">
+                              Optional
                             </span>
                           )}
                         </Label>
@@ -639,14 +658,11 @@ function StatusBadge({
   return null;
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function saveErrorText(code: string): string {
   if (code === "unknown_item") return "Dieser Punkt ist nicht mehr gültig.";
+  if (code === "network") {
+    return "Speichern hat nicht geklappt, zum Beispiel wegen der Internetverbindung. Ihre Eingaben sind noch da, bitte versuchen Sie es erneut.";
+  }
   return "Speichern fehlgeschlagen. Bitte erneut versuchen.";
 }
 
@@ -659,7 +675,9 @@ function uploadErrorText(code: string): string {
     case "empty_file":
       return "Die Datei ist leer.";
     case "no_file":
-      return "Keine Datei ausgewählt.";
+      return "Die Datei ist nicht vollständig angekommen. Bitte laden Sie sie erneut hoch.";
+    case "network":
+      return "Hochladen hat nicht geklappt, zum Beispiel wegen der Internetverbindung. Bitte versuchen Sie es erneut.";
     default:
       return "Hochladen fehlgeschlagen. Bitte erneut versuchen.";
   }

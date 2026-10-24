@@ -1,7 +1,40 @@
 import "server-only";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { getSession, type ResolvedSession } from "./session";
+import { getSession, hasSessionCookie, type ResolvedSession } from "./session";
 import { can, type Permission, ForbiddenError } from "../lib/roles";
+import { loginRedirectPath } from "./safe-next";
+
+export {
+  assertNotImpersonating,
+  isImpersonating,
+  ImpersonationBlockedError,
+  type ImpersonationBlockedAction,
+} from "./impersonation-guard";
+
+/** Pathname forwarded by middleware (see src/middleware.ts PATHNAME_HEADER). */
+const PATHNAME_HEADER = "x-portal-pathname";
+
+/**
+ * /login URL for an unauthenticated request: carries `next=<current path>` so
+ * the user lands back where they were, and `error=session_expired` when a
+ * session cookie was present but is no longer valid (B-6).
+ */
+async function loginPathForCurrentRequest(): Promise<string> {
+  let next: string | null = null;
+  try {
+    next = (await headers()).get(PATHNAME_HEADER);
+  } catch {
+    next = null;
+  }
+  let expired = false;
+  try {
+    expired = await hasSessionCookie();
+  } catch {
+    expired = false;
+  }
+  return loginRedirectPath({ next, expired });
+}
 
 /**
  * Guards — thin wrappers around getSession() with idiomatic redirect/throw
@@ -21,14 +54,9 @@ export async function requireSession(opts?: {
 }): Promise<ResolvedSession> {
   const session = await getSession();
   if (!session) {
-    redirect(opts?.to ?? "/login");
+    redirect(opts?.to ?? (await loginPathForCurrentRequest()));
   }
   return session;
-}
-
-/** Returns a session OR null, without redirect. Useful for marketing-y pages. */
-export async function optionalSession(): Promise<ResolvedSession | null> {
-  return await getSession();
 }
 
 /** Redirect-version of permission check. */

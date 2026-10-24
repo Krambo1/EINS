@@ -27,6 +27,32 @@ export const REQUEST_STATUS_LABELS: Record<RequestStatus, string> = {
 };
 
 /**
+ * Every status a request can carry (DB check constraint), incl. the
+ * PVS-derived `no_show` and `behandelt` that only the Bridge sets. For
+ * filters and read-only labels (C-29 Punkt 6); manual status changes stay on
+ * REQUEST_STATUSES + STATUS_TRANSITIONS.
+ */
+export const ALL_REQUEST_STATUSES = [
+  "neu",
+  "kontaktiert",
+  "nicht_erreicht",
+  "termin_vereinbart",
+  "beratung_erschienen",
+  "no_show",
+  "behandelt",
+  "gewonnen",
+  "verloren",
+  "spam",
+] as const;
+export type AnyRequestStatus = (typeof ALL_REQUEST_STATUSES)[number];
+
+export const ALL_REQUEST_STATUS_LABELS: Record<AnyRequestStatus, string> = {
+  ...REQUEST_STATUS_LABELS,
+  no_show: "Nicht erschienen",
+  behandelt: "Behandelt",
+};
+
+/**
  * Allowed forward/backward status transitions in the pre-booking working
  * phase (Portal-native). `kontaktiert` (erreicht, dran) und `nicht_erreicht`
  * (versucht, niemand erreicht) sitzen zwischen `neu` und `termin_vereinbart`,
@@ -79,33 +105,24 @@ export type Role = (typeof ROLES)[number];
 export const ROLE_LABELS: Record<Role, string> = {
   inhaber: "Inhaber",
   marketing: "Marketing-Verantwortlicher",
-  frontdesk: "Frontdesk",
+  frontdesk: "Empfang",
 };
 
-export const REQUEST_SOURCES = [
-  "meta",
-  "google",
-  "formular",
-  "manuell",
-  "whatsapp",
-] as const;
-export type RequestSource = (typeof REQUEST_SOURCES)[number];
-
-export const SOURCE_LABELS: Record<RequestSource, string> = {
-  meta: "Meta / Instagram",
-  google: "Google Ads",
-  formular: "Zielseiten-Formular",
-  manuell: "Manueller Eintrag",
-  whatsapp: "WhatsApp",
-};
+// The source vocabulary lives in lib/sources.ts (one contract for intake,
+// filters, labels and reports); these names stay for existing imports.
+export {
+  ENTRY_SOURCES as REQUEST_SOURCES,
+  ENTRY_SOURCE_LABELS as SOURCE_LABELS,
+  type EntrySource as RequestSource,
+} from "./sources";
 
 export const AI_CATEGORIES = ["hot", "warm", "cold"] as const;
 export type AiCategory = (typeof AI_CATEGORIES)[number];
 
 export const AI_CATEGORY_LABELS: Record<AiCategory, string> = {
-  hot: "Sehr heiß",
-  warm: "Warm",
-  cold: "Kalt",
+  hot: "Gute Passung",
+  warm: "Mittlere Passung",
+  cold: "Geringe Passung",
 };
 
 /**
@@ -126,12 +143,16 @@ export const REQUEST_SORT_LABELS: Record<RequestSort, string> = {
   neueste: "Neueste zuerst",
   aelteste: "Älteste zuerst",
   ki: "Höchste KI-Bewertung",
-  ltv: "Höchster Lifetime-Wert",
+  ltv: "Höchster Gesamtumsatz",
   dringlichkeit: "Dringlichkeit",
 };
 
-/** SLA respond-by-time in hours for new leads. */
-export const SLA_HOURS = 3;
+/**
+ * SLA respond-by-time in hours for new leads: Karam's callback goal (Obsidian
+ * "EINS · Der ganze Prozess" 4.5). An internal target with no contractual effect; the
+ * contractual limit is the 48-Werkstunden rule in lib/werkstunden.ts.
+ */
+export const SLA_HOURS = 2;
 
 export const ACTIVITY_KINDS = [
   "note",
@@ -141,6 +162,7 @@ export const ACTIVITY_KINDS = [
   "status_change",
   "ai_rescore",
   "assignment",
+  "messweg",
 ] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
@@ -152,6 +174,7 @@ export const ACTIVITY_KIND_LABELS: Record<ActivityKind, string> = {
   status_change: "Status-Änderung",
   ai_rescore: "KI-Bewertung aktualisiert",
   assignment: "Zuweisung",
+  messweg: "Erneut über EINS-Messweg",
 };
 
 export const ASSET_KINDS = ["video", "foto", "rohmaterial", "behind_scenes"] as const;
@@ -272,7 +295,19 @@ export function hostCookieName(base: string): string {
 
 /** Session cookie */
 export const SESSION_COOKIE = hostCookieName("eins_session");
-export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8; // 8h idle timeout
+/**
+ * Absolute session lifetime from login (NOT an idle timeout: activity does not
+ * extend it). JWT exp, cookie maxAge and sessions.expires_at all use it.
+ */
+export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 8; // 8h absolute
+/**
+ * Hard cap for an admin "Als Benutzer öffnen" session. Short on purpose: the
+ * impersonation cookie acts as the Praxis user, so a forgotten tab must not
+ * stay usable for a working day (B-25).
+ */
+export const IMPERSONATION_SESSION_MAX_AGE_SECONDS = 60 * 30; // 30 min
+/** sessions.last_seen_at is rewritten at most this often (D-5 / A-21). */
+export const SESSION_LAST_SEEN_THROTTLE_SECONDS = 60 * 5;
 /**
  * "Angemeldet bleiben": Häkchen beim Login verlängert die Session von 8 Stunden
  * auf 30 Tage. Der Wert steuert ALLE drei Lebenszeiten gleichzeitig (JWT-Exp,
@@ -283,12 +318,18 @@ export const SESSION_REMEMBER_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 Tage
 
 /** Magic-link TTL */
 export const MAGIC_LINK_TTL_SECONDS = 60 * 15; // 15 minutes
+/**
+ * Team invitations live longer than login links: the invited MFA often reads
+ * the mail hours later (B-3). Still single-use, and since B-1 the token is only
+ * consumed on an explicit POST, so mail scanners cannot burn it.
+ */
+export const INVITE_LINK_TTL_SECONDS = 60 * 60 * 24 * 7; // 7 days
 
 /** Audit log retention in months (plan §11) */
 export const AUDIT_RETENTION_MONTHS = 24;
 
-/** Dashboard cache TTL for live advertising data. */
-export const CAMPAIGN_LIVE_CACHE_SECONDS = 15 * 60;
+/** One day in milliseconds (fixed 24 h; for Berlin calendar days use the Berlin date helpers). */
+export const DAY_MS = 86_400_000;
 
 /**
  * Ansprechpartner surfaced in the sidebar contact card (SidebarContactCard).

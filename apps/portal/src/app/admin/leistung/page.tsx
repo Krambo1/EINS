@@ -27,7 +27,7 @@ interface PageProps {
  * Werbeleistung im Detail. Die Plattform-KPIs und der Budget/Umsatz-Trend
  * leben auf der Admin-Übersicht (MetricStrip + Werbeleistung-Karte); diese
  * Seite ergänzt, was dort fehlt: Plattform-Split, Top/Bottom-Kampagnen und
- * Sync-Health. Der Zeitraum kommt aus dem geteilten TimeRangeToggle
+ * Sync-Zustand. Der Zeitraum kommt aus dem geteilten TimeRangeToggle
  * (gleiche Fenster wie überall sonst im Portal).
  */
 export default async function AdminLeistungPage({ searchParams }: PageProps) {
@@ -47,7 +47,7 @@ export default async function AdminLeistungPage({ searchParams }: PageProps) {
     <div className="space-y-8">
       <AdminPageHeader
         title="Werbeleistung"
-        subtitle="Plattform-Vergleich, Top- und Bottom-Kampagnen, Sync-Health."
+        subtitle="Plattform-Vergleich, Top- und Bottom-Kampagnen, Sync-Zustand."
         actions={
           <TimeRangeToggle
             value={range}
@@ -82,7 +82,7 @@ export default async function AdminLeistungPage({ searchParams }: PageProps) {
                     value={formatEuro(m?.spendEur ?? 0)}
                   />
                   <Stat label="Anfragen" value={formatNumber(m?.leads ?? 0)} />
-                  <Stat label="CPL" value={cpl == null ? "–" : formatEuro(cpl)} />
+                  <Stat label="Kosten je Anfrage" value={cpl == null ? "–" : formatEuro(cpl)} />
                 </div>
                 <div className="text-xs text-fg-secondary">
                   Anteil am gesamten Werbebudget:{" "}
@@ -99,7 +99,7 @@ export default async function AdminLeistungPage({ searchParams }: PageProps) {
       <Card>
         <CardContent className="space-y-3">
           <h2 className="text-xl font-medium md:text-2xl">
-            Top-Kampagnen (ROAS)
+            Top-Kampagnen (Werbeertrag)
           </h2>
           <CampaignTable rows={top} />
         </CardContent>
@@ -109,7 +109,7 @@ export default async function AdminLeistungPage({ searchParams }: PageProps) {
         <CardContent className="space-y-3">
           <h2 className="text-xl font-medium md:text-2xl">Bottom-Kampagnen</h2>
           <p className="text-sm text-fg-secondary">
-            Niedrigste ROAS: Kandidaten zum Pausieren oder Optimieren.
+            Niedrigster Werbeertrag: Kandidaten zum Pausieren oder Optimieren.
           </p>
           <CampaignTable rows={bottom} />
         </CardContent>
@@ -117,7 +117,7 @@ export default async function AdminLeistungPage({ searchParams }: PageProps) {
 
       <Card>
         <CardContent className="space-y-3">
-          <h2 className="text-xl font-medium md:text-2xl">Sync-Health</h2>
+          <h2 className="text-xl font-medium md:text-2xl">Sync-Zustand</h2>
           {syncs.length === 0 ? (
             <p className="rounded-md border border-[var(--tone-good-border)] bg-[var(--tone-good-bg)] px-4 py-3 text-sm text-tone-good">
               Alle Plattform-Verbindungen synchronisieren ohne Fehler.
@@ -189,8 +189,8 @@ function CampaignTable({
             <th className="py-2 text-right">Anfragen</th>
             <th className="py-2 text-right">Umsatz</th>
             <th className="py-2 text-right">Budget</th>
-            <th className="py-2 text-right">CPL</th>
-            <th className="py-2 text-right">ROAS</th>
+            <th className="py-2 text-right">Kosten je Anfrage</th>
+            <th className="py-2 text-right">Werbeertrag</th>
           </tr>
         </thead>
         <tbody>
@@ -237,7 +237,7 @@ function CampaignTable({
 function Stat({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
+      <div className="text-sm font-medium text-fg-primary">
         {label}
       </div>
       <div className="mt-1 text-2xl font-semibold tabular-nums">{value}</div>

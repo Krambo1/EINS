@@ -1,18 +1,28 @@
 import "server-only";
-import { and, eq, gte, lte, sql, isNotNull } from "drizzle-orm";
+import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { withClinicContext, schema } from "@/db/client";
-import { cacheClinicQuery } from "./_cache";
+import { cacheClinicQuery, SHORT_REVALIDATE_S } from "./_cache";
+import { berlinDay } from "@/lib/dashboard-range";
+import { adPlatformFor } from "@/lib/sources";
+import { channelGroupBy, channelKeys, channelOfGroup } from "./_channel";
 
 /**
  * Attribution helpers — break leads/revenue/spend down by source, channel,
  * campaign, treatment, and location. Used by Detail-mode breakdown tables on
  * Auswertung.
  *
- * Spend is approximated by mapping `requests.source` → `campaign_snapshots.platform`
- * (meta → meta, google → google). Sources without a matching platform get NULL.
+ * Rows are bucketed by reporting channel (lib/sources.ts reportingChannel):
+ * entry point plus UTM, so organic Instagram/Facebook/TikTok, profile-link and
+ * DM-link inquiries sit next to paid Meta/Google instead of inside them.
+ * Spend is approximated by mapping the paid buckets to
+ * `campaign_snapshots.platform` (meta_anzeige → meta, google_anzeige → google).
+ * Buckets without an ad platform get NULL.
  */
 
-const dateStr = (d: Date) => d.toISOString().slice(0, 10);
+// Berlin calendar day: the dashboard windows start at 00:00 Berlin, which is
+// still the previous UTC date (22:00/23:00Z), so a UTC slice would pull in an
+// extra day of spend.
+const dateStr = (d: Date) => berlinDay(d);
 
 export interface SourceBreakdownRow {
   source: string;
@@ -54,19 +64,7 @@ function rollupRows(
   });
 }
 
-const SOURCE_TO_PLATFORM: Record<string, "meta" | "google" | null> = {
-  meta: "meta",
-  meta_lead_form: "meta",
-  google: "google",
-  google_form: "google",
-  formular: null,
-  manuell: null,
-  whatsapp: null,
-  empfehlung: null,
-  direkt: null,
-};
-
-/** Per-source breakdown of leads, conversions, and (best-effort) spend. */
+/** Per-channel breakdown of leads, conversions, and (best-effort) spend. `source` holds the ReportingChannel key. */
 async function bySourceUncached(
   clinicId: string,
   userId: string,
@@ -76,10 +74,10 @@ async function bySourceUncached(
   return withClinicContext(clinicId, userId, async (tx) => {
     const requestRows = await tx
       .select({
-        source: schema.requests.source,
+        ...channelKeys,
         leads: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} <> 'spam')::int`,
-        appointments: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} IN ('termin_vereinbart','beratung_erschienen','gewonnen'))::int`,
-        consultations: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} IN ('beratung_erschienen','gewonnen'))::int`,
+        appointments: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} IN ('termin_vereinbart','beratung_erschienen','behandelt','gewonnen'))::int`,
+        consultations: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} IN ('beratung_erschienen','behandelt','gewonnen'))::int`,
         casesWon: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} = 'gewonnen')::int`,
         revenueEur: sql<number>`coalesce(sum(${schema.requests.convertedRevenueEur}) FILTER (WHERE ${schema.requests.status} = 'gewonnen'), 0)`,
       })
@@ -91,7 +89,7 @@ async function bySourceUncached(
           lte(schema.requests.createdAt, to)
         )
       )
-      .groupBy(schema.requests.source);
+      .groupBy(...channelGroupBy);
 
     const platformSpend = await tx
       .select({
@@ -108,23 +106,45 @@ async function bySourceUncached(
       )
       .groupBy(schema.campaignSnapshots.platform);
 
-    const spendBySource = new Map<string, number>();
+    const byChannelKey = new Map<
+      string,
+      {
+        source: string;
+        leads: number;
+        appointments: number;
+        consultations: number;
+        casesWon: number;
+        revenueEur: number;
+      }
+    >();
     for (const r of requestRows) {
-      const platform = SOURCE_TO_PLATFORM[r.source];
+      const channel = channelOfGroup(r);
+      const row = byChannelKey.get(channel) ?? {
+        source: channel,
+        leads: 0,
+        appointments: 0,
+        consultations: 0,
+        casesWon: 0,
+        revenueEur: 0,
+      };
+      row.leads += Number(r.leads);
+      row.appointments += Number(r.appointments);
+      row.consultations += Number(r.consultations);
+      row.casesWon += Number(r.casesWon);
+      row.revenueEur += Number(r.revenueEur);
+      byChannelKey.set(channel, row);
+    }
+
+    const spendBySource = new Map<string, number>();
+    for (const channel of byChannelKey.keys()) {
+      const platform = adPlatformFor(channel);
       if (!platform) continue;
       const platformRow = platformSpend.find((p) => p.platform === platform);
-      if (platformRow) spendBySource.set(r.source, Number(platformRow.spend));
+      if (platformRow) spendBySource.set(channel, Number(platformRow.spend));
     }
 
     return rollupRows(
-      requestRows.map((r) => ({
-        source: r.source,
-        leads: Number(r.leads),
-        appointments: Number(r.appointments),
-        consultations: Number(r.consultations),
-        casesWon: Number(r.casesWon),
-        revenueEur: Number(r.revenueEur),
-      })),
+      Array.from(byChannelKey.values()).sort((a, b) => b.leads - a.leads),
       spendBySource
     );
   });
@@ -132,120 +152,8 @@ async function bySourceUncached(
 
 export const bySource = cacheClinicQuery("bySource", bySourceUncached, {
   dateArgs: [0, 1],
-});
-
-const CHANNEL_FOR_SOURCE: Record<string, string> = {
-  meta: "meta",
-  meta_lead_form: "meta",
-  google: "google",
-  google_form: "google",
-  formular: "direkt",
-  manuell: "direkt",
-  whatsapp: "direkt",
-  empfehlung: "empfehlung",
-};
-
-/** Per-channel breakdown (meta / google / direkt / empfehlung). */
-async function byChannelUncached(
-  clinicId: string,
-  userId: string,
-  from: Date,
-  to: Date
-): Promise<SourceBreakdownRow[]> {
-  const sourceRows = await bySource(clinicId, userId, from, to);
-  const grouped = new Map<string, SourceBreakdownRow>();
-  for (const r of sourceRows) {
-    const channel = CHANNEL_FOR_SOURCE[r.source] ?? r.source;
-    const existing = grouped.get(channel);
-    if (!existing) {
-      grouped.set(channel, { ...r, source: channel });
-    } else {
-      existing.leads += r.leads;
-      existing.appointments += r.appointments;
-      existing.consultations += r.consultations;
-      existing.casesWon += r.casesWon;
-      existing.revenueEur += r.revenueEur;
-      if (r.spendEur != null) {
-        existing.spendEur = (existing.spendEur ?? 0) + r.spendEur;
-      }
-    }
-  }
-  // Recompute ratios after rollup.
-  return Array.from(grouped.values()).map((row) => ({
-    ...row,
-    cplEur:
-      row.spendEur != null && row.leads > 0
-        ? Number((row.spendEur / row.leads).toFixed(2))
-        : null,
-    cacEur:
-      row.spendEur != null && row.casesWon > 0
-        ? Number((row.spendEur / row.casesWon).toFixed(2))
-        : null,
-    roas:
-      row.spendEur != null && row.spendEur > 0
-        ? Number((row.revenueEur / row.spendEur).toFixed(2))
-        : null,
-  }));
-}
-
-export const byChannel = cacheClinicQuery("byChannel", byChannelUncached, {
-  dateArgs: [0, 1],
-});
-
-export interface CampaignBreakdownRow {
-  campaignId: string;
-  /** Best-effort campaign name from raw_payload, else campaign id. */
-  campaignName: string;
-  source: string;
-  leads: number;
-  casesWon: number;
-  revenueEur: number;
-}
-
-/** Top campaigns by lead count. */
-async function byCampaignUncached(
-  clinicId: string,
-  userId: string,
-  from: Date,
-  to: Date,
-  limit = 10
-): Promise<CampaignBreakdownRow[]> {
-  return withClinicContext(clinicId, userId, async (tx) => {
-    const rows = await tx
-      .select({
-        campaignId: schema.requests.sourceCampaignId,
-        source: schema.requests.source,
-        leads: sql<number>`count(*)::int`,
-        casesWon: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} = 'gewonnen')::int`,
-        revenueEur: sql<number>`coalesce(sum(${schema.requests.convertedRevenueEur}) FILTER (WHERE ${schema.requests.status} = 'gewonnen'), 0)`,
-        sampleName: sql<string | null>`(array_agg(${schema.requests.rawPayload}->>'campaign_name'))[1]`,
-      })
-      .from(schema.requests)
-      .where(
-        and(
-          eq(schema.requests.clinicId, clinicId),
-          isNotNull(schema.requests.sourceCampaignId),
-          gte(schema.requests.createdAt, from),
-          lte(schema.requests.createdAt, to)
-        )
-      )
-      .groupBy(schema.requests.sourceCampaignId, schema.requests.source)
-      .orderBy(sql`count(*) desc`)
-      .limit(limit);
-
-    return rows.map((r) => ({
-      campaignId: r.campaignId ?? "—",
-      campaignName: r.sampleName ?? r.campaignId ?? "—",
-      source: r.source,
-      leads: Number(r.leads),
-      casesWon: Number(r.casesWon),
-      revenueEur: Number(r.revenueEur),
-    }));
-  });
-}
-
-export const byCampaign = cacheClinicQuery("byCampaign", byCampaignUncached, {
-  dateArgs: [0, 1],
+  // Live data and no worker to bust the tag: keep staleness to ~30 s.
+  revalidate: SHORT_REVALIDATE_S,
 });
 
 export interface TreatmentBreakdownRow {
@@ -274,14 +182,12 @@ async function byTreatmentUncached(
   to: Date
 ): Promise<TreatmentBreakdownRow[]> {
   return withClinicContext(clinicId, userId, async (tx) => {
-    const rows = await tx
+    const groupRows = await tx
       .select({
         treatmentId: schema.requests.treatmentId,
         treatmentName: sql<string>`coalesce(${schema.treatments.name}, 'Sonstige')`,
-        leads: sql<number>`count(*)::int`,
-        // Paid Anfragen only (sources that map to a billed ad platform) — the
-        // basis for splitting ad spend across treatments below.
-        paidLeads: sql<number>`count(*) FILTER (WHERE ${schema.requests.source} IN ('meta','meta_lead_form','google','google_form'))::int`,
+        ...channelKeys,
+        leads: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} <> 'spam')::int`,
         casesWon: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} = 'gewonnen')::int`,
         revenueEur: sql<number>`coalesce(sum(${schema.requests.convertedRevenueEur}) FILTER (WHERE ${schema.requests.status} = 'gewonnen'), 0)`,
       })
@@ -297,8 +203,44 @@ async function byTreatmentUncached(
           lte(schema.requests.createdAt, to)
         )
       )
-      .groupBy(schema.requests.treatmentId, schema.treatments.name)
-      .orderBy(sql`count(*) desc`);
+      .groupBy(
+        schema.requests.treatmentId,
+        schema.treatments.name,
+        ...channelGroupBy
+      );
+
+    // Collapse the channel split back to one row per treatment. Paid Anfragen
+    // (channels with an ad platform; organic ones consume no budget) are the
+    // basis for splitting ad spend across treatments below.
+    const perTreatment = new Map<
+      string,
+      {
+        treatmentId: string | null;
+        treatmentName: string;
+        leads: number;
+        paidLeads: number;
+        casesWon: number;
+        revenueEur: number;
+      }
+    >();
+    for (const r of groupRows) {
+      const key = r.treatmentId ?? "__none__";
+      const row = perTreatment.get(key) ?? {
+        treatmentId: r.treatmentId,
+        treatmentName: r.treatmentName,
+        leads: 0,
+        paidLeads: 0,
+        casesWon: 0,
+        revenueEur: 0,
+      };
+      const leads = Number(r.leads);
+      row.leads += leads;
+      if (adPlatformFor(channelOfGroup(r))) row.paidLeads += leads;
+      row.casesWon += Number(r.casesWon);
+      row.revenueEur += Number(r.revenueEur);
+      perTreatment.set(key, row);
+    }
+    const rows = Array.from(perTreatment.values()).sort((a, b) => b.leads - a.leads);
 
     // Total ad spend in the window (same campaign-snapshot source as bySource).
     // There's no per-Behandlung spend column, so we allocate this pot across
@@ -347,6 +289,8 @@ async function byTreatmentUncached(
 
 export const byTreatment = cacheClinicQuery("byTreatment", byTreatmentUncached, {
   dateArgs: [0, 1],
+  // Live data and no worker to bust the tag: keep staleness to ~30 s.
+  revalidate: SHORT_REVALIDATE_S,
 });
 
 export interface LocationBreakdownRow {
@@ -370,8 +314,8 @@ async function byLocationUncached(
       .select({
         locationId: schema.requests.locationId,
         locationName: sql<string>`coalesce(${schema.locations.name}, 'Ohne Standort')`,
-        leads: sql<number>`count(*)::int`,
-        appointments: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} IN ('termin_vereinbart','beratung_erschienen','gewonnen'))::int`,
+        leads: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} <> 'spam')::int`,
+        appointments: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} IN ('termin_vereinbart','beratung_erschienen','behandelt','gewonnen'))::int`,
         casesWon: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} = 'gewonnen')::int`,
         revenueEur: sql<number>`coalesce(sum(${schema.requests.convertedRevenueEur}) FILTER (WHERE ${schema.requests.status} = 'gewonnen'), 0)`,
       })
@@ -388,7 +332,7 @@ async function byLocationUncached(
         )
       )
       .groupBy(schema.requests.locationId, schema.locations.name)
-      .orderBy(sql`count(*) desc`);
+      .orderBy(sql`count(*) FILTER (WHERE ${schema.requests.status} <> 'spam') desc`);
 
     return rows.map((r) => ({
       locationId: r.locationId,
@@ -403,4 +347,6 @@ async function byLocationUncached(
 
 export const byLocation = cacheClinicQuery("byLocation", byLocationUncached, {
   dateArgs: [0, 1],
+  // Live data and no worker to bust the tag: keep staleness to ~30 s.
+  revalidate: SHORT_REVALIDATE_S,
 });

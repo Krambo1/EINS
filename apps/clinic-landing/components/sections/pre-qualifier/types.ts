@@ -34,6 +34,17 @@ export interface QuizState {
    * screen; aiProcessing is always false (notes field removed in v2).
    */
   consent: boolean;
+  /**
+   * Separate, optional consent to report the inquiry and a later treatment
+   * to Meta and Google (lib/ads-consent.ts). Unchecked by default, never
+   * required for submit. Maps to `consents.adsMeasurement`.
+   */
+  adsConsent: boolean;
+  /**
+   * Optional "Wie sind Sie auf uns aufmerksam geworden?" answer (closed list,
+   * lib/self-reported-source.ts). Null = skipped. Never required for submit.
+   */
+  selfReportedSource: string | null;
   errors: Partial<Record<string, string>>;
   submitting: boolean;
   submitted: boolean;
@@ -44,6 +55,8 @@ export interface QuizState {
 export type QuizAction =
   | { type: "set"; field: "treatment" | "timeframe" | "budget" | "distance" | "firstName" | "email" | "phone"; value: string }
   | { type: "setConsent"; value: boolean }
+  | { type: "setAdsConsent"; value: boolean }
+  | { type: "setSelfReportedSource"; value: string | null }
   | { type: "next" }
   | { type: "back" }
   | { type: "goto"; index: number }
@@ -62,6 +75,8 @@ export function buildInitialState(eventId: string): QuizState {
     email: "",
     phone: "",
     consent: false,
+    adsConsent: false,
+    selfReportedSource: null,
     errors: {},
     submitting: false,
     submitted: false,
@@ -111,6 +126,10 @@ export function reducer(state: QuizState, action: QuizAction): QuizState {
       };
     case "setConsent":
       return { ...state, consent: action.value, errors: { ...state.errors, consent: undefined } };
+    case "setAdsConsent":
+      return { ...state, adsConsent: action.value };
+    case "setSelfReportedSource":
+      return { ...state, selfReportedSource: action.value };
     case "next":
       return { ...state, stepIndex: state.stepIndex + 1, errors: {} };
     case "back":

@@ -17,12 +17,16 @@ import { verifyPvsEventIntegrityTag } from "@/server/pvs-event-integrity";
  * marker if the same suffix already exists — practically impossible at
  * millisecond resolution, but the contract is honoured).
  *
+ * Legacy rows (payload_sig IS NULL, ingested before migration 0060) are
+ * refused: nothing proves they were not edited at rest. An operator who has
+ * checked the row by hand can pass `?allowLegacy=1`.
+ *
  * Note: vendor_mismatch surfaces when the clinic's pvs_link.vendor has
  * changed since the original event was ingested. We surface the bridge
  * error directly so the operator can decide.
  */
 export async function POST(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const gate = await requireAdminForApi();
@@ -53,6 +57,24 @@ export async function POST(
   // A NULL tag means the row predates migration 0060 (legacy) — we allow the
   // replay but flag it so the operator knows it wasn't integrity-checked.
   const integrityChecked = detail.payloadSig !== null;
+  if (detail.payloadSig === null) {
+    const allowLegacy =
+      new URL(request.url).searchParams.get("allowLegacy") === "1";
+    if (!allowLegacy) {
+      await writeAudit({
+        clinicId: detail.clinicId,
+        actorEmail: admin.email,
+        action: "replay_rejected",
+        entityKind: "pvs_event_log",
+        entityId: detail.id,
+        diff: { reason: "legacy_unsigned" },
+      });
+      return NextResponse.json(
+        { error: { code: "legacy_unsigned" } },
+        { status: 409 }
+      );
+    }
+  }
   if (
     detail.payloadSig !== null &&
     !verifyPvsEventIntegrityTag(detail.payload, detail.payloadSig)
@@ -67,6 +89,24 @@ export async function POST(
     });
     return NextResponse.json(
       { error: { code: "integrity_failed" } },
+      { status: 409 }
+    );
+  }
+
+  // The payload is the whole canonical envelope, including clinicId. A row
+  // whose payload names another clinic than its own column was edited or
+  // mis-filed: replaying it would write into the wrong tenant.
+  if (detail.payload.clinicId !== detail.clinicId) {
+    await writeAudit({
+      clinicId: detail.clinicId,
+      actorEmail: admin.email,
+      action: "replay_rejected",
+      entityKind: "pvs_event_log",
+      entityId: detail.id,
+      diff: { reason: "clinic_mismatch" },
+    });
+    return NextResponse.json(
+      { error: { code: "clinic_mismatch" } },
       { status: 409 }
     );
   }
@@ -108,10 +148,15 @@ export async function POST(
   });
 
   if (!result.ok) {
-    return NextResponse.json(
-      { error: { code: result.reason } },
-      { status: 409 }
-    );
+    // internal_error is a server-side failure, not a state conflict.
+    // billing_conflict matches the ingest routes (422: never retryable).
+    const status =
+      result.reason === "internal_error"
+        ? 500
+        : result.reason === "billing_conflict"
+          ? 422
+          : 409;
+    return NextResponse.json({ error: { code: result.reason } }, { status });
   }
 
   return NextResponse.json({

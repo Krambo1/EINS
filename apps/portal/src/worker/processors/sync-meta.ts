@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { env, hasMeta } from "@/lib/env";
 import { decryptString } from "@/lib/crypto";
+import { berlinYesterday } from "./berlin-days";
 
 /**
  * Daily Meta Ads sync — pulls yesterday's spend/impressions/clicks/leads per
@@ -44,30 +45,55 @@ export async function processSyncMeta(job: SyncMetaJob): Promise<void> {
   }
 
   const token = decryptString(cred.accessTokenEnc);
-  const date = job.date ?? yyyyMmDd(daysAgo(1));
+  // Berlin "gestern" (DACH ad accounts report in Europe/Berlin).
+  const date = job.date ?? berlinYesterday();
+  // Token in the Authorization header, never in the URL (E-16): URLs end up
+  // in logs and error messages.
+  const authHeaders = { Authorization: `Bearer ${token}` };
 
   try {
-    // 1. List ad accounts the user has access to.
-    const accountsRes = await fetch(
-      `https://graph.facebook.com/${env.META_API_VERSION}/me/adaccounts?fields=id,name&access_token=${encodeURIComponent(token)}`,
-      { cache: "no-store" }
-    );
-    if (!accountsRes.ok) throw new Error(`meta accounts http ${accountsRes.status}`);
-    const accounts = (await accountsRes.json()) as { data?: { id: string }[] };
+    // 1. List ad accounts the user has access to (follow paging).
+    const accounts: { id: string }[] = [];
+    let next: string | null =
+      `https://graph.facebook.com/${env.META_API_VERSION}/me/adaccounts?fields=id,name&limit=100`;
+    for (let page = 0; next && page < 20; page++) {
+      const accountsRes: Response = await fetch(next, {
+        cache: "no-store",
+        headers: authHeaders,
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!accountsRes.ok) throw new Error(`meta accounts http ${accountsRes.status}`);
+      const body = (await accountsRes.json()) as {
+        data?: { id: string }[];
+        paging?: { next?: string };
+      };
+      accounts.push(...(body.data ?? []));
+      next = body.paging?.next ?? null;
+    }
 
     let spend = 0;
     let impressions = 0;
     let clicks = 0;
     let leads = 0;
+    // E-16: one failing account must not be stored as 0 €. Collect failures
+    // and throw before writing, so the previous value stays and the job/cron
+    // step retries.
+    const failedAccounts: string[] = [];
 
-    for (const acc of accounts.data ?? []) {
+    for (const acc of accounts) {
       const url = new URL(`https://graph.facebook.com/${env.META_API_VERSION}/${acc.id}/insights`);
       url.searchParams.set("time_range", JSON.stringify({ since: date, until: date }));
       url.searchParams.set("fields", "spend,impressions,clicks,actions");
-      url.searchParams.set("access_token", token);
 
-      const ins = await fetch(url, { cache: "no-store" });
-      if (!ins.ok) continue;
+      const ins = await fetch(url, {
+        cache: "no-store",
+        headers: authHeaders,
+        signal: AbortSignal.timeout(15_000),
+      });
+      if (!ins.ok) {
+        failedAccounts.push(`${acc.id}:http ${ins.status}`);
+        continue;
+      }
       const body = (await ins.json()) as {
         data?: {
           spend?: string;
@@ -85,6 +111,10 @@ export async function processSyncMeta(job: SyncMetaJob): Promise<void> {
         );
         if (leadAction) leads += Number(leadAction.value);
       }
+    }
+
+    if (failedAccounts.length > 0) {
+      throw new Error(`meta insights failed for ${failedAccounts.join(", ")}`);
     }
 
     const cpl = leads > 0 ? Number((spend / leads).toFixed(2)) : null;
@@ -132,13 +162,4 @@ export async function processSyncMeta(job: SyncMetaJob): Promise<void> {
       .where(eq(schema.platformCredentials.id, cred.id));
     throw err; // let pg-boss retry
   }
-}
-
-function daysAgo(n: number): Date {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d;
-}
-function yyyyMmDd(d: Date): string {
-  return d.toISOString().slice(0, 10);
 }

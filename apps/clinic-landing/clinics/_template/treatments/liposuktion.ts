@@ -2,6 +2,7 @@ import type { Treatment } from "@/lib/types";
 
 export const templateLiposuktion: Treatment = {
   slug: "liposuktion-stadt",
+  urlCode: "a4",
   clinicSlug: "_template",
   category: "liposuktion",
   city: "[Stadt]",

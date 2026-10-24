@@ -21,6 +21,7 @@ import {
   deleteDefaultStepAction,
   updateDefaultStepAction,
 } from "../actions";
+import { DangerSubmitButton } from "../../_components/DangerSubmitButton";
 
 const SELECT_CLASS =
   "flex h-10 w-full rounded-md border border-border bg-bg-primary px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
@@ -68,7 +69,7 @@ export function JourneyTemplateEditor({
                 required
                 minLength={2}
                 maxLength={200}
-                placeholder="z. B. Produktionstag in Ihrer Praxis"
+                placeholder="z. B. Ihre Klon-Aufnahme"
               />
             </div>
 
@@ -290,9 +291,13 @@ export function JourneyTemplateEditor({
                           className="md:col-span-12 flex justify-end border-t border-border pt-3"
                         >
                           <input type="hidden" name="id" value={s.id} />
-                          <Button type="submit" variant="outline" size="sm">
+                          <DangerSubmitButton
+                            size="sm"
+                            confirm={`Schritt „${s.title}“ aus der Standard-Journey löschen?`}
+                            pendingLabel="Wird gelöscht …"
+                          >
                             Schritt löschen
-                          </Button>
+                          </DangerSubmitButton>
                         </form>
                       </div>
                     </details>

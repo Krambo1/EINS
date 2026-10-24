@@ -205,7 +205,7 @@ export function Donut({
               transform: "translate(-50%, calc(-100% - 12px))",
             }}
           >
-            <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
+            <div className="text-sm font-medium text-fg-primary">
               {activeSlice.name}
             </div>
             <div className="mt-1 flex items-center gap-2 text-sm tabular-nums">

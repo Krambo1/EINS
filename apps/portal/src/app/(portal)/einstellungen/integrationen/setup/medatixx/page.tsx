@@ -22,7 +22,7 @@ export default async function MedatixxSetupPage() {
         <div className="mb-2 flex items-center gap-2 text-sm">
           <Link
             href="/einstellungen/integrationen/setup"
-            className="text-muted-foreground hover:underline"
+            className="inline-flex min-h-11 items-center font-medium text-fg-primary hover:underline"
           >
             ← Anbieter wählen
           </Link>
@@ -30,13 +30,15 @@ export default async function MedatixxSetupPage() {
         <h1 className="flex items-center gap-2 text-2xl font-semibold">
           <Building2 className="h-6 w-6" />
           medatixx
-          <Badge tone="accent" className="ml-2 text-xs">
-            V1
+          <Badge tone="good" className="ml-2">
+            Sofort nutzbar
           </Badge>
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Für Praxen mit medatixx, psyx oder x.isynet. Anbindung über den
-          medatixx-internen GDT-Export plus den EINS-Agent auf dem Praxis-PC.
+        <p className="mt-1 text-base text-fg-primary">
+          Für Praxen mit medatixx, psyx oder x.isynet. Anbindung über die
+          GDT-Ausgabe von medatixx und den EINS-Agent, ein kleines Programm auf
+          einem Praxisrechner. GDT ist ein Standard-Dateiformat, über das
+          Praxis-Software Daten austauscht.
         </p>
       </header>
 
@@ -45,14 +47,14 @@ export default async function MedatixxSetupPage() {
           <CardTitle className="text-base">So funktioniert es</CardTitle>
           <CardDescription>
             medatixx exportiert Patienten und Behandlungen als GDT-Dateien in
-            einen Ordner. Der EINS-Agent liest diesen Ordner, parst die Dateien
-            und schickt die Daten verschlüsselt ans Portal.
+            einen Ordner. Der EINS-Agent liest diesen Ordner und schickt die
+            Daten verschlüsselt ans Portal.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <ol className="ml-4 list-decimal space-y-2 text-sm">
             <li>
-              GDT-Ordner auf dem Praxis-PC anlegen (z.B. <code>C:\EINS\gdt\</code>).
+              GDT-Ordner auf dem Praxisrechner anlegen (z.B. <code>C:\EINS\gdt\</code>).
             </li>
             <li>
               In medatixx unter <em>Administration → Schnittstellen → GDT</em>{" "}
@@ -74,7 +76,7 @@ export default async function MedatixxSetupPage() {
         <CardHeader>
           <CardTitle className="text-base">Warum nicht HealthHub?</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-2 text-sm text-muted-foreground">
+        <CardContent className="space-y-2 text-sm text-fg-secondary">
           <p>
             medatixx bietet mit HealthHub eine native Schnittstelle an, vergibt
             den Partner-Status aber nur an wenige Hersteller. EINS wurde
@@ -98,7 +100,7 @@ export default async function MedatixxSetupPage() {
               <Server className="h-5 w-5" /> GDT-Agent einrichten
             </CardTitle>
             <CardDescription>
-              Empfohlener Weg. Setup-Dauer rund 20 Minuten. Vorab die
+              Empfohlener Weg. Die Einrichtung dauert rund 20 Minuten. Vorab die
               Schritt-für-Schritt-Anleitung lesen oder direkt starten.
             </CardDescription>
           </CardHeader>
@@ -109,17 +111,10 @@ export default async function MedatixxSetupPage() {
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
             </Button>
-            <p className="text-xs text-muted-foreground">
-              Detail-Anleitung: GDT-Konfiguration in medatixx, Lead-Token-Setup,
-              Troubleshooting.{" "}
-              <a
-                href="https://github.com/Krambo1/EINS/blob/main/apps/bridge/agent/docs/SETUP-MEDATIXX.md"
-                className="underline"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Anleitung öffnen →
-              </a>
+            <p className="text-sm text-fg-secondary">
+              Die ausführliche Anleitung (GDT-Einstellung in medatixx,
+              Einrichtungs-Code, Hilfe bei Problemen) schickt Ihnen EINS bei
+              der Einrichtung zu.
             </p>
           </CardContent>
         </Card>
@@ -130,7 +125,7 @@ export default async function MedatixxSetupPage() {
               <FileSpreadsheet className="h-5 w-5" /> CSV-Upload
             </CardTitle>
             <CardDescription>
-              Alternative für Praxen ohne dauerhaft laufenden PC oder zum
+              Alternative für Praxen ohne dauerhaft laufenden Rechner oder zum
               monatlichen Abgleich der Umsätze. Funktioniert mit dem
               medatixx-Datenexport.
             </CardDescription>
@@ -138,7 +133,7 @@ export default async function MedatixxSetupPage() {
           <CardContent>
             <Button asChild variant="outline" className="w-full">
               <Link href="/einstellungen/integrationen/setup/csv">
-                Zum CSV-Wizard
+                Zum CSV-Upload
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Link>
             </Button>

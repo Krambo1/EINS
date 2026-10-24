@@ -33,6 +33,7 @@ import {
   CHEAT_SHEET,
   type DontWarning,
 } from "@/app/(portal)/leitfaden/content";
+import { DISPLAY_TIME_ZONE } from "@/lib/formatting";
 
 /**
  * Full Vertriebsleitfaden as a downloadable, branded PDF.
@@ -98,7 +99,7 @@ const styles = StyleSheet.create({
   itemTitle: { fontSize: 11, fontWeight: 700, marginBottom: 4 },
   body: { fontSize: 10, color: COLORS.fg, marginBottom: 3 },
   patientLine: { fontSize: 10, fontWeight: 700, marginBottom: 4 },
-  label: { fontSize: 8, fontWeight: 700, color: COLORS.faint, marginTop: 6, marginBottom: 2, textTransform: "uppercase", letterSpacing: 0.5 },
+  label: { fontSize: 9, fontWeight: 700, color: COLORS.fg, marginTop: 6, marginBottom: 2 },
   note: { fontSize: 9, color: COLORS.muted, marginTop: 4, fontStyle: "italic" },
   quote: {
     borderLeftWidth: 3,
@@ -119,7 +120,7 @@ const styles = StyleSheet.create({
   // KPI strip
   kpiStrip: { flexDirection: "row", marginBottom: 4 },
   kpiCard: { flex: 1, borderWidth: 1, borderColor: COLORS.border, borderRadius: 6, padding: 8, marginRight: 8 },
-  kpiLabel: { fontSize: 8, color: COLORS.faint, textTransform: "uppercase", letterSpacing: 0.5 },
+  kpiLabel: { fontSize: 9, fontWeight: 700, color: COLORS.fg },
   kpiValue: { fontSize: 16, fontWeight: 700, marginTop: 2 },
   kpiHint: { fontSize: 8, color: COLORS.faint, marginTop: 1 },
   // Tables
@@ -127,7 +128,7 @@ const styles = StyleSheet.create({
   tHeadRow: { flexDirection: "row", backgroundColor: COLORS.surface, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   tRow: { flexDirection: "row", borderBottomWidth: 1, borderBottomColor: COLORS.border },
   tRowLast: { flexDirection: "row" },
-  th: { fontSize: 8, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, padding: 6 },
+  th: { fontSize: 9, fontWeight: 700, padding: 6 },
   td: { fontSize: 9, padding: 6 },
   thBad: { color: COLORS.bad },
   thGood: { color: COLORS.accent },
@@ -233,6 +234,7 @@ export async function generateLeitfadenPdf(): Promise<Buffer> {
     year: "numeric",
     month: "long",
     day: "numeric",
+    timeZone: DISPLAY_TIME_ZONE,
   });
 
   // WinAnsi (Helvetica/Courier) has no box-drawing glyph; down-convert rules.
@@ -260,14 +262,14 @@ export async function generateLeitfadenPdf(): Promise<Buffer> {
         <View style={styles.toc}>
           {[
             "Sechs goldene Prinzipien",
-            "KPI-Ziele für jeden Anruf",
+            "Zielwerte für jeden Anruf",
             "Vor jedem Anruf in 30 Sekunden",
             "Gesprächs-Eröffnung, wortwörtlich",
-            "Discovery: 14 Fragen in vier Blöcken",
+            "Bedarf klären: 14 Fragen in vier Blöcken",
             "Einwandbehandlung: 23 Patienten-Einwände",
             "HWG-Quick-Reference: Sag-So, Sag-So-Nicht",
-            "Termin-Close und DSGVO-Datenaufnahme",
-            "No-Show-Prävention: Cadence und Vorlagen",
+            "Termin festmachen und DSGVO-Datenaufnahme",
+            "No-Show-Prävention: Erinnerungsplan und Vorlagen",
             "Was Sie unbedingt vermeiden",
             "Cheat-Sheet zum Ausdrucken",
             "Rechtsgrundlagen, kompakt",
@@ -292,7 +294,7 @@ export async function generateLeitfadenPdf(): Promise<Buffer> {
         ))}
 
         {/* 2. KPI */}
-        <SectionHeading n={2} title="KPI-Ziele für jeden Anruf" />
+        <SectionHeading n={2} title="Zielwerte für jeden Anruf" />
         <View style={styles.kpiStrip}>
           {KPIS.map((k) => (
             <View key={k.id} style={styles.kpiCard}>
@@ -319,7 +321,7 @@ export async function generateLeitfadenPdf(): Promise<Buffer> {
         ))}
 
         {/* 5. Discovery */}
-        <SectionHeading n={5} title="Discovery: 14 Fragen in vier Blöcken" intro={DISCOVERY_INTRO} />
+        <SectionHeading n={5} title="Bedarf klären: 14 Fragen in vier Blöcken" intro={DISCOVERY_INTRO} />
         {DISCOVERY_BLOCKS.map((b) => (
           <View key={b.id} style={styles.card} wrap={false}>
             <Text style={styles.itemTitle}>{b.title}</Text>
@@ -384,7 +386,7 @@ export async function generateLeitfadenPdf(): Promise<Buffer> {
         ))}
 
         {/* 8. Close + DSGVO */}
-        <SectionHeading n={8} title="Termin-Close und DSGVO-Datenaufnahme" />
+        <SectionHeading n={8} title="Termin festmachen und DSGVO-Datenaufnahme" />
         {CLOSE_STEPS.map((s) => (
           <View key={s.id} style={styles.card} wrap={false}>
             <Text style={styles.itemTitle}>{s.title}</Text>
@@ -395,7 +397,7 @@ export async function generateLeitfadenPdf(): Promise<Buffer> {
         ))}
 
         {/* 9. No-Show */}
-        <SectionHeading n={9} title="No-Show-Prävention: Cadence und Vorlagen" intro={NO_SHOW_INTRO} />
+        <SectionHeading n={9} title="No-Show-Prävention: Erinnerungsplan und Vorlagen" intro={NO_SHOW_INTRO} />
         <View style={styles.table} wrap={false}>
           <View style={styles.tHeadRow}>
             <Text style={[styles.th, { width: "25%" }]}>Zeitpunkt</Text>

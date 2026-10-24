@@ -1,7 +1,5 @@
-import {
-  isValidTokenShape,
-  postUnsubscribe,
-} from "@/lib/portal-review-tokens";
+import { isValidTokenShape } from "@/lib/portal-review-tokens";
+import { confirmUnsubscribe } from "./actions";
 
 export const dynamic = "force-dynamic";
 export const metadata = {
@@ -10,22 +8,53 @@ export const metadata = {
 };
 
 /**
- * EINS Bewertungen — one-click unsubscribe target.
+ * EINS Bewertungen: unsubscribe page for the footer link of the review mail.
  *
- * Per §7 UWG / RFC 8058, clicking the unsubscribe link MUST take effect
- * without a further confirmation step. We process the request server-side
- * on first render and show a static confirmation page.
+ * GET shows ONE button and changes nothing (B-22): mail security scanners
+ * open every link and would otherwise opt patients out silently. The button
+ * posts to a server action, which calls the portal. Mail clients with RFC 8058
+ * one-click POST straight to the portal API (List-Unsubscribe header) and
+ * never see this page.
  */
 export default async function UnsubscribePage({
   searchParams,
 }: {
-  searchParams: { token?: string };
+  searchParams: { token?: string; status?: string };
 }) {
   const token = searchParams.token ?? "";
   const valid = isValidTokenShape(token);
-  const result = valid
-    ? await postUnsubscribe(token)
-    : { ok: false, clinicName: null };
+  const status = searchParams.status;
+  const result = {
+    ok: valid && status === "done",
+    clinicName: null as string | null,
+  };
+
+  if (valid && status !== "done" && status !== "failed") {
+    return (
+      <main className="min-h-[100dvh] bg-brand-bg-soft">
+        <div className="mx-auto max-w-xl px-4 py-16 md:py-24">
+          <div className="rounded-brand-lg border border-brand-border bg-brand-bg p-8 text-center sm:p-10">
+            <h1 className="mt-2 text-2xl font-semibold text-brand-fg">
+              Keine Bewertungs-Erinnerungen mehr?
+            </h1>
+            <p className="mt-3 text-brand-fg-muted">
+              Mit einem Klick melden Sie sich ab. Danach erhalten Sie von dieser
+              Praxis keine Erinnerungen rund um Bewertungen mehr per E-Mail.
+            </p>
+            <form action={confirmUnsubscribe} className="mt-6">
+              <input type="hidden" name="token" value={token} />
+              <button
+                type="submit"
+                className="inline-flex items-center justify-center rounded-brand bg-brand-primary px-5 py-3 text-sm font-medium text-white hover:opacity-90 disabled:opacity-60"
+              >
+                Jetzt abmelden
+              </button>
+            </form>
+          </div>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-[100dvh] bg-brand-bg-soft">

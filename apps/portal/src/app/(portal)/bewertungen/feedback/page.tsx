@@ -1,12 +1,11 @@
 import Link from "next/link";
-import { ExternalLink, MessageSquare, Star } from "lucide-react";
+import { ExternalLink, Star } from "lucide-react";
 import {
   Badge,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
-  EmptyState,
 } from "@eins/ui";
 import { requirePermissionOrRedirect } from "@/auth/guards";
 import {
@@ -16,6 +15,7 @@ import {
 } from "@/lib/constants";
 import { formatDateTime } from "@/lib/formatting";
 import { listPatientFeedback } from "@/server/queries/patient-feedback";
+import { BewertungenSectionTabs } from "../_components/BewertungenSectionTabs";
 
 export const metadata = { title: "Patientenfeedback" };
 
@@ -51,14 +51,17 @@ export default async function PatientenfeedbackPage({
   return (
     <div className="space-y-8">
       <header data-tour="feedback-header">
-        <h1 className="text-3xl font-semibold md:text-4xl">Patientenfeedback.</h1>
+        <h1 className="text-3xl font-semibold md:text-4xl">Bewertungen.</h1>
         <p className="mt-2 text-base text-fg-primary md:text-lg">
-          Alle Rückmeldungen Ihrer Patient:innen &mdash; vertrauliche Nachrichten
+          Alle Rückmeldungen Ihrer Patienten: vertrauliche Nachrichten
           und Weiterleitungen zu Google/Jameda in einer gemeinsamen Ansicht.
         </p>
       </header>
 
-      {/* Filter chips */}
+      <BewertungenSectionTabs />
+
+      {/* Filter chips, only once there is something to filter. */}
+      {(rows.length > 0 || status) && (
       <nav aria-label="Filter">
         <ul className="flex flex-wrap gap-2 text-sm">
           <FilterChip href="/bewertungen/feedback" active={!status}>
@@ -75,6 +78,7 @@ export default async function PatientenfeedbackPage({
           ))}
         </ul>
       </nav>
+      )}
 
       <Card>
         <CardHeader>
@@ -82,21 +86,11 @@ export default async function PatientenfeedbackPage({
         </CardHeader>
         <CardContent className="p-0">
           {rows.length === 0 ? (
-            <div className="p-6">
-              <EmptyState
-                icon={<MessageSquare className="h-8 w-8" />}
-                title={
-                  status
-                    ? "Keine Rückmeldungen in diesem Status"
-                    : "Noch keine Rückmeldungen"
-                }
-                description={
-                  status
-                    ? "Wechseln Sie auf einen anderen Filter."
-                    : "Sobald Patient:innen auf eine Bewertungs-Anfrage reagieren — ob vertraulich an Sie oder öffentlich bei Google/Jameda — erscheinen sie hier."
-                }
-              />
-            </div>
+            <p className="text-sm text-fg-primary">
+              {status
+                ? "Keine Rückmeldungen in diesem Status. Wechseln Sie auf einen anderen Filter."
+                : "Noch keine Rückmeldungen. Sobald Patienten auf eine Bewertungs-Anfrage reagieren, erscheinen sie hier."}
+            </p>
           ) : (
             <ul className="divide-y divide-border">
               {rows.map((r) => {
@@ -127,20 +121,20 @@ export default async function PatientenfeedbackPage({
                         {!isPublicRedirect && r.contactBackOk && (
                           <Badge tone="accent">Rückruf gewünscht</Badge>
                         )}
-                        <span className="text-xs text-fg-tertiary tabular-nums">
+                        <span className="text-sm text-fg-secondary tabular-nums">
                           {formatDateTime(r.createdAt)}
                         </span>
                       </div>
                       <div className="text-sm text-fg-secondary">
                         {r.contactName ?? "Ohne Namen"}
                         {r.contactEmail && (
-                          <span className="ml-2 text-fg-tertiary">{r.contactEmail}</span>
+                          <span className="ml-2 text-fg-secondary">{r.contactEmail}</span>
                         )}
                       </div>
                       {isPublicRedirect ? (
-                        <p className="text-sm italic text-fg-tertiary">
-                          Patient:in wurde zur öffentlichen Bewertung
-                          weitergeleitet — kein vertraulicher Freitext.
+                        <p className="text-sm italic text-fg-secondary">
+                          Der Patient wurde zur öffentlichen Bewertung
+                          weitergeleitet, kein vertraulicher Freitext.
                         </p>
                       ) : (
                         r.freeText && (
@@ -176,7 +170,7 @@ function FilterChip({
         href={href}
         className={
           active
-            ? "inline-flex items-center rounded-full bg-fg-primary px-3 py-1.5 font-medium text-bg-primary"
+            ? "inline-flex items-center rounded-full border border-fg-primary bg-fg-primary px-3 py-1.5 font-medium text-bg-primary"
             : "inline-flex items-center rounded-full border border-border bg-bg-primary px-3 py-1.5 text-fg-secondary hover:bg-bg-secondary"
         }
       >

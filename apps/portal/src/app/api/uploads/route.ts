@@ -7,6 +7,7 @@ import { getAdminSession } from "@/auth/admin";
 import { getSession } from "@/auth/session";
 import { hasR2 } from "@/lib/env";
 import { VIDEO_KEY_PREFIX } from "@/lib/outreach-video";
+import { CLONE_DOCUMENT_KEY_PATTERN } from "@/lib/clone-record";
 import {
   GENERAL_UPLOAD_EXTENSIONS,
   MAX_VIDEO_UPLOAD_BYTES,
@@ -26,11 +27,16 @@ import {
  *   • Byte cap enforced WHILE streaming, not after.
  *   • Path traversal + symlink containment via resolved-path prefix check.
  *
- * In production with STORAGE_DRIVER=r2 this route is unused and returns 404
- * (uploads go straight to R2, bypassing the serverless body limit).
+ * Answers 404 whenever R2 is configured AND always in production: a
+ * production deploy without R2 must fail visibly (config error in the logs
+ * and /api/health `config.storage:false`), not write patient files to the
+ * ephemeral function disk (B-29).
  */
 
 const STORAGE_ROOT = resolve(process.cwd(), "storage");
+
+/** `<clinicId>/assets/<uuid>.<ext>`, the key createUploadTarget mints for scope "assets". */
+const ADMIN_ASSET_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/assets\/[0-9a-f-]{36}\.[a-z0-9]{1,8}$/;
 
 // Checklist upload profiles allow a few extensions beyond the general list.
 const EXTRA_ALLOWED = ["svg", "eps", "ai"];
@@ -40,7 +46,9 @@ const ALLOWED_EXTENSIONS = new Set([
 ]);
 
 export async function POST(req: NextRequest) {
-  if (hasR2()) return new NextResponse("Not Found", { status: 404 });
+  if (hasR2() || process.env.NODE_ENV === "production") {
+    return new NextResponse("Not Found", { status: 404 });
+  }
 
   const key = req.nextUrl.searchParams.get("key") ?? "";
   if (!key || key.includes("..") || key.startsWith("/") || key.includes("\\")) {
@@ -52,6 +60,13 @@ export async function POST(req: NextRequest) {
     if (!(await getAdminSession())) {
       return new NextResponse("Unauthorized", { status: 401 });
     }
+  } else if (ADMIN_ASSET_KEY.test(key) && (await getAdminSession())) {
+    // Post files EINS uploads for a Praxis (admin tab "Beiträge",
+    // server/content.ts): clinic-scoped key, written by an admin session.
+  } else if (CLONE_DOCUMENT_KEY_PATTERN.test(key) && (await getAdminSession())) {
+    // KI-Klon consent and training opt-out (admin tab "KI-Klon",
+    // server/clone.ts): `klon/<clinicId>/…`, outside the Praxis prefix, so
+    // only an admin session writes it and the Praxis file route never serves it.
   } else {
     const session = await getSession();
     if (!session) return new NextResponse("Unauthorized", { status: 401 });

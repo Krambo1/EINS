@@ -1,8 +1,9 @@
 import "server-only";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { unsubscribePatient } from "@/server/patient-events";
 import { enqueueEmail } from "@/server/jobs";
+import { sendEmailOnce } from "@/server/email-once";
 import { env } from "@/lib/env";
 import { renderFeedbackAlertEmail } from "@/server/email/templates/feedback-alert";
 
@@ -46,7 +47,8 @@ type ReviewRequestWithClinic = {
 };
 
 export async function resolveReviewToken(
-  token: string
+  token: string,
+  opts: { allowExpired?: boolean } = {}
 ): Promise<ReviewRequestWithClinic | null> {
   if (!isValidTokenShape(token)) return null;
 
@@ -81,7 +83,10 @@ export async function resolveReviewToken(
   // Hard expiry check. NULL expiresAt means a legacy row that pre-dates
   // migration 0035 — the migration backfills, but defend in code anyway
   // so a missed migration in dev doesn't silently re-open the leak window.
-  if (!row.expiresAt || row.expiresAt < new Date()) {
+  // `allowExpired` is for unsubscribe only (E-18): an opt-out must keep
+  // working after the 90-day rating window, otherwise an old link fails and
+  // the next mail still goes out (§ 7 UWG).
+  if (!opts.allowExpired && (!row.expiresAt || row.expiresAt < new Date())) {
     return null;
   }
   // Strip expiresAt from the public shape: callers do not need it.
@@ -117,10 +122,11 @@ export function resolveGoogleReviewTarget(input: {
 }
 
 /**
- * Record the first 1..5 rating click. Once a rating is stored it is the
- * patient's truth; a second click (e.g. the patient revisits the email on
- * another device) doesn't change `rating_value` but does refresh
- * `rating_clicked_at`. Implemented as a single SQL statement so the two
+ * Record a 1..5 rating click from the landing page. The LATEST click wins
+ * until the patient submits private feedback (E-31): mail scanners that open
+ * all five star links in order used to pin the first one (1 ★) as the
+ * patient's rating forever. After feedback, the submitted rating is final.
+ * Also refreshes `rating_clicked_at`. Implemented as a single SQL statement so the two
  * fields stay consistent under concurrent revisits.
  */
 export async function recordRatingClick(
@@ -136,7 +142,7 @@ export async function recordRatingClick(
   await db.execute(sql`
     UPDATE review_email_schedule
        SET rating_clicked_at = now(),
-           rating_value      = COALESCE(rating_value, ${rating})
+           rating_value      = CASE WHEN feedback_at IS NULL THEN ${rating} ELSE rating_value END
      WHERE review_token = ${token}
        AND kind         = 'review_request'
   `);
@@ -322,19 +328,50 @@ export async function recordFeedback(
     return { ok: false, reason: "not_found" };
   }
 
-  // First successful submission. Update the review-request row — note:
-  // ratingValue uses COALESCE so the *first* recorded rating wins (matches
-  // recordRatingClick semantics + closes the H-19 "replay overwrites
-  // rating" bug even though the replay path now short-circuits before this
+  // First successful submission. The submitted rating is a deliberate act and
+  // overrides any landing-page click (E-31). Replays never reach this point
+  // (they short-circuit above, H-19), so it cannot overwrite a later value
+  // (the replay guard above is what closes H-19; no COALESCE needed here
   // point).
   const { sql } = await import("drizzle-orm");
   await db.execute(sql`
     UPDATE review_email_schedule
        SET feedback_at  = now(),
            status       = 'completed',
-           rating_value = COALESCE(rating_value, ${submission.rating})
+           rating_value = ${submission.rating}
      WHERE id = ${reviewRequest.reviewRequestId}
   `);
+
+  // In-app bell for the Inhaber:innen (E-30), independent of mail delivery.
+  // No patient data in the text; the link leads behind the login.
+  try {
+    const owners = await db
+      .select({ id: schema.clinicUsers.id })
+      .from(schema.clinicUsers)
+      .where(
+        and(
+          eq(schema.clinicUsers.clinicId, reviewRequest.clinicId),
+          eq(schema.clinicUsers.role, "inhaber"),
+          isNull(schema.clinicUsers.archivedAt)
+        )
+      );
+    if (owners.length > 0) {
+      await db.insert(schema.notifications).values(
+        owners.map((u) => ({
+          userId: u.id,
+          clinicId: reviewRequest.clinicId,
+          kind: "patient_feedback",
+          title: `Neue Patienten-Rückmeldung (${submission.rating} ★)`,
+          body: submission.contactBackOk
+            ? "Rückruf gewünscht. Details im Portal."
+            : "Details im Portal.",
+          link: `/bewertungen/feedback/${inserted.id}`,
+        }))
+      );
+    }
+  } catch (err) {
+    console.error("[review-tokens] feedback notification failed:", err);
+  }
 
   // Alert the Praxis. Best-effort — failure must not break the patient flow.
   try {
@@ -353,14 +390,29 @@ export async function recordFeedback(
           submission.contactEmail ?? reviewRequest.patientEmail ?? null,
         contactBackOk: submission.contactBackOk,
       });
-      await enqueueEmail({
+      // Inline send (E-30): this alarm is the Praxis's only signal about a
+      // negative patient experience and must not wait for the worker. The
+      // ledger key makes a replay/second path a no-op.
+      const mail = {
         to: inbox,
         subject: rendered.subject,
         text: rendered.text,
         html: rendered.html,
         clinicId: reviewRequest.clinicId,
-        klass: "transactional",
-      });
+        klass: "transactional" as const,
+      };
+      try {
+        await sendEmailOnce({ ...mail, key: `feedback-alert/${inserted.id}` });
+      } catch (sendErr) {
+        console.error(
+          `[review-tokens] inline alert failed feedback=${inserted.id}, queued as fallback:`,
+          sendErr instanceof Error ? sendErr.message : sendErr
+        );
+        // Retry net for when the worker runs; the key keeps Resend from
+        // delivering twice if the inline attempt actually went through.
+        const queued = { ...mail, idempotencyKey: `feedback-alert/${inserted.id}` };
+        await enqueueEmail(queued);
+      }
     } else {
       console.warn(
         `[review-tokens] no inbox configured for clinic=${reviewRequest.clinicId}, feedback ${inserted.id} not alerted`
@@ -398,7 +450,7 @@ export async function unsubscribeViaToken(
   token: string
 ): Promise<{ ok: boolean; clinicName?: string }> {
   if (!isValidTokenShape(token)) return { ok: false };
-  const reviewRequest = await resolveReviewToken(token);
+  const reviewRequest = await resolveReviewToken(token, { allowExpired: true });
   if (!reviewRequest || !reviewRequest.patientEmail) return { ok: false };
   await unsubscribePatient(
     reviewRequest.clinicId,

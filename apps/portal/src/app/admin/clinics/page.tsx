@@ -41,6 +41,7 @@ interface PageProps {
     search?: string;
     sort?: string;
     dir?: string;
+    hinweis?: string;
   }>;
 }
 
@@ -63,7 +64,7 @@ const STATUS_OPTIONS = [
   { value: "alle", label: "Status: alle" },
 ];
 const HEALTH_OPTIONS = [
-  { value: "alle", label: "Health: alle" },
+  { value: "alle", label: "Zustand: alle" },
   { value: "good", label: "Gesund" },
   { value: "warn", label: "Beobachten" },
   { value: "bad", label: "Reagieren" },
@@ -113,7 +114,7 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
 
   const baseQuery: Record<string, string> = {};
   for (const [k, v] of Object.entries(params)) {
-    if (typeof v === "string") baseQuery[k] = v;
+    if (typeof v === "string" && k !== "hinweis") baseQuery[k] = v;
   }
 
   const totalSpend = sorted.reduce((acc, r) => acc + r.spendEur, 0);
@@ -149,7 +150,7 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
     {
       key: "roas",
       align: "right",
-      header: <SortLink label="ROAS" sortKey="roas" current={sortKey} dir={dir} baseQuery={baseQuery} align />,
+      header: <SortLink label="Werbeertrag" sortKey="roas" current={sortKey} dir={dir} baseQuery={baseQuery} align />,
       render: (c) => (
         <span className="tabular-nums">{c.roas == null ? "–" : `${c.roas.toFixed(2)}×`}</span>
       ),
@@ -163,12 +164,12 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
     {
       key: "cases",
       align: "right",
-      header: <SortLink label="Cases" sortKey="cases" current={sortKey} dir={dir} baseQuery={baseQuery} align />,
+      header: <SortLink label="Abschlüsse" sortKey="cases" current={sortKey} dir={dir} baseQuery={baseQuery} align />,
       render: (c) => <span className="tabular-nums">{formatNumber(c.casesWon)}</span>,
     },
     {
       key: "health",
-      header: "Health",
+      header: "Zustand",
       render: (c) => (
         <span className="inline-flex items-center gap-1.5 text-xs text-fg-secondary">
           <span className={`inline-block h-2.5 w-2.5 rounded-full ${TONE_DOT[c.healthTone]}`} aria-hidden />
@@ -192,8 +193,8 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
     {
       key: "noShow",
       secondary: true,
-      detailLabel: "No-Show",
-      header: "No-Show",
+      detailLabel: "Nicht erschienen",
+      header: "Nicht erschienen",
       render: (c) => (c.noShowRate == null ? "–" : formatPercent(c.noShowRate)),
     },
     {
@@ -232,7 +233,21 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
       <AdminPageHeader
         title="Alle Praxen"
         subtitle={`${sorted.length} von ${all.length} Praxen sichtbar. Zahlen sind 30-Tage-Werte.`}
+        actions={
+          <Button asChild>
+            <Link href="/admin/clinics/neu">Neue Praxis</Link>
+          </Button>
+        }
       />
+
+      {typeof params.hinweis === "string" && (
+        <p
+          role="status"
+          className="rounded-md border border-border bg-bg-secondary px-4 py-3 text-base text-fg-primary"
+        >
+          {params.hinweis}
+        </p>
+      )}
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <MetricTile label="Werbebudget" value={formatEuro(totalSpend)} sublabel="30 Tage" />
@@ -243,11 +258,11 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
           tone="accent"
         />
         <MetricTile
-          label="Ø ROAS"
+          label="Ø Werbeertrag"
           value={avgRoas == null ? "–" : `${avgRoas.toFixed(2)}×`}
           sublabel={`${formatNumber(totalLeads)} Anfragen`}
         />
-        <MetricTile label="Cases gewonnen" value={formatNumber(totalCases)} sublabel="30 Tage" />
+        <MetricTile label="Abschlüsse" value={formatNumber(totalCases)} sublabel="30 Tage" />
       </div>
 
       <Card>
@@ -258,8 +273,8 @@ export default async function AdminClinicsPage({ searchParams }: PageProps) {
             <AdminUrlSelect param="health" value={params.health ?? "alle"} options={HEALTH_OPTIONS} />
             <AdminUrlSelect param="activity" value={params.activity ?? "alle"} options={ACTIVITY_OPTIONS} />
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-fg-secondary">
-            <span>Aktive Filter:</span>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-fg-primary">
+            <span className="font-medium">Aktive Filter:</span>
             {activeChips.length === 0 ? (
               <Badge tone="neutral">Keine</Badge>
             ) : (

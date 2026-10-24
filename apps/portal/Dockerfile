@@ -68,7 +68,14 @@ WORKDIR /app
 # worker/index.ts gets to drain in-flight jobs (boss.stop graceful)
 # before the container exits. Without it, Docker sends SIGKILL after
 # the grace period and in-flight jobs are left to expire + retry.
+#
+# postgresql17-client provides pg_dump for the nightly db-backup job (E-03).
+# A newer pg_dump can dump older servers, so 17 covers Neon on PG 16 and 17.
+# Falls back to Alpine's default client if the 17 package is not in this
+# Alpine release; a version mismatch then fails the job cleanly with an ops
+# alert instead of crashing the worker.
 RUN apk add --no-cache tini \
+ && (apk add --no-cache postgresql17-client || apk add --no-cache postgresql-client) \
  && npm install -g tsx@${TSX_VERSION} \
  && npm cache clean --force
 

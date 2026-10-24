@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   businessMsBetween,
+  deriveUploadReason,
   evaluateAgentLiveness,
   evaluateHeartbeatHealth,
   healthSignature,
@@ -92,6 +93,16 @@ describe("evaluateHeartbeatHealth", () => {
     expect(c.body).toContain("ECONNREFUSED");
   });
 
+  it("flags suspect_empty and auth_failed streams (need a human, revenue stays at zero)", () => {
+    for (const status of ["suspect_empty", "auth_failed"]) {
+      const [c] = evaluateHeartbeatHealth(
+        healthy({ adapterStatuses: [stream({ status, lastError: "Statuswerte: [B, O]" })] })
+      );
+      expect(c.key).toBe("stream_halted");
+      expect(c.body).toContain("Statuswerte");
+    }
+  });
+
   it("does not flag idle or disabled streams", () => {
     expect(
       evaluateHeartbeatHealth(
@@ -123,6 +134,7 @@ describe("evaluateHeartbeatHealth", () => {
         missingFolders: ["S:\\GDT"],
         dbAdaptersFailed: "boom",
         adapterStatuses: [stream({ status: "error" })],
+        clockSkewSeconds: 3600,
       })
     ).map((c) => c.key);
     expect(new Set(keys)).toEqual(new Set(HEARTBEAT_SCOPE_KEYS));
@@ -402,6 +414,74 @@ describe("healthSignature", () => {
   it("distinguishes a different missing folder from a different count", () => {
     expect(healthSignature(healthy({ missingFolders: ["a"] }))).not.toBe(
       healthSignature(healthy({ missingFolders: ["b"] }))
+    );
+  });
+});
+
+describe("dead_letter and upload reason (WP-C B5)", () => {
+  it("raises dead_letter only when the failed count rises", () => {
+    const rise = evaluateHeartbeatHealth(
+      healthy({ deadLetter: { count: 5, priorCount: 0, reasons: ["invalid_envelope"] } })
+    );
+    const c = rise.find((x) => x.key === "dead_letter")!;
+    expect(c.severity).toBe("high");
+    expect(c.body).toContain("invalid_envelope");
+    expect(
+      evaluateHeartbeatHealth(
+        healthy({ deadLetter: { count: 5, priorCount: 5, reasons: [] } })
+      ).some((x) => x.key === "dead_letter")
+    ).toBe(false);
+    expect(
+      evaluateHeartbeatHealth(
+        healthy({ deadLetter: { count: 2, priorCount: 5, reasons: [] } })
+      ).some((x) => x.key === "dead_letter")
+    ).toBe(false);
+  });
+
+  it("dead_letter is not in the auto-resolve scope", () => {
+    expect((HEARTBEAT_SCOPE_KEYS as readonly string[]).includes("dead_letter")).toBe(false);
+  });
+
+  it("backlog_stuck uses the upload reason and drops the firewall advice", () => {
+    const [c] = evaluateHeartbeatHealth(
+      healthy({ stalePendingEvents: 3, uploadReason: "link_not_ready" })
+    );
+    expect(c.key).toBe("backlog_stuck");
+    expect(c.body).toContain("link_not_ready");
+    expect(c.actionSteps.join(" ")).not.toMatch(/Firewall|Proxy/);
+  });
+
+  it("backlog_stuck keeps the generic text without a reason", () => {
+    const [c] = evaluateHeartbeatHealth(healthy({ stalePendingEvents: 3 }));
+    expect(c.actionSteps.join(" ")).toMatch(/Firewall/);
+  });
+
+  it("deriveUploadReason prefers auth pause, then batch error, then top pending reason", () => {
+    expect(
+      deriveUploadReason({
+        uploadState: { authPaused: true, lastBatchError: "x", consecutiveTransientFailures: 0 },
+        pendingReasons: [{ reason: "y", count: 1 }],
+      })
+    ).toMatch(/Anmeldung|Signatur/);
+    expect(
+      deriveUploadReason({
+        uploadState: { authPaused: false, lastBatchError: "timeout", consecutiveTransientFailures: 2 },
+        pendingReasons: [{ reason: "y", count: 1 }],
+      })
+    ).toContain("timeout");
+    expect(
+      deriveUploadReason({ pendingReasons: [{ reason: "link_not_ready", count: 4 }] })
+    ).toContain("link_not_ready");
+    expect(deriveUploadReason({})).toBeNull();
+    expect(deriveUploadReason(null)).toBeNull();
+  });
+
+  it("the reason is part of the signature only while a backlog exists", () => {
+    const a = healthSignature(healthy({ stalePendingEvents: 3, uploadReason: "a" }));
+    const b = healthSignature(healthy({ stalePendingEvents: 3, uploadReason: "b" }));
+    expect(a).not.toBe(b);
+    expect(healthSignature(healthy({ uploadReason: "a" }))).toBe(
+      healthSignature(healthy({ uploadReason: "b" }))
     );
   });
 });

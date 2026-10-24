@@ -6,17 +6,19 @@ import { drainTrackQueue, track } from "./track";
 
 interface Props {
   pixelId: string;
-  /** Used as the event_id for the initial PageView (matches CAPI server-side). */
-  pageViewEventId: string;
 }
 
 /**
  * Meta Pixel — mounts ONLY after marketing consent.
  *
- * Initializes `window.fbq`, fires the standard PageView with the dedup id, then
- * drains any queued events that fired before consent was granted.
+ * Initializes `window.fbq` with automatic collection OFF (no button texts,
+ * page title/description or JSON-LD, which name the treatment; no automatic
+ * advanced matching), fires exactly one standard PageView per page load with
+ * a per-load event id, then drains queued events (track() lets only PageView
+ * through to Meta). The page is statically built, so the id is generated in
+ * the browser, never at build time.
  */
-export function MetaPixel({ pixelId, pageViewEventId }: Props) {
+export function MetaPixel({ pixelId }: Props) {
   const consent = useConsent();
   const initialized = React.useRef(false);
 
@@ -46,17 +48,22 @@ export function MetaPixel({ pixelId, pageViewEventId }: Props) {
     })(window, document, "script", "https://connect.facebook.net/en_US/fbevents.js");
     /* eslint-enable */
 
+    // Must run before init: stops the pixel reading button texts, page
+    // metadata and JSON-LD. Automatic advanced matching stays off (no
+    // user data passed to init).
+    window.fbq?.("set", "autoConfig", false, pixelId);
     window.fbq?.("init", pixelId);
-    window.fbq?.("track", "PageView", undefined, { eventID: pageViewEventId });
+    track({ event: "PageView", eventId: pageViewId(), platforms: ["meta"] });
     drainTrackQueue();
-  }, [consent.marketing, pixelId, pageViewEventId]);
-
-  // Re-fire PageView on route changes (App Router) — not strictly needed for a
-  // single landing page, but keeps the pixel honest if we add internal nav later.
-  React.useEffect(() => {
-    if (!consent.marketing) return;
-    track({ event: "PageView", eventId: pageViewEventId, serverRelay: false });
-  }, [consent.marketing, pageViewEventId]);
+  }, [consent.marketing, pixelId]);
 
   return null;
+}
+
+function pageViewId(): string {
+  const rand =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2) + Date.now().toString(36);
+  return `pv-${rand}`;
 }

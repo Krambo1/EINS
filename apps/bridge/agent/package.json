@@ -1,10 +1,13 @@
 {
   "name": "eins-agent",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "EINS PVS Bridge: on-prem agent for Praxis-Software (GDT, CSV, SQL-introspection) on Windows + macOS",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
+  "engines": {
+    "node": ">=20.18.0"
+  },
   "bin": {
     "eins-agent": "./dist/index.js"
   },
@@ -14,7 +17,9 @@
     "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
     "build:bundle": "tsc -p tsconfig.json && node scripts/copy-assets.mjs && node scripts/bundle.mjs",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "config:keygen": "tsx scripts/pvs-config-keygen.ts",
+    "config:sign": "tsx scripts/sign-vendor-config.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.10.0",
@@ -26,7 +31,7 @@
     "node-firebird": "^1.1.9",
     "oracledb": "^6.6.0",
     "pg": "^8.13.1",
-    "undici": "^8.7.0",
+    "undici": "^6.29.0",
     "yaml": "^2.6.1"
   },
   "devDependencies": {

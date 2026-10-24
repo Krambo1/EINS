@@ -30,34 +30,49 @@ export function LocationMappingRow({
   const [pending, startTransition] = useTransition();
   const [picked, setPicked] = useState<string | null>(currentPortalId ?? null);
   const [localStatus, setLocalStatus] = useState(status);
+  const [error, setError] = useState<string | null>(null);
 
   function save(newStatus: "mapped" | "ignored" | "unmapped") {
+    setError(null);
     startTransition(async () => {
-      const r = await mapLocationAction({
-        mappingId,
-        portalLocationId: newStatus === "mapped" ? picked : null,
-        setStatus: newStatus,
-      });
-      if (r.ok) setLocalStatus(newStatus);
+      try {
+        const r = await mapLocationAction({
+          mappingId,
+          portalLocationId: newStatus === "mapped" ? picked : null,
+          setStatus: newStatus,
+        });
+        if (r.ok) setLocalStatus(newStatus);
+        else setError(r.error ?? "Speichern hat nicht geklappt. Bitte versuchen Sie es noch einmal.");
+      } catch {
+        setError("Keine Verbindung. Bitte versuchen Sie es noch einmal.");
+      }
     });
   }
 
   return (
     <tr className="border-t">
-      <td className="p-3">
-        <code className="text-xs">{pvsId}</code>
+      <td className="hidden p-3 sm:table-cell">
+        <code className="text-sm">{pvsId}</code>
       </td>
-      <td className="p-3">{pvsLabel ?? "—"}</td>
+      <td className="p-3">
+        {pvsLabel ?? "–"}
+        <div className="mt-0.5 sm:hidden">
+          <span className="text-sm text-fg-primary">Nummer aus Ihrer Praxissoftware: </span>
+          <code className="text-sm text-fg-primary">{pvsId}</code>
+        </div>
+      </td>
       <td className="p-3">
         <Select
           value={picked ?? "__none__"}
           onValueChange={(v) => setPicked(v === "__none__" ? null : v)}
         >
           <SelectTrigger className="h-8 w-full max-w-xs">
-            <SelectValue placeholder="— wählen —" />
+            <SelectValue placeholder="Bitte wählen">
+              {locations.find((l) => l.id === picked)?.name ?? "Bitte wählen"}
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="__none__">— wählen —</SelectItem>
+            <SelectItem value="__none__">Bitte wählen</SelectItem>
             {locations.map((l) => (
               <SelectItem key={l.id} value={l.id}>
                 {l.name}
@@ -67,12 +82,12 @@ export function LocationMappingRow({
         </Select>
       </td>
       <td className="space-x-1 p-3">
-        {localStatus === "mapped" && <Badge tone="good">zugeordnet</Badge>}
+        {localStatus === "mapped" && <Badge tone="good">Zugeordnet</Badge>}
         {localStatus === "ignored" && (
-          <Badge tone="neutral">ignoriert</Badge>
+          <Badge tone="neutral">Ignoriert</Badge>
         )}
         {localStatus === "unmapped" && (
-          <Badge tone="warn">offen</Badge>
+          <Badge tone="warn">Offen</Badge>
         )}
         <div className="mt-1 flex flex-wrap gap-1">
           <Button
@@ -94,6 +109,7 @@ export function LocationMappingRow({
             </Button>
           )}
         </div>
+        {error && <p className="mt-1 text-sm text-tone-bad">{error}</p>}
       </td>
     </tr>
   );

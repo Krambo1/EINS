@@ -90,19 +90,21 @@ export const db = drizzle(superClient(), { schema });
 export const dbApp = drizzle(appClient(), { schema });
 
 export const sqlClient = superClient();
-export const sqlClientApp = appClient();
 
 /**
  * Run `fn` inside a transaction with Postgres session variables set
  * so RLS policies resolve correctly. Session vars use `set_config(..., true)`
  * (transaction-scoped) so they do NOT leak between pooled connections.
  *
- * Emits a structured `kind:db` log line with elapsed time. If the total
- * exceeds DB_SLOW_MS (default 50), the line is tagged `level:warn` so
- * slow paths are filterable. The optional `label` lets callers tag the
- * call-site (e.g. "dashboard:summary") without sprinkling timers in pages.
+ * Emits a structured `kind:db` log line when the total exceeds DB_SLOW_MS
+ * (default 250; 50 fired on ordinary Neon round trips), tagged
+ * `level:warn`. Fast transactions log only with DB_LOG_ALL=1 (`level:info`),
+ * otherwise a dashboard view wrote ~30 lines and drowned real warnings.
+ * The optional `label` lets callers tag the call-site (e.g.
+ * "dashboard:summary") without sprinkling timers in pages.
  */
-const DB_SLOW_MS = Number(process.env.DB_SLOW_MS ?? 50);
+const DB_SLOW_MS = Number(process.env.DB_SLOW_MS ?? 250);
+const DB_LOG_ALL = process.env.DB_LOG_ALL === "1";
 
 /**
  * Stable, non-reversible token for a clinic id in logs. Correlates per-tenant
@@ -120,6 +122,13 @@ export async function withClinicContext<T>(
   fn: (tx: typeof dbApp) => Promise<T>,
   label?: string
 ): Promise<T> {
+  // J-7: in production, refuse the first tenant query if the app role is a
+  // superuser or BYPASSRLS (e.g. DATABASE_URL_APP set to the owner's pooler
+  // DSN). Memoized: one catalog query per process, free afterwards; a
+  // failure is not cached, so a fixed env recovers without a restart.
+  if (process.env.NODE_ENV === "production") {
+    await assertAppRoleIsRlsSubject();
+  }
   const startedAt = performance.now();
   let setLocalMs = 0;
   try {
@@ -136,7 +145,7 @@ export async function withClinicContext<T>(
   } finally {
     const ms = performance.now() - startedAt;
     const level = ms > DB_SLOW_MS ? "warn" : "info";
-    console.log(
+    if (level === "warn" || DB_LOG_ALL) console.log(
       JSON.stringify({
         kind: "db",
         level,

@@ -1,6 +1,6 @@
 import "server-only";
 import Link from "next/link";
-import { ArrowDown, Minus, TrendingDown, TrendingUp } from "lucide-react";
+import { ArrowDown, ArrowRight, Minus, TrendingDown, TrendingUp } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -27,20 +27,16 @@ import {
   type CurrencyCode,
 } from "@/lib/formatting";
 import { mapSeries } from "@/lib/chart-data";
-import {
-  noShowWindow,
-  type KpiSummary,
-  type NoShowWindow,
-} from "@/server/queries/kpis";
+import type { KpiSummary, NoShowWindow } from "@/server/queries/kpis";
 import { platformLabelNode, type Platform } from "../../bewertungen/_lib/platforms";
 import {
-  DASHBOARD_RANGE_KEYS,
   dashboardRangeWindow,
   type DashboardRange,
 } from "@/lib/dashboard-range";
-import { TimeRangeToggle } from "@/app/_components/TimeRangeToggle";
 import { RatingStars } from "../../_components/RatingStars";
 import { DataTable } from "./detail-helpers";
+import { CardEmptyNote, CardRangeLabel } from "./card-notes";
+import { FIRST_INQUIRY_NOTE, RANGE_SENTENCE_START } from "./range-text";
 
 /**
  * Async server component rendered inside a <Suspense>. Fetches the deep-dive
@@ -53,6 +49,10 @@ export async function DashboardDetailBundle({
   currency,
   summary,
   priorSummary,
+  noShow,
+  noShowPrior,
+  canManageReviews,
+  showRangeLabels,
   funnelRange,
   locationsRange,
   treatmentsRange,
@@ -64,25 +64,24 @@ export async function DashboardDetailBundle({
   currency: CurrencyCode;
   summary: KpiSummary;
   priorSummary: KpiSummary;
+  /** No-Show-Quote of the rNoShow window and of the window before it. */
+  noShow: NoShowWindow;
+  noShowPrior: NoShowWindow;
+  /** Inhaber: may connect review platforms in Einstellungen. */
+  canManageReviews: boolean;
+  /** Only true when the per-card ranges differ (deep link); otherwise the
+   *  page-level switch names the period and the cards stay silent. */
+  showRangeLabels: boolean;
   funnelRange: DashboardRange;
   locationsRange: DashboardRange;
   treatmentsRange: DashboardRange;
   noShowRange: DashboardRange;
 }) {
   // Each breakdown owns its own time window via its own toggle param:
-  // `locWin` = funnel (rFunnel), `locationsWin` = Standorte (rLocations),
+  // `locationsWin` = Standorte (rLocations),
   // `treatmentsWin` = Behandlungen (rTreatments).
-  const locWin = dashboardRangeWindow(funnelRange);
   const locationsWin = dashboardRangeWindow(locationsRange);
   const treatmentsWin = dashboardRangeWindow(treatmentsRange);
-  // No-Show-Quote card owns its own window (rNoShow). Prior window sits one
-  // millisecond before `from` so the delta-vs-Vorperiode chip doesn't overlap
-  // a day — same convention as the funnel's cost-per-lead comparison.
-  const noShowWin = dashboardRangeWindow(noShowRange);
-  const noShowPriorTo = new Date(noShowWin.from.getTime() - 1);
-  const noShowPriorFrom = new Date(
-    noShowPriorTo.getTime() - (noShowWin.to.getTime() - noShowWin.from.getTime())
-  );
   // Baseline category list over the widest window, so the Behandlungen card
   // always shows the full set of Behandlungen regardless of the selected
   // range. A sparse window (e.g. "Heute") then renders "–" for categories with
@@ -96,8 +95,6 @@ export async function DashboardDetailBundle({
     locations,
     treatmentBreakdown,
     treatmentBaseline,
-    noShow,
-    noShowPrior,
   ] = await Promise.all([
     latestReviews(clinicId, userId),
     // Previous rating per platform → trend arrow on the Reputation card.
@@ -114,14 +111,16 @@ export async function DashboardDetailBundle({
       treatmentsBaselineWin.from,
       treatmentsBaselineWin.to
     ),
-    noShowWindow(clinicId, userId, noShowWin.from, noShowWin.to),
-    noShowWindow(clinicId, userId, noShowPriorFrom, noShowPriorTo),
   ]);
 
   // Overlay the selected window's numbers onto the baseline categories;
   // categories with no rows in the window become "–" placeholders so the
   // list stays stable across ranges.
   const treatmentRows = mergeTreatmentRows(treatmentBaseline, treatmentBreakdown);
+  // The 5-year baseline lists every Behandlung with at least one non-spam
+  // Anfrage, so an empty baseline means the Praxis has no Anfrage yet. Reused
+  // for the day-one empty sentences instead of another query.
+  const hasAnyRequest = treatmentBaseline.length > 0;
 
   // Whether to show the Standorte card is purely "is this a multi-location
   // Praxis?" — decided by listLocations, which is range-independent. It must
@@ -160,11 +159,15 @@ export async function DashboardDetailBundle({
           summary={summary}
           priorSummary={priorSummary}
           range={funnelRange}
+          showRange={showRangeLabels}
+          hasAnyRequest={hasAnyRequest}
         />
         <TreatmentBreakdownCard
           rows={treatmentRows}
           range={treatmentsRange}
+          showRange={showRangeLabels}
           currency={currency}
+          hasAnyRequest={hasAnyRequest}
         />
       </div>
 
@@ -184,15 +187,20 @@ export async function DashboardDetailBundle({
           <CardContent>
             {reviews.length === 0 ? (
               <div className="flex flex-col gap-3">
-                <p className="text-sm text-fg-secondary">
-                  Noch keine Bewertungen erfasst.
+                <p className="text-base text-fg-primary">
+                  Füllt sich, sobald eine Bewertungsplattform verbunden ist.
                 </p>
-                <Link
-                  href="/bewertungen"
-                  className="self-start text-sm text-accent hover:underline"
-                >
-                  Erste Bewertung hinzufügen →
-                </Link>
+                {/* Bewertungen are synced from the connected platforms (manual
+                    entry was removed), and only the Inhaber can connect them. */}
+                {canManageReviews && (
+                  <Link
+                    href="/einstellungen#bewertungen"
+                    className="inline-flex items-center gap-1 self-start text-sm text-fg-secondary hover:text-accent"
+                  >
+                    Bewertungsplattformen verbinden
+                    <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                  </Link>
+                )}
               </div>
             ) : (
               (() => {
@@ -247,7 +255,7 @@ export async function DashboardDetailBundle({
                         </span>
                       </div>
                     )}
-                    <div className="flex items-center justify-between pt-3 text-xs text-fg-tertiary">
+                    <div className="flex items-center justify-between gap-3 pt-3 text-sm text-fg-secondary">
                       <span>
                         {latestRecordedAt
                           ? `Aktualisiert ${formatRelative(latestRecordedAt)}`
@@ -255,9 +263,10 @@ export async function DashboardDetailBundle({
                       </span>
                       <Link
                         href="/bewertungen"
-                        className="text-accent hover:underline"
+                        className="inline-flex items-center gap-1 text-sm text-fg-secondary hover:text-accent"
                       >
-                        Alle Bewertungen →
+                        Alle Bewertungen
+                        <ArrowRight className="h-3.5 w-3.5" aria-hidden />
                       </Link>
                     </div>
                   </div>
@@ -271,6 +280,7 @@ export async function DashboardDetailBundle({
           current={noShow}
           prior={noShowPrior}
           range={noShowRange}
+          showRange={showRangeLabels}
         />
       </div>
 
@@ -278,6 +288,7 @@ export async function DashboardDetailBundle({
         <MultiLocationCard
           rows={locationBreakdown}
           range={locationsRange}
+          showRange={showRangeLabels}
           currency={currency}
         />
       )}
@@ -297,10 +308,12 @@ function NoShowQuoteCard({
   current,
   prior,
   range,
+  showRange,
 }: {
   current: NoShowWindow;
   prior: NoShowWindow;
   range: DashboardRange;
+  showRange: boolean;
 }) {
   const hasData = current.appointments > 0;
   return (
@@ -318,7 +331,7 @@ function NoShowQuoteCard({
           </CardTitle>
           <ExplainerPopover term="No-Show-Quote">
             <p>
-              Anteil der vereinbarten Termine, zu denen Patient:innen nicht
+              Anteil der vereinbarten Termine, zu denen Patienten nicht
               erschienen sind.
             </p>
             <p className="mt-2">
@@ -327,24 +340,14 @@ function NoShowQuoteCard({
             </p>
           </ExplainerPopover>
         </div>
-        {/* Below xl: lift onto its own line above the title, left-aligned
-            (order-first + basis-full forces a full-width first line). At xl+
-            the header's justify-between pins it inline-right. */}
-        <div className="order-first basis-full xl:order-none xl:basis-auto">
-          <TimeRangeToggle
-            value={range}
-            paramKey={DASHBOARD_RANGE_KEYS.noShow}
-            ariaLabel="Zeitraum für No-Show-Quote"
-          />
-        </div>
+        {showRange && <CardRangeLabel range={range} />}
       </CardHeader>
       <CardContent className="space-y-3">
         {!hasData ? (
-          <p className="py-6 text-sm text-fg-secondary">
-            Für diesen Zeitraum liegen noch keine No-Show-Daten vor. Diese
-            entstehen automatisch, sobald Termine über die PVS-Anbindung
-            erfasst sind.
-          </p>
+          <CardEmptyNote>
+            Füllt sich, sobald im gewählten Zeitraum Termine über die
+            PVS-Anbindung erfasst sind.
+          </CardEmptyNote>
         ) : (
           <>
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
@@ -358,10 +361,15 @@ function NoShowQuoteCard({
               tone="bad"
               height={100}
               showAxes
+              // V2 Neben 3: with a 0 % quote throughout, the shared chart
+              // fits its axis to 0-1 % and labels "0,0 %, 0,3 %, 0,5 %, 0,8 %":
+              // invented steps for a flat line. Keep the date axis only; the
+              // big number above already says 0 %.
+              showYAxis={current.series.some((r) => r.rate > 0)}
               label="No-Show"
               valueFormat="percent1"
             />
-            <p className="text-xs text-fg-tertiary">
+            <p className="text-sm text-fg-primary">
               Etwa {formatNumber(current.noShows)} von{" "}
               {formatNumber(current.appointments)} vereinbarten Terminen nicht
               wahrgenommen.
@@ -391,7 +399,7 @@ function NoShowDelta({
   const abs = Math.abs(diffPp);
   if (abs < 0.5) {
     return (
-      <span className="inline-flex items-center gap-1.5 text-sm font-medium text-fg-tertiary">
+      <span className="inline-flex items-center gap-1.5 text-sm font-medium text-fg-primary">
         <Minus className="h-4 w-4" aria-hidden />
         unverändert
       </span>
@@ -413,7 +421,7 @@ function NoShowDelta({
     >
       <Icon className="h-4 w-4" aria-hidden />
       {formatted}
-      <span className="font-normal text-fg-tertiary"> vs. Vorperiode</span>
+      <span className="font-normal text-fg-secondary"> vs. Vorperiode</span>
     </span>
   );
 }
@@ -429,10 +437,12 @@ function NoShowDelta({
 function MultiLocationCard({
   rows,
   range,
+  showRange,
   currency,
 }: {
   rows: LocationBreakdownRow[];
   range: DashboardRange;
+  showRange: boolean;
   currency: CurrencyCode;
 }) {
   return (
@@ -443,22 +453,17 @@ function MultiLocationCard({
         boxShadow: "var(--shadow-card)",
       }}
     >
-      <CardHeader className="flex-row flex-wrap items-center justify-between gap-4 md:justify-start md:gap-6">
+      <CardHeader className="flex-row flex-wrap items-center justify-between gap-4 space-y-0">
         <CardTitle className="!text-xl !font-medium md:!text-2xl">
           Standorte
         </CardTitle>
-        <div className="order-first basis-full xl:order-none xl:basis-auto">
-          <TimeRangeToggle
-            value={range}
-            paramKey={DASHBOARD_RANGE_KEYS.locations}
-            ariaLabel="Zeitraum für Standorte"
-          />
-        </div>
+        {showRange && <CardRangeLabel range={range} />}
       </CardHeader>
       <CardContent>
         <DataTable
           rows={rows}
-          empty="In diesem Zeitraum keine Standortdaten."
+          empty="Im gewählten Zeitraum ist an keinem Standort eine Anfrage eingegangen."
+          fitPhone
           columns={[
             {
               key: "locationName",
@@ -475,6 +480,7 @@ function MultiLocationCard({
               key: "appointments",
               header: "Termine",
               align: "right",
+              hideBelowMd: true,
               render: (r) => formatNumber(r.appointments),
             },
             {
@@ -516,7 +522,7 @@ function RatingDelta({
   const Icon = abs < 0.05 ? Minus : diff > 0 ? TrendingUp : TrendingDown;
   const toneClass =
     abs < 0.05
-      ? "text-fg-tertiary"
+      ? "text-fg-primary"
       : diff > 0
         ? "text-tone-good"
         : "text-tone-bad";
@@ -526,7 +532,7 @@ function RatingDelta({
       : `${diff > 0 ? "+" : "−"}${abs.toFixed(1).replace(".", ",")}`;
   return (
     <span
-      className={`mr-1 inline-flex items-center gap-0.5 text-xs font-medium ${toneClass}`}
+      className={`mr-1 inline-flex items-center gap-0.5 text-sm font-medium ${toneClass}`}
       aria-label={
         abs < 0.05
           ? "Bewertung unverändert"
@@ -557,10 +563,14 @@ function FunnelOverviewCard({
   summary,
   priorSummary,
   range,
+  showRange,
+  hasAnyRequest,
 }: {
   summary: KpiSummary;
   priorSummary: KpiSummary;
   range: DashboardRange;
+  showRange: boolean;
+  hasAnyRequest: boolean;
 }) {
   const stages: FunnelStageData[] = [
     { label: "Anfragen", value: summary.leads, prevValue: null },
@@ -597,19 +607,17 @@ function FunnelOverviewCard({
             Trichter-Übersicht
           </CardTitle>
         </div>
-        <div className="order-first basis-full xl:order-none xl:basis-auto">
-          <TimeRangeToggle
-            value={range}
-            paramKey={DASHBOARD_RANGE_KEYS.funnel}
-            ariaLabel="Zeitraum für Trichter-Übersicht"
-          />
-        </div>
+        {showRange && <CardRangeLabel range={range} />}
       </CardHeader>
       <CardContent>
         {empty ? (
-          <p className="py-6 text-sm text-fg-secondary">
-            Im gewählten Zeitraum sind noch keine Anfragen eingegangen.
-          </p>
+          <CardEmptyNote minHeight={160}>
+            {!hasAnyRequest
+              ? FIRST_INQUIRY_NOTE
+              : range === "heute"
+                ? "Heute ist noch keine Anfrage eingegangen."
+                : `${RANGE_SENTENCE_START[range]} ist keine Anfrage eingegangen.`}
+          </CardEmptyNote>
         ) : (
           <ul className="flex flex-col gap-3">
             {stages.map((s, i) => (
@@ -625,8 +633,8 @@ function FunnelOverviewCard({
         )}
       </CardContent>
       <div className="mt-4 flex flex-col gap-1.5 border-t border-border px-6 pb-5 pt-6">
-        <span className="text-sm font-medium text-fg-tertiary">
-          Kosten je Anfrage
+        <span className="text-base font-medium text-fg-primary">
+          Kosten pro Anfrage
         </span>
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
           <span className="font-display text-3xl font-semibold leading-none tabular-nums text-fg-primary">
@@ -687,7 +695,7 @@ function mergeTreatmentRows(
 function treatmentRoasToneClass(roas: number | null): string {
   if (roas == null) return "text-fg-tertiary";
   if (roas >= 2) return "text-tone-good";
-  if (roas >= 1) return "text-fg-primary";
+  if (roas >= 1) return "text-fg-secondary";
   return "text-tone-warn";
 }
 
@@ -703,12 +711,19 @@ function treatmentRoasToneClass(roas: number | null): string {
 function TreatmentBreakdownCard({
   rows,
   range,
+  showRange,
   currency,
+  hasAnyRequest,
 }: {
   rows: TreatmentDisplayRow[];
   range: DashboardRange;
+  showRange: boolean;
   currency: CurrencyCode;
+  hasAnyRequest: boolean;
 }) {
+  // Baseline categories exist but none has activity in this window: one
+  // sentence instead of a table of dashes.
+  const windowEmpty = rows.every((r) => r.leads == null);
   return (
     <Card
       className="print:break-inside-avoid"
@@ -717,126 +732,81 @@ function TreatmentBreakdownCard({
         boxShadow: "var(--shadow-card)",
       }}
     >
-      {/* xl:flex-nowrap + xl:gap-2 keep der lange Titel und der Toggle in der
-          xl-Zweispaltung (Karte nur ~555px breit) auf einer Zeile: ohne sie
-          überläuft "Behandlungs-Aufschlüsselung" + Toggle die Kartenbreite um
-          wenige Pixel und der Toggle bricht unter die Überschrift. min-w-0 am
-          Titel + shrink-0 am Toggle lassen im Ernstfall den Titel umbrechen,
-          statt den Toggle nach unten zu schieben. Unter xl bleibt es beim
-          gestapelten Layout (Toggle in eigener Zeile über dem Titel). */}
-      <CardHeader className="flex-row flex-wrap items-start justify-between gap-4 xl:flex-nowrap xl:gap-2">
-        <CardTitle className="min-w-0 !text-xl !font-medium md:!text-2xl">
-          Behandlungs-Aufschlüsselung
-        </CardTitle>
-        <div className="order-first basis-full xl:order-none xl:basis-auto xl:shrink-0">
-          <TimeRangeToggle
-            value={range}
-            paramKey={DASHBOARD_RANGE_KEYS.treatments}
-            ariaLabel="Zeitraum für Behandlungs-Aufschlüsselung"
-          />
+      <CardHeader className="flex-row flex-wrap items-center justify-between gap-4 space-y-0">
+        <div className="flex items-center gap-1.5">
+          <CardTitle className="min-w-0 !text-xl !font-medium md:!text-2xl">
+            Behandlungs-Aufschlüsselung
+          </CardTitle>
+          <ExplainerPopover term="Werbeertrag">
+            <p>
+              Werbeertrag: wie viel Umsatz je 1 € Werbebudget bei dieser
+              Behandlung zurückkommt. 3,0× heißt 3 € Umsatz je 1 € Werbebudget.
+            </p>
+            <p className="mt-2">
+              Das Werbebudget wird den Behandlungen nach ihrem Anteil an den
+              bezahlten Anfragen zugeordnet, da es nicht je Behandlung erfasst
+              wird.
+            </p>
+          </ExplainerPopover>
         </div>
+        {showRange && <CardRangeLabel range={range} />}
       </CardHeader>
       <CardContent>
-        {rows.length === 0 ? (
-          <p className="py-4 text-sm text-fg-secondary">
-            Noch keine Behandlungen erfasst.
-          </p>
+        {!hasAnyRequest || rows.length === 0 ? (
+          <CardEmptyNote minHeight={160}>{FIRST_INQUIRY_NOTE}</CardEmptyNote>
+        ) : windowEmpty ? (
+          <CardEmptyNote minHeight={160}>
+            {range === "heute"
+              ? "Heute ist noch keine Anfrage eingegangen."
+              : `${RANGE_SENTENCE_START[range]} ist keine Anfrage eingegangen.`}
+          </CardEmptyNote>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full border-separate border-spacing-0 text-sm">
-              <thead>
-                {/* Spaltentitel als eine schmale, lange Karte über den Zeilen:
-                    border-y plus Endkappen border-l/-r und bg ergeben einen
-                    abgerundeten Balken, vom Datenbereich durch den
-                    Abstandshalter darunter abgesetzt. */}
-                <tr className="text-xs font-medium text-fg-secondary [&>th]:border-y [&>th]:border-border [&>th]:bg-bg-secondary [&>th]:px-4 [&>th]:py-2.5">
-                  <th scope="col" className="rounded-l-xl border-l text-left">
-                    Behandlung
-                  </th>
-                  {/* Anfragen entfällt auf dem Handy, damit die schmale Karte
-                      nicht überläuft; auf dem Desktop bleibt sie sichtbar. */}
-                  <th scope="col" className="hidden text-right md:table-cell">
-                    Anfragen
-                  </th>
-                  <th scope="col" className="text-right">
-                    Gewonnen
-                  </th>
-                  <th scope="col" className="text-right">
-                    Umsatz
-                  </th>
-                  {/* Rechte Endkappe der Kopf-Pille: auf dem Handy schließt Ø
-                      Fall den Balken ab, auf dem Desktop übernimmt die
-                      ROAS-Spalte. */}
-                  <th
-                    scope="col"
-                    className="rounded-r-xl border-r text-right md:rounded-r-none md:border-r-0"
-                  >
-                    Ø Fall
-                  </th>
-                  <th
-                    scope="col"
-                    className="hidden text-right md:table-cell md:rounded-r-xl md:border-r"
-                  >
-                    <span className="inline-flex items-center gap-0.5">
-                      ROAS
-                      <ExplainerPopover term="ROAS">
-                        <p>
-                          ROAS (Werbeertrag): wie viel Umsatz je 1 € Werbebudget
-                          bei dieser Behandlung zurückkommt. 3,0× heißt 3 €
-                          Umsatz je 1 € Budget.
-                        </p>
-                        <p className="mt-2">
-                          Das Werbebudget wird den Behandlungen nach ihrem
-                          Anteil an den bezahlten Anfragen zugeordnet, da es
-                          nicht je Behandlung erfasst wird.
-                        </p>
-                      </ExplainerPopover>
-                    </span>
-                  </th>
-                </tr>
-                <tr aria-hidden>
-                  <td className="h-2" colSpan={6} />
-                </tr>
-              </thead>
-              <tbody className="[&>tr>td]:border-border [&>tr:not(:last-child)>td]:border-b">
-                {rows.map((r) => (
-                  <tr
+          // List like the Quellen card: name (with a grey Werbeertrag line) on the left, the counts and revenue in fixed right-aligned
+          // columns. No table, so nothing scrolls sideways at any width.
+          <div>
+            <div className="flex items-center gap-2 border-b border-border px-2 pb-2 text-sm text-fg-secondary">
+              <span className="min-w-0 flex-1">Behandlung</span>
+              <span className="hidden w-14 shrink-0 text-right md:block">
+                Anfragen
+              </span>
+              <span className="w-16 shrink-0 text-right">Gewonnen</span>
+              <span className="w-20 shrink-0 text-right">Umsatz</span>
+            </div>
+            <ul className="divide-y divide-border">
+              {rows.map((r) => {
+                return (
+                  <li
                     key={r.treatmentId ?? r.treatmentName}
-                    className="hover:bg-bg-secondary"
+                    className="flex items-center gap-2 px-2 py-2.5 text-sm tabular-nums"
                   >
-                    <td className="px-4 py-2.5 text-fg-primary">
-                      {r.treatmentName}
-                    </td>
-                    <td className="hidden px-4 py-2.5 text-right tabular-nums md:table-cell">
-                      {r.leads != null ? formatNumber(r.leads) : "–"}
-                    </td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">
-                      {r.casesWon != null ? formatNumber(r.casesWon) : "–"}
-                    </td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-base text-fg-primary">
+                        {r.treatmentName}
+                      </span>
+                      {r.roas != null && (
+                        <span className="mt-0.5 block whitespace-nowrap text-sm text-fg-secondary">
+                          Werbeertrag{" "}
+                          <span className={treatmentRoasToneClass(r.roas)}>
+                            {r.roas.toFixed(1).replace(".", ",")}×
+                          </span>
+                        </span>
+                      )}
+                    </span>
+                    <span className="hidden w-14 shrink-0 text-right md:block">
+                      {r.leads != null ? formatNumber(r.leads) : ""}
+                    </span>
+                    <span className="w-16 shrink-0 text-right">
+                      {r.casesWon != null ? formatNumber(r.casesWon) : ""}
+                    </span>
+                    <span className="w-20 shrink-0 whitespace-nowrap text-right">
                       {r.revenueEur != null
                         ? formatMoney(r.revenueEur, currency)
-                        : "–"}
-                    </td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">
-                      {r.avgCaseValueEur != null
-                        ? formatMoney(r.avgCaseValueEur, currency)
-                        : "–"}
-                    </td>
-                    <td
-                      className={cn(
-                        "hidden px-4 py-2.5 text-right tabular-nums md:table-cell",
-                        treatmentRoasToneClass(r.roas)
-                      )}
-                    >
-                      {r.roas != null
-                        ? `${r.roas.toFixed(1).replace(".", ",")}×`
-                        : "–"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                        : ""}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
           </div>
         )}
       </CardContent>
@@ -876,36 +846,23 @@ function FunnelStageRow({
     ? "linear-gradient(90deg, var(--accent), #2f8e88)"
     : `linear-gradient(90deg, rgba(88,186,181,${0.50 + stageIndex * 0.08}), rgba(88,186,181,${0.68 + stageIndex * 0.06}))`;
   const fillShadow = isLast ? "0 4px 16px -4px rgba(88,186,181,0.45)" : undefined;
-  // Step-conversion quality tone. Thresholds are intentionally generic across
-  // stages (no domain rule says e.g. Termin→Beratung should be evaluated
-  // differently from Anfrage→Termin yet). >=60 % good, 40–60 % warn, <40 % bad.
-  const convTone: "good" | "warn" | "bad" | null =
-    stepConv == null ? null : stepConv >= 0.6 ? "good" : stepConv >= 0.4 ? "warn" : "bad";
-  const convToneClass =
-    convTone === "good" ? "text-tone-good"
-      : convTone === "warn" ? "text-tone-warn"
-        : convTone === "bad" ? "text-tone-bad"
-          : "text-fg-tertiary";
   return (
     <li className="flex flex-col gap-1.5">
       {stepConv != null && (
         // Mirrors the value/bar row layout so the chip sits in the same left
         // column as the count, with both centered → arrow+% reads as a
-        // vertical "drop" from one count to the next. Coloured by quality so
-        // leaks read at a glance: green good, yellow warn, red bad.
+        // vertical "drop" from one count to the next. One neutral colour for
+        // every step: the same kind of number looks the same everywhere.
         // mt-5 pushes the chip down to the true midpoint between the count above
         // and below it: the next stage's label stacks below the chip, so
         // without this offset the chip hugs the upper count instead of centering.
         <div className="mt-5 flex items-center gap-3.5">
           <span
             aria-label={`Konversion von der vorherigen Stufe: ${formatPercent(stepConv)}`}
-            className={cn(
-              "inline-flex w-16 shrink-0 items-center justify-center gap-1.5 text-sm font-semibold tabular-nums",
-              convToneClass,
-            )}
+            className="inline-flex w-20 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap text-sm font-semibold tabular-nums text-fg-secondary"
           >
             <ArrowDown className="h-4 w-4" aria-hidden />
-            {formatPercent(stepConv).replace(/\s/g, "")}
+            {formatPercent(stepConv)}
           </span>
           <div className="flex-1" aria-hidden />
         </div>
@@ -914,13 +871,13 @@ function FunnelStageRow({
           shifts it right, past the counts, so it sits over the bar and not over
           the numbers. */}
       <div className="flex items-center gap-3.5">
-        <span className="w-16 shrink-0" aria-hidden />
-        <span className="text-sm font-medium text-fg-secondary">{stage.label}</span>
+        <span className="w-20 shrink-0" aria-hidden />
+        <span className="text-sm font-medium text-fg-primary">{stage.label}</span>
       </div>
       <div className="flex items-center gap-3.5">
         <span
           className={cn(
-            "w-16 shrink-0 text-center font-display text-2xl font-semibold leading-none tabular-nums",
+            "w-20 shrink-0 text-center font-display text-2xl font-semibold leading-none tabular-nums",
             isLast ? "text-tone-good" : "text-fg-primary",
           )}
         >
@@ -965,7 +922,7 @@ function CostPerLeadDelta({
   // the chip between green/red on a freshly-tracked clinic.
   if (abs < 0.5) {
     return (
-      <span className="inline-flex items-center gap-1.5 text-sm font-medium text-fg-tertiary">
+      <span className="inline-flex items-center gap-1.5 text-sm font-medium text-fg-primary">
         <Minus className="h-4 w-4" aria-hidden />
         unverändert
       </span>
@@ -985,7 +942,7 @@ function CostPerLeadDelta({
     >
       <Icon className="h-4 w-4" aria-hidden />
       {formatted}
-      <span className="font-normal text-fg-tertiary"> vs. Vorperiode</span>
+      <span className="font-normal text-fg-secondary"> vs. Vorperiode</span>
     </span>
   );
 }

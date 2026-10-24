@@ -82,10 +82,12 @@ describe("normalizer: direct column", () => {
     expect(event!.kind).toBe("PatientUpserted");
     expect(event!.clinicId).toBe("11111111-1111-1111-1111-111111111111");
     expect(event!.bridgeSource).toBe("tomedo");
-    expect(event!.pvsExternalEventId).toBe(
-      "tomedo:patient:PAT-42:2026-05-20T10:00:00.000Z"
+    // The Date is a zone-less Berlin wall clock (10:00 CEST = 08:00Z); the id
+    // and occurredAt carry the real instant.
+    expect(event!.pvsExternalEventId).toMatch(
+      /^tomedo:patient:PAT-42:2026-05-20T08:00:00\.000Z:[0-9a-f]{12}$/
     );
-    expect(event!.occurredAt).toBe("2026-05-20T10:00:00.000Z");
+    expect(event!.occurredAt).toBe("2026-05-20T08:00:00.000Z");
     expect(event!.pvsPatientId).toBe("PAT-42");
     expect(event!.fullName).toBe("Maria Müller");
     expect(event!.email).toBe("maria.mueller@praxis.de");
@@ -160,18 +162,18 @@ describe("transforms", () => {
     expect(applyTransform("amountToCents", "garbage")).toBeUndefined();
   });
 
-  it("amountToCents reads a lone 3-digit group as thousands, not a fraction (finding 7)", () => {
+  it("amountToCents reads a lone 3-digit group as thousands under decimalFormat: de (finding 7; default is decimal point, see normalizer.review.test.ts)", () => {
     // The old parser read these as EUR 1.23 etc. — a 1000x under-count.
-    expect(applyTransform("amountToCents", "1.234")).toBe(123400);
-    expect(applyTransform("amountToCents", "1,234")).toBe(123400);
-    expect(applyTransform("amountToCents", "12.500")).toBe(1250000);
-    expect(applyTransform("amountToCents", "1.234.567")).toBe(123456700);
+    expect(applyTransform("amountToCents", "1.234", "utc", "de")).toBe(123400);
+    expect(applyTransform("amountToCents", "1,234", "utc", "de")).toBe(123400);
+    expect(applyTransform("amountToCents", "12.500", "utc", "de")).toBe(1250000);
+    expect(applyTransform("amountToCents", "1.234.567", "utc", "de")).toBe(123456700);
     // Genuine fractions are still parsed as fractions:
-    expect(applyTransform("amountToCents", "1.50")).toBe(150);
-    expect(applyTransform("amountToCents", "1,5")).toBe(150);
-    expect(applyTransform("amountToCents", "0,99")).toBe(99);
+    expect(applyTransform("amountToCents", "1.50", "utc", "de")).toBe(150);
+    expect(applyTransform("amountToCents", "1,5", "utc", "de")).toBe(150);
+    expect(applyTransform("amountToCents", "0,99", "utc", "de")).toBe(99);
     // Negatives stay rejected.
-    expect(applyTransform("amountToCents", "-5,00")).toBeUndefined();
+    expect(applyTransform("amountToCents", "-5,00", "utc", "de")).toBeUndefined();
   });
 
   it("integerCents passes integers through", () => {

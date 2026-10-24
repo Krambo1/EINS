@@ -1,4 +1,5 @@
-import { appendFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -13,7 +14,6 @@ import {
   chance,
   csvDate,
   ensureDir,
-  gdtDate,
   log,
   pick,
   pickWeighted,
@@ -24,32 +24,65 @@ import {
 } from "./lib/util.js";
 
 /**
- * GDT/CSV-Export-Simulator for Praxis B (Datei-Pfad) + occasional
- * patient-only GDT for Praxis A. Every financially relevant row is recorded
- * in an append-only ledger (dropper-ledger.jsonl) which is the source of
- * truth the reconciliation compares the portal against.
+ * PVS-export simulator for the file path. Praxis B gets Honorar-CSV drops
+ * (the ONLY revenue path of the file agent) plus GDT patient files; Praxis A
+ * (DB path) gets GDT patient files only. Everything the portal must end up
+ * with is recorded in an append-only ledger (dropper-ledger.jsonl), the
+ * source of truth the reconciliation compares the portal against.
  *
- * Nasty cases exercised on purpose:
- *   - torn writes (file appears without its final CR LF, completed seconds
- *     later) for both GDT and CSV
- *   - ISO-8859-1/CP1252 vs UTF-8 umlauts, plus a UTF-16 garbage file that
- *     must produce ZERO events without killing the agent
- *   - multi-Satz BDT batch files (one invoice per Satz)
- *   - thousands-separator amounts ("1.234,56")
- *   - duplicate-header CSV (must fail loudly, zero events)
- *   - offen-status rows (must be skipped, zero revenue)
- *   - full re-drops of already-delivered rows (must dedup to zero)
+ * GDT NEVER CARRIES REVENUE. GDT 2.1 has no billing fields (8420 is an
+ * "Ergebnis-Wert", a measurement). The agent emits only PatientUpserted from
+ * Satzarten 6301 / 6302 / 6311 (PVS -> device) and 6100 (BDT Patientenstamm);
+ * every other Satz gives zero events. So no GDT case writes a "paid" or
+ * "refund" ledger entry; those come exclusively from the CSV cases.
+ *
+ * GDT cases (what real PVS such as medatixx / CGM Turbomed do):
+ *   gdtPatientCounter     EINSPVS1.NNN (counter 001..999, wraps, skips taken
+ *                         names); 6301 / 6302 (+8402) / 6311; optional 8100;
+ *                         encodings CP437 (with and without FK 9206), ISO-8859-1
+ *                         (9206=3), DIN 66003 (9206=1); optional e-mail/mobile.
+ *                         expect: consumed
+ *   gdtPatientFixedName   EINSPVS1.GDT; like a conformant PVS it waits (<=60 s)
+ *                         until the receiver deleted the previous file.
+ *                         expect: consumed
+ *   gdtTorn               file visible without its last bytes, completed 4-8 s
+ *                         later. expect: consumed
+ *   gdtNoFinalCrlf        final CR LF never written (accepted after the torn
+ *                         grace). expect: consumed
+ *   gdtMultiSatz          2-4 patient Saetze in one file. expect: consumed
+ *   gdtForeignDevice      EKG1PVS1.NNN (PVS->ECG) and PVS1EKG1.NNN (ECG->PVS,
+ *                         Satzart 6310). Not addressed to EINS: the agent must
+ *                         never touch them. Checked by sha256 later, then
+ *                         deleted like the device would. expect: untouched
+ *   bdtExport             export-<ts>.bdt, 0020 header + 6100 Saetze. Read but
+ *                         never deleted. expect: untouched (+ patientIds)
+ *   gdtUtf16Garbage       valid 6301 as UTF-16LE addressed to EINS.
+ *                         expect: quarantined (zero events, .eins/failed)
+ *
+ * CSV cases (unchanged): batch, re-drop (must dedup to zero), torn write,
+ * refund, duplicate header (must fail loudly), "offen" rows (no revenue),
+ * thousands-separator amounts.
  */
 
+interface PendingFile {
+  file: string;
+  sha256: string;
+  /** Epoch ms after which the simulated device/PVS consumes (deletes) it. */
+  dueAt: number;
+  clinic: "A" | "B";
+}
+
 interface DropperState {
-  gdtN: number;
   csvN: number;
   patN: number;
-  /** Paid-but-not-yet-refunded invoices per source, with cents. */
-  openGdt: Array<{ id: string; cents: number }>;
+  /** Paid-but-not-yet-refunded CSV invoices, with cents. */
   openCsv: Array<{ id: string; cents: number }>;
   /** Last CSV data rows (for verbatim re-drop). */
   lastCsvRows: string[][];
+  /** GDT file counters, key `<clinic>:<name prefix>`; value = last used NNN. */
+  counters: Record<string, number>;
+  /** Files addressed to other receivers / BDT exports that must stay untouched. */
+  pending: PendingFile[];
 }
 
 export interface DropperOpts {
@@ -65,75 +98,165 @@ export interface DropperHandle {
 
 const VORNAMEN = ["Jürgen", "Käthe", "Björn", "Änne", "Sören", "Marie-Luise"];
 const NACHNAMEN = ["Müller", "Größmann", "Schäfer", "Öztürk", "Weiß", "Straßer"];
-const LEISTUNGEN: ReadonlyArray<readonly [string, string]> = [
-  ["A5300", "Botox Zornesfalte"],
-  ["A5301", "Hyaluron Nasolabial"],
-  ["A5302", "Laser Couperose"],
-  ["A5303", "Kryolipolyse Flanken"],
-];
 
 // ---- GDT encoding ---------------------------------------------------------
 
-type Enc = "latin1" | "utf8";
+export type GdtEnc = "cp437" | "latin1" | "din66003";
 
-function gdtLine(fk: string, value: string, enc: Enc): Buffer {
-  const content = Buffer.from(value, enc);
-  const len = 3 + 4 + content.length + 2; // LLL + FFFF + content + CRLF
+const CP437_BYTES: Record<string, number> = {
+  Ä: 0x8e, Ö: 0x99, Ü: 0x9a, ä: 0x84, ö: 0x94, ü: 0x81, ß: 0xe1,
+};
+const DIN66003_CHARS: Record<string, string> = {
+  Ä: "[", Ö: "\\", Ü: "]", ä: "{", ö: "|", ü: "}", ß: "~",
+};
+
+/** Encode text for a GDT file. Only the umlauts of the name lists + ASCII. */
+export function encodeGdtText(value: string, enc: GdtEnc): Buffer {
+  if (enc === "latin1") return Buffer.from(value, "latin1");
+  const out: number[] = [];
+  for (const ch of value) {
+    if (enc === "cp437" && CP437_BYTES[ch] !== undefined) {
+      out.push(CP437_BYTES[ch]);
+    } else if (enc === "din66003" && DIN66003_CHARS[ch] !== undefined) {
+      out.push(DIN66003_CHARS[ch].charCodeAt(0));
+    } else if (ch.charCodeAt(0) < 0x80) {
+      // 7-bit DIN 66003 reuses "@[\]{|}~" for umlauts/§, so a literal one is a bug.
+      if (enc === "din66003" && "@[\\]{|}~".includes(ch)) {
+        throw new Error(`character ${JSON.stringify(ch)} not representable in DIN 66003`);
+      }
+      out.push(ch.charCodeAt(0));
+    } else {
+      throw new Error(`character ${JSON.stringify(ch)} not encodable as ${enc}`);
+    }
+  }
+  return Buffer.from(out);
+}
+
+/** One GDT line: `LLLFFFFvalue\r\n`, LLL = whole line in bytes incl. CRLF. */
+export function gdtLine(fk: string, value: string, enc: GdtEnc): Buffer {
+  const content = encodeGdtText(value, enc);
+  const len = 3 + 4 + content.length + 2;
   return Buffer.concat([
-    Buffer.from(String(len).padStart(3, "0"), "ascii"),
-    Buffer.from(fk, "ascii"),
+    Buffer.from(String(len).padStart(3, "0") + fk, "ascii"),
     content,
     Buffer.from("\r\n", "ascii"),
   ]);
 }
 
-interface GdtInvoice {
-  invoiceId: string;
-  /** Signed cents; the file may split it into several 8420 lines. */
-  cents: number;
+/** Encoding plus the FK 9206 value to declare (undefined = omit; spec default CP437). */
+export interface EncProfile {
+  enc: GdtEnc;
+  fk9206?: "1" | "2" | "3";
 }
 
-function buildSatz(
+const ENC_PROFILES: ReadonlyArray<readonly [number, EncProfile]> = [
+  [3, { enc: "cp437" }],
+  [3, { enc: "cp437", fk9206: "2" }],
+  [3, { enc: "latin1", fk9206: "3" }],
+  [1, { enc: "din66003", fk9206: "1" }],
+];
+
+/**
+ * Assemble a Satz from FK/value pairs: 8000 first, then (optional) 8100 with
+ * the exact byte length of the whole Satz including the 8100 line itself
+ * (FK 8100 is written 5 digits wide, so that line is a constant 14 bytes).
+ */
+export function buildSatz(
   satzart: string,
-  patientId: string,
-  enc: Enc,
-  invoice?: GdtInvoice
+  fields: ReadonlyArray<readonly [string, string]>,
+  enc: GdtEnc,
+  withLength: boolean
 ): Buffer {
-  const vor = pick(VORNAMEN);
-  const nach = pick(NACHNAMEN);
-  const lines: Buffer[] = [
-    gdtLine("8000", satzart, enc),
-    gdtLine("3000", patientId, enc),
-    gdtLine("3101", nach, enc),
-    gdtLine("3102", vor, enc),
-    gdtLine("3103", `${String(randInt(1, 28)).padStart(2, "0")}${String(randInt(1, 12)).padStart(2, "0")}${randInt(1955, 2003)}`, enc),
-    gdtLine("3110", pick(["1", "2"]), enc),
-  ];
-  if (invoice) {
-    const [code, label] = pick(LEISTUNGEN);
-    lines.push(gdtLine("6225", invoice.invoiceId, enc));
-    lines.push(gdtLine("6228", gdtDate(new Date()), enc));
-    lines.push(gdtLine("8410", code, enc));
-    lines.push(gdtLine("8411", label, enc));
-    // Split the total into 1-3 Honorar-Positionen; the parser sums them.
-    const parts = splitCents(invoice.cents, randInt(1, 3));
-    for (const p of parts) lines.push(gdtLine("8420", centsToDe(p), enc));
-  }
-  return Buffer.concat(lines);
+  const first = gdtLine("8000", satzart, enc);
+  const rest = fields.map(([fk, v]) => gdtLine(fk, v, enc));
+  if (!withLength) return Buffer.concat([first, ...rest]);
+  const total = first.length + 14 + rest.reduce((n, b) => n + b.length, 0);
+  return Buffer.concat([first, gdtLine("8100", String(total).padStart(5, "0"), enc), ...rest]);
 }
 
-function splitCents(total: number, n: number): number[] {
-  if (n <= 1) return [total];
-  const sign = total < 0 ? -1 : 1;
-  let rest = Math.abs(total);
-  const parts: number[] = [];
-  for (let i = 0; i < n - 1; i++) {
-    const cut = randInt(1, Math.max(1, rest - (n - 1 - i)));
-    parts.push(sign * cut);
-    rest -= cut;
+export interface PatientSatzOpts {
+  satzart: "6301" | "6302" | "6311";
+  patientId: string;
+  profile: EncProfile;
+  withLength: boolean;
+  /** Empfaenger / Sender GDT-IDs (8315 / 8316). */
+  receiver: string;
+  sender: string;
+  /** GDT 3.x style 3619 e-mail + 3618 mobile (ignored for 7-bit DIN). */
+  contact: boolean;
+}
+
+function randomDob(): string {
+  return `${String(randInt(1, 28)).padStart(2, "0")}${String(randInt(1, 12)).padStart(2, "0")}${randInt(1955, 2003)}`;
+}
+
+/** A PVS -> device patient Satz (6301 / 6302 / 6311). */
+export function buildPatientSatz(o: PatientSatzOpts): Buffer {
+  const fields: Array<[string, string]> = [
+    ["8315", o.receiver],
+    ["8316", o.sender],
+    ["9218", "02.10"],
+  ];
+  if (o.profile.fk9206) fields.push(["9206", o.profile.fk9206]);
+  fields.push(["3000", o.patientId]);
+  fields.push(["3101", pick(NACHNAMEN)]);
+  fields.push(["3102", pick(VORNAMEN)]);
+  fields.push(["3103", randomDob()]);
+  fields.push(["3110", pick(["1", "2"])]);
+  // "@" is the DIN 66003 position of "§", so 7-bit files carry no e-mail.
+  if (o.contact && o.profile.enc !== "din66003") {
+    fields.push(["3619", `${o.patientId.toLowerCase()}@example.test`]);
+    fields.push(["3618", `01${randInt(51, 79)}${randInt(1000000, 9999999)}`]);
   }
-  parts.push(sign * rest);
-  return parts;
+  if (o.satzart === "6302") fields.push(["8402", "EKG01"]);
+  return buildSatz(o.satzart, fields, o.profile.enc, o.withLength);
+}
+
+/** BDT 6100 Patientenstamm Satz (ISO-8859-1). */
+export function buildBdtPatientSatz(patientId: string): Buffer {
+  return buildSatz(
+    "6100",
+    [
+      ["3000", patientId],
+      ["3101", pick(NACHNAMEN)],
+      ["3102", pick(VORNAMEN)],
+      ["3103", randomDob()],
+    ],
+    "latin1",
+    false
+  );
+}
+
+/** ECG device -> PVS result Satz (6310): never addressed to EINS. */
+export function buildDeviceResultSatz(patientId: string): Buffer {
+  return buildSatz(
+    "6310",
+    [
+      ["8315", "PVS1"],
+      ["8316", "EKG1"],
+      ["9218", "02.10"],
+      ["3000", patientId],
+      ["3101", pick(NACHNAMEN)],
+      ["3102", pick(VORNAMEN)],
+      ["8410", "EKG"],
+      ["8420", String(randInt(48, 130))],
+    ],
+    "cp437",
+    false
+  );
+}
+
+/** PVS -> ECG device order Satz (6302): addressed to EKG1, not to EINS. */
+export function buildDeviceOrderSatz(patientId: string): Buffer {
+  return buildPatientSatz({
+    satzart: "6302",
+    patientId,
+    profile: { enc: "cp437", fk9206: "2" },
+    withLength: false,
+    receiver: "EKG1",
+    sender: "PVS1",
+    contact: false,
+  });
 }
 
 // ---- CSV building ---------------------------------------------------------
@@ -158,20 +281,30 @@ function csvBuffer(rows: string[][]): Buffer {
 
 // ---- Dropper --------------------------------------------------------------
 
+const sha256File = (file: string): string | null => {
+  try {
+    return createHash("sha256").update(readFileSync(file)).digest("hex");
+  } catch {
+    return null;
+  }
+};
+
 export function startDropper(opts: DropperOpts = {}): DropperHandle {
   const dropEveryMs = opts.dropEveryMs ?? 45_000;
   const edge = opts.edge ?? false;
   let running = true;
   const stats = { drops: 0, paidCents: 0, refundCents: 0 };
 
-  const state = readJsonFile<DropperState>(DROPPER_STATE_FILE, {
-    gdtN: 0,
-    csvN: 0,
-    patN: 0,
-    openGdt: [],
-    openCsv: [],
-    lastCsvRows: [],
-  });
+  // Old runs may carry openGdt / gdtN: ignored. New fields default.
+  const old = readJsonFile<Partial<DropperState>>(DROPPER_STATE_FILE, {});
+  const state: DropperState = {
+    csvN: old.csvN ?? 0,
+    patN: old.patN ?? 0,
+    openCsv: old.openCsv ?? [],
+    lastCsvRows: old.lastCsvRows ?? [],
+    counters: old.counters ?? {},
+    pending: old.pending ?? [],
+  };
   const save = () => writeJsonFile(DROPPER_STATE_FILE, state);
   const ledger = (e: Record<string, unknown>) => appendJsonl(DROPPER_LEDGER, e);
 
@@ -183,95 +316,229 @@ export function startDropper(opts: DropperOpts = {}): DropperHandle {
     return `SGP${state.patN}`;
   }
 
-  // -- cases ---------------------------------------------------------------
+  const clinicFolder = (c: "A" | "B") => (c === "A" ? CLINIC_A.gdtFolder : CLINIC_B.gdtFolder);
+  const randClinic = (): "A" | "B" => (chance(0.5) ? "A" : "B");
 
-  function caseGdtPaid(): void {
-    state.gdtN++;
-    const invoiceId = `SGDT${state.gdtN}`;
-    const cents = randInt(90_00, 3_800_00);
-    const enc: Enc = chance(0.7) ? "latin1" : "utf8";
-    const buf = buildSatz("8316", newPatientId(), enc, { invoiceId, cents });
-    const file = fileName(CLINIC_B.gdtFolder, "honorar", "gdt");
-    writeFileSync(file, buf);
-    state.openGdt.push({ id: invoiceId, cents });
-    stats.paidCents += cents;
-    ledger({ case: "gdtPaid", clinic: "B", source: "gdt", kind: "paid", invoiceId, cents, file, enc });
+  /**
+   * Next free `<prefix>.NNN` in the clinic folder (counter 001..999, wraps,
+   * skips names that still exist). Null after 999 tries (folder full).
+   */
+  function nextCounterFile(clinic: "A" | "B", prefix: string): string | null {
+    const key = `${clinic}:${prefix}`;
+    const dir = clinicFolder(clinic);
+    for (let i = 0; i < 999; i++) {
+      const n = ((state.counters[key] ?? 0) % 999) + 1;
+      state.counters[key] = n;
+      const file = join(dir, `${prefix}.${String(n).padStart(3, "0")}`);
+      if (!existsSync(file)) return file;
+    }
+    return null;
   }
 
-  async function caseGdtTornPaid(): Promise<void> {
-    state.gdtN++;
-    const invoiceId = `SGDT${state.gdtN}`;
-    const cents = randInt(90_00, 3_800_00);
-    const buf = buildSatz("8316", newPatientId(), "latin1", { invoiceId, cents });
-    // Split INSIDE a line so part 1 cannot end on CR LF.
-    const cut = Math.max(10, buf.length - randInt(15, 40));
-    const file = fileName(CLINIC_B.gdtFolder, "torn", "gdt");
+  function counterFileOrProblem(clinic: "A" | "B", prefix: string): string | null {
+    const file = nextCounterFile(clinic, prefix);
+    if (!file) {
+      ledger({ case: "gdtCounterExhausted", clinic, problem: true, prefix, source: "gdt", kind: "none" });
+    }
+    return file;
+  }
+
+  const randProfile = () => pickWeighted(ENC_PROFILES);
+
+  function randomPatientSatz(patientId: string, receiver = "EINS"): { buf: Buffer; profile: EncProfile; satzart: string } {
+    const profile = randProfile();
+    const satzart = pickWeighted<"6301" | "6302" | "6311">([
+      [80, "6301"],
+      [15, "6302"],
+      [5, "6311"],
+    ]);
+    const buf = buildPatientSatz({
+      satzart,
+      patientId,
+      profile,
+      withLength: chance(0.3),
+      receiver,
+      sender: "PVS1",
+      contact: chance(0.3),
+    });
+    return { buf, profile, satzart };
+  }
+
+  // -- GDT cases (patient master data only, never revenue) -------------------
+
+  function caseGdtPatientCounter(): void {
+    const clinic = randClinic();
+    const file = counterFileOrProblem(clinic, "EINSPVS1");
+    if (!file) return;
+    const patientId = newPatientId();
+    const { buf, profile, satzart } = randomPatientSatz(patientId);
+    writeFileSync(file, buf);
+    ledger({
+      case: "gdtPatientCounter", clinic, source: "gdt", kind: "none", expect: "consumed",
+      patientIds: [patientId], file, satzart, enc: profile.enc, fk9206: profile.fk9206 ?? null,
+    });
+  }
+
+  async function caseGdtPatientFixedName(): Promise<void> {
+    const clinic = randClinic();
+    const file = join(clinicFolder(clinic), "EINSPVS1.GDT");
+    // Spec: the sender must not overwrite an unread file; wait for the delete.
+    const t0 = Date.now();
+    while (existsSync(file) && Date.now() - t0 < 60_000 && running) await sleep(1000);
+    if (existsSync(file)) {
+      ledger({
+        case: "gdtChannelBusy", clinic, source: "gdt", kind: "none",
+        waitedMs: Date.now() - t0, file,
+      });
+      return;
+    }
+    const patientId = newPatientId();
+    const { buf, profile, satzart } = randomPatientSatz(patientId);
+    writeFileSync(file, buf);
+    ledger({
+      case: "gdtPatientFixedName", clinic, source: "gdt", kind: "none", expect: "consumed",
+      patientIds: [patientId], file, satzart, enc: profile.enc, fk9206: profile.fk9206 ?? null,
+    });
+  }
+
+  async function caseGdtTorn(): Promise<void> {
+    const clinic = randClinic();
+    const file = counterFileOrProblem(clinic, "EINSPVS1");
+    if (!file) return;
+    const patientId = newPatientId();
+    const { buf, profile, satzart } = randomPatientSatz(patientId);
+    // Cut INSIDE the last line (it is >= 10 bytes), so part 1 ends mid-line.
+    const cut = buf.length - randInt(2, 8);
     writeFileSync(file, buf.subarray(0, cut));
-    ledger({ case: "gdtTorn.part1", clinic: "B", source: "gdt", kind: "none", file });
     await sleep(randInt(4000, 8000)); // > watcher stability window
     appendFileSync(file, buf.subarray(cut));
-    state.openGdt.push({ id: invoiceId, cents });
-    stats.paidCents += cents;
-    ledger({ case: "gdtTorn.completed", clinic: "B", source: "gdt", kind: "paid", invoiceId, cents, file });
-  }
-
-  function caseGdtRefund(): void {
-    if (state.openGdt.length === 0) return caseGdtPaid();
-    const idx = randInt(0, state.openGdt.length - 1);
-    const inv = state.openGdt.splice(idx, 1)[0]; // one refund per invoice, ever
-    const refundCents = chance(0.6) ? inv.cents : randInt(10_00, inv.cents);
-    const buf = buildSatz("8316", newPatientId(), "latin1", {
-      invoiceId: inv.id,
-      cents: -refundCents,
+    ledger({
+      case: "gdtTorn", clinic, source: "gdt", kind: "none", expect: "consumed",
+      patientIds: [patientId], file, satzart, enc: profile.enc,
     });
-    const file = fileName(CLINIC_B.gdtFolder, "storno", "gdt");
-    writeFileSync(file, buf);
-    stats.refundCents += refundCents;
-    ledger({ case: "gdtRefund", clinic: "B", source: "gdt", kind: "refund", invoiceId: inv.id, cents: -refundCents, file });
   }
 
-  function caseBdtMultiSatz(): void {
-    const n = randInt(2, 4);
-    const bufs: Buffer[] = [];
-    const entries: Array<{ invoiceId: string; cents: number }> = [];
-    for (let i = 0; i < n; i++) {
-      state.gdtN++;
-      const invoiceId = `SGDT${state.gdtN}`;
-      const cents = randInt(90_00, 2_000_00);
-      bufs.push(buildSatz("8316", newPatientId(), "latin1", { invoiceId, cents }));
-      entries.push({ invoiceId, cents });
+  function caseGdtNoFinalCrlf(): void {
+    const clinic = randClinic();
+    const file = counterFileOrProblem(clinic, "EINSPVS1");
+    if (!file) return;
+    const patientId = newPatientId();
+    const profile = randProfile();
+    const full = buildPatientSatz({
+      satzart: "6301", patientId, profile, withLength: false,
+      receiver: "EINS", sender: "PVS1", contact: false,
+    });
+    writeFileSync(file, full.subarray(0, full.length - 2));
+    ledger({
+      case: "gdtNoFinalCrlf", clinic, source: "gdt", kind: "none", expect: "consumed",
+      patientIds: [patientId], file, enc: profile.enc,
+    });
+  }
+
+  function caseGdtMultiSatz(): void {
+    const clinic = randClinic();
+    const file = counterFileOrProblem(clinic, "EINSPVS1");
+    if (!file) return;
+    const profile = randProfile();
+    const patientIds: string[] = [];
+    const parts: Buffer[] = [];
+    for (let i = randInt(2, 4); i > 0; i--) {
+      const id = newPatientId();
+      patientIds.push(id);
+      parts.push(buildPatientSatz({
+        satzart: "6301", patientId: id, profile, withLength: chance(0.3),
+        receiver: "EINS", sender: "PVS1", contact: false,
+      }));
     }
-    const file = fileName(CLINIC_B.gdtFolder, "bdt-batch", "gdt");
-    writeFileSync(file, Buffer.concat(bufs));
-    for (const e of entries) {
-      state.openGdt.push({ id: e.invoiceId, cents: e.cents });
-      stats.paidCents += e.cents;
-      ledger({ case: "bdtMultiSatz", clinic: "B", source: "gdt", kind: "paid", invoiceId: e.invoiceId, cents: e.cents, file });
+    writeFileSync(file, Buffer.concat(parts));
+    ledger({
+      case: "gdtMultiSatz", clinic, source: "gdt", kind: "none", expect: "consumed",
+      patientIds, file, enc: profile.enc,
+    });
+  }
+
+  function addPending(file: string, clinic: "A" | "B"): void {
+    const sha = sha256File(file);
+    if (!sha) return;
+    state.pending.push({ file, sha256: sha, dueAt: Date.now() + randInt(2, 5) * 60_000, clinic });
+  }
+
+  function caseGdtForeignDevice(): void {
+    const clinic = randClinic();
+    const toDevice = counterFileOrProblem(clinic, "EKG1PVS1");
+    const fromDevice = counterFileOrProblem(clinic, "PVS1EKG1");
+    if (!toDevice || !fromDevice) return;
+    writeFileSync(toDevice, buildDeviceOrderSatz(newPatientId()));
+    writeFileSync(fromDevice, buildDeviceResultSatz(newPatientId()));
+    for (const file of [toDevice, fromDevice]) {
+      addPending(file, clinic);
+      ledger({ case: "gdtForeignDevice", clinic, source: "gdt", kind: "none", expect: "untouched", file });
     }
   }
 
-  function caseGdtPatientOnly(): void {
-    const toA = chance(0.5);
-    const dir = toA ? CLINIC_A.gdtFolder : CLINIC_B.gdtFolder;
-    const buf = buildSatz("6301", newPatientId(), chance(0.5) ? "latin1" : "utf8");
-    const file = fileName(dir, "patient", "gdt");
-    writeFileSync(file, buf);
-    ledger({ case: "gdtPatientOnly", clinic: toA ? "A" : "B", source: "gdt", kind: "none", file });
+  function caseBdtExport(): void {
+    const clinic = randClinic();
+    const file = join(clinicFolder(clinic), `export-${Date.now()}-${randInt(1000, 9999)}.bdt`);
+    const header = buildSatz("0020", [["9206", "3"], ["9218", "02.10"]], "latin1", false);
+    const patientIds: string[] = [];
+    const parts: Buffer[] = [header];
+    for (let i = randInt(2, 4); i > 0; i--) {
+      const id = newPatientId();
+      patientIds.push(id);
+      parts.push(buildBdtPatientSatz(id));
+    }
+    writeFileSync(file, Buffer.concat(parts));
+    addPending(file, clinic);
+    ledger({
+      case: "bdtExport", clinic, source: "gdt", kind: "none", expect: "untouched",
+      patientIds, file,
+    });
   }
 
-  function caseUtf16Garbage(): void {
-    const text = buildSatz("8316", "SGPX", "latin1", {
-      invoiceId: "SGDT-UTF16-IGNORED",
-      cents: 123_45,
+  function caseGdtUtf16Garbage(): void {
+    const clinic = randClinic();
+    const file = counterFileOrProblem(clinic, "EINSPVS1");
+    if (!file) return;
+    const text = buildPatientSatz({
+      satzart: "6301", patientId: "SGPX", profile: { enc: "latin1", fk9206: "3" },
+      withLength: false, receiver: "EINS", sender: "PVS1", contact: false,
     }).toString("latin1");
-    const utf16 = Buffer.from(text, "utf16le");
-    // Final raw 0x0A byte: decoded as latin1 the text ends with "\n", so the
-    // parser sees a "complete" file of garbage lines → zero events expected,
-    // agent must survive.
-    const buf = Buffer.concat([utf16, Buffer.from([0x0a])]);
-    const file = fileName(CLINIC_B.gdtFolder, "utf16", "gdt");
-    writeFileSync(file, buf);
-    ledger({ case: "utf16Garbage", clinic: "B", source: "gdt", kind: "none", file });
+    writeFileSync(file, Buffer.from(text, "utf16le"));
+    ledger({ case: "gdtUtf16Garbage", clinic, source: "gdt", kind: "none", expect: "quarantined", file });
+  }
+
+  /**
+   * The simulated ECG device / PVS reads its own files. Due entries: if the
+   * file is missing or changed the agent touched a foreign file (problem),
+   * else delete it. `checkOnly` (stop): check every entry, delete nothing.
+   */
+  function processPending(checkOnly: boolean): void {
+    const now = Date.now();
+    const keep: PendingFile[] = [];
+    for (const p of state.pending) {
+      if (!checkOnly && p.dueAt > now) {
+        keep.push(p);
+        continue;
+      }
+      const sha = sha256File(p.file);
+      if (sha !== p.sha256) {
+        ledger({
+          case: "foreignFileTouched", clinic: p.clinic, problem: true, file: p.file,
+          detail: sha === null ? "file missing" : "content changed",
+        });
+        continue;
+      }
+      if (checkOnly) {
+        keep.push(p);
+        continue;
+      }
+      try {
+        unlinkSync(p.file);
+      } catch {
+        // already gone: the next check would flag it, but it was just consumed by "the device"
+      }
+    }
+    state.pending = keep;
   }
 
   function makeCsvPaidRows(n: number): string[][] {
@@ -388,17 +655,26 @@ export function startDropper(opts: DropperOpts = {}): DropperHandle {
       const gap = Math.max(500, Math.round(-Math.log(1 - Math.random()) * dropEveryMs));
       await sleep(gap);
       if (!running) break;
+      try {
+        processPending(false);
+      } catch (err) {
+        ledger({ case: "ERROR", message: `pending: ${(err as Error).message}` });
+      }
       const drop = pickWeighted<() => void | Promise<void>>([
-        [26, caseGdtPaid],
-        [10, caseGdtPatientOnly],
-        [15, caseCsvBatch],
-        [7, caseCsvRedrop],
-        [7, caseGdtRefund],
-        [7, caseCsvRefund],
-        [6, caseGdtTornPaid],
-        [5, caseCsvTorn],
-        [5, caseBdtMultiSatz],
-        [3, caseUtf16Garbage],
+        // GDT: patient master data only, zero revenue
+        [14, caseGdtPatientCounter],
+        [6, caseGdtPatientFixedName],
+        [5, caseGdtTorn],
+        [2, caseGdtNoFinalCrlf],
+        [2, caseGdtMultiSatz],
+        [4, caseGdtForeignDevice],
+        [2, caseBdtExport],
+        [2, caseGdtUtf16Garbage],
+        // CSV: all revenue
+        [24, caseCsvBatch],
+        [8, caseCsvRedrop],
+        [10, caseCsvRefund],
+        [8, caseCsvTorn],
         [3, caseCsvDupHeader],
       ]);
       try {
@@ -417,6 +693,13 @@ export function startDropper(opts: DropperOpts = {}): DropperHandle {
     stop: async () => {
       running = false;
       await loop;
+      try {
+        processPending(false); // consume what is due
+        processPending(true); // check (never delete) the rest
+      } catch (err) {
+        ledger({ case: "ERROR", message: `pending: ${(err as Error).message}` });
+      }
+      save();
       log("dropper", `stopped after ${stats.drops} drops`);
     },
     stats: () => ({ ...stats }),

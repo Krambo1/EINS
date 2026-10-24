@@ -90,9 +90,9 @@ export default async function LeitfadenPage() {
       {/* Kurzfassung-Banner → vollständige PDF unter Dokumente */}
       <Link
         href="/dokumente?kind=vertriebsleitfaden"
-        className="flex items-center gap-4 rounded-2xl border border-accent/30 bg-accent-soft p-4 transition hover:border-accent/60 md:p-5"
+        className="flex items-center gap-4 rounded-2xl border border-[var(--accent-glow)] bg-accent-soft p-4 transition hover:border-accent md:p-5"
       >
-        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-accent/15 text-accent">
+        <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-accent-soft text-accent">
           <FileText className="h-5 w-5" />
         </div>
         <div className="min-w-0 flex-1">
@@ -123,7 +123,7 @@ export default async function LeitfadenPage() {
 
       {/* 2. KPI-Ziele */}
       <section id="kpi" className="scroll-mt-24">
-        <h3 className="opa-h3 mb-4 text-fg-primary">KPI-Ziele für jeden Anruf</h3>
+        <h3 className="opa-h3 mb-4 text-fg-primary">Zielwerte für jeden Anruf</h3>
         <div className="grid gap-3 sm:grid-cols-3">
           {coreKpis.map((k) => (
             <Kpi key={k.id} label={k.label} value={k.value} hint={k.hint} />
@@ -202,7 +202,7 @@ export default async function LeitfadenPage() {
       {/* 6. Termin-Close + DSGVO */}
       <section className="scroll-mt-24">
         <h3 className="opa-h3 mb-4 text-fg-primary">
-          Termin-Close und DSGVO-Datenaufnahme
+          Termin festmachen und DSGVO-Datenaufnahme
         </h3>
         <Accordion type="multiple" className="space-y-2">
           {coreClose.map((s) => (
@@ -243,7 +243,7 @@ export default async function LeitfadenPage() {
       {/* 8. Discovery (Block A + rote Flaggen) */}
       <section className="scroll-mt-24">
         <h3 id="discovery" className="opa-h3 mb-4 scroll-mt-24 text-fg-primary">
-          Discovery: die wichtigsten Fragen
+          Bedarf klären: die wichtigsten Fragen
         </h3>
         <p className="mb-4 text-sm text-fg-secondary">{DISCOVERY_INTRO}</p>
         <Accordion type="multiple" className="space-y-2">
@@ -280,7 +280,7 @@ export default async function LeitfadenPage() {
       {/* 9. No-Show-Prävention */}
       <section className="scroll-mt-24">
         <h3 id="no-show" className="opa-h3 mb-4 scroll-mt-24 text-fg-primary">
-          No-Show-Prävention: Cadence und Vorlagen
+          No-Show-Prävention: Erinnerungsplan und Vorlagen
         </h3>
         <div className="space-y-4">
           <p className="text-sm text-fg-secondary">{NO_SHOW_INTRO}</p>
@@ -302,7 +302,7 @@ export default async function LeitfadenPage() {
           className={`rounded-2xl border p-6 ${
             hasPassedQuiz
               ? "border-[var(--tone-good-border)] bg-[var(--tone-good-bg)]"
-              : "border-accent/30 bg-accent-soft"
+              : "border-[var(--accent-glow)] bg-accent-soft"
           }`}
         >
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -311,12 +311,12 @@ export default async function LeitfadenPage() {
                 <ShieldCheck className="h-5 w-5" />
                 {hasPassedQuiz
                   ? "Sie haben die Leitfaden-Prüfung bestanden."
-                  : "Leitfaden-Prüfung — Mitwirkungspflicht laut EINS-Garantie"}
+                  : "Leitfaden-Prüfung: Schulung für Ihr Praxisteam"}
               </h3>
               <p className="text-sm text-fg-primary">
                 {hasPassedQuiz
                   ? "Wenn Sie möchten, können Sie die Prüfung jederzeit erneut versuchen."
-                  : `${TOTAL_QUESTIONS} Fragen aus diesem Leitfaden, ${PASS_THRESHOLD} richtig zum Bestehen, Versuche unbegrenzt. Mindestens ein:e Mitarbeiter:in pro Praxis muss bestehen, damit die Garantie greift.`}
+                  : `${TOTAL_QUESTIONS} Fragen aus diesem Leitfaden, ${PASS_THRESHOLD} richtig zum Bestehen, Versuche unbegrenzt. Wir empfehlen, dass mindestens ein:e Mitarbeiter:in pro Praxis besteht. Die Prüfung ist eine Schulung und keine Bedingung.`}
               </p>
             </div>
             <Button asChild variant={hasPassedQuiz ? "outline" : "default"}>
@@ -343,7 +343,7 @@ function Rule({
 }) {
   return (
     <div className="flex gap-4 rounded-xl border border-border bg-bg-secondary p-4">
-      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-accent/15 text-accent">
+      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-accent-soft text-accent">
         {icon}
       </div>
       <div>
@@ -394,11 +394,11 @@ function Kpi({
 }) {
   return (
     <div className="rounded-xl border border-border bg-bg-secondary p-4">
-      <div className="text-xs uppercase tracking-wide text-fg-secondary">
+      <div className="text-sm font-medium text-fg-primary">
         {label}
       </div>
       <div className="mt-1 text-2xl font-semibold text-fg-primary">{value}</div>
-      {hint && <div className="mt-1 text-xs text-fg-secondary">{hint}</div>}
+      {hint && <div className="mt-1 text-sm text-fg-primary">{hint}</div>}
     </div>
   );
 }
@@ -441,19 +441,19 @@ function Objection({
       </AccordionTrigger>
       <AccordionContent className="space-y-3 pb-4 text-base text-fg-primary">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">
+          <div className="text-sm font-medium text-fg-primary">
             Eigentliche Sorge
           </div>
           <p className="mt-1 text-sm text-fg-primary">{concern}</p>
         </div>
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">
+          <div className="text-sm font-medium text-fg-primary">
             HWG-konforme Antwort, Sie-Form
           </div>
           <Quote>{`„${answer}“`}</Quote>
         </div>
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-fg-secondary">
+          <div className="text-sm font-medium text-fg-primary">
             Was vermeiden
           </div>
           <ul className="mt-1 ml-5 list-disc space-y-1 text-sm">
@@ -486,17 +486,17 @@ function SagSoBlock({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border">
-                <th className="w-1/2 py-2 pr-3 text-left text-xs font-semibold uppercase tracking-wide text-tone-bad">
+                <th className="w-1/2 py-2 pr-3 text-left text-sm font-semibold text-tone-bad">
                   Sag-So-Nicht
                 </th>
-                <th className="w-1/2 py-2 pl-3 text-left text-xs font-semibold uppercase tracking-wide text-accent">
+                <th className="w-1/2 py-2 pl-3 text-left text-sm font-semibold text-accent">
                   Sag-So
                 </th>
               </tr>
             </thead>
             <tbody>
               {rows.map(([bad, good], i) => (
-                <tr key={i} className="border-b border-border/60 last:border-0">
+                <tr key={i} className="border-b border-border last:border-0">
                   <td className="py-3 pr-3 align-top text-fg-primary">{bad}</td>
                   <td className="py-3 pl-3 align-top text-fg-primary">{good}</td>
                 </tr>
@@ -515,20 +515,20 @@ function CadenceTable() {
       <table className="w-full text-sm">
         <thead className="bg-bg-secondary">
           <tr className="border-b border-border">
-            <th className="w-1/4 py-2 px-3 text-left text-xs font-semibold uppercase tracking-wide text-fg-secondary">
+            <th className="w-1/4 py-2 px-3 text-left text-sm font-medium text-fg-primary">
               Zeitpunkt
             </th>
-            <th className="w-1/4 py-2 px-3 text-left text-xs font-semibold uppercase tracking-wide text-fg-secondary">
+            <th className="w-1/4 py-2 px-3 text-left text-sm font-medium text-fg-primary">
               Kanal
             </th>
-            <th className="py-2 px-3 text-left text-xs font-semibold uppercase tracking-wide text-fg-secondary">
+            <th className="py-2 px-3 text-left text-sm font-medium text-fg-primary">
               Zweck
             </th>
           </tr>
         </thead>
         <tbody>
           {NO_SHOW_CADENCE.map((r, i) => (
-            <tr key={i} className="border-b border-border/60 last:border-0">
+            <tr key={i} className="border-b border-border last:border-0">
               <td className="py-3 px-3 align-top font-medium text-fg-primary">
                 {r.time}
               </td>
@@ -557,7 +557,7 @@ function Template({
         {title}
       </AccordionTrigger>
       <AccordionContent className="pb-4">
-        <pre className="overflow-x-auto whitespace-pre-wrap rounded-xl border border-border bg-bg-secondary p-4 font-mono text-xs leading-relaxed text-fg-primary">
+        <pre className="overflow-x-auto whitespace-pre-wrap rounded-xl border border-border bg-bg-secondary p-4 font-mono text-sm leading-relaxed text-fg-primary">
 {text}
         </pre>
       </AccordionContent>

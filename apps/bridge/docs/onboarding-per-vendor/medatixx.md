@@ -30,38 +30,54 @@ einem laufenden medatixx-Server: ca. 45 Minuten.
 
 ## Installation
 
-1. EINS-Agent herunterladen (Windows-Binary, ca. 14 MB):
-   `https://portal.eins.ag/pvs-bridge/agent/eins-agent-win.exe`
+Alle Befehle in einer Eingabeaufforderung **als Administrator**, im
+Agent-Ordner (enthaelt `eins-agent.cmd`). Es gibt keinen Installer: EINS
+stellt den Ordner bereit, er wird z. B. nach `C:\Program Files\EINS-Agent`
+kopiert (nicht in ein Benutzerprofil). Ein Node-20-`node.exe` liegt neben
+`eins-agent.cmd`.
 
-2. Im EINS-Portal: Einstellungen, Integrationen, PVS, "Neuen Agent
+1. Im EINS-Portal: Einstellungen, Integrationen, PVS, "Neuen Agent
    verbinden". Token notieren; 24 h gueltig.
 
-3. In einer Admin-PowerShell auf dem Praxis-Server:
+2. Einrichten (Token ueber stdin, nicht als Argument):
 
-   ```powershell
-   .\eins-agent-win.exe --enroll <token> --clinic <praxis-uuid>
+   ```
+   echo <token> | eins-agent --enroll --token-stdin --clinic <praxis-uuid>
    ```
 
-4. medatixx-Adapter aktivieren. Den absoluten Pfad zur Firebird-Datei
+3. medatixx-Adapter aktivieren. Den absoluten Pfad zur Firebird-Datei
    bereithalten (Standard: `C:\Program Files (x86)\medatixx\daten\PRAXIS.FDB`).
 
-   ```powershell
-   .\eins-agent-win.exe --enable-db-adapter medatixx-db `
-     --db-host 127.0.0.1 `
-     --db-port 3050 `
-     --db-database "C:\Program Files (x86)\medatixx\daten\PRAXIS.FDB" `
-     --db-username eins_readonly
+   ```
+   eins-agent --enable-db-adapter medatixx-db --db-host 127.0.0.1 --db-port 3050 --db-database "C:\Program Files (x86)\medatixx\daten\PRAXIS.FDB" --db-username eins_readonly
    ```
 
-   Das Passwort wird interaktiv abgefragt und sofort in der Windows
-   Credential Vault verschluesselt; nie in einer Datei.
+   Das Passwort wird interaktiv abgefragt und verschluesselt (Windows DPAPI)
+   im Datenordner `%ProgramData%\EINS-Agent` abgelegt; nie im Klartext.
 
-5. Agent als Windows-Dienst einrichten (laeuft im Hintergrund, startet
-   beim System-Boot):
+4. Schema pruefen (nur lesend, Pflicht auf dem ersten echten Praxis-PC):
 
-   ```powershell
-   .\eins-agent-win.exe --install-service
    ```
+   eins-agent --probe-db-adapter medatixx-db
+   ```
+
+   Exit-Code 0: alle Tabellen und Spalten gefunden. 1: Abweichungen, der
+   Bericht nennt fehlende Tabellen und Spalten mit aehnlichen Namen. 2: die
+   Pruefung ist fehlgeschlagen. Die mitgelieferte YAML ist ein geratenes
+   Schema und darf erst nach einem sauberen Lauf als verlaesslich gelten.
+
+5. Agent als Dienst einrichten (geplante Aufgabe `EINS-Agent`, laeuft als
+   SYSTEM, startet beim Hochfahren, ohne Anmeldung). Als der Windows-Benutzer
+   ausfuehren, der die Einrichtung gemacht hat; der Befehl uebernimmt dabei
+   Daten aus `%APPDATA%\EINS-Agent`:
+
+   ```
+   eins-agent --install-service
+   ```
+
+   Pruefen: `eins-agent --service-status`. Entfernen:
+   `eins-agent --uninstall-service`. Log:
+   `%ProgramData%\EINS-Agent\logsgent.log`.
 
 ## Sanity-Check
 
@@ -71,18 +87,27 @@ auftauchen. Einen Test-Termin in medatixx anlegen; das Event
 `AppointmentCreated` muss spaetestens nach 90 Sekunden im PVS-Live-Log
 sichtbar sein.
 
-## Schema-Discovery (einmalig empfohlen)
+## Schema-Abweichungen
 
 medatixx-Installationen koennen leicht abweichende Spaltennamen haben,
 besonders bei aelteren x.isynet-Versionen. Der Agent vergleicht die
 beim ersten Poll zurueckgegebenen Spalten mit der YAML-Deklaration und
 meldet `schema_drift` im EINS-Portal unter
 **Einstellungen, Integrationen, PVS** (Warnkarte "PVS-Verbindung
-benoetigt Aufmerksamkeit"), falls etwas nicht passt. Loesung: in
+benoetigt Aufmerksamkeit"), falls etwas nicht passt. Loesung: mit
+`--probe-db-adapter medatixx-db` die Abweichung ansehen, in
 `apps/bridge/agent/src/db-adapters/configs/medatixx.yaml` die
 betroffene Spalte umbenennen und Agent neu starten. Vollstaendige
 Schritt-fuer-Schritt-Anleitung: `apps/bridge/docs/troubleshooting.md`
 Abschnitt 6.
+
+## GDT und Honorar-Export (zusaetzlich oder statt Datenbank)
+
+GDT liefert nur Patienten-Stammdaten, nie Rechnungen. Einrichtung:
+`apps/bridge/agent/docs/SETUP-MEDATIXX.md`. Umsatz kommt aus der
+Datenbank (`RECH`) oder aus dem Honorar-CSV-Export (`--honorar-folder`).
+Ordner auf anderen Rechnern als UNC-Pfad angeben (`\serverreigabe\...`),
+nicht als Netzlaufwerk-Buchstabe: der Dienst laeuft als SYSTEM.
 
 ## Datenbank-Lasthinweis
 

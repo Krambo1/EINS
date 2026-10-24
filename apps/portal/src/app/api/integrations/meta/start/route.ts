@@ -5,6 +5,7 @@ import { can } from "@/lib/roles";
 import { env, hasMeta } from "@/lib/env";
 import { signState, setStateCookie } from "@/server/oauth";
 import { writeAudit } from "@/server/audit";
+import { META_OAUTH_SCOPES } from "@/server/meta-pages";
 
 /**
  * Kick off Meta (Facebook/Instagram) OAuth. Inhaber-only.
@@ -42,15 +43,13 @@ export async function GET(_request: NextRequest) {
     diff: { platform: "meta" },
   });
 
-  // Facebook Login dialog — we ask for ads_read + leads_retrieval + business_management.
+  // Facebook Login dialog. Scopes and why: see META_OAUTH_SCOPES (E6b added
+  // pages_manage_metadata for the page's leadgen subscription).
   const authUrl = new URL(`https://www.facebook.com/${env.META_API_VERSION}/dialog/oauth`);
   authUrl.searchParams.set("client_id", env.META_APP_ID!);
   authUrl.searchParams.set("redirect_uri", env.META_REDIRECT_URI);
   authUrl.searchParams.set("state", state);
-  authUrl.searchParams.set(
-    "scope",
-    ["ads_read", "leads_retrieval", "business_management", "pages_show_list"].join(",")
-  );
+  authUrl.searchParams.set("scope", META_OAUTH_SCOPES.join(","));
   authUrl.searchParams.set("response_type", "code");
 
   return NextResponse.redirect(authUrl);

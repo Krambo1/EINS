@@ -2,6 +2,7 @@ import { desc, eq, ne } from "drizzle-orm";
 import { requireAdmin } from "@/auth/admin-guards";
 import { db, schema } from "@/db/client";
 import {
+  failedJobList,
   pendingOperationCounts,
   slaBreachQueue,
   stalledLeads,
@@ -13,8 +14,9 @@ import { AnimationenQueue } from "./_components/AnimationenQueue";
 import { SyncErrorsQueue } from "./_components/SyncErrorsQueue";
 import { StalledLeadsQueue } from "./_components/StalledLeadsQueue";
 import { SectionRail } from "./_components/SectionRail";
+import { FailedJobsQueue } from "./_components/FailedJobsQueue";
 
-export const metadata = { title: "Operations · Admin" };
+export const metadata = { title: "Aufgaben · Admin" };
 
 export default async function AdminOperationsPage() {
   await requireAdmin();
@@ -25,6 +27,7 @@ export default async function AdminOperationsPage() {
     animations,
     syncs,
     stalled,
+    failedJobs,
   ] = await Promise.all([
     pendingOperationCounts(),
     slaBreachQueue(30),
@@ -59,6 +62,7 @@ export default async function AdminOperationsPage() {
       .orderBy(desc(schema.animationInstances.requestedAt)),
     syncErrorList(),
     stalledLeads(30),
+    failedJobList(),
   ]);
 
   const openAnimations = animations.filter(
@@ -66,7 +70,7 @@ export default async function AdminOperationsPage() {
   );
 
   const railItems = [
-    { id: "sla", label: "SLA-Verstöße", count: counts.slaBreaches },
+    { id: "sla", label: "Interne Antwortzeit", count: counts.slaBreaches },
     {
       id: "animationen",
       label: "Animationen",
@@ -78,12 +82,13 @@ export default async function AdminOperationsPage() {
       label: "Stagnierte Anfragen",
       count: counts.stalledRequests,
     },
+    { id: "fehlgeschlagene-jobs", label: "Fehlgeschlagene Aufgaben", count: failedJobs.rows.length },
   ];
 
   return (
     <div className="space-y-8">
       <AdminPageHeader
-        title="Operations"
+        title="Aufgaben"
         subtitle="Alle offenen Aufgaben in einer Ansicht. Pro Sektion das Wichtigste oben."
       />
 
@@ -94,6 +99,7 @@ export default async function AdminOperationsPage() {
           <AnimationenQueue rows={openAnimations} />
           <SyncErrorsQueue rows={syncs} />
           <StalledLeadsQueue rows={stalled} />
+          <FailedJobsQueue data={failedJobs} />
         </div>
       </div>
     </div>

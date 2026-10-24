@@ -8,6 +8,34 @@ import { z } from "zod";
  * is missing, the portal falls back to a safe dev adapter (console email,
  * local storage, heuristic AI scorer).
  */
+/**
+ * V4 Neben 5: a full http: or https: URL. `URL.canParse` alone accepts
+ * "localhost:3002" (scheme "localhost:") and "javascript:alert(1)".
+ */
+export function isHttpUrl(value: string): boolean {
+  if (!URL.canParse(value)) return false;
+  const { protocol, host } = new URL(value);
+  return (protocol === "http:" || protocol === "https:") && host.length > 0;
+}
+
+/** V4 Neben 4: minimum CRON_SECRET length in production (like VIDEO_API_TOKEN). */
+export const MIN_CRON_SECRET_LENGTH = 32;
+
+/**
+ * Why the cron secret is unusable, or null. Missing anywhere, or shorter than
+ * MIN_CRON_SECRET_LENGTH in production. Never stops the boot: the cron routes
+ * answer 503 and productionConfigProblems() reports it.
+ */
+export function cronSecretProblem(
+  raw: string | undefined,
+  nodeEnv: string | undefined
+): "missing" | "too_short" | null {
+  const secret = raw?.trim() ?? "";
+  if (!secret) return "missing";
+  if (nodeEnv === "production" && secret.length < MIN_CRON_SECRET_LENGTH) return "too_short";
+  return null;
+}
+
 export const env = createEnv({
   server: {
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -75,6 +103,45 @@ export const env = createEnv({
     R2_BUCKET: z.string().optional(),
     R2_ENDPOINT: z.string().optional(),
     R2_PUBLIC_BASE: z.string().optional(),
+    /**
+     * L-3: separate private bucket for the nightly DB dump, optionally with
+     * its own key pair (else the app pair). Unset: app bucket.
+     */
+    R2_BACKUP_BUCKET: z.string().optional(),
+    R2_BACKUP_ACCESS_KEY_ID: z.string().optional(),
+    R2_BACKUP_SECRET_ACCESS_KEY: z.string().optional(),
+    /**
+     * J-4: extra allowed origins for review links (own Praxis domains of
+     * clinic-landing), comma-separated full URLs. CLINIC_LANDING_ORIGIN is
+     * always allowed.
+     */
+    CLINIC_LANDING_ORIGINS: z
+      .string()
+      .optional()
+      .refine(
+        (v) =>
+          !v ||
+          v
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean)
+            .every(isHttpUrl),
+        "CLINIC_LANDING_ORIGINS: comma-separated full http(s) URLs (https://...)"
+      ),
+    /** J-8: shared HMAC secret with clinic-landing for the relayed patient IP. */
+    REVIEW_RELAY_SECRET: z.string().min(32).optional(),
+
+    /**
+     * Messweg webhooks (/api/webhooks/messweg/[provider], migration 0098).
+     * Unset = that provider's webhook answers 503. MATELSO_WEBHOOK_TOKEN is
+     * the shared token the Matelso Custom Push sends in the header
+     * X-EINS-Messweg-Token; CALENDLY_WEBHOOK_SIGNING_KEY is the signing key
+     * of the Calendly webhook subscription. MESSWEG_FIXTURE_SECRET signs the
+     * test-only fixture provider (ignored in production).
+     */
+    MATELSO_WEBHOOK_TOKEN: z.string().min(32).optional(),
+    CALENDLY_WEBHOOK_SIGNING_KEY: z.string().min(16).optional(),
+    MESSWEG_FIXTURE_SECRET: z.string().min(16).optional(),
 
     /**
      * Outreach videos (0073). VIDEO_PUBLIC_ORIGIN is where the watch page is
@@ -85,6 +152,32 @@ export const env = createEnv({
      */
     VIDEO_PUBLIC_ORIGIN: z.string().url().default("https://eins.ag"),
     VIDEO_API_TOKEN: z.string().min(32).optional(),
+
+    /**
+     * PVS vendor-config distribution (0071). PUBLIC keys only, as a JSON array:
+     *   [{"keyId":"eins-pvs-2026a","publicKey":"<base64 raw Ed25519>"}]
+     *
+     * There is deliberately no private-key counterpart. A vendor config is SQL
+     * that runs against Praxis patient databases, so signing happens offline
+     * (apps/bridge/agent/scripts/sign-vendor-config.ts) and this app can only
+     * verify. Unset means config uploads are refused, which is the correct
+     * behaviour for an environment nobody has provisioned a key for.
+     */
+    PVS_CONFIG_PUBLIC_KEYS: z.string().optional(),
+
+    /**
+     * Bearer secret for the Vercel crons (/api/cron/daily, /api/cron/morning).
+     * Optional for boot; unset, or shorter than MIN_CRON_SECRET_LENGTH in
+     * production, means both cron routes answer 503, so
+     * productionConfigProblems() reports it.
+     */
+    CRON_SECRET: z.string().optional(),
+    /**
+     * Single recipient for operator alerts (server/ops-alerts.ts) and the
+     * failed new-request notice (server/request-notify.ts). Plain string, not
+     * .email(): a typo must not stop the portal from booting.
+     */
+    OPS_ALERT_EMAIL: z.string().optional(),
 
     // OpenAI
     OPENAI_API_KEY: z.string().optional(),
@@ -124,6 +217,8 @@ export const env = createEnv({
     GOOGLE_ADS_DEVELOPER_TOKEN: z.string().optional(),
     GOOGLE_REDIRECT_URI: z.string().url().optional(),
     GOOGLE_ADS_LOGIN_CUSTOMER_ID: z.string().optional(),
+    /** Google Ads REST version override (default in server/google-ads-oci.ts). */
+    GOOGLE_ADS_API_VERSION: z.string().optional(),
     /** Server-side API key for Places API (New) — review rating + count sync. */
     GOOGLE_PLACES_API_KEY: z.string().optional(),
     /**
@@ -137,9 +232,6 @@ export const env = createEnv({
      */
     GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
     GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
-
-    // Sentry
-    SENTRY_DSN: z.string().optional(),
 
     // Admin
     // No default: a forgotten ADMIN_EMAILS must mean "no admin can log in"
@@ -175,21 +267,8 @@ export const env = createEnv({
       .enum(["0", "1"])
       .default("0")
       .transform((v) => v === "1"),
-
-    FEATURES: z
-      .string()
-      .default("")
-      .transform((v) =>
-        v
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean)
-      ),
   },
-  client: {
-    NEXT_PUBLIC_APP_URL: z.string().url().default("http://localhost:3001"),
-    NEXT_PUBLIC_SENTRY_DSN: z.string().optional(),
-  },
+  client: {},
   runtimeEnv: {
     NODE_ENV: process.env.NODE_ENV,
     APP_ORIGIN: process.env.APP_ORIGIN,
@@ -210,8 +289,19 @@ export const env = createEnv({
     R2_BUCKET: process.env.R2_BUCKET,
     R2_ENDPOINT: process.env.R2_ENDPOINT,
     R2_PUBLIC_BASE: process.env.R2_PUBLIC_BASE,
+    R2_BACKUP_BUCKET: process.env.R2_BACKUP_BUCKET,
+    R2_BACKUP_ACCESS_KEY_ID: process.env.R2_BACKUP_ACCESS_KEY_ID,
+    R2_BACKUP_SECRET_ACCESS_KEY: process.env.R2_BACKUP_SECRET_ACCESS_KEY,
+    CLINIC_LANDING_ORIGINS: process.env.CLINIC_LANDING_ORIGINS,
+    REVIEW_RELAY_SECRET: process.env.REVIEW_RELAY_SECRET,
+    MATELSO_WEBHOOK_TOKEN: process.env.MATELSO_WEBHOOK_TOKEN,
+    CALENDLY_WEBHOOK_SIGNING_KEY: process.env.CALENDLY_WEBHOOK_SIGNING_KEY,
+    MESSWEG_FIXTURE_SECRET: process.env.MESSWEG_FIXTURE_SECRET,
     VIDEO_PUBLIC_ORIGIN: process.env.VIDEO_PUBLIC_ORIGIN,
     VIDEO_API_TOKEN: process.env.VIDEO_API_TOKEN,
+    PVS_CONFIG_PUBLIC_KEYS: process.env.PVS_CONFIG_PUBLIC_KEYS,
+    CRON_SECRET: process.env.CRON_SECRET,
+    OPS_ALERT_EMAIL: process.env.OPS_ALERT_EMAIL,
     OPENAI_API_KEY: process.env.OPENAI_API_KEY,
     OPENAI_MODEL: process.env.OPENAI_MODEL,
     OPENAI_PROMPT_VERSION: process.env.OPENAI_PROMPT_VERSION,
@@ -227,16 +317,13 @@ export const env = createEnv({
     GOOGLE_ADS_DEVELOPER_TOKEN: process.env.GOOGLE_ADS_DEVELOPER_TOKEN,
     GOOGLE_REDIRECT_URI: process.env.GOOGLE_REDIRECT_URI,
     GOOGLE_ADS_LOGIN_CUSTOMER_ID: process.env.GOOGLE_ADS_LOGIN_CUSTOMER_ID,
+    GOOGLE_ADS_API_VERSION: process.env.GOOGLE_ADS_API_VERSION,
     GOOGLE_PLACES_API_KEY: process.env.GOOGLE_PLACES_API_KEY,
     GOOGLE_OAUTH_CLIENT_ID: process.env.GOOGLE_OAUTH_CLIENT_ID,
     GOOGLE_OAUTH_CLIENT_SECRET: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
-    SENTRY_DSN: process.env.SENTRY_DSN,
     ADMIN_EMAILS: process.env.ADMIN_EMAILS,
     ADMIN_IP_ALLOWLIST: process.env.ADMIN_IP_ALLOWLIST,
     ADMIN_IP_ALLOWLIST_DISABLED: process.env.ADMIN_IP_ALLOWLIST_DISABLED,
-    FEATURES: process.env.FEATURES,
-    NEXT_PUBLIC_APP_URL: process.env.NEXT_PUBLIC_APP_URL,
-    NEXT_PUBLIC_SENTRY_DSN: process.env.NEXT_PUBLIC_SENTRY_DSN,
   },
   emptyStringAsUndefined: true,
   skipValidation: process.env.SKIP_ENV_VALIDATION === "1",
@@ -329,6 +416,65 @@ export function hasGoogleLogin(): boolean {
   );
 }
 
+function isLocalOrigin(origin: string | undefined): boolean {
+  if (!origin) return true;
+  return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|0\.0\.0\.0)(:|\/|$)/i.test(origin);
+}
+
+/**
+ * Presence summary of the integrations, booleans only (never values). Public
+ * in /api/health, so it must stay free of secrets, hosts and ids.
+ */
+export function configSummary(): Record<string, boolean> {
+  return {
+    appOrigin: !isLocalOrigin(env.APP_ORIGIN) && env.APP_ORIGIN.startsWith("https://"),
+    clinicLandingOrigin: !isLocalOrigin(env.CLINIC_LANDING_ORIGIN),
+    email: hasResend(),
+    storage: hasR2(),
+    openai: hasOpenAI(),
+    meta: hasMeta(),
+    google: hasGoogle(),
+    googlePlaces: hasGooglePlaces(),
+    googleLogin: hasGoogleLogin(),
+    adminLogin: env.ADMIN_EMAILS.length > 0,
+  };
+}
+
+/**
+ * Production config that silently falls back to dev behaviour (A-11):
+ * localhost links in emails, console instead of Resend, local disk instead
+ * of R2. These are optional integrations by design, so the app still boots
+ * (a missing Meta key must never take the portal down); instead each problem
+ * is logged once per process at `level:error` and shows up in /api/health
+ * under `config`. Empty outside production.
+ */
+export function productionConfigProblems(): string[] {
+  if (env.NODE_ENV !== "production") return [];
+  const problems: string[] = [];
+  const s = configSummary();
+  if (!s.appOrigin) problems.push("APP_ORIGIN is localhost or not https: links in emails point nowhere");
+  if (!s.clinicLandingOrigin) problems.push("CLINIC_LANDING_ORIGIN is localhost: patient review links point nowhere");
+  if (!s.email) problems.push("email is not EMAIL_DRIVER=resend with RESEND_API_KEY: no email leaves the system");
+  if (!s.storage) problems.push("storage is not STORAGE_DRIVER=r2 with keys and bucket: uploads cannot work on Vercel");
+  const cron = cronSecretProblem(env.CRON_SECRET, env.NODE_ENV);
+  if (cron === "missing") problems.push("CRON_SECRET is not set: /api/cron/daily and /api/cron/morning answer 503, nothing runs without the worker");
+  if (cron === "too_short") problems.push(`CRON_SECRET is shorter than ${MIN_CRON_SECRET_LENGTH} characters: /api/cron/daily and /api/cron/morning answer 503 until it is replaced`);
+  return problems;
+}
+
+function reportProductionConfigProblems(): void {
+  // The build also imports this module with NODE_ENV=production; only the
+  // running server should shout.
+  if (process.env.NEXT_PHASE === "phase-production-build") return;
+  try {
+    for (const problem of productionConfigProblems()) {
+      console.error(JSON.stringify({ kind: "config", level: "error", problem }));
+    }
+  } catch {
+    // validation skipped in some build contexts; nothing to report.
+  }
+}
+
 /**
  * Sanity-check the env on first import. Catches config combinations that
  * silently break flows that would otherwise look healthy in dev.
@@ -406,3 +552,4 @@ function warnSuspiciousEnv(): void {
 }
 
 warnSuspiciousEnv();
+reportProductionConfigProblems();

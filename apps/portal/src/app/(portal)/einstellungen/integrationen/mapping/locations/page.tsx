@@ -6,7 +6,6 @@ import {
   CardHeader,
   CardTitle,
   CardDescription,
-  Badge,
 } from "@eins/ui";
 import { requireSession } from "@/auth/guards";
 import { db, schema } from "@/db/client";
@@ -49,15 +48,16 @@ export default async function LocationsMappingPage() {
         <div className="mb-2 flex items-center gap-2 text-sm">
           <Link
             href="/einstellungen/integrationen"
-            className="text-muted-foreground hover:underline"
+            className="inline-flex min-h-11 items-center font-medium text-fg-primary hover:underline"
           >
             ← Übersicht
           </Link>
         </div>
         <h1 className="text-2xl font-semibold">PVS-Standorte zuordnen</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Standort-IDs aus Ihrer PVS müssen einmalig EINS-Standorten zugeordnet
-          werden, damit die Standort-Attribution stimmt.
+        <p className="mt-1 text-base text-fg-primary">
+          Ihre Praxis-Software (PVS) nennt Standorte mit eigenen Nummern.
+          Ordnen Sie jede Nummer einmal einem Standort im Portal zu, dann
+          stimmen die Zahlen je Standort.
         </p>
       </header>
 
@@ -75,11 +75,11 @@ export default async function LocationsMappingPage() {
         <Card>
           <CardContent className="p-0">
             <table className="w-full text-sm">
-              <thead className="bg-muted/30 text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <thead className="bg-bg-secondary text-left text-sm font-medium text-fg-primary">
                 <tr>
-                  <th className="p-3">PVS-Standort-ID</th>
-                  <th className="p-3">PVS-Bezeichnung</th>
-                  <th className="p-3">EINS-Standort</th>
+                  <th className="hidden p-3 sm:table-cell">Nummer aus Ihrer Praxissoftware</th>
+                  <th className="p-3">Name in Ihrer Praxissoftware</th>
+                  <th className="p-3">Standort im Portal</th>
                   <th className="p-3">Status</th>
                 </tr>
               </thead>

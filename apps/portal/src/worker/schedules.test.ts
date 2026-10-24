@@ -12,8 +12,8 @@ import {
  * dispatcher model (one dispatcher per per-clinic job instead of N repeatables).
  */
 describe("worker schedule registry", () => {
-  it("registers the 10 platform-wide schedules with their crons", () => {
-    expect(PLATFORM_SCHEDULES).toHaveLength(10);
+  it("registers the 13 platform-wide schedules with their crons", () => {
+    expect(PLATFORM_SCHEDULES).toHaveLength(13);
     const map = Object.fromEntries(PLATFORM_SCHEDULES.map((s) => [s.queue, s.cron]));
     expect(map[QUEUES.slaCheck]).toBe("*/15 * * * *");
     expect(map[QUEUES.refreshOauth]).toBe("*/15 * * * *");
@@ -27,10 +27,16 @@ describe("worker schedule registry", () => {
     // 0069: agent liveness. Offset off the top of the hour so it does not
     // queue behind the per-clinic syncs.
     expect(map[QUEUES.pvsAgentHealthScan]).toBe("5 * * * *");
+    // pvs-apply-sweep re-applies stuck events (cron owned by that processor).
+    expect(map[QUEUES.pvsApplySweep]).toBe("*/10 * * * *");
+    // 0078: Wiederbehandlungs-Kalender reminders, morning only.
+    expect(map[QUEUES.retreatmentReminderTick]).toBe("0 8 * * *");
+    // 0101: late approval batches become a Verzug, hourly.
+    expect(map[QUEUES.contentApprovalVerzug]).toBe("25 * * * *");
   });
 
   it("registers one fan-out dispatcher per per-clinic queue", () => {
-    expect(CLINIC_DISPATCHERS).toHaveLength(7);
+    expect(CLINIC_DISPATCHERS).toHaveLength(8);
     expect(new Set(CLINIC_DISPATCHERS.map((d) => d.target))).toEqual(
       new Set([
         QUEUES.syncMeta,
@@ -40,6 +46,7 @@ describe("worker schedule registry", () => {
         QUEUES.syncReviewsGoogle,
         QUEUES.syncReviewsJameda,
         QUEUES.monthlyReport,
+        QUEUES.retreatmentRefresh,
       ])
     );
   });
@@ -61,6 +68,7 @@ describe("worker schedule registry", () => {
     expect(map[QUEUES.syncReviewsGoogle]).toBe("0 4 * * *");
     expect(map[QUEUES.syncReviewsJameda]).toBe("20 4 * * *");
     expect(map[QUEUES.monthlyReport]).toBe("0 5 1 * *");
+    expect(map[QUEUES.retreatmentRefresh]).toBe("45 3 * * *");
   });
 
   it("builds per-clinic payloads, with extra fields for kpi-rebuild + monthly-report", () => {

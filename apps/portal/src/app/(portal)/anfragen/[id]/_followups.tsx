@@ -1,12 +1,12 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { Card, CardHeader, CardTitle, CardContent, Button } from "@eins/ui";
-import { CalendarClock, Check, X, Loader2, AlarmClock } from "lucide-react";
+import { Check, X, Loader2, AlarmClock } from "lucide-react";
 import { formatDateTime } from "@/lib/formatting";
 import type { FollowupStatus } from "@/lib/constants";
 import type { FollowupRow } from "@/server/queries/followups";
-import { completeFollowup, cancelFollowup } from "./actions";
+import { completeFollowup, cancelFollowup, type ActionResult } from "./actions";
 
 const RESOLVED_LABEL: Record<Exclude<FollowupStatus, "pending">, string> = {
   done: "Erledigt",
@@ -25,7 +25,23 @@ export function Followups({
   requestId: string;
   followups: FollowupRow[];
 }) {
-  if (followups.length === 0) return null;
+  // Always shown (DS3): before the first Wiedervorlage the card explains
+  // how to set one, otherwise nobody knows the feature exists.
+  if (followups.length === 0) {
+    return (
+      <Card className="p-5 md:p-6">
+        <CardHeader className="mb-3">
+          <CardTitle>Wiedervorlagen</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-fg-primary">
+            Noch keine Wiedervorlage. Über „Wiedervorlage“ oben legen Sie fest,
+            wann die Anfrage wieder oben in der Anrufliste steht.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   const pending = followups.filter((f) => f.status === "pending");
   const resolved = followups.filter((f) => f.status !== "pending");
@@ -33,10 +49,7 @@ export function Followups({
   return (
     <Card className="p-5 md:p-6">
       <CardHeader className="mb-3">
-        <CardTitle className="inline-flex items-center gap-2 text-base">
-          <CalendarClock className="h-4 w-4" />
-          Wiedervorlagen
-        </CardTitle>
+        <CardTitle>Wiedervorlagen</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         {pending.length > 0 ? (
@@ -46,8 +59,9 @@ export function Followups({
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-fg-secondary">
-            Keine offene Wiedervorlage.
+          <p className="text-sm text-fg-primary">
+            Keine offene Wiedervorlage. Eine neue legen Sie oben mit
+            „Wiedervorlage“ an.
           </p>
         )}
 
@@ -59,11 +73,11 @@ export function Followups({
                   key={f.id}
                   className="flex items-center justify-between py-2 text-sm text-fg-secondary"
                 >
-                  <span className="tabular-nums line-through decoration-fg-tertiary/60">
+                  <span className="tabular-nums line-through decoration-fg-tertiary">
                     {formatDateTime(f.dueAt)}
                     {f.note ? ` · ${f.note}` : ""}
                   </span>
-                  <span className="shrink-0 text-xs text-fg-tertiary">
+                  <span className="shrink-0 text-sm text-fg-secondary">
                     {RESOLVED_LABEL[f.status as Exclude<FollowupStatus, "pending">]}
                   </span>
                 </li>
@@ -84,17 +98,20 @@ function PendingRow({
   followup: FollowupRow;
 }) {
   const [isPending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   const overdue = followup.dueAt.getTime() <= Date.now();
 
-  const resolve = (action: (fd: FormData) => Promise<void>) => {
+  const resolve = (action: (fd: FormData) => Promise<ActionResult>) => {
     const fd = new FormData();
     fd.set("followupId", followup.id);
     fd.set("requestId", requestId);
+    setError(null);
     startTransition(async () => {
       try {
-        await action(fd);
+        const res = await action(fd);
+        if (!res.ok) setError(res.message);
       } catch {
-        // Best-effort — a failed resolve leaves the row in place to retry.
+        setError("Keine Verbindung. Bitte versuchen Sie es noch einmal.");
       }
     });
   };
@@ -103,16 +120,16 @@ function PendingRow({
     <li
       className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2.5 ${
         overdue
-          ? "border-tone-warn/40 bg-[var(--tone-warn-bg)]"
+          ? "border-[var(--tone-warn-border)] bg-[var(--tone-warn-bg)]"
           : "border-border bg-bg-secondary"
       }`}
     >
       <div className="min-w-0">
         <div className="flex items-center gap-1.5 text-sm font-medium text-fg-primary tabular-nums">
-          {overdue && <AlarmClock className="h-4 w-4 text-tone-warn" />}
+          {overdue && <AlarmClock className="h-4 w-4 text-tone-warn" aria-hidden />}
           {formatDateTime(followup.dueAt)}
           {overdue && (
-            <span className="text-xs font-normal text-tone-warn">fällig</span>
+            <span className="text-sm font-semibold text-fg-primary">fällig</span>
           )}
         </div>
         {followup.note && (
@@ -121,10 +138,11 @@ function PendingRow({
           </p>
         )}
         {followup.createdByName && (
-          <p className="mt-0.5 text-xs text-fg-tertiary">
+          <p className="mt-0.5 text-sm text-fg-secondary">
             gesetzt von {followup.createdByName}
           </p>
         )}
+        {error && <p className="mt-0.5 text-sm text-tone-bad">{error}</p>}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
         <Button

@@ -18,7 +18,9 @@ function affectedRows(result: unknown): number {
  * We keep audit forever for admin accounts by not filtering on that here —
  * law allows audit-log deletion after the retention window expires.
  */
-export async function processPurgeAudit(): Promise<void> {
+export async function processPurgeAudit(
+  opts: { skipRetention?: boolean } | null = null
+): Promise<void> {
   const cutoff = new Date();
   cutoff.setMonth(cutoff.getMonth() - AUDIT_RETENTION_MONTHS);
 
@@ -48,4 +50,12 @@ export async function processPurgeAudit(): Promise<void> {
   const { purgeExpiredMagicLinks } = await import("@/auth/magic-link");
   const magicLinks = await purgeExpiredMagicLinks();
   console.log(`[purge-audit] deleted ${magicLinks} expired magic-link rows`);
+
+  // Retention rules (L-4). The worker's weekly job runs them here; the daily
+  // Vercel cron runs them as its own step and passes skipRetention so a
+  // Sunday does not run them twice in one request (harmless, but slower).
+  if (!opts?.skipRetention) {
+    const { processPurgeRetention } = await import("./purge-retention");
+    await processPurgeRetention();
+  }
 }

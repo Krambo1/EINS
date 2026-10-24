@@ -1,12 +1,12 @@
-# Discovery-Fragebogen v1 (Entwurf zur Review)
+# Discovery-Fragebogen v2 (Stand 30.09.2026)
 
-**Was das ist:** Das Frageset für das Kunden-Onboarding. Zwei Teile: Teil 1 füllt die Praxis vorab im Portal aus (Fakten und Spannen, ca. 15-20 Min), Teil 2 sind Karams Gesprächsfragen für das Onboarding-Meeting (ca. 30-40 Min Gesprächsanteil). Gesamtkosten Inhaber: unter 60 Min.
+**Was das ist:** Das Frageset für das Kunden-Onboarding. Zwei Teile: Teil 1 füllt die Praxis vorab im Portal aus (Fakten und Spannen, ca. 15-20 Min), Teil 2 sind Karams Gesprächsfragen für das Onboarding-Gespräch (ca. 30-40 Min Gesprächsanteil). Gesamtkosten Inhaber: unter 60 Min.
 
 **Abgrenzung:** Lieferungen (Zugänge, Logo, Fotos, AVV) stehen in der Asset-Liefer-Checkliste, nicht hier. Hier stehen nur Antworten, die in Karams Kopf bzw. ins System müssen.
 
 **Legende:**
 - **P** = Pflicht (ohne Antwort startet das Setup nicht) · **O** = Optional (sichtbar überspringbar)
-- Job: **F** = Fulfilment (Kampagne/Zielseite/Video bauen) · **W** = Werbe-Setup (Targeting, Budget, Fokus) · **A** = Avatar-Forschung · **G** = Garantie-Baseline
+- Job: **F** = Fulfilment (Beiträge, Zielseite und Klon aufsetzen) · **W** = Werbe-Setup (Targeting, Budget, Fokus) · **A** = Avatar-Forschung · **G** = Zahlen-Baseline (Ausgangswerte, gegen die die Auswertung später misst)
 
 **Typen (Portal):** Auswahl, Mehrfachauswahl, Spanne (vorgegebene Bereiche), Zahl, Freitext kurz, Freitext lang.
 
@@ -14,7 +14,7 @@
 
 ## Teil 1 · Vorab-Formular (Portal)
 
-Einleitungstext im Portal: *"Diese Antworten sind die Grundlage für Ihre Kampagnen, Ihre Zielseite und Ihr Video. Je genauer Sie antworten, desto weniger müssen wir im Gespräch nachfragen. Pflichtfragen sind markiert; alles andere können Sie überspringen. Dauer: etwa 15 bis 20 Minuten. Schätzungen reichen überall aus, niemand erwartet exakte Zahlen."*
+Einleitungstext im Portal: *"Diese Antworten sind die Grundlage für Ihren KI-Klon, Ihre Beiträge und Ihre Zielseite. Je genauer Sie antworten, desto weniger müssen wir im Gespräch nachfragen. Pflichtfragen sind markiert; alles andere können Sie überspringen. Dauer: etwa 15 bis 20 Minuten. Schätzungen reichen überall aus, niemand erwartet exakte Zahlen."*
 
 ### Block A · Behandlungen und Wirtschaftlichkeit
 
@@ -29,7 +29,7 @@ Einleitungstext im Portal: *"Diese Antworten sind die Grundlage für Ihre Kampag
 
 ### Block B · Ausgangslage und Ziel
 
-*Warum wir fragen: Eine ausgelastete Praxis braucht eine andere Kampagne als eine Praxis mit freien Terminen. Wenn wir das falsch einschätzen, bewerben wir das Falsche.*
+*Warum wir fragen: Eine ausgelastete Praxis braucht eine andere Strategie als eine Praxis mit freien Terminen. Wenn wir das falsch einschätzen, bewerben wir das Falsche.*
 
 | # | Frage | Typ | P/O | Job |
 |---|---|---|---|---|
@@ -51,7 +51,7 @@ Einleitungstext im Portal: *"Diese Antworten sind die Grundlage für Ihre Kampag
 
 ### Block D · Anfragen-Annahme und Beratung heute
 
-*Warum wir fragen: Die Garantie setzt voraus, dass Anfragen binnen 48 Werkstunden beantwortet werden. Wir müssen wissen, wie das heute läuft, damit wir das Routing richtig bauen.*
+*Warum wir fragen: Bitte versuchen Sie, jede Anfrage innerhalb von 48 Werkstunden zu kontaktieren. Das ist keine Bedingung der Garantie. Schaffen Sie es nicht, hat das drei Folgen: Sie können bei dieser Anfrage nicht mehr einwenden, die Person sei nicht echt oder nicht erreichbar gewesen. Die Anfrage steht in Ihrer Auswertung als "von der Praxis nicht beantwortet". Und liegen drei oder mehr solcher Anfragen offen, dürfen wir nach einer Warnung die bezahlten Anzeigen pausieren, bis Sie die Anfragen kontaktiert haben. Wir müssen wissen, wie das heute läuft, damit wir das Routing richtig bauen.*
 
 | # | Frage | Typ | P/O | Job |
 |---|---|---|---|---|
@@ -74,17 +74,17 @@ Einleitungstext im Portal: *"Diese Antworten sind die Grundlage für Ihre Kampag
 
 | # | Frage | Typ | P/O | Job |
 |---|---|---|---|---|
-| F1 | Welches monatliche Werbebudget planen Sie ein? (Direkt an Meta/Google, getrennt von der EINS-Gebühr. Empfohlenes Minimum 3.000 €; weniger nur in Ausnahmefällen.) | Auswahl 3.000-5.000 € / 5.000-8.000 € / über 8.000 € / muss ich noch entscheiden, ODER eigener Betrag. Harter Floor 1.500 €/Monat (darunter blockierende Fehlermeldung); 1.500-2.999 € weicher Hinweis | P | W G |
+| F1 | Welches monatliche Werbebudget haben Sie heute oder für später vorgesehen? (Freiwillig. Zu Beginn brauchen Sie kein Werbebudget, wir starten organisch. Das Budget zahlen Sie direkt an Meta und Google, getrennt von der EINS-Gebühr.) | Auswahl: kein Werbebudget zu Beginn / bis 1.000 € / 1.000-2.500 € / 2.500-5.000 € / über 5.000 € / muss ich noch entscheiden, ODER eigener Betrag. Kein Mindestbetrag | O | W |
 | F2 | Gab es früher Abmahnungen, Kammer-Beschwerden oder rechtliche Themen rund um Ihre Werbung? | Auswahl: ja / nein / unsicher, dazu im Gespräch | P | F |
 | F3 | Gibt es Aussagen oder Darstellungen, die für Sie in der Werbung nicht in Frage kommen, unabhängig von der Rechtslage? | Freitext kurz | O | F A |
 
-**Teil 1 gesamt: 26 Fragen, davon 20 Pflicht.**
+**Teil 1 gesamt: 26 Fragen, davon 19 Pflicht.**
 
 ---
 
-## Teil 2 · Gesprächsleitfaden (Onboarding-Meeting, intern)
+## Teil 2 · Gesprächsleitfaden (Onboarding-Gespräch, intern)
 
-Nicht im Portal. Karam stellt die Fragen, notiert selbst. Reihenfolge folgt dem Gesprächsfluss: erst Geschichte (öffnet), dann Patientinnen (konkret), dann Marketing-Historie (heikel), dann Video/Positionierung, dann Zusammenarbeit. Vorab-Antworten aus Teil 1 vorher lesen und im Gespräch referenzieren, nichts doppelt fragen.
+Nicht im Portal. Karam stellt die Fragen, notiert selbst. Reihenfolge folgt dem Gesprächsfluss: erst Geschichte (öffnet), dann Patientinnen (konkret), dann Marketing-Historie (heikel), dann Ihr KI-Klon, dann Zusammenarbeit. Vorab-Antworten aus Teil 1 vorher lesen und im Gespräch referenzieren, nichts doppelt fragen.
 
 ### Block G · Praxis und Person (Einstieg, Avatar)
 
@@ -94,7 +94,7 @@ Nicht im Portal. Karam stellt die Fragen, notiert selbst. Reihenfolge folgt dem 
 | G2 | Worauf sind Sie in Ihrer Praxis am meisten stolz? Was machen Sie nachweislich besser als andere? | USP-Rohmaterial in O-Ton-Sprache | P | F W |
 | G3 | Was würde sich für Sie persönlich ändern, wenn die Patientengewinnung verlässlich läuft? (Zeit, Ruhe, Planbarkeit?) | Avatar-Tiefe: Lebens-Ebene hinter dem Geschäftsziel | O | A |
 
-### Block H · Wunschpatientin und Problempatientin (Ads- und Copy-Gold)
+### Block H · Wunschpatientin und Problempatientin (Anzeigen- und Text-Gold)
 
 | # | Frage | Ziel | P/O | Job |
 |---|---|---|---|---|
@@ -112,46 +112,51 @@ Nicht im Portal. Karam stellt die Fragen, notiert selbst. Reihenfolge folgt dem 
 |---|---|---|---|---|
 | I1 | Was haben Sie bisher fürs Marketing probiert, mit wem, und was kam dabei raus? | Agentur-Historie konkret; zeigt, welches Muster wir sichtbar brechen müssen | P | A F |
 | I2 | Woran lag es aus Ihrer Sicht, dass es nicht funktioniert hat? | Avatar: Attributionsmuster des Inhabers; Erwartungs-Management | P | A |
-| I3 | Was müsste bei uns in den ersten 90 Tagen passieren, damit Sie sagen: gute Entscheidung? | Erwartungs-Anker explizit machen, gegen Garantie-Logik spiegeln | P | F G A |
+| I3 | Was müsste bei uns in den ersten 90 Tagen passieren, damit Sie sagen: gute Entscheidung? | Erwartungs-Anker explizit machen, gegen Garantie-Logik spiegeln | P | F A |
 | I4 | Was war damals der Monatspreis, und wie lange haben Sie durchgehalten? | Avatar: Budget-Schmerzgrenze und Geduldsfenster | O | A |
 
-### Block J · Video, Kamera, Positionierung
+### Block J · Ihr KI-Klon
 
 | # | Frage | Ziel | P/O | Job |
 |---|---|---|---|---|
-| J1 | Wie wollen Sie als Praxis NICHT wirken? (Beispiele anbieten: Discount, Influencer, Hochglanz-Klinikkette) | Positionierungs-Leitplanken für alle Medien | P | F |
-| J2 | Wer aus dem Team darf und will vor die Kamera? Wie wohl fühlen Sie sich selbst dabei? | Produktionstag-Planung; Kamera-Scheu früh erkennen | P | F |
-| J3 | Gibt es Patientinnen, die öffentlich über ihre Behandlung sprechen würden (Patientenstimmen, mit Einwilligung)? | Trust-Material fürs Video und die Zielseite | P | F |
-| J4 | Welche Praxis-Auftritte (egal welcher Branche) gefallen Ihnen, welche schrecken Sie ab? | Geschmacks-Kalibrierung vor der Produktion | O | F |
+| J1 | Welche Themen und Fragen soll Ihr Klon erklären? (Die Fragen, die Patientinnen sich nicht zu stellen trauen, und die Behandlungen dahinter.) | Themenplan für die ersten Beiträge des Klons | P | F |
+| J2 | Wie soll Ihr Klon klingen? (Tonfall in der Beratung: sachlich, warm, direkt. Welche Praxis-Auftritte, egal welcher Branche, gefallen Ihnen, welche schrecken Sie ab?) | Tonfall und Sprechweise des Klons, Geschmacks-Kalibrierung vor dem Bau | P | F A |
+| J3 | Wie wollen Sie als Praxis NICHT wirken? (Beispiele anbieten: Discount, Influencer, Hochglanz-Praxiskette) | No-Gos: Leitplanken für Klon und Beiträge | P | F |
+| J4 | Was darf Ihr Klon nie sagen? (Aussagen, Versprechen, Vergleiche und Formulierungen, die für Sie nicht in Frage kommen) | Grenzen für Klon-Aussagen, zusätzlich zur HWG-Prüfung | P | F |
+| J5 | Welche Behandlungen soll Ihr Klon nie bewerben? (Ihre Antwort auf A5 vorher lesen, hier nur bestätigen und ergänzen.) | Ausschluss-Liste für Beiträge und Anzeigen | O | F |
+| J6 | Gibt es Patientinnen, die öffentlich über ihre Behandlung sprechen würden (Patientenstimmen, mit Einwilligung)? | Echte Stimmen für Zielseite und Beiträge, ergänzend zum Klon (der Klon ist die einzige künstliche Person) | P | F |
 
 ### Block K · Rechtliches und ärztliche Leitung
 
 | # | Frage | Ziel | P/O | Job |
 |---|---|---|---|---|
 | K1 | (Falls F2 = ja/unsicher) Was genau ist damals passiert, und wie wurde es gelöst? | HWG-Risikoprofil konkret | P | F |
-| K2 | Wer gibt medizinische Aussagen in Werbemitteln frei, und wie schnell ist diese Person erreichbar? | Freigabe-Engpass früh erkennen (10-Werktage-Frist der Garantie) | P | F G |
+| K2 | Wer gibt medizinische Aussagen in Beiträgen und Anzeigen frei, und wie schnell ist diese Person erreichbar? | Freigabe-Engpass früh erkennen (Frist: 2 Werktage) | P | F |
 
 ### Block L · Zusammenarbeit
 
 | # | Frage | Ziel | P/O | Job |
 |---|---|---|---|---|
 | L1 | Über welchen Kanal erreichen wir Sie am zuverlässigsten, und wann sind Sie am besten ansprechbar? | Kommunikations-Setup (Avatar: OP-Blöcke beachten) | P | F |
-| L2 | Wer im Team wird täglich mit Anfragen und dem EINS-Portal arbeiten? (Person für Einweisung und Quartals-Reviews) | Benannte MFA, Pflicht aus dem Vertrag | P | F G |
+| L2 | Wer im Team wird täglich mit Anfragen und dem EINS-Portal arbeiten? (Person für die Schulung und die Quartals-Reviews) | Benannte Ansprechperson im Team; Schulung und Quartals-Reviews sind ein Angebot, keine Bedingung | P | F |
 | L3 | Was muss ich über Ihre Praxis wissen, wonach ich nicht gefragt habe? | Abschlussfrage; fängt alles, was das Raster übersieht | P | F A |
 
-**Teil 2 gesamt: 21 Fragen, davon 17 Pflicht.**
+**Teil 2 gesamt: 23 Fragen, davon 19 Pflicht.**
 
 ---
 
 ## Mapping: Frage → Verwertung
 
-- **Strategie-Brief (intern):** A1-A5, B1-B3, D1-D6, E1-E2, F1-F3, G2, H1-H4, I3, J1-J3, K1-K2, L1-L2
-- **Kampagnen-Setup:** A1-A4, B3, C1, E1-E3, F1, H1-H5
-- **Zielseite/Video:** A1, G1-G2, H3-H5, J1-J4
-- **Garantie-Baseline:** A2-A4, B3, C1-C3, D2, D4-D5, F1, I3, K2, L2
+- **Strategie-Brief (intern):** A1-A5, B1-B3, D1-D6, E1-E2, F1-F3, G2, H1-H4, I3, J1-J5, K1-K2, L1-L2
+- **Erste Beiträge und spätere Anzeigen:** A1-A4, B3, C1, E1-E3, F1, H1-H5
+- **Zielseite und Klon-Beiträge:** A1, G1-G2, H3-H5, J1-J6
+- **Zahlen-Baseline:** A2-A4, B3, C1-C3, D2, D4-D5
 - **Avatar/Pain-Register-Update:** B1-B2, B4, E3, F3, G1-G3, H1-H2, H5, I1-I4, L3
 
 ## Review-Stand
 
 - 2026-06-12 von Karam freigegeben mit zwei Änderungen: Google-Bewertungs-Frage gestrichen (ehemals C4), F1-Budget-Spannen starten bei 3.000 € (empfohlenes Minimum aus dem Angebot).
 - Gesamt: 26 + 21 = 47 Fragen, 37 Pflicht. (Frühere Zählungen in diesem Dokument waren Rechenfehler; korrigiert 2026-06-12 beim Portal-Build, Fragenbestand unverändert.)
+- 2026-09-30 (v2, Umbau auf KI-Klon und "Keine Anfrage, keine Rechnung"): Block J "Video, Kamera, Positionierung" wird "Ihr KI-Klon" (Themen, Tonfall, No-Gos, was der Klon nie sagen darf, Behandlungen, die er nie bewerben soll). Block F: F1 (Werbebudget) ist freiwillig, ohne Mindestbetrag und ohne Mindest-Empfehlung, die ID bleibt. Block D: 48 Werkstunden nur noch als Empfehlung. Zahlen-Baseline (heutige Anfragen pro Monat, C2) bleibt für die spätere Auswertung. Jobs: "G" heißt jetzt Zahlen-Baseline, K2, L2, I3 und F1 tragen kein G mehr.
+- Gesamt: 26 + 23 = 49 Fragen, 19 + 19 = 38 Pflicht. Teil 1 im Portal: 26 Fragen, 19 Pflicht. Block J liegt nur in Teil 2 und damit nicht im Portal.
+- 2026-10-06 (Antwortzeit, KANON 6a): Block D, "Warum wir fragen": 48 Werkstunden sind keine Bedingung der Garantie, haben aber drei Folgen (Kundenwortlaut aus dem Nachtrag 06.10.2026). Der Hinweis vom 30.09.2026 "nur noch als Empfehlung" gilt nicht mehr. Fragen unverändert.

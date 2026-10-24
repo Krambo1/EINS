@@ -21,7 +21,7 @@ Rechnungs-Datenpfad erlaubt:
 |---|---|---|
 | Quelle | Postgres `soak_tomedo` (Schema exakt wie `tomedo.yaml`) | GDT-Ordner + Honorar-CSV-Ordner |
 | Agent | eigener APPDATA-Store, tomedo-db-Adapter, read-only DB-User | eigener APPDATA-Store, GDT-Watcher + CSV-Watcher |
-| Last | Churn-Script: Patienten, Termine, Rechnungen, Storni, Edits | Dropper: GDT/BDT/CSV-Dateien inkl. Gemeinheiten |
+| Last | Churn-Script: Patienten, Termine, Rechnungen, Storni, Edits | Dropper: Honorar-CSV (Umsatz) + GDT/BDT-Patientendateien inkl. Gemeinheiten |
 | Wahrheit | die Datenbank selbst | append-only Ledger (`journal/dropper-ledger.jsonl`) |
 
 Beide Agenten reden mit dem Portal **nur über den Chaos-Proxy**
@@ -29,12 +29,27 @@ Beide Agenten reden mit dem Portal **nur über den Chaos-Proxy**
 
 ### Gemeinheiten, die der Dropper absichtlich einstreut
 
-- Torn Writes: GDT/CSV-Datei erscheint ohne letztes CR LF, wird Sekunden
+GDT trägt **keinen Umsatz** (8420 ist ein Messwert). Der Agent erzeugt aus GDT
+nur `PatientUpserted` (Satzart 6301/6302/6311 PVS→Gerät, 6100 BDT); Umsatz
+kommt ausschließlich aus der Honorar-CSV.
+
+GDT-Fälle (wie medatixx / CGM Turbomed):
+- `EINSPVS1.NNN` Zähler-Dateien (001..999, Wrap, belegte Namen werden übersprungen),
+  Satzart 6301/6302/6311, optional FK 8100, Zeichensatz CP437 (mit/ohne 9206),
+  ISO-8859-1 (9206=3), DIN 66003 (9206=1), optional E-Mail/Mobil
+- `EINSPVS1.GDT` Festname: der Dropper wartet (max. 60 s), bis der Agent die
+  alte Datei gelöscht hat (`gdtChannelBusy` = Warnung)
+- Torn Write (Datei ohne Dateiende, später vervollständigt) und Datei ohne
+  letztes CR LF (wird nach der Karenzzeit akzeptiert)
+- Multi-Satz-Datei (2-4 Patienten)
+- Fremdgeräte: `EKG1PVS1.NNN` und `PVS1EKG1.NNN` (6310) dürfen NIE angefasst
+  werden (sha256-Prüfung); `export-*.bdt` wird gelesen, aber nie gelöscht
+- UTF-16-Schrottdatei an EINS adressiert: 0 Events, landet in `.eins/failed`
+
+CSV-Fälle:
+- Torn Writes: CSV-Datei erscheint ohne letztes CR LF, wird Sekunden
   später fertig geschrieben (muss re-prozessiert werden, ohne Duplikat)
-- ISO-8859-1 vs. UTF-8 Umlaute; eine UTF-16-Schrottdatei (muss 0 Events
-  ergeben, ohne den Agenten zu töten)
-- Multi-Satz-BDT (mehrere Patienten + Rechnungen in einer Datei)
-- Beträge mit Tausenderpunkt ("1.234,56"), mehrere 8420-Honorarzeilen pro Satz
+- Beträge mit Tausenderpunkt ("1.234,56")
 - CSV mit doppelter Header-Spalte (muss laut scheitern, 0 Events)
 - CSV-Zeilen mit Zahlstatus "offen" (dürfen NIE Umsatz buchen)
 - Komplette Re-Drops bereits gelieferter Zeilen (müssen zu 0 dedupen)

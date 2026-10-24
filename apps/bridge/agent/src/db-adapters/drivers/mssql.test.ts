@@ -4,6 +4,8 @@ import { MssqlDriver, translateNamedToAt } from "./mssql.js";
 /** A stand-in for mssql's DateTime2 type marker so the test can assert the
  *  driver bound with it. */
 const DATETIME2 = Symbol("DateTime2");
+/** ... and for legacy `datetime` (1/300 s ticks). */
+const DATETIME = Symbol("DateTime");
 
 interface RecordedInput {
   name: string;
@@ -40,6 +42,7 @@ vi.mock("mssql", () => {
     default: {
       ConnectionPool: FakeConnectionPool,
       DateTime2: DATETIME2,
+      DateTime: DATETIME,
     },
   };
 });
@@ -83,7 +86,7 @@ describe("mssql driver: named-to-@ translation", () => {
   });
 });
 
-describe("mssql driver: cursor bound as DateTime2 (M-D8)", () => {
+describe("mssql driver: cursor type (finding 2)", () => {
   const params = {
     host: "h",
     port: 1433,
@@ -91,25 +94,36 @@ describe("mssql driver: cursor bound as DateTime2 (M-D8)", () => {
     username: "u",
     password: "p",
   };
+  const SQL = `SELECT TOP (:limit) id FROM patient WHERE modified_at > :cursor`;
 
-  it("binds a Date cursor with the explicit DateTime2 type, not legacy datetime inference", async () => {
+  it("binds a Date cursor as legacy DateTime by default (PVS columns are mostly `datetime`, 1/300 s ticks)", async () => {
     h.inputs.length = 0;
     const driver = new MssqlDriver();
     await driver.connect(params);
     const cursor = new Date("2026-05-20T10:00:00.123Z");
-    await driver.query(
-      `SELECT TOP (:limit) id FROM patient WHERE modified_at > :cursor`,
-      { limit: 500, cursor }
-    );
+    await driver.query(SQL, { limit: 500, cursor });
 
     const limitBind = h.inputs.find((i) => i.name === "limit");
     const cursorBind = h.inputs.find((i) => i.name === "cursor");
-    // The Date cursor is pinned to DateTime2 so its sub-3ms component survives
-    // (legacy datetime would round to a 3.33ms grain and skip a cluster).
-    expect(cursorBind?.type).toBe(DATETIME2);
+    // Widening a ms-rounded JS Date to datetime2 never equals the stored
+    // datetime tick, so the keyset equality arm re-reads or skips rows.
+    expect(cursorBind?.type).toBe(DATETIME);
     expect(cursorBind?.value).toBe(cursor);
     // A plain number keeps mssql's default inference (two-arg input, no type).
     expect(limitBind?.type).toBeUndefined();
     expect(limitBind?.value).toBe(500);
+  });
+
+  it("binds DateTime2 only when the stream declares cursorSqlType: datetime2", async () => {
+    h.inputs.length = 0;
+    const driver = new MssqlDriver();
+    await driver.connect(params);
+    const cursor = new Date("2026-05-20T10:00:00.123Z");
+    await driver.query(SQL, { limit: 500, cursor }, { cursorSqlType: "datetime2" });
+    expect(h.inputs.find((i) => i.name === "cursor")?.type).toBe(DATETIME2);
+
+    h.inputs.length = 0;
+    await driver.query(SQL, { limit: 500, cursor }, { cursorSqlType: "datetime" });
+    expect(h.inputs.find((i) => i.name === "cursor")?.type).toBe(DATETIME);
   });
 });

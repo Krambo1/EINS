@@ -2,6 +2,7 @@ import type {
   DbConnectionParams,
   DbDriver,
   QueryResult,
+  StorageTypeSampler,
 } from "../types.js";
 
 /**
@@ -27,7 +28,26 @@ import BetterSqlite3 from "better-sqlite3";
 
 type SqliteDb = InstanceType<typeof BetterSqlite3>;
 
-export class SqliteDriver implements DbDriver {
+/** better-sqlite3 is synchronous: busy_timeout blocks the whole event loop for
+ *  its duration. Keep it tiny and wait ASYNCHRONOUSLY between retries so the
+ *  other vendors' polls, the heartbeat and the outbox flush keep running while
+ *  the PVS holds a write lock. */
+const BUSY_TIMEOUT_MS = 250;
+const BUSY_RETRIES = 20;
+const BUSY_RETRY_DELAY_MS = 150;
+
+const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+function isBusy(err: unknown): boolean {
+  const e = err as { code?: unknown; message?: unknown } | null;
+  return (
+    e?.code === "SQLITE_BUSY" ||
+    e?.code === "SQLITE_LOCKED" ||
+    /database is locked|SQLITE_BUSY/i.test(String(e?.message ?? ""))
+  );
+}
+
+export class SqliteDriver implements DbDriver, StorageTypeSampler {
   readonly engine = "sqlite" as const;
 
   private db: SqliteDb | null = null;
@@ -52,7 +72,7 @@ export class SqliteDriver implements DbDriver {
     });
     // busy_timeout is a per-connection setting and is safe on read-only handles.
     // journal_mode is owned by the writer (the vendor app); we don't set it here.
-    db.pragma("busy_timeout = 5000");
+    db.pragma(`busy_timeout = ${BUSY_TIMEOUT_MS}`);
     this.db = db;
     this.healthy = true;
   }
@@ -64,23 +84,64 @@ export class SqliteDriver implements DbDriver {
     if (!this.db || !this.healthy) {
       await this.connect(this.params!);
     }
-    const stmt = this.db!.prepare(sql);
     // better-sqlite3 can only bind numbers, strings, bigints, buffers, and
     // null; a Date throws "TypeError: SQLite3 can only bind ...". The framework
     // binds a timestamp cursor as a Date (Phase 3) so the SERVER engines coerce
     // it natively; here we convert it back to ISO-8601 text before binding.
     //
-    // CAVEAT: the exact on-disk timestamp format Pixelmedics uses is
-    // UNCONFIRMED (the one engine that still needs the real DB to finalise; see
-    // Phase 6). This emits ISO-8601 'Z' with milliseconds, which sorts and
-    // compares correctly only if the stored column is the same lexical format.
-    // If the real file stores e.g. 'YYYY-MM-DD HH:MM:SS' local text, this
-    // conversion must be changed to match, or `modified_at > :cursor` will not
-    // compare correctly. Revisit against the real Pixelmedics file.
+    // The framework binds a SQLite timestamp cursor in the column's own storage
+    // format (cursorFormat: iso_text / iso_t_text / epoch_s / epoch_ms / julian)
+    // as a plain string or number, so a Date only reaches this driver from a
+    // config that explicitly says cursorFormat: native. That fallback renders
+    // ISO-8601 'T...Z' text, which compares correctly only against the same
+    // lexical format.
     const bound = toBindableParams(params);
-    const rows = stmt.all(bound) as Array<Record<string, unknown>>;
-    const columns = inferColumnsFromStatement(stmt, rows);
-    return { columns, rows };
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const stmt = this.db!.prepare(sql);
+        const rows = stmt.all(bound) as Array<Record<string, unknown>>;
+        const columns = inferColumnsFromStatement(stmt, rows);
+        return { columns, rows };
+      } catch (err) {
+        if (!isBusy(err) || attempt >= BUSY_RETRIES) throw err;
+        await sleep(BUSY_RETRY_DELAY_MS);
+      }
+    }
+  }
+
+  /**
+   * Storage class of the cursor column over the rows the stream query returns
+   * (typeof()), by wrapping the query: { text: 40 } or { integer: 3, real: 1 }.
+   * The framework uses it on the first poll to halt loudly when the column's
+   * storage does not match cursorFormat (a TEXT cursor never compares correctly
+   * against an epoch integer, and vice versa).
+   */
+  async sampleStorageTypes(
+    sql: string,
+    params: Record<string, string | number | Date>,
+    column: string
+  ): Promise<Record<string, number>> {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(column)) return {};
+    const inner = sql.trim().replace(/;+\s*$/, "");
+    const wrapped = `SELECT typeof("${column}") AS t, COUNT(*) AS n FROM (${inner}) GROUP BY t`;
+    const res = await this.query(wrapped, params);
+    const out: Record<string, number> = {};
+    for (const r of res.rows) out[String(r.t)] = Number(r.n);
+    return out;
+  }
+
+  async sampleTableStorageTypes(
+    table: string,
+    column: string
+  ): Promise<Record<string, number>> {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(column)) return {};
+    if (!/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$/.test(table)) return {};
+    // Bounded: the first 5000 rows are plenty to see the storage class.
+    const wrapped = `SELECT typeof("${column}") AS t, COUNT(*) AS n FROM (SELECT "${column}" FROM ${table} LIMIT 5000) GROUP BY t`;
+    const res = await this.query(wrapped, {});
+    const out: Record<string, number> = {};
+    for (const r of res.rows) out[String(r.t)] = Number(r.n);
+    return out;
   }
 
   async close(): Promise<void> {

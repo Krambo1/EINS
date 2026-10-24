@@ -8,16 +8,17 @@ import {
   StyleSheet,
   renderToBuffer,
 } from "@react-pdf/renderer";
-import { formatEuro, formatMoney, formatNumber } from "@/lib/formatting";
+import { DISPLAY_TIME_ZONE, formatEuro, formatMoney, formatNumber } from "@/lib/formatting";
 import type { CurrencyCode } from "@/lib/formatting";
 import type { KpiSummary } from "@/server/queries/kpis";
+import type { ResponseCounts } from "@/lib/response-time";
 
 /**
  * Monthly report PDF. One-page summary of the clinic's KPIs for a given
- * period. Intentionally minimal — glossy design ships when we have real data
+ * period. Intentionally minimal; glossy design ships when we have real data
  * to design around.
  *
- * Typography choice: system sans fonts — @react-pdf bundles Helvetica.
+ * Typography choice: system sans fonts, @react-pdf bundles Helvetica.
  */
 
 export interface RenderMonthlyReportInput {
@@ -27,6 +28,8 @@ export interface RenderMonthlyReportInput {
   /** Praxis billing currency. Formats the attributed-revenue line (own PVS
    *  revenue, EUR or CHF); agency-side spend + cost-per-lead stay EUR. */
   currency: CurrencyCode;
+  /** Folge 2 of the 48-Werkstunden rule. Counts only, no patient data. */
+  responseCounts?: ResponseCounts;
 }
 
 const styles = StyleSheet.create({
@@ -37,6 +40,7 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
   metricLabel: { color: "#4a4a52" },
   metricValue: { fontWeight: 600 },
+  note: { fontSize: 9, color: "#4a4a52", marginTop: 6 },
   accentBar: {
     width: 48,
     height: 3,
@@ -57,11 +61,11 @@ const styles = StyleSheet.create({
 export async function renderMonthlyReportPdf(
   input: RenderMonthlyReportInput
 ): Promise<Buffer> {
-  const { clinicName, period, summary, currency } = input;
+  const { clinicName, period, summary, currency, responseCounts } = input;
   const [y, m] = period.split("-");
   const monthName = new Date(Number(y), Number(m) - 1, 1).toLocaleDateString(
     "de-DE",
-    { month: "long", year: "numeric" }
+    { month: "long", year: "numeric", timeZone: DISPLAY_TIME_ZONE }
   );
 
   const doc = (
@@ -74,7 +78,7 @@ export async function renderMonthlyReportPdf(
         <View style={styles.accentBar} />
         <Text style={styles.h1}>Monats-Auswertung</Text>
         <Text style={styles.subtitle}>
-          {clinicName} — {monthName}
+          {clinicName}, {monthName}
         </Text>
 
         <Text style={styles.h2}>Leistung</Text>
@@ -91,19 +95,50 @@ export async function renderMonthlyReportPdf(
         />
         <Row
           label="Werbeertrag"
-          value={summary.roas !== null ? `${summary.roas.toFixed(2)} ×` : "—"}
+          value={summary.roas !== null ? `${summary.roas.toFixed(2)} ×` : "k. A."}
         />
         <Row
           label="Kosten pro Anfrage"
           value={
             summary.costPerLead !== null
               ? formatEuro(summary.costPerLead)
-              : "—"
+              : "k. A."
           }
         />
 
+        {responseCounts && (
+          <>
+            <Text style={styles.h2}>Antwortzeit der Praxis</Text>
+            <Row label="Anfragen ohne Spam" value={formatNumber(responseCounts.total)} />
+            <Row
+              label="Rechtzeitig kontaktiert (48 Werkstunden)"
+              value={formatNumber(responseCounts.rechtzeitig)}
+            />
+            <Row
+              label="Von der Praxis zu spät beantwortet"
+              value={formatNumber(responseCounts.zuSpaet)}
+            />
+            <Row
+              label="Von der Praxis nicht beantwortet"
+              value={formatNumber(responseCounts.nichtBeantwortet)}
+            />
+            {responseCounts.offen > 0 && (
+              <Row label="Frist läuft noch" value={formatNumber(responseCounts.offen)} />
+            )}
+            <Text style={styles.note}>
+              Diese Anfragen stehen getrennt von den Kennzahlen zur Leistung von EINS
+              (Garantie-Anhang § 6 Abs. (5) lit. b).
+            </Text>
+            {responseCounts.vorRegel > 0 && (
+              <Text style={styles.note}>
+                {`Nicht mitgezählt: ${formatNumber(responseCounts.vorRegel)} Anfragen vor dem 06.10.2026 oder vor Ihrem Vertragsbeginn, für die noch keine Frist galt.`}
+              </Text>
+            )}
+          </>
+        )}
+
         <Text style={styles.footer}>
-          EINS — erstellt am {new Date().toLocaleDateString("de-DE")}
+          EINS, erstellt am {new Date().toLocaleDateString("de-DE", { timeZone: DISPLAY_TIME_ZONE })}
         </Text>
       </Page>
     </Document>

@@ -78,7 +78,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       targetUserId: result.targetUserId,
       targetEmail: result.targetEmail,
       clinicId: result.clinicId,
+      sameIpAsIssue: result.sameIpAsIssue,
     },
+    impersonatedByAdminId: result.adminId,
   });
 
   return NextResponse.redirect(

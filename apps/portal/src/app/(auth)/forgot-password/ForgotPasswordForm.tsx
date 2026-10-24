@@ -1,8 +1,18 @@
 "use client";
 
-import { useActionState } from "react";
+import Link from "next/link";
+import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { Button, Input, Label } from "@eins/ui";
+import { AuthToast } from "../_components/AuthToast";
+import {
+  AuthHeader,
+  AuthLabel,
+  CheckInbox,
+  PendingDots,
+  authCtaClass,
+  authFieldClass,
+  authTextLinkClass,
+} from "../_components/auth-ui";
 import {
   requestPasswordResetAction,
   type LoginActionState,
@@ -11,9 +21,9 @@ import {
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending} className="w-full">
-      {pending ? "Wird gesendet…" : "Link senden"}
-    </Button>
+    <button type="submit" disabled={pending} aria-busy={pending} className={authCtaClass}>
+      {pending ? <PendingDots label="Wird gesendet" /> : "Link senden"}
+    </button>
   );
 }
 
@@ -22,47 +32,63 @@ export function ForgotPasswordForm() {
     requestPasswordResetAction,
     undefined
   );
+  const [closedFor, setClosedFor] = useState<LoginActionState>(undefined);
+  // Controlled, so React's form reset after an error keeps the address.
+  const [email, setEmail] = useState("");
 
+  // Same answer for known and unknown addresses (enumeration defence).
   if (state?.ok) {
     return (
-      <div
-        role="status"
-        className="rounded-xl border border-tone-good/40 bg-tone-good/10 p-4 text-sm text-fg-primary"
-      >
-        <p className="font-medium">E-Mail ist unterwegs.</p>
-        <p className="mt-1 text-fg-secondary">
-          Wenn die Adresse bei uns hinterlegt ist, haben wir Ihnen einen Link
-          geschickt. Der Link ist 15 Minuten gültig und kann nur einmal
-          verwendet werden. Prüfen Sie auch Ihren Spam-Ordner, falls die Mail
-          nicht ankommt.
-        </p>
-      </div>
+      <CheckInbox>
+        Wenn die Adresse bei uns hinterlegt ist, haben wir Ihnen einen Link
+        geschickt, mit dem Sie ein neues Passwort wählen. Er gilt 15 Minuten
+        lang und nur einmal.
+      </CheckInbox>
     );
   }
 
+  const error = state && !state.ok && closedFor !== state ? state.error : null;
+
   return (
-    <form action={action} className="space-y-5">
-      <div className="space-y-2">
-        <Label htmlFor="email">E-Mail-Adresse</Label>
-        <Input
-          id="email"
-          name="email"
-          type="email"
-          autoComplete="email"
-          required
-          placeholder="ihre.adresse@praxis.de"
-          className="h-12 text-base"
-        />
-      </div>
-      {state && !state.ok && (
-        <div
-          role="alert"
-          className="rounded-xl border border-tone-bad/40 bg-tone-bad/10 p-3 text-sm text-fg-primary"
-        >
-          {state.error}
+    <div>
+      <AuthHeader title="Passwort zurücksetzen.">
+        Geben Sie die E-Mail-Adresse Ihres Zugangs ein. Wir schicken Ihnen
+        einen Link, mit dem Sie ein neues Passwort wählen.
+      </AuthHeader>
+      <form action={action} onSubmit={() => setClosedFor(state)} className="space-y-6">
+        <div>
+          <AuthLabel htmlFor="email" className="mb-2">
+            E-Mail
+          </AuthLabel>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            autoComplete="username email"
+            autoCapitalize="none"
+            spellCheck={false}
+            inputMode="email"
+            required
+            autoFocus
+            placeholder="name@praxis.de"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className={authFieldClass}
+          />
         </div>
+        <SubmitButton />
+      </form>
+      <p className="mt-6 text-center text-sm text-fg-secondary">
+        Doch wieder eingefallen?{" "}
+        <Link href="/login" className={authTextLinkClass}>
+          Zur Anmeldung
+        </Link>
+      </p>
+      {error && (
+        <AuthToast tone="bad" onClose={() => setClosedFor(state)}>
+          {error}
+        </AuthToast>
       )}
-      <SubmitButton />
-    </form>
+    </div>
   );
 }

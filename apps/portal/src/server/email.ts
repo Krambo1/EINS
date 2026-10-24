@@ -1,6 +1,10 @@
 import "server-only";
 import { createTransport, type Transporter } from "nodemailer";
 import { env, emailLogoUrl, hasResend } from "../lib/env";
+import { INVITE_LINK_TTL_SECONDS, MAGIC_LINK_TTL_SECONDS } from "../lib/constants";
+import { EmailDeliveryError } from "../lib/email-delivery-error";
+
+export { EmailDeliveryError };
 
 // ---------------------------------------------------------------------------
 // Brand tokens — sourced 1:1 from the EINS Portal Design System "Minimal"
@@ -53,6 +57,17 @@ export interface SendEmailInput {
    * marketing-class mail without it lands in spam at scale.
    */
   unsubscribeUrl?: string | null;
+  /**
+   * Stable key for this logical mail (e.g. `review-request/<rowId>`). Passed
+   * to Resend as `Idempotency-Key`, so a retry after a timeout or a crash
+   * between send and bookkeeping never delivers twice (Resend keeps the key
+   * for 24 h). Use `sendEmailOnce` (server/email-once.ts) for a durable guard.
+   */
+  idempotencyKey?: string;
+  /** Override the From header (e.g. `"Praxis Dr. X via EINS" <team@eins.ag>`). */
+  from?: string;
+  /** Override Reply-To (e.g. the Praxis's own inbox for patient mail). */
+  replyTo?: string | null;
 }
 
 export interface EmailSender {
@@ -94,13 +109,13 @@ class MailhogEmailSender implements EmailSender {
   }
   async send(input: SendEmailInput): Promise<void> {
     await this.transporter.sendMail({
-      from: env.EMAIL_FROM,
+      from: input.from ?? env.EMAIL_FROM,
       to: input.to,
       subject: input.subject,
       html: input.html,
       text: input.text,
       headers: buildUnsubscribeHeaders(input.unsubscribeUrl),
-      replyTo: env.EMAIL_REPLY_TO,
+      replyTo: input.replyTo ?? env.EMAIL_REPLY_TO,
     });
   }
 }
@@ -108,41 +123,37 @@ class MailhogEmailSender implements EmailSender {
 // ---------------------------------------------------------------------------
 // Resend (production)
 // ---------------------------------------------------------------------------
+type ResendSendArgs = {
+  from: string;
+  to: string[];
+  subject: string;
+  html: string;
+  text: string;
+  replyTo?: string;
+  headers?: Record<string, string>;
+};
+type ResendClient = {
+  emails: {
+    send: (
+      args: ResendSendArgs,
+      options?: { idempotencyKey?: string }
+    ) => Promise<{ error?: { message: string } | null }>;
+  };
+};
+
+/** Upper bound for one Resend API call; a hung call must not eat a cron run. */
+const RESEND_TIMEOUT_MS = 15_000;
+
 class ResendEmailSender implements EmailSender {
   // Lazy import so the dep tree stays clean when not used; client instance
   // is cached on first send so the HTTP-client setup doesn't run on every
   // call. (resend@latest constructs an internal fetch client on `new`.)
-  private clientP: Promise<{
-    emails: {
-      send: (args: {
-        from: string;
-        to: string[];
-        subject: string;
-        html: string;
-        text: string;
-        replyTo?: string;
-        headers?: Record<string, string>;
-      }) => Promise<{ error?: { message: string } | null }>;
-    };
-  }> | null = null;
+  private clientP: Promise<ResendClient> | null = null;
 
   private getClient() {
     if (!this.clientP) {
       this.clientP = import("resend").then(
-        ({ Resend }) =>
-          new Resend(env.RESEND_API_KEY) as unknown as {
-            emails: {
-              send: (args: {
-                from: string;
-                to: string[];
-                subject: string;
-                html: string;
-                text: string;
-                replyTo?: string;
-                headers?: Record<string, string>;
-              }) => Promise<{ error?: { message: string } | null }>;
-            };
-          }
+        ({ Resend }) => new Resend(env.RESEND_API_KEY) as unknown as ResendClient
       );
     }
     return this.clientP;
@@ -150,19 +161,63 @@ class ResendEmailSender implements EmailSender {
 
   async send(input: SendEmailInput): Promise<void> {
     const resend = await this.getClient();
-    const res = await resend.emails.send({
-      from: env.EMAIL_FROM,
-      to: [input.to],
-      subject: input.subject,
-      html: input.html,
-      text: input.text,
-      replyTo: env.EMAIL_REPLY_TO,
-      headers: buildUnsubscribeHeaders(input.unsubscribeUrl),
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(new EmailDeliveryError(`Resend send timed out after ${RESEND_TIMEOUT_MS} ms`)),
+        RESEND_TIMEOUT_MS
+      );
     });
-    if (res.error) {
-      throw new Error(`Resend send failed: ${res.error.message}`);
+    try {
+      const res = await Promise.race([
+        resend.emails.send(
+          {
+            from: input.from ?? env.EMAIL_FROM,
+            to: [input.to],
+            subject: input.subject,
+            html: input.html,
+            text: input.text,
+            replyTo: input.replyTo ?? env.EMAIL_REPLY_TO,
+            headers: buildUnsubscribeHeaders(input.unsubscribeUrl),
+          },
+          // Resend caps the key at 256 chars and keeps it for 24 h.
+          input.idempotencyKey
+            ? { idempotencyKey: input.idempotencyKey.slice(0, 256) }
+            : undefined
+        ),
+        timeout,
+      ]);
+      if (res.error) {
+        // Internal error class (V4 Neben 6): the Praxis never sees this text.
+        throw new EmailDeliveryError(`Resend send failed: ${res.error.message}`);
+      }
+    } finally {
+      if (timer) clearTimeout(timer);
     }
   }
+}
+
+/**
+ * Production stand-in when no real provider is configured (B-2, A-12).
+ * Never prints the body (magic links, tokens) and throws on every send, so the
+ * caller sees a failure instead of a fake "sent".
+ */
+class MisconfiguredEmailSender implements EmailSender {
+  constructor(private readonly reason: string) {}
+  async send(input: SendEmailInput): Promise<void> {
+    console.error(
+      `[email] NOT SENT (${this.reason}). subject="${input.subject}". ` +
+        "Set EMAIL_DRIVER=resend and RESEND_API_KEY in the production environment."
+    );
+    throw new EmailDeliveryError(`Email provider not configured: ${this.reason}`);
+  }
+}
+
+/** Bare address from a From header like `EINS <team@eins.ag>`. */
+export function bareAddress(from: string): string {
+  const m = from.match(/<([^>]+)>/);
+  return (m ? m[1]! : from).trim();
 }
 
 /**
@@ -177,7 +232,9 @@ function buildUnsubscribeHeaders(
   // The mailto fallback uses the From header so MUAs that only support the
   // mailto form (older clients) still get a working button.
   return {
-    "List-Unsubscribe": `<${unsubscribeUrl}>, <mailto:${env.EMAIL_FROM}?subject=unsubscribe>`,
+    // mailto must be a bare address: `EINS <team@eins.ag>` inside <mailto:…>
+    // is an invalid URI and clients drop the whole header (E-18).
+    "List-Unsubscribe": `<${unsubscribeUrl}>, <mailto:${bareAddress(env.EMAIL_FROM)}?subject=unsubscribe>`,
     "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
   };
 }
@@ -244,6 +301,18 @@ export function getEmailSender(): EmailSender {
   // because the producer of the email crashed first or used a different
   // driver). We log here, exactly once per process, when the factory runs.
   let primary: EmailSender;
+  // Production never falls back to the console driver (B-2, A-12): it would
+  // swallow every login, reset and patient mail while callers see "sent",
+  // and print magic-link URLs into the Vercel logs. Fail loudly instead.
+  if (env.NODE_ENV === "production" && !hasResend()) {
+    const reason =
+      env.EMAIL_DRIVER !== "resend"
+        ? `EMAIL_DRIVER=${env.EMAIL_DRIVER} in production`
+        : "RESEND_API_KEY missing in production";
+    console.error(`[email] ${reason}: every send will fail until this is fixed.`);
+    cached = new MisconfiguredEmailSender(reason);
+    return cached;
+  }
   if (env.EMAIL_DRIVER === "resend") {
     if (hasResend()) {
       primary = new ResendEmailSender();
@@ -287,7 +356,7 @@ export function getEmailSender(): EmailSender {
 //   - 30px H1, secondary-color intro paragraph
 //   - DARK pill CTA (#10101a fill, white text, full pill radius)
 //   - Inline meta row with clock / shield icons and a dot separator
-//   - 2-cell audit grid (e.g. ANGEFORDERT | KONTO) with uppercase labels
+//   - 2-cell audit grid (e.g. ANGEFORDERT | KONTO) with sentence-case labels
 //   - Divider, then boxed fallback link, then reassurance line
 //   - Footer OUTSIDE the card: [Firmenname] · [Straße Nr.] · [PLZ Ort]
 //     + the auto-send disclaimer
@@ -415,7 +484,7 @@ function renderAuditGrid(rows: EmailAuditRow[]): string {
           : "";
       return (
         `<td width="${colWidth}" style="padding:14px 16px; background:${BRAND.bgPage}; ${borderRight} vertical-align:top;">` +
-        `<div style="font-size:11px; color:${BRAND.fgTertiary}; letter-spacing:0.04em; text-transform:uppercase; margin:0 0 4px 0; font-weight:500;">${escapeHtml(row.label)}</div>` +
+        `<div style="font-size:13px; color:${BRAND.fgPrimary}; margin:0 0 4px 0; font-weight:500;">${escapeHtml(row.label)}</div>` +
         `<div style="font-size:13px; color:${BRAND.fgPrimary}; font-variant-numeric:tabular-nums; letter-spacing:0.012em; word-break:break-all; line-height:1.4;">${escapeHtml(row.value)}</div>` +
         `</td>`
       );
@@ -522,6 +591,22 @@ function formatRequestedAt(d: Date = new Date()): string {
 // Templated helpers
 // ---------------------------------------------------------------------------
 
+/** "15 Minuten", "7 Tage", "1 Stunde": German label for a link lifetime. */
+export function linkValidityLabel(seconds: number): string {
+  const day = 86_400;
+  const hour = 3_600;
+  if (seconds >= day && seconds % day === 0) {
+    const n = seconds / day;
+    return n === 1 ? "1 Tag" : `${n} Tage`;
+  }
+  if (seconds >= hour && seconds % hour === 0) {
+    const n = seconds / hour;
+    return n === 1 ? "1 Stunde" : `${n} Stunden`;
+  }
+  const n = Math.max(1, Math.round(seconds / 60));
+  return n === 1 ? "1 Minute" : `${n} Minuten`;
+}
+
 export async function sendMagicLinkEmail(opts: {
   to: string;
   url: string;
@@ -606,13 +691,18 @@ export async function sendMagicLinkEmail(opts: {
   })();
 
   const introText = `${salutation}${copy.intro}`;
+  // Same TTL the token row gets in auth/magic-link.ts: invites 7 days,
+  // everything else 15 minutes.
+  const validity = linkValidityLabel(
+    opts.intent === "invite" ? INVITE_LINK_TTL_SECONDS : MAGIC_LINK_TTL_SECONDS
+  );
   const html = renderEmailLayout({
-    preheader: `${introText} Der Link ist 15 Minuten gültig.`,
+    preheader: `${introText} Der Link ist ${validity} gültig.`,
     heading: copy.heading,
     introHtml: `<p style="font-size:16px; line-height:1.55; color:${BRAND.fgSecondary}; margin:0 0 28px 0; letter-spacing:0.012em;">${escapeHtml(introText)}</p>`,
     cta: { label: copy.ctaLabel, url: opts.url },
     metaItems: [
-      { icon: "clock", text: "Link 15 Minuten gültig" },
+      { icon: "clock", text: `Link ${validity} gültig` },
       { icon: "shield", text: "Nur einmal verwendbar" },
     ],
     auditRows: [
@@ -628,7 +718,7 @@ export async function sendMagicLinkEmail(opts: {
     "",
     introText,
     "",
-    `Link:         15 Minuten gültig, nur einmal verwendbar`,
+    `Link:         ${validity} gültig, nur einmal verwendbar`,
     `Angefordert:  ${formatRequestedAt(requestedAt)}`,
     `Konto:        ${opts.to}`,
     "",

@@ -2,8 +2,20 @@ import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { BRIDGE_SOURCES, EVENT_KINDS } from "./generated-canonical.js";
+import {
+  isSafeIdentifierPath,
+  selectOutputColumns,
+  validateSingleSelect,
+} from "./sql-analysis.js";
+import {
+  DEFAULT_INITIAL_HORIZON_DAYS,
+  DEFAULT_LOOKBACK_MINUTES,
+  DEFAULT_TIMEZONE,
+} from "./time-utils.js";
 import type {
   CanonicalEventKind,
+  CursorFormat,
+  DbTimezone,
   FieldMapping,
   StreamConfig,
   StreamFieldMap,
@@ -29,7 +41,21 @@ import type {
  *     AppointmentCreated; see worker contract in apps/portal/src/worker/
  *     processors/pvs-status-derive.ts)
  *   • SQL without :cursor binding (would never advance)
+ *   • SQL that is not ONE read-only SELECT (';' separated statements, DML/DDL)
+ *   • cursorColumn / tiebreakColumn that the SELECT does not output (the cursor
+ *     could never advance: a 1 s hot loop re-reading the first batch)
+ *   • batchSize outside 1..5000
  */
+
+const VALID_CURSOR_FORMATS: ReadonlySet<string> = new Set([
+  "native",
+  "iso_text",
+  "iso_t_text",
+  "epoch_s",
+  "epoch_ms",
+  "julian",
+]);
+export const MAX_BATCH_SIZE = 5000;
 
 // Derived from the generated canonical set so a new event kind can never be
 // valid here but unknown to the portal (or vice-versa). EVENT_KINDS is the
@@ -176,6 +202,48 @@ export async function loadAllVendorConfigs(
   return out;
 }
 
+/**
+ * Bundled configs overlaid with the ones this machine pulled from the portal.
+ *
+ * The bundled YAMLs stay the floor: a Praxis that never received a push, or
+ * whose cached config went unreadable, keeps running exactly what shipped with
+ * its build. A remote entry replaces the bundled config for that vendor only.
+ *
+ * A remote config that fails validation here is SKIPPED, not fatal. config-sync
+ * validates before it ever writes, so reaching this branch means the cached
+ * file was corrupted after the fact (torn write, AV quarantine, hand-edit); the
+ * right move is to fall back to bundled and keep ingesting, not to refuse to
+ * boot. The skip is logged so it shows up in the agent log tail.
+ */
+export async function loadEffectiveVendorConfigs(
+  configsDir: string,
+  remote: ReadonlyMap<string, string>
+): Promise<Map<string, VendorConfig>> {
+  const out = await loadAllVendorConfigs(configsDir);
+  for (const [vendor, source] of remote) {
+    let cfg: VendorConfig;
+    try {
+      cfg = await loadVendorConfigFromString(source, `<remote:${vendor}>`);
+    } catch (err) {
+      console.error(
+        `[vendor-config] cached remote config for '${vendor}' is invalid and was ignored: ${
+          (err as Error).message
+        }. Falling back to the config bundled with this agent build.`
+      );
+      continue;
+    }
+    if (cfg.vendor !== vendor) {
+      // The cache is keyed by filename; a mismatch means the file was swapped.
+      console.error(
+        `[vendor-config] cached remote config filed under '${vendor}' declares vendor '${cfg.vendor}'; ignoring it.`
+      );
+      continue;
+    }
+    out.set(vendor, cfg);
+  }
+  return out;
+}
+
 function validateConfig(input: unknown, path: string): VendorConfig {
   const raw = input as Record<string, unknown> | null;
   if (!raw || typeof raw !== "object") {
@@ -221,6 +289,23 @@ function validateConfig(input: unknown, path: string): VendorConfig {
     60
   );
   const batchSize = numberFieldOrDefault(raw, "batchSize", 500);
+  if (!Number.isInteger(batchSize) || batchSize < 1 || batchSize > MAX_BATCH_SIZE) {
+    throw new VendorConfigError(
+      vendor,
+      path,
+      `batchSize ${String(batchSize)} must be an integer between 1 and ${MAX_BATCH_SIZE}`
+    );
+  }
+  const timezone = validateTimezone(raw.timezone, vendor, path, "") ?? DEFAULT_TIMEZONE;
+  const cursorFormat =
+    validateCursorFormat(raw.cursorFormat, vendor, path, "") ??
+    (driver === "sqlite" ? "iso_text" : "native");
+  const initialHorizonDays =
+    validateRange(raw.initialHorizonDays, "initialHorizonDays", 0, 3650, true, vendor, path, "") ??
+    DEFAULT_INITIAL_HORIZON_DAYS;
+  const lookbackMinutes =
+    validateRange(raw.lookbackMinutes, "lookbackMinutes", 0, 1440, false, vendor, path, "") ??
+    DEFAULT_LOOKBACK_MINUTES;
 
   const streamsRaw = raw.streams;
   if (!Array.isArray(streamsRaw) || streamsRaw.length === 0) {
@@ -261,8 +346,84 @@ function validateConfig(input: unknown, path: string): VendorConfig {
     },
     defaultIntervalSeconds,
     batchSize,
+    timezone,
+    cursorFormat,
+    initialHorizonDays,
+    lookbackMinutes,
     streams,
   };
+}
+
+function validateTimezone(
+  v: unknown,
+  vendor: string,
+  path: string,
+  where: string
+): DbTimezone | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (v === "Europe/Berlin" || v === "utc") return v;
+  throw new VendorConfigError(
+    vendor,
+    path,
+    `${where}timezone '${String(v)}' must be 'Europe/Berlin' or 'utc'`
+  );
+}
+
+function validateDecimalFormat(
+  v: unknown,
+  vendor: string,
+  path: string,
+  where: string
+): "de" | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (v === "de") return "de";
+  throw new VendorConfigError(
+    vendor,
+    path,
+    `${where}decimalFormat '${String(v)}' must be 'de' when present`
+  );
+}
+
+function validateCursorFormat(
+  v: unknown,
+  vendor: string,
+  path: string,
+  where: string
+): CursorFormat | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (typeof v === "string" && VALID_CURSOR_FORMATS.has(v)) return v as CursorFormat;
+  throw new VendorConfigError(
+    vendor,
+    path,
+    `${where}cursorFormat '${String(v)}' must be one of ${Array.from(VALID_CURSOR_FORMATS).join("|")}`
+  );
+}
+
+function validateRange(
+  v: unknown,
+  field: string,
+  min: number,
+  max: number,
+  integer: boolean,
+  vendor: string,
+  path: string,
+  where: string
+): number | undefined {
+  if (v === undefined || v === null) return undefined;
+  if (
+    typeof v !== "number" ||
+    !Number.isFinite(v) ||
+    v < min ||
+    v > max ||
+    (integer && !Number.isInteger(v))
+  ) {
+    throw new VendorConfigError(
+      vendor,
+      path,
+      `${where}${field} must be ${integer ? "an integer" : "a number"} between ${min} and ${max}`
+    );
+  }
+  return v;
 }
 
 function validateStream(
@@ -312,6 +473,20 @@ function validateStream(
       vendor,
       path,
       `${where}: missing or invalid \`map:\` block`
+    );
+  }
+  const sqlProblem = validateSingleSelect(query);
+  if (sqlProblem) {
+    throw new VendorConfigError(vendor, path, `${where}: ${sqlProblem}`);
+  }
+  const outputs = selectOutputColumns(query);
+  if (outputs !== null && !outputs.includes(cursorColumn.toLowerCase())) {
+    throw new VendorConfigError(
+      vendor,
+      path,
+      `${where}: cursorColumn '${cursorColumn}' is not in the SELECT output (${outputs.join(
+        ", "
+      )}); the cursor could never advance and the first batch would be re-read endlessly`
     );
   }
   const map = validateMap(
@@ -382,6 +557,59 @@ function validateStream(
     tiebreakType = raw.tiebreakType;
   }
 
+  if (
+    tiebreakColumn &&
+    outputs !== null &&
+    !outputs.includes(tiebreakColumn.toLowerCase())
+  ) {
+    throw new VendorConfigError(
+      vendor,
+      path,
+      `${where}: tiebreakColumn '${tiebreakColumn}' is not in the SELECT output (${outputs.join(", ")})`
+    );
+  }
+
+  const sWhere = `${where}: `;
+  const streamCursorFormat = validateCursorFormat(raw.cursorFormat, vendor, path, sWhere);
+  if (streamCursorFormat && cursorTypeRaw !== "timestamp") {
+    throw new VendorConfigError(
+      vendor,
+      path,
+      `${where}: cursorFormat only applies to cursorType: timestamp`
+    );
+  }
+  const timezone = validateTimezone(raw.timezone, vendor, path, sWhere);
+  let cursorSqlType: StreamConfig["cursorSqlType"];
+  if (raw.cursorSqlType !== undefined && raw.cursorSqlType !== null) {
+    if (raw.cursorSqlType !== "datetime" && raw.cursorSqlType !== "datetime2") {
+      throw new VendorConfigError(
+        vendor,
+        path,
+        `${where}: cursorSqlType '${String(raw.cursorSqlType)}' must be one of datetime|datetime2`
+      );
+    }
+    cursorSqlType = raw.cursorSqlType;
+  }
+  const decimalFormat = validateDecimalFormat(raw.decimalFormat, vendor, path, sWhere);
+  const lookbackMinutes = validateRange(raw.lookbackMinutes, "lookbackMinutes", 0, 1440, false, vendor, path, sWhere);
+  const initialHorizonDays = validateRange(raw.initialHorizonDays, "initialHorizonDays", 0, 3650, true, vendor, path, sWhere);
+  const diagnosticTable = optionalStringField(raw, "diagnosticTable");
+  if (diagnosticTable !== undefined && !isSafeIdentifierPath(diagnosticTable)) {
+    throw new VendorConfigError(
+      vendor,
+      path,
+      `${where}: diagnosticTable '${diagnosticTable}' must be a plain (optionally schema-qualified) identifier`
+    );
+  }
+  const statusColumn = optionalStringField(raw, "statusColumn");
+  if (statusColumn !== undefined && !isSafeIdentifierPath(statusColumn)) {
+    throw new VendorConfigError(
+      vendor,
+      path,
+      `${where}: statusColumn '${statusColumn}' must be a plain identifier`
+    );
+  }
+
   return {
     kind,
     cursorColumn,
@@ -391,6 +619,14 @@ function validateStream(
     tiebreakColumn,
     tiebreakType,
     intervalSeconds,
+    ...(streamCursorFormat ? { cursorFormat: streamCursorFormat } : {}),
+    ...(timezone ? { timezone } : {}),
+    ...(cursorSqlType ? { cursorSqlType } : {}),
+    ...(decimalFormat ? { decimalFormat } : {}),
+    ...(lookbackMinutes !== undefined ? { lookbackMinutes } : {}),
+    ...(initialHorizonDays !== undefined ? { initialHorizonDays } : {}),
+    ...(diagnosticTable ? { diagnosticTable } : {}),
+    ...(statusColumn ? { statusColumn } : {}),
   };
 }
 
@@ -404,6 +640,13 @@ function validateMap(
   const out: StreamFieldMap = {};
   for (const [field, value] of Object.entries(raw)) {
     out[field] = validateFieldMapping(value, field, vendor, path, where);
+  }
+  if ("originalInvoiceId" in out && kind !== "InvoiceRefunded") {
+    throw new VendorConfigError(
+      vendor,
+      path,
+      `${where}: map.originalInvoiceId is only valid on InvoiceRefunded streams`
+    );
   }
   const required = [...ALWAYS_REQUIRED, ...REQUIRED_FIELDS_BY_KIND[kind]];
   for (const r of required) {
@@ -442,6 +685,12 @@ function validateFieldMapping(
       `${where}.map.${field}: unknown transform '${String(obj.transform)}'`
     );
   }
+  const decimalFormat = validateDecimalFormat(
+    obj.decimalFormat,
+    vendor,
+    path,
+    `${where}.map.${field}: `
+  );
   const hasFrom = typeof obj.from === "string";
   const hasTemplate = typeof obj.template === "string";
   const hasLiteral = "literal" in obj;
@@ -467,6 +716,7 @@ function validateFieldMapping(
       ? (obj.literal as string | number | undefined)
       : undefined,
     transform: obj.transform as TransformName | undefined,
+    ...(decimalFormat ? { decimalFormat } : {}),
   };
 }
 

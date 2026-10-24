@@ -1,14 +1,33 @@
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@eins/ui";
-import { requireSession } from "@/auth/guards";
+import { requirePermissionOrRedirect } from "@/auth/guards";
 import { listRecentCsvUploads } from "@/server/actions/pvs-csv-upload";
 import { CsvUploadWizard } from "./_wizard";
 import { formatDateTime } from "@/lib/formatting";
 
 export const metadata = { title: "CSV-Upload" };
 
+const STREAM_LABELS: Record<string, string> = {
+  patients: "Patienten",
+  appointments: "Termine",
+  encounters: "Behandlungen",
+  invoices: "Rechnungen",
+};
+
+const UPLOAD_STATUS_LABELS: Record<string, string> = {
+  pending: "Wartet",
+  processing: "Läuft",
+  completed: "Fertig",
+  failed: "Fehlgeschlagen",
+  cancelled: "Abgebrochen",
+};
+
+// A10: the pvs-csv-upload server action inherits this page's time limit.
+export const maxDuration = 300;
+
 export default async function CsvSetupPage() {
-  await requireSession();
+  // B-18: CSV imports change revenue data; Inhaber only (settings.integrations).
+  await requirePermissionOrRedirect("settings.integrations");
   const recent = await listRecentCsvUploads(10);
 
   return (
@@ -17,16 +36,17 @@ export default async function CsvSetupPage() {
         <div className="mb-2 flex items-center gap-2 text-sm">
           <Link
             href="/einstellungen/integrationen/setup"
-            className="text-muted-foreground hover:underline"
+            className="inline-flex min-h-11 items-center font-medium text-fg-primary hover:underline"
           >
             ← Anbieter wählen
           </Link>
         </div>
         <h1 className="text-2xl font-semibold">CSV-Upload</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 text-base text-fg-primary">
           Exportieren Sie Ihre Praxis-Daten (Patienten, Termine, Behandlungen,
-          Rechnungen) aus Ihrer PVS und laden Sie sie hier hoch. Funktioniert mit
-          jeder PVS, die CSV-Export anbietet. Pro Stream eine Datei.
+          Rechnungen) aus Ihrer Praxis-Software (PVS) und laden Sie sie hier
+          hoch. Funktioniert mit jeder Praxis-Software, die Tabellen als CSV
+          ausgeben kann. Pro Datenart eine Datei.
         </p>
       </header>
 
@@ -39,34 +59,34 @@ export default async function CsvSetupPage() {
           </CardHeader>
           <CardContent>
             <table className="w-full text-sm">
-              <thead className="text-left text-xs text-muted-foreground">
+              <thead className="text-left text-sm font-medium text-fg-primary">
                 <tr>
                   <th className="pb-2">Datei</th>
-                  <th className="pb-2">Stream</th>
+                  <th className="hidden pb-2 sm:table-cell">Datenart</th>
                   <th className="pb-2">Status</th>
-                  <th className="pb-2">Zeilen</th>
+                  <th className="hidden pb-2 sm:table-cell">Zeilen</th>
                   <th className="pb-2">Fehler</th>
-                  <th className="pb-2">Zeitpunkt</th>
+                  <th className="hidden pb-2 sm:table-cell">Zeitpunkt</th>
                 </tr>
               </thead>
               <tbody>
                 {recent.map((r) => (
                   <tr key={r.id} className="border-t">
-                    <td className="py-2">{r.originalFilename}</td>
-                    <td className="py-2">{r.stream}</td>
-                    <td className="py-2">{r.status}</td>
-                    <td className="py-2">
+                    <td className="break-all py-2 pr-2">{r.originalFilename}</td>
+                    <td className="hidden py-2 sm:table-cell">{STREAM_LABELS[r.stream] ?? r.stream}</td>
+                    <td className="py-2">{UPLOAD_STATUS_LABELS[r.status] ?? r.status}</td>
+                    <td className="hidden py-2 sm:table-cell">
                       {r.processedRows}
                       {r.totalRows ? ` / ${r.totalRows}` : ""}
                     </td>
                     <td className="py-2">
                       {r.errorCount > 0 ? (
-                        <span className="text-destructive">{r.errorCount}</span>
+                        <span className="text-tone-bad">{r.errorCount}</span>
                       ) : (
-                        "—"
+                        "–"
                       )}
                     </td>
-                    <td className="py-2 text-muted-foreground">
+                    <td className="hidden py-2 text-fg-secondary sm:table-cell">
                       {formatDateTime(r.createdAt)}
                     </td>
                   </tr>

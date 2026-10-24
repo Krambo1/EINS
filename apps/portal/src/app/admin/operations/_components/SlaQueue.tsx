@@ -9,11 +9,11 @@ export function SlaQueue({ rows }: { rows: SlaQueueRow[] }) {
   return (
     <QueueShell
       id="sla"
-      title="SLA-Verstöße"
-      description="Anfragen ohne Erstkontakt, deren Plan-SLA bereits abgelaufen ist."
+      title="Interne Antwortzeit überschritten"
+      description="Internes Ziel ab Eingang (Uhrzeit, Status neu), nicht die vertragliche 48-Werkstunden-Frist. Die vertragliche Lage steht unter Rückruf-Lage."
       count={rows.length}
       tone="bad"
-      emptyMessage="Keine SLA-Verstöße. Reaktionszeit eingehalten."
+      emptyMessage="Keine Anfrage über dem internen Antwortziel."
     >
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
@@ -23,7 +23,7 @@ export function SlaQueue({ rows }: { rows: SlaQueueRow[] }) {
               <th className="py-2">Kontakt</th>
               <th className="py-2">Quelle</th>
               <th className="py-2">Status</th>
-              <th className="py-2 text-right">SLA</th>
+              <th className="py-2 text-right">Ziel</th>
               <th className="py-2 text-right">Alter</th>
             </tr>
           </thead>

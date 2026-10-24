@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { trustedIpFromHeaders } from "@/lib/client-ip";
 
 export const runtime = "edge";
 
@@ -17,6 +18,10 @@ const VitalSchema = z.object({
  * the Postgres-backed limiter (server-only, node), so a per-isolate
  * fixed-window map is the pragmatic bound: a single page load emits ~5
  * vitals, so 60/min per IP is generous for real users and cheap to enforce.
+ * The key is the platform-set IP (`x-real-ip`, else the rightmost XFF hop):
+ * the leftmost XFF entry is client-supplied and let a flooder rotate keys.
+ * Per-isolate by design: worst case is extra log lines, never data, so a
+ * DB-backed limiter (one write per beacon) would cost more than it saves.
  */
 const WINDOW_MS = 60_000;
 const LIMIT_PER_WINDOW = 60;
@@ -36,7 +41,8 @@ function allowRequest(ip: string): boolean {
 
 export async function POST(req: Request) {
   const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+    trustedIpFromHeaders(req.headers.get("x-forwarded-for"), req.headers.get("x-real-ip")) ??
+    "unknown";
   if (!allowRequest(ip)) {
     return new NextResponse(null, { status: 429 });
   }

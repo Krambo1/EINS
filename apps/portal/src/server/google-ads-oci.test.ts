@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   buildClickConversionPayload,
+  classifyOciFailure,
+  clampConversionTime,
   formatGoogleConversionDateTime,
 } from "./google-ads-oci";
 
@@ -124,5 +126,61 @@ describe("buildClickConversionPayload", () => {
     const built = buildClickConversionPayload({ ...BASE, gclid: "g" });
     if ("reason" in built) throw new Error("expected payload");
     expect(built.userIdentifiers).toBeUndefined();
+  });
+});
+
+/** A partialFailureError body as Google returns it (one failed row). */
+const partial = (code: string) => ({
+  partialFailureError: {
+    code: 3,
+    message: `The conversion failed: ${code}`,
+    details: [
+      {
+        "@type": "type.googleapis.com/google.ads.googleads.v23.errors.GoogleAdsFailure",
+        errors: [{ errorCode: { conversionUploadError: code }, message: "x" }],
+      },
+    ],
+  },
+});
+
+describe("classifyOciFailure (pass 2)", () => {
+  it("a duplicate of an already uploaded conversion counts as sent", () => {
+    expect(classifyOciFailure({ ok: false, status: 200, body: partial("CLICK_CONVERSION_ALREADY_EXISTS") })).toBe("already_sent");
+    expect(classifyOciFailure({ ok: false, status: 200, body: partial("ORDER_ID_ALREADY_IN_USE") })).toBe("already_sent");
+  });
+
+  it("network errors, rate limits and server errors are retried", () => {
+    expect(classifyOciFailure({ ok: false, status: 0, body: { error: "The operation was aborted due to timeout" } })).toBe("retry");
+    expect(classifyOciFailure({ ok: false, status: 429, body: {} })).toBe("retry");
+    expect(classifyOciFailure({ ok: false, status: 503, body: {} })).toBe("retry");
+    expect(classifyOciFailure({ ok: false, status: 200, body: partial("TOO_RECENT_CONVERSION_ACTION") })).toBe("retry");
+    expect(classifyOciFailure({ ok: false, status: 200, body: partial("CLICK_NOT_FOUND") })).toBe("retry");
+  });
+
+  it("errors no retry can fix are permanent", () => {
+    expect(classifyOciFailure({ ok: false, status: 200, body: partial("EXPIRED_CLICK") })).toBe("permanent");
+    expect(classifyOciFailure({ ok: false, status: 200, body: partial("UNPARSEABLE_GCLID") })).toBe("permanent");
+    expect(classifyOciFailure({ ok: false, status: 400, body: { error: { status: "INVALID_ARGUMENT" } } })).toBe("permanent");
+    expect(classifyOciFailure({ ok: false, status: 0, body: { error: "no_click_id" } })).toBe("permanent");
+  });
+});
+
+describe("clampConversionTime (pass 2)", () => {
+  const click = new Date("2026-05-19T14:00:00Z");
+  const now = new Date("2026-06-01T10:00:00Z");
+
+  it("a payment dated before the click (date-only invoice at midnight) moves just after the click", () => {
+    // Google rejects CONVERSION_PRECEDES_CLICK permanently.
+    expect(clampConversionTime(new Date("2026-05-19T00:00:00Z"), click, now).toISOString()).toBe("2026-05-19T14:01:00.000Z");
+  });
+
+  it("a future-dated payment is sent as now", () => {
+    expect(clampConversionTime(new Date("2026-06-05T00:00:00Z"), click, now).toISOString()).toBe(now.toISOString());
+  });
+
+  it("a normal payment keeps its time", () => {
+    const paid = new Date("2026-05-25T09:30:00Z");
+    expect(clampConversionTime(paid, click, now).toISOString()).toBe(paid.toISOString());
+    expect(clampConversionTime(paid, null, now).toISOString()).toBe(paid.toISOString());
   });
 });

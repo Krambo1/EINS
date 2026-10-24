@@ -34,6 +34,10 @@ import {
 } from "./jobs";
 
 const RETRY = { retryLimit: 3, retryDelay: 5, retryBackoff: true };
+// PVS queues retry for ~1 h before dead-lettering (lib/queues.ts PVS_RETRY).
+const PVS_RETRY = { retryLimit: 8, retryDelay: 30, retryBackoff: true };
+// Ads uploads retry for hours, not ~35 s (pass 2, lib/queues.ts ADS_RETRY).
+const ADS_RETRY = { retryLimit: 8, retryDelay: 60, retryBackoff: true };
 
 beforeEach(() => {
   sendMock.mockReset();
@@ -59,7 +63,7 @@ describe("jobs producer facade", () => {
     expect(sendMock).toHaveBeenCalledWith(
       "pvs-status-derive",
       { clinicId: "clinic-1", portalPatientId: "patient-2" },
-      { ...RETRY, singletonKey: "clinic-1__patient-2" }
+      { ...PVS_RETRY, singletonKey: "clinic-1__patient-2" }
     );
   });
 
@@ -70,13 +74,13 @@ describe("jobs producer facade", () => {
       1,
       "capi-purchase",
       { outboxId: "outbox-9" },
-      { ...RETRY, singletonKey: "capi-purchase__outbox-9" }
+      { ...ADS_RETRY, singletonKey: "capi-purchase__outbox-9" }
     );
     expect(sendMock).toHaveBeenNthCalledWith(
       2,
       "oci-purchase",
       { outboxId: "outbox-9" },
-      { ...RETRY, singletonKey: "oci-purchase__outbox-9" }
+      { ...ADS_RETRY, singletonKey: "oci-purchase__outbox-9" }
     );
   });
 

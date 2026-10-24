@@ -2,7 +2,7 @@
 
 import { revalidatePath, revalidateTag } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { requireAdmin } from "@/auth/admin-guards";
 import { db, schema } from "@/db/client";
@@ -13,7 +13,25 @@ import { TIMELINE_STATUSES } from "@/lib/constants";
 /**
  * Admin-side clinic mutations. All actions re-check admin session (defense
  * in depth — don't rely on the layout alone) and write audit rows.
+ *
+ * Input errors redirect back to the tab with ?fehler=… (G-20) instead of
+ * throwing into the error boundary.
  */
+
+function failTo(clinicId: string | undefined, tab: string, message: string): never {
+  if (!clinicId) redirect("/admin/clinics");
+  redirect(`/admin/clinics/${clinicId}?tab=${tab}&fehler=${encodeURIComponent(message)}`);
+}
+
+function firstIssue(err: z.ZodError): string {
+  const i = err.issues[0];
+  return i ? `Eingabe ungültig (${i.path.join(".") || "Formular"}): ${i.message}` : "Eingabe ungültig.";
+}
+
+function formClinicId(formData: FormData, key = "clinicId"): string | undefined {
+  const v = formData.get(key);
+  return typeof v === "string" && z.string().uuid().safeParse(v).success ? v : undefined;
+}
 
 const UpdateClinicSchema = z.object({
   id: z.string().uuid(),
@@ -28,7 +46,7 @@ export async function updateClinicAction(formData: FormData) {
   const admin = await requireAdmin();
   const parsed = UpdateClinicSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
-    throw new Error("validation failed: " + parsed.error.issues[0]?.message);
+    failTo(formClinicId(formData, "id"), "stammdaten", firstIssue(parsed.error));
   }
   const d = parsed.data;
 
@@ -37,7 +55,7 @@ export async function updateClinicAction(formData: FormData) {
     .from(schema.clinics)
     .where(eq(schema.clinics.id, d.id))
     .limit(1);
-  if (!before) throw new Error("clinic_not_found");
+  if (!before) redirect("/admin/clinics");
 
   await db
     .update(schema.clinics)
@@ -70,19 +88,59 @@ export async function archiveClinicAction(formData: FormData) {
   const admin = await requireAdmin();
   const id = z.string().uuid().parse(formData.get("id"));
 
-  await db
-    .update(schema.clinics)
-    .set({ archivedAt: new Date() })
-    .where(eq(schema.clinics.id, id));
+  // G-05: archiving locks the Praxis out. One timestamp goes on the clinic,
+  // on every still-active member (login + magic-link issuance check
+  // clinic_users.archived_at) and their open sessions are revoked (session
+  // validation checks both archived flags). Members archived by THIS action
+  // carry the clinic's exact timestamp, which is how unarchive tells them
+  // apart from members the owner had archived before.
+  const archivedAt = new Date();
+  const result = await db.transaction(async (tx) => {
+    const updated = await tx
+      .update(schema.clinics)
+      .set({ archivedAt })
+      .where(and(eq(schema.clinics.id, id), isNull(schema.clinics.archivedAt)))
+      .returning({ id: schema.clinics.id });
+    if (updated.length === 0) return null;
 
-  await writeAudit({
-    clinicId: id,
-    actorEmail: admin.email,
-    action: "delete",
-    entityKind: "admin_clinic",
-    entityId: id,
-    diff: { archived: true },
+    const users = await tx
+      .update(schema.clinicUsers)
+      .set({ archivedAt })
+      .where(
+        and(eq(schema.clinicUsers.clinicId, id), isNull(schema.clinicUsers.archivedAt))
+      )
+      .returning({ id: schema.clinicUsers.id });
+
+    let sessionsRevoked = 0;
+    if (users.length) {
+      const revoked = await tx
+        .update(schema.sessions)
+        .set({ revokedAt: archivedAt })
+        .where(
+          and(
+            inArray(
+              schema.sessions.userId,
+              users.map((u) => u.id)
+            ),
+            isNull(schema.sessions.revokedAt)
+          )
+        )
+        .returning({ id: schema.sessions.id });
+      sessionsRevoked = revoked.length;
+    }
+    return { users: users.length, sessionsRevoked };
   });
+
+  if (result) {
+    await writeAudit({
+      clinicId: id,
+      actorEmail: admin.email,
+      action: "delete",
+      entityKind: "admin_clinic",
+      entityId: id,
+      diff: { archived: true, usersArchived: result.users, sessionsRevoked: result.sessionsRevoked },
+    });
+  }
 
   revalidateTag(`clinic:${id}`);
   revalidatePath("/admin/clinics");
@@ -103,31 +161,33 @@ const TimelineCreateSchema = z.object({
   status: TimelineStatusSchema,
 });
 
+// eventDate optional on update (G-17): the default journey uses relative
+// phases (event_date NULL); editing the status must not force a made-up date.
 const TimelineUpdateSchema = z.object({
   id: z.string().uuid(),
   title: z.string().min(2).max(200),
   description: z.string().max(5000).optional().or(z.literal("")),
-  eventDate: z.string().min(1),
+  eventDate: z.string().optional().or(z.literal("")),
   status: TimelineStatusSchema,
 });
 
-function parseEventDate(input: string): Date {
+function parseEventDate(input: string): Date | null {
   // Accept yyyy-mm-dd from <input type="date"> as well as full ISO strings.
   const d = /^\d{4}-\d{2}-\d{2}$/.test(input)
     ? new Date(`${input}T12:00:00Z`)
     : new Date(input);
-  if (Number.isNaN(d.getTime())) throw new Error("invalid_event_date");
-  return d;
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 export async function createTimelineEntryAction(formData: FormData) {
   const admin = await requireAdmin();
   const parsed = TimelineCreateSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
-    throw new Error("validation failed: " + parsed.error.issues[0]?.message);
+    failTo(formClinicId(formData), "fortschritt", firstIssue(parsed.error));
   }
   const d = parsed.data;
   const eventDate = parseEventDate(d.eventDate);
+  if (!eventDate) failTo(d.clinicId, "fortschritt", "Datum ist ungültig.");
 
   const [row] = await db
     .insert(schema.clinicTimelineEntries)
@@ -163,17 +223,22 @@ export async function updateTimelineEntryAction(formData: FormData) {
   const admin = await requireAdmin();
   const parsed = TimelineUpdateSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
-    throw new Error("validation failed: " + parsed.error.issues[0]?.message);
+    redirect(`/admin/clinics?fehler=${encodeURIComponent(firstIssue(parsed.error))}`);
   }
   const d = parsed.data;
-  const eventDate = parseEventDate(d.eventDate);
 
   const [before] = await db
     .select()
     .from(schema.clinicTimelineEntries)
     .where(eq(schema.clinicTimelineEntries.id, d.id))
     .limit(1);
-  if (!before) throw new Error("timeline_entry_not_found");
+  if (!before) redirect("/admin/clinics");
+
+  // Empty date keeps the entry undated (relative phase); a typed date wins.
+  const eventDate = d.eventDate && d.eventDate.length > 0 ? parseEventDate(d.eventDate) : null;
+  if (d.eventDate && d.eventDate.length > 0 && !eventDate) {
+    failTo(before.clinicId, "fortschritt", "Datum ist ungültig.");
+  }
 
   await db
     .update(schema.clinicTimelineEntries)
@@ -197,7 +262,7 @@ export async function updateTimelineEntryAction(formData: FormData) {
       status: { from: before.status, to: d.status },
       eventDate: {
         from: before.eventDate ? before.eventDate.toISOString() : null,
-        to: eventDate.toISOString(),
+        to: eventDate ? eventDate.toISOString() : null,
       },
     },
   });
@@ -277,7 +342,7 @@ export async function setChecklistItemVerifiedAction(formData: FormData) {
   const admin = await requireAdmin();
   const parsed = VerifyChecklistSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
-    throw new Error("validation failed: " + parsed.error.issues[0]?.message);
+    failTo(formClinicId(formData), "checkliste", firstIssue(parsed.error));
   }
   const { clinicId, itemId } = parsed.data;
   const verified = parsed.data.verified === "1";
@@ -292,7 +357,7 @@ export async function setChecklistItemVerifiedAction(formData: FormData) {
       )
     )
     .limit(1);
-  if (!before) throw new Error("checklist_item_not_found");
+  if (!before) failTo(clinicId, "checkliste", "Checklisten-Punkt nicht gefunden.");
 
   // Only a delivered item can be confirmed (or a re-confirm of an already
   // verified one). Don't let EINS "verify" something the clinic hasn't sent.
@@ -301,7 +366,7 @@ export async function setChecklistItemVerifiedAction(formData: FormData) {
     before.status !== "geliefert" &&
     before.status !== "geprueft"
   ) {
-    throw new Error("checklist_item_not_delivered");
+    failTo(clinicId, "checkliste", "Nur gelieferte Punkte lassen sich bestätigen.");
   }
 
   await db
@@ -339,19 +404,45 @@ export async function unarchiveClinicAction(formData: FormData) {
   const admin = await requireAdmin();
   const id = z.string().uuid().parse(formData.get("id"));
 
-  await db
-    .update(schema.clinics)
-    .set({ archivedAt: null })
-    .where(eq(schema.clinics.id, id));
+  // Restores exactly the members the archive action archived (same
+  // timestamp); members archived individually before stay archived.
+  const result = await db.transaction(async (tx) => {
+    const [clinic] = await tx
+      .select({ archivedAt: schema.clinics.archivedAt })
+      .from(schema.clinics)
+      .where(eq(schema.clinics.id, id))
+      .for("update")
+      .limit(1);
+    if (!clinic?.archivedAt) return null;
 
-  await writeAudit({
-    clinicId: id,
-    actorEmail: admin.email,
-    action: "update",
-    entityKind: "admin_clinic",
-    entityId: id,
-    diff: { archived: false },
+    const users = await tx
+      .update(schema.clinicUsers)
+      .set({ archivedAt: null })
+      .where(
+        and(
+          eq(schema.clinicUsers.clinicId, id),
+          eq(schema.clinicUsers.archivedAt, clinic.archivedAt)
+        )
+      )
+      .returning({ id: schema.clinicUsers.id });
+
+    await tx
+      .update(schema.clinics)
+      .set({ archivedAt: null })
+      .where(eq(schema.clinics.id, id));
+    return { users: users.length };
   });
+
+  if (result) {
+    await writeAudit({
+      clinicId: id,
+      actorEmail: admin.email,
+      action: "update",
+      entityKind: "admin_clinic",
+      entityId: id,
+      diff: { archived: false, usersRestored: result.users },
+    });
+  }
 
   revalidateTag(`clinic:${id}`);
   revalidatePath(`/admin/clinics/${id}`);
@@ -373,7 +464,7 @@ export async function setClientUploadSeenAction(formData: FormData) {
   const admin = await requireAdmin();
   const parsed = SeenUploadSchema.safeParse(Object.fromEntries(formData));
   if (!parsed.success) {
-    throw new Error("validation failed: " + parsed.error.issues[0]?.message);
+    failTo(formClinicId(formData), "dateien", firstIssue(parsed.error));
   }
   const { clinicId, uploadId } = parsed.data;
   const seen = parsed.data.seen === "1";
@@ -388,7 +479,7 @@ export async function setClientUploadSeenAction(formData: FormData) {
       )
     )
     .limit(1);
-  if (!before) throw new Error("client_upload_not_found");
+  if (!before) failTo(clinicId, "dateien", "Datei nicht gefunden.");
 
   await db
     .update(schema.clientUploads)

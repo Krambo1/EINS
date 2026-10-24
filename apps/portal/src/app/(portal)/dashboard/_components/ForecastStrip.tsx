@@ -1,6 +1,11 @@
 import "server-only";
 import { LineChart } from "lucide-react";
-import { getLatestSnapshot, loadForecastInputs } from "@/server/queries/forecast";
+import {
+  countWonAllTime,
+  getLatestSnapshot,
+  loadForecastInputs,
+} from "@/server/queries/forecast";
+import { cacheClinicQuery } from "@/server/queries/_cache";
 import { runForecast, MIN_SAMPLE_WON } from "@/server/forecast/engine";
 import { formatMoney, type CurrencyCode } from "@/lib/formatting";
 
@@ -44,19 +49,19 @@ export async function ForecastStrip({
         backgroundColor: "var(--bg-card)",
         boxShadow: "var(--shadow-card)",
       }}
-      aria-label="Cashflow-Forecast"
+      aria-label="Umsatz-Vorschau"
     >
       <div className="flex items-center gap-3">
-        <div className="rounded-lg bg-accent/10 p-2 text-accent">
+        <div className="rounded-lg bg-bg-secondary p-2 text-accent">
           <LineChart className="h-4 w-4" />
         </div>
-        <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
-          Cashflow-Forecast (90 Tage)
+        <div className="text-base font-medium text-fg-primary">
+          Umsatz-Vorschau (90 Tage)
         </div>
       </div>
       <div className="mt-3 grid gap-4 md:grid-cols-3">
         <StripNumber
-          label="Pipeline-Wert"
+          label="Wert offener Anfragen"
           value={formatMoney(data.pipelineValueEur, currency)}
           hint="aus offenen Anfragen"
         />
@@ -86,11 +91,11 @@ function StripNumber({
 }) {
   return (
     <div>
-      <div className="text-xs text-fg-secondary">{label}</div>
+      <div className="text-sm font-medium text-fg-primary">{label}</div>
       <div className="mt-1 font-display text-xl font-semibold tabular-nums text-fg-primary">
         {value}
       </div>
-      <div className="mt-0.5 text-xs text-fg-tertiary">{hint}</div>
+      <div className="mt-0.5 text-sm text-fg-secondary">{hint}</div>
     </div>
   );
 }
@@ -99,6 +104,25 @@ async function loadStripData(
   clinicId: string,
   userId: string
 ): Promise<StripData | null> {
+  // Cold-start gate first: one count. Below MIN_SAMPLE_WON the strip is
+  // hidden anyway, so neither the snapshot nor the seven forecast inputs
+  // are read (the first Praxen sit here for months).
+  const totalWon = await countWonAllTime(clinicId);
+  if (totalWon < MIN_SAMPLE_WON) return { ...zero(), sampleSizeWon: totalWon };
+  return cachedStripData(clinicId, userId);
+}
+
+/** Snapshot or live recompute, cached 10 min per Praxis (Monte Carlo is CPU). */
+const cachedStripData = cacheClinicQuery(
+  "forecastStrip",
+  (clinicId: string, userId: string) => stripDataUncached(clinicId, userId),
+  { revalidate: 600 }
+);
+
+async function stripDataUncached(
+  clinicId: string,
+  userId: string
+): Promise<StripData> {
   const snapshot = await getLatestSnapshot(clinicId, userId);
   const isFresh =
     snapshot != null &&

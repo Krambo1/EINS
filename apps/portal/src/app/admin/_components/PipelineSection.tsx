@@ -17,7 +17,7 @@ const STATUS_TONE: Record<string, ShareTone> = {
 };
 
 /**
- * Anfragen-Pipeline — the status distribution rendered through the shared segmented
+ * Anfragen-Pipeline: the status distribution rendered through the shared segmented
  * share bar (the same visual as the clinic's Quellen-Aufschlüsselung), directly
  * on the card surface (no inner boxes). Owns its own time window via the
  * rPipeline switcher. The KI-Bewertung lives in its own card alongside this one
@@ -50,14 +50,14 @@ export function PipelineSection({
     >
       <CardHeader>
         <CardTitle className="!text-xl !font-medium md:!text-2xl">
-          Anfragen-Pipeline
+          Anfragen nach Status
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-8">
         <section className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-baseline gap-2">
-              <span className="text-sm font-medium text-fg-secondary">
+              <span className="text-sm font-medium text-fg-primary">
                 Status-Verteilung
               </span>
               <span className="font-display text-lg font-semibold tabular-nums text-fg-primary">
@@ -92,7 +92,7 @@ export function PipelineSection({
               ))}
             </div>
           ) : (
-            <p className="text-xs text-fg-secondary">
+            <p className="text-sm text-fg-primary">
               Keine Anfragen im Zeitraum.
             </p>
           )}

@@ -1,11 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { useActionState } from "react";
+import { ArrowRight } from "lucide-react";
+import { useActionState, useEffect, useRef, useState, type FormEvent } from "react";
 import { useFormStatus } from "react-dom";
-import { Input, Label, Button } from "@eins/ui";
 import { GoogleSignInButton } from "@/app/_components/GoogleSignInButton";
+import { AuthToast } from "@/app/(auth)/_components/AuthToast";
+import { PasswordInput } from "@/app/(auth)/_components/PasswordInput";
+import {
+  Accent,
+  AuthDivider,
+  AuthHeader,
+  AuthLabel,
+  CheckInbox,
+  PendingDots,
+  authButtonClass,
+  authCtaClass,
+  authFieldClass,
+  authTextLinkClass,
+} from "@/app/(auth)/_components/auth-ui";
 import {
   adminPasswordLoginAction,
   requestAdminMagicLinkAction,
@@ -13,193 +26,223 @@ import {
   type AdminMailActionState,
 } from "../actions";
 
-/**
- * Admin-Login-Formular. Default: Email + Passwort.
- * Toggle ganz unten: "Lieber per Email-Link anmelden" (Magic-Link).
- * Link daneben: "Passwort vergessen?" → /admin/forgot-password.
- *
- * Beide Action-Pfade nutzen `useActionState`. Fehler werden inline gerendert;
- * Magic-Link-Success ebenfalls inline (statt Navigation auf /admin/login/sent).
- * Hintergrund: Next.js #65893 — Server-Action-Redirects auf /admin/* unter
- * admin.*-Subdomain-Rewrite zeigen not-found.tsx bis Hard-Reload.
- */
-function SubmitButton({ label, pendingLabel }: { label: string; pendingLabel: string }) {
+const LINK_FORM_ID = "eins-admin-login-link";
+
+function SubmitButton({ label, busy }: { label: string; busy: boolean }) {
   const { pending } = useFormStatus();
+  const waiting = pending || busy;
   return (
-    <Button type="submit" disabled={pending} className="w-full">
-      {pending ? pendingLabel : label}
-    </Button>
+    <button type="submit" disabled={waiting} aria-busy={waiting} className={authCtaClass}>
+      {waiting ? (
+        <PendingDots label="Wird geprüft" />
+      ) : (
+        <>
+          {label}
+          <ArrowRight aria-hidden className="h-4 w-4" />
+        </>
+      )}
+    </button>
   );
 }
 
+/**
+ * Admin sign-in, the same flow as the clinic login (/login): e-mail first,
+ * then the password field slides in. Step one never talks to the server and
+ * the second step looks the same for every address, so nothing reveals
+ * which addresses are on the admin allowlist. The e-mail link is its own
+ * small form (#eins-admin-login-link) that posts `email` only.
+ *
+ * Results come back as action state and are shown in place, never via a
+ * server-action redirect: under the admin.* host rewrite those hit Next.js
+ * #65893 (not-found.tsx until a hard reload).
+ */
 export function LoginForm({
+  initialError,
+  initialNotice,
   googleEnabled = false,
 }: {
+  initialError?: string;
+  initialNotice?: string;
   googleEnabled?: boolean;
 }) {
-  const [mode, setMode] = useState<"password" | "magic">("password");
-
-  const [magicState, magicAction] = useActionState<AdminMailActionState, FormData>(
+  const [step, setStep] = useState<"email" | "password">("email");
+  // Controlled, so React's form reset after a failed attempt keeps the address.
+  const [email, setEmail] = useState("");
+  const [initialState] = useState<AdminLoginActionState>(() =>
+    initialError ? { ok: false, error: initialError } : undefined
+  );
+  const [pwState, pwAction] = useActionState<AdminLoginActionState, FormData>(
+    adminPasswordLoginAction,
+    initialState
+  );
+  const [linkState, linkAction, linkPending] = useActionState<AdminMailActionState, FormData>(
     requestAdminMagicLinkAction,
     undefined
   );
 
-  const [loginState, loginAction] = useActionState<
-    AdminLoginActionState,
-    FormData
-  >(adminPasswordLoginAction, undefined);
+  // Which request ran last decides which result shows. Closed results stay
+  // hidden; every new result is a new object, so it shows again.
+  const [lastSource, setLastSource] = useState<"pw" | "link" | null>(null);
+  const [closed, setClosed] = useState<unknown[]>([]);
+  const hideCurrent = () => setClosed((c) => [...c, pwState, linkState, "notice"]);
+  const [editedAfter, setEditedAfter] = useState<unknown>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
 
-  // Login-Success: harte Browser-Navigation auf /admin statt router.replace +
-  // router.refresh. Hintergrund: /admin/login und /admin teilen sich das
-  // Admin-Shell-Layout (apps/portal/src/app/admin/layout.tsx), das anhand der
-  // Session zwischen "bare" und "chrome" (mit Top-Nav) entscheidet. Eine
-  // Soft-Nav würde das pre-Login bare-Rendering des geteilten Layouts
-  // konservieren; die Top-Nav erschiene erst nach Hard-Reload.
-  // window.location.assign erzwingt einen frischen Document-Request, das Layout
-  // rendert serverseitig mit Session durch und die Top-Nav erscheint sofort.
-  // Der Next.js #65893-Bug greift nur bei Server-Action-redirect(), nicht bei
-  // einer reinen Browser-Navigation.
+  const signedIn = !!pwState?.ok;
+  const current = lastSource === "link" ? linkState : pwState;
+  const toastError = current && !current.ok && !closed.includes(current) ? current.error : null;
+  const toastNotice =
+    !toastError && lastSource === null && initialNotice && !closed.includes("notice")
+      ? initialNotice
+      : null;
+  const pwFailed =
+    lastSource === "pw" && !!pwState && !pwState.ok && pwState !== initialState;
+
+  // Success: a hard navigation, not router.push. /admin/login and /admin share
+  // admin/layout.tsx, which picks frame or nav chrome by session; a soft
+  // navigation would keep the signed-out frame until a reload.
   useEffect(() => {
-    if (loginState?.ok && loginState.redirectTo) {
-      window.location.assign(loginState.redirectTo);
-    }
-  }, [loginState]);
+    if (pwState?.ok) window.location.assign(pwState.redirectTo);
+  }, [pwState]);
 
-  if (mode === "magic") {
-    if (magicState?.ok) {
-      return (
-        <div
-          role="status"
-          className="space-y-3 rounded-xl border border-[var(--tone-good-border)] bg-[var(--tone-good-bg)] p-4 text-sm text-fg-primary"
-        >
-          <p className="font-medium">Posteingang prüfen.</p>
-          <p className="text-fg-secondary">
-            Wenn die Adresse in der Admin-Allowlist hinterlegt ist, liegt jetzt
-            ein Anmeldelink im Posteingang. Der Link ist 15 Minuten gültig.
-          </p>
-          <button
-            type="button"
-            onClick={() => setMode("password")}
-            className="text-xs text-fg-secondary underline-offset-2 hover:underline"
-          >
-            ← Zurück zur Passwort-Anmeldung
-          </button>
-        </div>
-      );
-    }
+  // After a wrong password React clears the field; put the cursor back in it.
+  useEffect(() => {
+    if (pwState && !pwState.ok && pwState !== initialState) passwordRef.current?.focus();
+  }, [pwState, initialState]);
+
+  // Same screen for every address (enumeration defence).
+  if (lastSource === "link" && linkState?.ok && !closed.includes(linkState)) {
     return (
-      <form action={magicAction} className="space-y-4">
-        <div className="space-y-1.5">
-          <Label htmlFor="email-magic">E-Mail</Label>
-          <Input
-            id="email-magic"
-            name="email"
-            type="email"
-            autoComplete="email"
-            required
-            autoFocus
-          />
-        </div>
-        {magicState && !magicState.ok && (
-          <div
-            role="alert"
-            className="rounded-md border border-[var(--tone-bad-border)] bg-[var(--tone-bad-bg)] p-3 text-sm text-tone-bad"
-          >
-            {magicState.error}
-          </div>
-        )}
-        <SubmitButton label="Anmeldelink senden" pendingLabel="Wird gesendet…" />
-        <p className="text-xs text-fg-secondary">
-          Nur in der Allowlist hinterlegte Admin-Adressen erhalten einen Link.
-        </p>
-        <button
-          type="button"
-          onClick={() => setMode("password")}
-          className="text-xs text-fg-secondary underline-offset-2 hover:underline"
-        >
-          ← Lieber doch mit Passwort anmelden
-        </button>
-      </form>
+      <CheckInbox onBack={hideCurrent}>
+        Wenn die Adresse für den Admin-Bereich freigeschaltet ist, haben wir
+        Ihnen einen Anmeldelink geschickt. Er gilt 15 Minuten lang und nur
+        einmal.
+      </CheckInbox>
     );
   }
 
+  const onSubmit = (e: FormEvent<HTMLFormElement>) => {
+    if (step === "email") {
+      // Native validation has already checked the address. No request here.
+      e.preventDefault();
+      setStep("password");
+      return;
+    }
+    hideCurrent();
+    setLastSource("pw");
+  };
+
+  const emailEmpty = email.trim() === "";
+
   return (
-    <form action={loginAction} className="space-y-4">
-      <div className="space-y-1.5">
-        <Label htmlFor="email">E-Mail</Label>
-        <Input
-          id="email"
-          name="email"
-          type="email"
-          autoComplete="email"
-          required
-          autoFocus
-        />
-      </div>
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <Label htmlFor="password">Passwort</Label>
-          <Link
-            href="/admin/forgot-password"
-            className="text-xs text-fg-secondary underline-offset-2 hover:underline"
-          >
-            Passwort vergessen?
-          </Link>
-        </div>
-        <Input
-          id="password"
-          name="password"
-          type="password"
-          autoComplete="current-password"
-          required
-        />
-      </div>
-      <label className="flex cursor-pointer select-none items-start gap-2.5 text-xs text-fg-primary">
-        <input
-          type="checkbox"
-          name="remember"
-          value="on"
-          className="mt-0.5 h-4 w-4 rounded border-border accent-[var(--accent)]"
-        />
-        <span>Angemeldet bleiben</span>
-      </label>
-      {loginState && !loginState.ok && (
-        <div
-          role="alert"
-          className="rounded-md border border-[var(--tone-bad-border)] bg-[var(--tone-bad-bg)] p-3 text-sm text-tone-bad"
-        >
-          {loginState.error}
-        </div>
-      )}
-      <SubmitButton label="Anmelden" pendingLabel="Wird angemeldet…" />
-      <p className="text-xs text-fg-secondary">
-        Noch kein Passwort gesetzt?{" "}
-        <Link
-          href="/admin/forgot-password"
-          className="underline-offset-2 hover:underline"
-        >
-          Über &bdquo;Passwort vergessen&ldquo; einrichten
-        </Link>
-        .
-      </p>
-      <div className="flex items-center gap-3 text-xs text-fg-secondary">
-        <span className="h-px flex-1 bg-border" />
-        <span>oder</span>
-        <span className="h-px flex-1 bg-border" />
-      </div>
-      {googleEnabled && (
-        <GoogleSignInButton
-          href="/admin/login/google/start"
-          className="gap-2 rounded-md bg-bg-secondary px-3 py-2 text-xs"
-        />
-      )}
-      <button
-        type="button"
-        onClick={() => setMode("magic")}
-        className="w-full rounded-md border border-border bg-bg-secondary px-3 py-2 text-xs text-fg-primary transition hover:bg-bg-secondary"
+    <div>
+      <AuthHeader
+        title={
+          <>
+            Willkommen <Accent>zurück.</Accent>
+          </>
+        }
       >
-        Lieber per E-Mail-Link anmelden
-      </button>
-    </form>
+        Melden Sie sich im Admin-Bereich an.
+      </AuthHeader>
+
+      {googleEnabled && (
+        <>
+          <GoogleSignInButton
+            href="/admin/login/google/start"
+            className={`${authButtonClass} py-0`}
+          />
+          <AuthDivider />
+        </>
+      )}
+
+      <form action={pwAction} onSubmit={onSubmit} className="space-y-6">
+        <div>
+          <AuthLabel htmlFor="email" className="mb-2">
+            E-Mail
+          </AuthLabel>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            autoComplete="username email"
+            autoCapitalize="none"
+            spellCheck={false}
+            inputMode="email"
+            required
+            autoFocus
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className={authFieldClass}
+          />
+        </div>
+
+        {step === "password" && (
+          <div className="animate-fade-in space-y-6">
+            <div>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <AuthLabel htmlFor="password">Passwort</AuthLabel>
+                <Link href="/admin/forgot-password" className={`${authTextLinkClass} text-sm`}>
+                  Passwort vergessen?
+                </Link>
+              </div>
+              <PasswordInput
+                ref={passwordRef}
+                id="password"
+                name="password"
+                autoComplete="current-password"
+                required
+                autoFocus
+                aria-invalid={pwFailed && editedAfter !== pwState}
+                onInput={() => setEditedAfter(pwState)}
+              />
+            </div>
+            <label className="flex w-fit cursor-pointer select-none items-center gap-2.5 text-base text-fg-primary">
+              <input
+                type="checkbox"
+                name="remember"
+                value="on"
+                className="h-4 w-4 rounded accent-[#58BAB5]"
+              />
+              Angemeldet bleiben
+            </label>
+          </div>
+        )}
+
+        <SubmitButton label={step === "email" ? "Weiter" : "Anmelden"} busy={signedIn} />
+      </form>
+
+      <p className="mt-6 text-center text-sm text-fg-secondary">
+        Kein Passwort?{" "}
+        <button
+          type="submit"
+          form={LINK_FORM_ID}
+          disabled={linkPending || emailEmpty || signedIn}
+          onClick={() => {
+            hideCurrent();
+            setLastSource("link");
+          }}
+          className={authTextLinkClass}
+        >
+          {linkPending ? "Wird gesendet…" : "Anmeldelink per E-Mail senden"}
+        </button>
+      </p>
+
+      {/* Sibling form for the link request: only the address goes along. */}
+      <form id={LINK_FORM_ID} action={linkAction} hidden>
+        <input type="hidden" name="email" value={email} />
+      </form>
+
+      {toastError && (
+        <AuthToast tone="bad" onClose={hideCurrent}>
+          {toastError}
+        </AuthToast>
+      )}
+      {toastNotice && (
+        <AuthToast tone="good" onClose={hideCurrent}>
+          {toastNotice}
+        </AuthToast>
+      )}
+    </div>
   );
 }

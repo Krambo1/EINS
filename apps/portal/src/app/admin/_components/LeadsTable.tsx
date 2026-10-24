@@ -7,12 +7,20 @@ import {
   formatRelative,
 } from "@/lib/formatting";
 import {
+  AI_CATEGORY_LABELS,
   REQUEST_STATUS_LABELS,
   SOURCE_LABELS,
+  type AiCategory,
   type RequestSource,
 } from "@/lib/constants";
 import type { AdminLeadRow } from "@/server/queries/admin";
+import { responseRuleStartsByClinic } from "@/server/guarantee-clock";
 import { withBrandLogos } from "@/app/_components/Brand";
+import {
+  RESPONSE_STATE_LABELS,
+  isPraxisResponseFlag,
+  responseState,
+} from "@/lib/response-time";
 
 interface Props {
   rows: AdminLeadRow[];
@@ -27,7 +35,7 @@ interface Props {
   hideClinic?: boolean;
 }
 
-export function LeadsTable({
+export async function LeadsTable({
   rows,
   total,
   page,
@@ -36,7 +44,13 @@ export function LeadsTable({
   queryWithoutPage,
   hideClinic,
 }: Props) {
+  // K-3: per-Praxis rule start (signing date), so inquiries before the
+  // signature never show "nicht beantwortet". One query for the page.
+  const ruleStarts = await responseRuleStartsByClinic([...new Set(rows.map((r) => r.clinicId))]);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  // Bookmark to a page that no longer exists (G-23): offer the last page
+  // instead of a dead end showing "Seite 99 von 3".
+  const outOfRange = page > totalPages && total > 0;
 
   const linkFor = (p: number) => ({
     pathname: basePath,
@@ -55,7 +69,7 @@ export function LeadsTable({
                 <th className="px-4 py-2">Quelle</th>
                 <th className="px-4 py-2">Status</th>
                 <th className="px-4 py-2 text-right">KI-Bewertung</th>
-                <th className="px-4 py-2 text-right">SLA</th>
+                <th className="px-4 py-2 text-right">Antwortziel</th>
                 <th className="px-4 py-2 text-right">Erstkontakt</th>
                 <th className="px-4 py-2 text-right">Erstellt</th>
                 <th className="px-4 py-2 text-right">Umsatz</th>
@@ -68,7 +82,16 @@ export function LeadsTable({
                     colSpan={hideClinic ? 8 : 9}
                     className="px-4 py-10 text-center text-fg-secondary"
                   >
-                    Keine Anfragen für diese Filter.
+                    {outOfRange ? (
+                      <>
+                        Diese Seite gibt es nicht mehr.{" "}
+                        <Link href={linkFor(totalPages)} className="text-accent hover:underline">
+                          Zur letzten Seite
+                        </Link>
+                      </>
+                    ) : (
+                      "Keine Anfragen für diese Filter."
+                    )}
                   </td>
                 </tr>
               )}
@@ -107,6 +130,7 @@ export function LeadsTable({
                     <Badge tone={statusTone(r.status)}>
                       {REQUEST_STATUS_LABELS[r.status] ?? r.status}
                     </Badge>
+                    <ResponseFlag row={r} ruleStart={ruleStarts.get(r.clinicId) ?? null} />
                   </td>
                   <td className="px-4 py-2 text-right">
                     {r.aiScore == null ? (
@@ -117,8 +141,8 @@ export function LeadsTable({
                       </span>
                     )}
                     {r.aiCategory && (
-                      <div className="text-[10px] uppercase tracking-wide text-fg-tertiary">
-                        {r.aiCategory}
+                      <div className="text-sm text-fg-primary">
+                        {AI_CATEGORY_LABELS[r.aiCategory as AiCategory] ?? r.aiCategory}
                       </div>
                     )}
                   </td>
@@ -156,7 +180,7 @@ export function LeadsTable({
           </table>
         </div>
 
-        {totalPages > 1 && (
+        {totalPages > 1 && !outOfRange && (
           <nav className="flex items-center justify-between border-t border-border px-4 py-3 text-sm">
             <div className="text-fg-secondary">
               Seite {page} von {totalPages} · {formatNumber(total)} Anfragen
@@ -183,6 +207,17 @@ export function LeadsTable({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/** Folge 2 of the 48-Werkstunden rule: only the two Praxis flags show. */
+function ResponseFlag({ row, ruleStart }: { row: AdminLeadRow; ruleStart: Date | null }) {
+  const state = responseState({ ...row, ruleStart }, new Date());
+  if (!isPraxisResponseFlag(state)) return null;
+  return (
+    <div className={`mt-1 text-[11px] ${state === "nicht_beantwortet" ? "text-tone-bad" : "text-tone-warn"}`}>
+      {RESPONSE_STATE_LABELS[state]}
+    </div>
   );
 }
 

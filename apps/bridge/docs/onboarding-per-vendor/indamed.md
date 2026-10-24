@@ -26,17 +26,19 @@ ca. 35 Minuten.
 
 ## Installation
 
+Befehle in einer PowerShell als Administrator, im Agent-Ordner (mit `eins-agent.cmd`; es gibt keinen Installer, siehe `medatixx.md`, Abschnitt Installation). Token besser per `echo <token> | .\eins-agent.cmd --enroll --token-stdin --clinic <praxis-uuid>` uebergeben. Nach `--enable-db-adapter` mit `.\eins-agent.cmd --probe-db-adapter <vendor>` das Schema pruefen (Exit 0 = alles gefunden). `--install-service` legt die geplante Aufgabe `EINS-Agent` an (SYSTEM, startet beim Hochfahren); als der Windows-Benutzer ausfuehren, der die Einrichtung gemacht hat.
+
 ```powershell
-.\eins-agent-win.exe --enroll <token> --clinic <praxis-uuid>
-.\eins-agent-win.exe --enable-db-adapter indamed-db `
+.\eins-agent.cmd --enroll <token> --clinic <praxis-uuid>
+.\eins-agent.cmd --enable-db-adapter indamed-db `
   --db-host 127.0.0.1 `
   --db-port 3306 `
   --db-database medoff `
   --db-username eins_readonly
-.\eins-agent-win.exe --install-service
+.\eins-agent.cmd --install-service
 ```
 
-Passwort interaktiv eingeben; Windows Credential Vault.
+Passwort interaktiv eingeben; Windows DPAPI (Datenordner `%ProgramData%\EINS-Agent`).
 
 ## Sanity-Check
 

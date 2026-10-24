@@ -45,7 +45,7 @@ export default async function AdminOnboardingPage() {
   const trainingPending = rows.filter((r) => !r.quizPassed).length;
   const stuck = rows.filter((r) => r.stuck).length;
 
-  // Exact-stage buckets — every clinic sits in one stage, so the segments sum
+  // Exact-stage buckets, every clinic sits in one stage, so the segments sum
   // to the clinic count (FunnelBar's stacked-distribution model).
   const stageCounts = STAGE_ORDER.map((stage) => ({
     stage,
@@ -66,7 +66,7 @@ export default async function AdminOnboardingPage() {
   });
 
   const yesNo = (v: boolean) =>
-    v ? <span className="text-tone-good">Ja</span> : <span className="text-fg-tertiary">Nein</span>;
+    v ? <span className="text-tone-good">Ja</span> : <span className="text-fg-secondary">Nein</span>;
 
   const columns: AdminColumn<AdminOnboardingRow>[] = [
     {
@@ -138,7 +138,7 @@ export default async function AdminOnboardingPage() {
               : ""}
           </span>
         ) : (
-          <span className="text-fg-tertiary">offen</span>
+          <span className="text-fg-secondary">offen</span>
         ),
     },
   ];
@@ -146,7 +146,7 @@ export default async function AdminOnboardingPage() {
   return (
     <div className="space-y-8">
       <AdminPageHeader
-        title="Onboarding-Pipeline"
+        title="Onboarding-Stand"
         subtitle="Wo steht jede neue Praxis? Von der Registrierung über Integration und erste Anfrage bis zur bestandenen Schulung."
       />
 

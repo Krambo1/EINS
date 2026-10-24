@@ -33,20 +33,3 @@ export function mapSeries<T extends { date: string }>(
 ): TrendChartPoint[] {
   return rows.map((r) => ({ date: r.date, value: pick(r) }));
 }
-
-/**
- * Build a dense ISO-date array `[from, from+1, …, today)` of `length` days,
- * ending today. Used for series like `inboundCountSeries` that return only
- * dense values without the parallel date axis.
- */
-export function isoDateRangeEndingToday(length: number): string[] {
-  const today = new Date();
-  today.setUTCHours(0, 0, 0, 0);
-  const out: string[] = new Array(length);
-  for (let i = 0; i < length; i++) {
-    const d = new Date(today);
-    d.setUTCDate(d.getUTCDate() - (length - 1 - i));
-    out[i] = d.toISOString().slice(0, 10);
-  }
-  return out;
-}

@@ -149,6 +149,29 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Signature check against the 'pvs' platform secret.
+  const ok = await verifyClinicSignature(event.clinicId, raw, sig, "pvs");
+  if (!ok) {
+    after(() =>
+      writeAudit({
+        clinicId: event.clinicId,
+        action: "pvs_event_reject",
+        entityKind: "pvs_event_log",
+        diff: {
+          reason: "bad_signature",
+          kind: event.kind,
+          bridgeSource: event.bridgeSource,
+        },
+        requestMeta,
+      })
+    );
+    return genericFail();
+  }
+
+  // Pass 2: the per-clinic budget is spent only AFTER the signature check.
+  // clinicId sits in the request body in clear text, so anyone could burn a
+  // Praxis's quota with unsigned junk and the real agent got 429 for the
+  // rest of the window (a silently stalled upload).
   // Per-clinic rate limit (existing). The IP-level gate above is the first
   // line of defence; this protects against a compromised-but-legitimate
   // clinicId being used to flood ingest.
@@ -167,25 +190,6 @@ export async function POST(request: NextRequest) {
         },
       }
     );
-  }
-
-  // Signature check against the 'pvs' platform secret.
-  const ok = await verifyClinicSignature(event.clinicId, raw, sig, "pvs");
-  if (!ok) {
-    after(() =>
-      writeAudit({
-        clinicId: event.clinicId,
-        action: "pvs_event_reject",
-        entityKind: "pvs_event_log",
-        diff: {
-          reason: "bad_signature",
-          kind: event.kind,
-          bridgeSource: event.bridgeSource,
-        },
-        requestMeta,
-      })
-    );
-    return genericFail();
   }
 
   try {
@@ -208,9 +212,11 @@ export async function POST(request: NextRequest) {
       //
       // billing_conflict (M-D6) is the opposite: a STANDING configuration
       // state (this source is not the clinic's authoritative billing path).
-      // 403 is deliberately non-retryable — the agent dead-letters the row
-      // (visible in its failure summary) instead of retrying hourly forever,
-      // and applyPvsEvent already raised a standing dashboard alert.
+      // 422 is deliberately non-retryable AND non-auth: the agent dead-letters
+      // the row (visible in its failure summary) instead of retrying forever,
+      // and applyPvsEvent already raised a standing dashboard alert. It must
+      // not be 403: agents read 403 as an auth rejection and pause the whole
+      // outbox behind the one conflicting row.
       const status =
         result.reason === "clinic_not_found"
           ? 404
@@ -218,7 +224,7 @@ export async function POST(request: NextRequest) {
             result.reason === "vendor_mismatch"
           ? 409
           : result.reason === "billing_conflict"
-          ? 403
+          ? 422
           : result.reason === "internal_error"
           ? 500
           : 400;

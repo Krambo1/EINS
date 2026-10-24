@@ -132,7 +132,7 @@ const toneLabelChip: Record<MetricTileTone, string> = {
   good: "border-[var(--tone-good-border)] bg-[var(--tone-good-bg)] text-tone-good",
   warn: "border-[var(--tone-warn-border)] bg-[var(--tone-warn-bg)] text-tone-warn",
   bad: "border-[var(--tone-bad-border)] bg-[var(--tone-bad-bg)] text-tone-bad",
-  accent: "border-accent/30 bg-accent-soft text-accent",
+  accent: "border-[var(--accent-glow)] bg-accent-soft text-accent",
 };
 
 const valueAccent: Record<MetricTileTone, string> = {
@@ -184,8 +184,10 @@ export function MetricTile({
     >
       {/* Upper region — label / controls / value / sublabel / progress / hint.
           A wrapper div makes this a single click-zone that linkSlot can
-          overlay. flex-1 pushes the chartSlot to the bottom. */}
-      <div className="relative isolate flex flex-1 flex-col">
+          overlay. flex-1 pushes the chartSlot to the bottom so charts line
+          up across a row. With a belowChartSlot the chart stays under its
+          number instead and the spare height goes below the list. */}
+      <div className={cn("relative isolate flex flex-col", !belowChartSlot && "flex-1")}>
         {linkSlot && (
           <div
             className="absolute inset-0 z-0 [&_*]:rounded-2xl"
@@ -329,7 +331,7 @@ export function MetricTile({
                         <div
                           className={cn(
                             "pointer-events-none absolute inset-y-0 right-0 w-[3px] transition-colors duration-500",
-                            reached ? "bg-tone-good" : "bg-fg-tertiary/50"
+                            reached ? "bg-tone-good" : "bg-[color-mix(in_srgb,var(--fg-tertiary)_50%,transparent)]"
                           )}
                           aria-hidden
                         />

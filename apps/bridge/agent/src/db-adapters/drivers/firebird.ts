@@ -1,3 +1,4 @@
+import iconv from "iconv-lite";
 import type {
   DbConnectionParams,
   DbDriver,
@@ -22,24 +23,67 @@ import type {
  * same lower-case keys as Postgres configs. (Vendor configs may still
  * SELECT with quoted lower-case aliases to keep the wire data
  * consistent.)
+ *
+ * READ SAFETY. Every read runs in an explicit READ ONLY, READ COMMITTED +
+ * REC_VERSION, NO WAIT transaction (isc_tpb_read | read_committed | rec_version
+ * | nowait). node-firebird's default `conn.query()` would use an implicit
+ * read-write, WAIT-forever transaction: a reader would then block on a PVS
+ * writer's uncommitted row (or hold an old snapshot open and pin garbage
+ * collection on the server). With rec_version the reader sees the last committed
+ * version and never waits; read-only makes a write impossible.
+ *
+ * TRANSPORT. node-firebird 1.1.10 implements NO wire encryption (verified in
+ * lib/wire/connection.js: there is no isc_dpb wire_crypt / WireCrypt handling).
+ * An earlier `wireEncryption: true` option was therefore a silent no-op that
+ * claimed protection it did not give. Traffic is UNENCRYPTED on the LAN: run
+ * the agent on the Firebird server (host localhost) or on a trusted wired LAN.
+ *
+ * AUTH. node-firebird speaks Srp (SHA-1) and Legacy_Auth. Firebird 4+ ships with
+ * AuthServer = Srp256 only; the handshake then fails with an authentication
+ * error even for a correct password. The runner classifies that as auth_failed
+ * and reports the actionable hint (error-classes.FIREBIRD_AUTH_HINT).
+ *
+ * CHARSET. The driver decodes every text column as UTF-8, whatever the
+ * connection charset. A WIN1252 database read over the default UTF8 connection
+ * is transliterated by the server and arrives intact. Columns of charset NONE
+ * arrive as raw bytes that are not valid UTF-8; for those CAST the column to
+ * `CHARACTER SET OCTETS` in the query (node-firebird then returns a Buffer) and
+ * set `charset`/`decodeAs` so the bytes are decoded with iconv-lite. A text
+ * value that still contains U+FFFD (undecodable bytes) is nulled, counted and
+ * logged so one umlaut row can neither wedge the stream nor emit garbage.
  */
 
 // node-firebird passes result-set metadata as the callback's 3rd argument, but
 // as a flat ARRAY of field descriptors, NOT a `{ fields: [...] }` object, and
 // each descriptor names the column in `field` / `alias` (not `name`). The array
 // is present for empty AND non-empty result sets, so reading it is what lets a
-// zero-row poll still report its real columns. The previous `meta.fields` /
-// `f.name` access never matched this shape, so the driver always fell back to
-// inferring columns from row[0] and reported [] for an empty poll, which the
-// framework then misread as "every column vanished" -> false schema drift on
-// the (very common) no-new-rows poll. Surfaced by Phase 6's firebird.it harness.
+// zero-row poll still report its real columns.
 type FbField = { alias?: string; field?: string };
+
+type FbTransaction = {
+  query(
+    sql: string,
+    params: unknown[],
+    cb: (err: Error | null, rows: Array<Record<string, unknown>>, meta?: FbField[]) => void
+  ): void;
+  commit(cb: (err?: Error | null) => void): void;
+  rollback(cb: (err?: Error | null) => void): void;
+};
 
 type FbConnection = {
   query(
     sql: string,
     params: unknown[],
     cb: (err: Error | null, rows: Array<Record<string, unknown>>, meta?: FbField[]) => void
+  ): void;
+  transaction(
+    options: {
+      isolation: number[];
+      readOnly: boolean;
+      wait: boolean;
+      autoUndo?: boolean;
+    },
+    cb: (err: Error | null, tx: FbTransaction) => void
   ): void;
   detach(cb?: (err: Error | null) => void): void;
   on(event: "error" | "end", listener: (...args: unknown[]) => void): void;
@@ -55,7 +99,10 @@ type FbAttach = (
     role?: string;
     pageSize?: number;
     lowercase_keys?: boolean;
-    wireEncryption?: boolean;
+    /** Return BLOB SUB_TYPE TEXT columns as strings. Without it node-firebird
+     *  hands back a lazy reader FUNCTION per cell (String()-ified into JS source
+     *  text downstream). */
+    blobAsText?: boolean;
     /** Connection charset (Firebird lc_ctype). node-firebird maps this to
      *  isc_dpb_lc_ctype and defaults to 'UTF8' when omitted (M-D3). */
     encoding?: string;
@@ -84,6 +131,19 @@ async function getModule(): Promise<FbModule> {
   return resolved;
 }
 
+/** TPB isolation for the read transaction: isc_tpb_read_committed (15) +
+ *  isc_tpb_rec_version (17). Mirrors node-firebird's ISOLATION_READ_UNCOMMITTED
+ *  constant, which is the same two bytes; spelled out here because that name is
+ *  misleading. */
+const READ_COMMITTED_REC_VERSION = [15, 17];
+
+/** A single read may take this long before the connection is discarded. The
+ *  framework has its own 150 s backstop; this one also drops the connection so
+ *  the next stream cannot reuse a wedged socket. */
+const QUERY_TIMEOUT_MS = 120_000;
+/** Do not wait on a detach of a wedged socket for longer than this. */
+const DETACH_TIMEOUT_MS = 5_000;
+
 export class FirebirdDriver implements DbDriver {
   readonly engine = "firebird" as const;
 
@@ -91,6 +151,9 @@ export class FirebirdDriver implements DbDriver {
   private params: DbConnectionParams | null = null;
   private connecting: Promise<void> | null = null;
   private healthy = false;
+  /** Count of text values nulled because they contained undecodable bytes. */
+  undecodableValues = 0;
+  private lastUndecodableLogAt = 0;
 
   async connect(params: DbConnectionParams): Promise<void> {
     this.params = params;
@@ -127,12 +190,14 @@ export class FirebirdDriver implements DbDriver {
     const role = typeof params.options?.role === "string" ? (params.options.role as string) : undefined;
     const pageSize =
       typeof params.options?.pageSize === "number" ? (params.options.pageSize as number) : undefined;
-    const wireEncryption =
-      params.options?.wireEncryption === false ? false : true;
+    if (params.options?.wireEncryption === true) {
+      console.warn(
+        "[firebird] connection.options.wireEncryption is ignored: node-firebird cannot encrypt the wire. Run the agent on the Firebird server (host localhost) or on a trusted LAN."
+      );
+    }
     // M-D3: optional connection charset for legacy WIN1252 / NONE databases
-    // whose umlauts otherwise garble or throw transliteration errors under the
-    // default UTF8 read. Undefined leaves node-firebird on its 'UTF8' default,
-    // so existing configs are unchanged.
+    // whose umlauts otherwise garble. Undefined leaves node-firebird on its
+    // 'UTF8' default, so existing configs are unchanged.
     const encoding = resolveFirebirdEncoding(params.options);
 
     const conn: FbConnection = await new Promise((resolve, reject) => {
@@ -146,7 +211,7 @@ export class FirebirdDriver implements DbDriver {
           role,
           pageSize,
           lowercase_keys: true,
-          wireEncryption,
+          blobAsText: true,
           encoding,
         },
         (err, db) => {
@@ -164,17 +229,22 @@ export class FirebirdDriver implements DbDriver {
       this.healthy = false;
     });
 
-    // Read-only safety (pentest M10): in Firebird read-only is a property of
-    // the TRANSACTION (TPB isc_tpb_read), not the attachment, so there is no
-    // connect-time session directive. The `conn.query(...)` path below runs in
-    // node-firebird's implicit read-write transaction; pinning it read-only
-    // would mean routing every query through an explicit
-    // `conn.transaction(ISOLATION_READ_COMMITTED_READ_ONLY, ...)` — a hot-path
-    // refactor deferred on this long-tail, undeployed engine. Today the
-    // read-only guarantee rests on the SELECT-only Firebird user provisioned
-    // per the AVV plus the author-controlled YAML SQL (never user input).
     this.conn = conn;
     this.healthy = true;
+  }
+
+  /** Drop the connection synchronously (never await a detach on a wedged
+   *  socket) so the next query reconnects instead of reusing it. */
+  private discardConnection(): void {
+    const c = this.conn;
+    this.conn = null;
+    this.healthy = false;
+    if (!c) return;
+    try {
+      c.detach(() => void 0);
+    } catch {
+      // best-effort
+    }
   }
 
   async query(
@@ -188,34 +258,126 @@ export class FirebirdDriver implements DbDriver {
     // timestamp cursor (framework Phase 3) flows through as a Date; strings
     // and numbers pass through unchanged.
     const { translated, values } = translateNamedToPositional(sql, params);
+    const conn = this.conn!;
+    const decodeAs = resolveFirebirdDecodeCharset(this.params?.options);
     return new Promise<QueryResult>((resolve, reject) => {
-      this.conn!.query(translated, values, (err, rows, meta) => {
-        if (err) return reject(err);
-        // Prefer the statement metadata (stable across empty/non-empty results);
-        // lower-case to match the lowercase_keys row shape and the YAML map keys.
-        // Fall back to row[0] keys only when no metadata came back at all.
-        const columns =
-          Array.isArray(meta) && meta.length > 0
-            ? meta.map((f) => (f.alias ?? f.field ?? "").toLowerCase())
-            : inferColumnsFromRow(rows);
-        resolve({ columns, rows: rows ?? [] });
-      });
+      let settled = false;
+      const finish = (fn: () => void): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn();
+      };
+      const timer = setTimeout(() => {
+        finish(() => {
+          this.discardConnection();
+          reject(new Error(`firebird: query exceeded ${QUERY_TIMEOUT_MS}ms; connection discarded`));
+        });
+      }, QUERY_TIMEOUT_MS);
+
+      conn.transaction(
+        {
+          isolation: READ_COMMITTED_REC_VERSION,
+          readOnly: true,
+          // NO WAIT: never queue behind a lock held by the PVS.
+          wait: false,
+        },
+        (txErr, tx) => {
+          if (txErr) {
+            return finish(() => {
+              this.healthy = false;
+              reject(txErr);
+            });
+          }
+          tx.query(translated, values, (err, rows, meta) => {
+            const end = (cb: () => void): void => {
+              // Release the transaction either way; a failing commit of a
+              // read-only transaction is not worth failing the poll over.
+              try {
+                (err ? tx.rollback.bind(tx) : tx.commit.bind(tx))(() => cb());
+              } catch {
+                cb();
+              }
+            };
+            if (err) {
+              return end(() => finish(() => reject(err)));
+            }
+            end(() =>
+              finish(() => {
+                // Prefer the statement metadata (stable across empty/non-empty
+                // results); lower-case to match the lowercase_keys row shape and
+                // the YAML map keys. Fall back to row[0] keys only when no
+                // metadata came back at all.
+                const columns =
+                  Array.isArray(meta) && meta.length > 0
+                    ? meta.map((f) => (f.alias ?? f.field ?? "").toLowerCase())
+                    : inferColumnsFromRow(rows);
+                const decoded = this.decodeRows(rows ?? [], decodeAs);
+                resolve({ columns, rows: decoded });
+              })
+            );
+          });
+        }
+      );
     });
   }
 
-  async close(): Promise<void> {
-    if (this.conn) {
-      const c = this.conn;
-      await new Promise<void>((resolve) => {
-        try {
-          c.detach(() => resolve());
-        } catch {
-          resolve();
+  /** Decode Buffer columns with iconv-lite and null (count, log) any text value
+   *  that still carries undecodable bytes. */
+  private decodeRows(
+    rows: Array<Record<string, unknown>>,
+    decodeAs: string
+  ): Array<Record<string, unknown>> {
+    let bad = 0;
+    for (const row of rows) {
+      for (const key of Object.keys(row)) {
+        const v = row[key];
+        if (Buffer.isBuffer(v)) {
+          const text = iconv.decode(v, decodeAs);
+          if (text.includes("�")) {
+            row[key] = null;
+            bad++;
+          } else {
+            row[key] = text;
+          }
+        } else if (typeof v === "string" && v.includes("�")) {
+          row[key] = null;
+          bad++;
         }
-      });
-      this.conn = null;
+      }
     }
+    if (bad > 0) {
+      this.undecodableValues += bad;
+      const now = Date.now();
+      if (now - this.lastUndecodableLogAt > 60_000) {
+        this.lastUndecodableLogAt = now;
+        console.warn(
+          `[firebird] ${bad} text value(s) in this result held undecodable bytes and were set to NULL (total ${this.undecodableValues}). For charset NONE columns CAST them to CHARACTER SET OCTETS in the query and set connection.options.charset / decodeAs.`
+        );
+      }
+    }
+    return rows;
+  }
+
+  async close(): Promise<void> {
+    const c = this.conn;
+    // Reset synchronously: if detach never calls back (wedged socket) the next
+    // query must still reconnect instead of reusing this connection.
+    this.conn = null;
     this.healthy = false;
+    if (!c) return;
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, DETACH_TIMEOUT_MS);
+      try {
+        c.detach(() => {
+          clearTimeout(timer);
+          resolve();
+        });
+      } catch {
+        clearTimeout(timer);
+        resolve();
+      }
+    });
   }
 
   async healthCheck(): Promise<{ ok: true } | { ok: false; reason: string }> {
@@ -224,13 +386,7 @@ export class FirebirdDriver implements DbDriver {
         if (!this.params) return { ok: false, reason: "not configured" };
         await this.connect(this.params);
       }
-      await new Promise<void>((resolve, reject) => {
-        this.conn!.query(
-          "SELECT 1 AS heartbeat FROM RDB$DATABASE",
-          [],
-          (err) => (err ? reject(err) : resolve())
-        );
-      });
+      await this.query("SELECT 1 AS heartbeat FROM RDB$DATABASE", {});
       return { ok: true };
     } catch (err) {
       return { ok: false, reason: (err as Error).message };
@@ -286,4 +442,41 @@ export function resolveFirebirdEncoding(
   const raw = options?.charset ?? options?.encoding;
   if (typeof raw === "string" && raw.trim() !== "") return raw.trim();
   return undefined;
+}
+
+const FB_CHARSET_TO_ICONV: Record<string, string> = {
+  UTF8: "utf8",
+  UNICODE_FSS: "utf8",
+  WIN1250: "win1250",
+  WIN1251: "win1251",
+  WIN1252: "win1252",
+  WIN1253: "win1253",
+  WIN1254: "win1254",
+  ISO8859_1: "latin1",
+  ISO8859_2: "iso-8859-2",
+  ISO8859_15: "iso-8859-15",
+  DOS850: "cp850",
+  DOS437: "cp437",
+  // NONE carries no charset information; German PVS data is Windows-1252.
+  NONE: "win1252",
+  OCTETS: "win1252",
+};
+
+/**
+ * The iconv-lite charset used to decode Buffer columns (text cast to OCTETS):
+ * `decodeAs` if set, else derived from the connection charset, else win1252
+ * (German PVS data is Windows-1252, not UTF-8). Unknown names fall back to
+ * win1252.
+ */
+export function resolveFirebirdDecodeCharset(
+  options: Record<string, unknown> | undefined
+): string {
+  const explicit = options?.decodeAs;
+  const raw =
+    typeof explicit === "string" && explicit.trim() !== ""
+      ? explicit.trim()
+      : resolveFirebirdEncoding(options);
+  if (!raw) return "win1252";
+  const mapped = FB_CHARSET_TO_ICONV[raw.toUpperCase()] ?? raw.toLowerCase();
+  return iconv.encodingExists(mapped) ? mapped : "win1252";
 }

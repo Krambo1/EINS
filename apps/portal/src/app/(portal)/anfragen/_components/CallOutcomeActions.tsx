@@ -10,6 +10,10 @@ import {
 } from "@/lib/constants";
 import { logCall } from "../[id]/actions";
 
+// Zweistufig (C-30): Der erste Klick wählt das Ergebnis, erst "Speichern"
+// schreibt. Jeder gespeicherte Anruf zählt als Kontaktversuch und lässt sich
+// nicht zurücknehmen, ein Fehlklick am Handy darf also nichts auslösen.
+
 /**
  * Ein-Klick-Anrufausgang direkt auf der "Jetzt anrufen"-Karte. Ruft die
  * bestehende `logCall`-Action auf (kein neuer Schreibpfad): protokolliert den
@@ -68,8 +72,10 @@ export function CallOutcomeActions({
   const [isPending, startTransition] = useTransition();
   const [pendingKey, setPendingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
   const allowed = STATUS_TRANSITIONS[currentStatus] ?? [];
+  const selected = OUTCOMES.find((o) => o.key === selectedKey) ?? null;
 
   const run = (o: (typeof OUTCOMES)[number]) => {
     setError(null);
@@ -79,14 +85,21 @@ export function CallOutcomeActions({
     fd.set("outcome", o.outcome);
     if (!pvsControlled && o.status !== currentStatus && allowed.includes(o.status)) {
       fd.set("statusAfter", o.status);
+      fd.set("expectedStatus", currentStatus);
     }
     startTransition(async () => {
       try {
-        await logCall(fd);
+        const res = await logCall(fd);
         // Erfolg: revalidatePath("/anfragen") in der Action rendert die
-        // Warteschlange neu — der nächste Lead wird zur Hero-Karte.
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Anruf konnte nicht festgehalten werden.");
+        // Warteschlange neu, der nächste Lead wird zur Hero-Karte.
+        if (res.ok) {
+          setSelectedKey(null);
+        } else {
+          setError(res.message);
+          setPendingKey(null);
+        }
+      } catch {
+        setError("Keine Verbindung. Bitte versuchen Sie es noch einmal.");
         setPendingKey(null);
       }
     });
@@ -94,18 +107,23 @@ export function CallOutcomeActions({
 
   return (
     <div>
-      <div className="mb-2 text-xs text-fg-tertiary">Anruf festhalten</div>
+      <div className="mb-2 text-sm font-medium text-fg-primary">Anruf protokollieren</div>
       <div className="flex flex-wrap gap-2">
         {OUTCOMES.map((o) => {
           const Icon = o.icon;
           const thisPending = isPending && pendingKey === o.key;
+          const isSelected = selectedKey === o.key;
           return (
             <Button
               key={o.key}
               size="sm"
-              variant={o.variant}
+              variant={selected && !isSelected ? "outline" : o.variant}
               disabled={isPending}
-              onClick={() => run(o)}
+              aria-pressed={isSelected}
+              onClick={() => {
+                setError(null);
+                setSelectedKey(isSelected ? null : o.key);
+              }}
             >
               {thisPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -117,6 +135,25 @@ export function CallOutcomeActions({
           );
         })}
       </div>
+      {selected && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-sm text-fg-primary">
+            Anruf als „{selected.label}“ speichern? Das zählt als Kontaktversuch.
+          </span>
+          <Button size="sm" disabled={isPending} onClick={() => run(selected)}>
+            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Speichern
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            disabled={isPending}
+            onClick={() => setSelectedKey(null)}
+          >
+            Abbrechen
+          </Button>
+        </div>
+      )}
       {error && <p className="mt-2 text-sm text-tone-bad">{error}</p>}
     </div>
   );

@@ -12,7 +12,9 @@ import { invalidateClinicKpiCache } from "@/server/queries/_cache";
  * eigene Qualifizierungs-Stage mehr; jede ernstgemeinte Anfrage zählt.
  *
  * Called by:
- *  - cron (nightly full rebuild of yesterday)
+ *  - Vercel cron /api/cron/daily (yesterday + today + 7-day backfill, Berlin days)
+ *  - worker cron (nightly, yesterday) when the Fly worker runs
+ *  Idempotent upsert: running it twice for the same window is harmless.
  *  - explicit rebuild after CSV import or manual request entries
  */
 
@@ -40,12 +42,17 @@ export async function processKpiRebuild(job: KpiRebuildJob): Promise<void> {
     )
     .groupBy(schema.campaignSnapshots.snapshotDate);
 
+  // Berlin calendar day of each request (E-27): the DB session runs in UTC,
+  // so a plain `created_at::date` books a 00:30 Berlin inquiry onto the
+  // previous day and disagrees with the Berlin-month monthly report.
+  const berlinDay = sql`(${schema.requests.createdAt} AT TIME ZONE 'Europe/Berlin')::date`;
+
   const reqRows = await db
     .select({
-      date: sql<string>`to_char(${schema.requests.createdAt}::date, 'YYYY-MM-DD')`,
+      date: sql<string>`to_char(${berlinDay}, 'YYYY-MM-DD')`,
       leads: sql<number>`count(*) filter (where ${schema.requests.status} <> 'spam')::int`,
-      appointments: sql<number>`count(*) filter (where ${schema.requests.status} in ('termin_vereinbart','beratung_erschienen','gewonnen'))::int`,
-      consultationsHeld: sql<number>`count(*) filter (where ${schema.requests.status} in ('beratung_erschienen','gewonnen'))::int`,
+      appointments: sql<number>`count(*) filter (where ${schema.requests.status} in ('termin_vereinbart','beratung_erschienen','behandelt','gewonnen'))::int`,
+      consultationsHeld: sql<number>`count(*) filter (where ${schema.requests.status} in ('beratung_erschienen','behandelt','gewonnen'))::int`,
       // No-shows: PVS-derived status only (constants.ts STATUS_TRANSITIONS) —
       // a booked Termin the patient missed. Used with consultationsHeld below
       // to derive the no-show rate among *resolved* consultations.
@@ -57,11 +64,11 @@ export async function processKpiRebuild(job: KpiRebuildJob): Promise<void> {
     .where(
       and(
         eq(schema.requests.clinicId, clinicId),
-        gte(sql`${schema.requests.createdAt}::date`, from),
-        lte(sql`${schema.requests.createdAt}::date`, to)
+        gte(berlinDay, from),
+        lte(berlinDay, to)
       )
     )
-    .groupBy(sql`${schema.requests.createdAt}::date`);
+    .groupBy(berlinDay);
 
   // Merge by date.
   const byDate = new Map<
@@ -91,6 +98,24 @@ export async function processKpiRebuild(job: KpiRebuildJob): Promise<void> {
     ex.casesWon = Number(r.casesWon);
     ex.revenueAttributedEur = Number(r.revenueAttributedEur);
     byDate.set(r.date, ex);
+  }
+
+  // Self-healing: a day that already has a kpi_daily row but no longer has
+  // any source data in the window (every request of that day turned to spam,
+  // a snapshot was removed) must be reset to zero, otherwise the stale count
+  // stays on the dashboard forever.
+  const existingDays = await db
+    .select({ date: sql<string>`to_char(${schema.kpiDaily.date}, 'YYYY-MM-DD')` })
+    .from(schema.kpiDaily)
+    .where(
+      and(
+        eq(schema.kpiDaily.clinicId, clinicId),
+        gte(schema.kpiDaily.date, from),
+        lte(schema.kpiDaily.date, to)
+      )
+    );
+  for (const r of existingDays) {
+    if (!byDate.has(r.date)) byDate.set(r.date, emptyDay());
   }
 
   // Track whether at least one row was upserted so we know to invalidate.

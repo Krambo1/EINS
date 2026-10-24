@@ -213,6 +213,9 @@ function normalizeReport(
             observed: report.observedColumns,
             missing: report.missing,
             added: report.added,
+            // Catalog snapshot (table/column names, types, row counts; never row
+            // data). The portal schema strips keys it does not know yet.
+            ...(report.catalog ? { catalog: report.catalog } : {}),
           },
           detectedAt: report.detectedAt,
         };
@@ -234,7 +237,24 @@ function buildDriftMessage(report: PendingHealthReport): string {
   if (parts.length === 0) {
     parts.push("Spalten-Reihenfolge weicht ab");
   }
-  return `Schema-Drift in ${report.vendorId}/${report.streamKind}: ${parts.join("; ")}`;
+  const cat = report.catalog;
+  if (cat) {
+    if (cat.missingTables.length > 0) {
+      parts.push(`Tabelle nicht gefunden: ${cat.missingTables.join(", ")}`);
+      if (cat.otherTables.length > 0) {
+        parts.push(
+          `vorhanden z. B.: ${cat.otherTables.slice(0, 12).join(", ")}${
+            cat.otherTables.length > 12 ? " ..." : ""
+          }`
+        );
+      }
+    }
+    if (cat.missingColumns.length > 0) {
+      parts.push(`Spalte nicht gefunden: ${cat.missingColumns.slice(0, 8).join(", ")}`);
+    }
+  }
+  const msg = `Schema-Drift in ${report.vendorId}/${report.streamKind}: ${parts.join("; ")}`;
+  return msg.length > 500 ? `${msg.slice(0, 497)}...` : msg;
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chooseAutoAcceptCandidate } from "./pvs-linking";
+import { chooseAutoAcceptCandidate, namesCompatible } from "./pvs-linking";
 import type { LinkCandidate } from "./pvs-linking";
 
 /**
@@ -180,5 +180,62 @@ describe("chooseAutoAcceptCandidate (P1-1)", () => {
       const winner = chooseAutoAcceptCandidate([input]);
       expect(winner).toBe(input);
     });
+  });
+});
+
+describe("shared family email (wrong-patient guard)", () => {
+  // Parent = EINS lead (portal patient), daughter = PVS patient. Same email.
+  const parent: LinkCandidate = {
+    patientId: "portal-parent",
+    score: 1.0,
+    isEmailExact: true,
+    reason: "email exact",
+    fullName: "Sabine Hoffmann",
+    dob: "1974-03-12",
+    nameSimilarity: 0.31, // "Sabine Hoffmann" vs "Lena Weber"-like: low
+  };
+
+  it("different last name + conflicting dob -> NOT auto-accepted", () => {
+    expect(
+      chooseAutoAcceptCandidate([parent], { fullName: "Lena Weber", dob: "2001-08-30" })
+    ).toBeNull();
+  });
+
+  it("same last name but dob conflict (mother and daughter, both Hoffmann) -> NOT auto-accepted", () => {
+    expect(
+      chooseAutoAcceptCandidate([{ ...parent, nameSimilarity: 0.55 }], {
+        fullName: "Lena Hoffmann",
+        dob: "2001-08-30",
+      })
+    ).toBeNull();
+  });
+
+  it("same person (last name equal, dob equal) -> auto-accepted", () => {
+    const w = chooseAutoAcceptCandidate([parent], {
+      fullName: "Sabine Hoffmann",
+      dob: "1974-03-12",
+    });
+    expect(w?.patientId).toBe("portal-parent");
+  });
+
+  it("same person, name written 'Hoffmann, Sabine', dob missing on the PVS side -> auto-accepted", () => {
+    const w = chooseAutoAcceptCandidate([parent], { fullName: "Hoffmann, Sabine" });
+    expect(w?.patientId).toBe("portal-parent");
+  });
+
+  it("high trigram similarity rescues a spelling variant", () => {
+    const w = chooseAutoAcceptCandidate(
+      [{ ...parent, nameSimilarity: 0.7, dob: null }],
+      { fullName: "Sabine Hofmann" }
+    );
+    expect(w).not.toBeNull();
+  });
+
+  it("namesCompatible: umlauts, double names and unknown names", () => {
+    expect(namesCompatible("Anna Müller", "Anna Mueller-Schmidt")).toBe(false); // mueller != muller
+    expect(namesCompatible("Anna Müller", "Anna Muller")).toBe(true);
+    expect(namesCompatible("Anna Meier-Schmidt", "Anna Schmidt")).toBe(true);
+    expect(namesCompatible(null, "Anna Schmidt")).toBe(true);
+    expect(namesCompatible("Sabine Hoffmann", "Lena Weber")).toBe(false);
   });
 });

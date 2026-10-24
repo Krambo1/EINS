@@ -1,6 +1,4 @@
 import { redirect } from "next/navigation";
-import { Card, CardContent, CardHeader, CardTitle } from "@eins/ui";
-import { EinsLogo } from "@/app/_components/EinsLogo";
 import { getAdminSession } from "@/auth/admin";
 import { hasGoogleLogin } from "@/lib/env";
 import { LoginForm } from "./_components/LoginForm";
@@ -8,7 +6,7 @@ import { LoginForm } from "./_components/LoginForm";
 export const metadata = { title: "Admin-Anmeldung" };
 
 interface PageProps {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; password?: string }>;
 }
 
 /**
@@ -36,31 +34,24 @@ export default async function AdminLoginPage({ searchParams }: PageProps) {
   if (session) redirect("/admin");
 
   const params = await searchParams;
-  const callbackError = params.error
-    ? CALLBACK_ERROR_MESSAGES[params.error]
-    : undefined;
+  // Own keys only: a crafted `?error=constructor` must not resolve to an
+  // Object.prototype member (that crashed the page with a 500).
+  const callbackError =
+    typeof params.error === "string" &&
+    Object.hasOwn(CALLBACK_ERROR_MESSAGES, params.error)
+      ? CALLBACK_ERROR_MESSAGES[params.error]
+      : undefined;
 
+  // The frame (logo, "Admin" badge, card) comes from admin/layout.tsx.
   return (
-    <div className="mx-auto flex min-h-[80vh] max-w-md flex-col justify-center gap-6 py-12">
-      <div className="flex flex-col items-center gap-3">
-        <EinsLogo width={160} height={64} className="h-9 w-auto" />
-        <span className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
-          Admin
-        </span>
-      </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>Anmelden</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {callbackError && (
-            <div className="mb-4 rounded-md border border-[var(--tone-bad-border)] bg-[var(--tone-bad-bg)] p-3 text-sm text-tone-bad">
-              {callbackError}
-            </div>
-          )}
-          <LoginForm googleEnabled={hasGoogleLogin()} />
-        </CardContent>
-      </Card>
-    </div>
+    <LoginForm
+      initialError={callbackError}
+      initialNotice={
+        params.password === "set"
+          ? "Passwort gesetzt. Bitte melden Sie sich jetzt an."
+          : undefined
+      }
+      googleEnabled={hasGoogleLogin()}
+    />
   );
 }

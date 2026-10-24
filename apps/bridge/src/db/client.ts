@@ -7,25 +7,62 @@ import { env } from "../config.js";
  *
  * The bridge reads `pvs_link`, `pvs_sync_status`, and
  * `platform_credentials` (to decrypt the per-clinic HMAC secret).
- * It writes to `pvs_sync_status` to checkpoint cursors. Everything else
- * flows through the portal's HTTP API.
+ * It writes to `pvs_sync_status` to checkpoint cursors, claim leases and record
+ * failure/backoff state. It does NOT write `pvs_link.status`: the portal rejects
+ * every event for an 'error' link (link_not_ready), so a bridge that tripped a
+ * link to 'error' could never recover it. Failure state lives in
+ * pvs_sync_status (last_error, consecutive_failure_count) and /healthz.
+ * Everything else flows through the portal's HTTP API.
  *
  * In production, give this connection a role with SELECT on most tables
- * + UPDATE only on pvs_sync_status. The shared-DB pattern is the
+ * + INSERT/UPDATE only on pvs_sync_status. The shared-DB pattern is the
  * simplest deployment; swap to an HTTP secret-broker if you need
  * a stricter trust boundary.
  */
 let cached: ReturnType<typeof postgres> | null = null;
 
+/**
+ * Neon's pooled endpoints (host contains "-pooler") and any DSN carrying
+ * ?pgbouncer=true sit behind pgbouncer in transaction mode, which does not
+ * support prepared statements. Same detection as the portal
+ * (apps/portal/src/db/client.ts).
+ */
+export function usesPgBouncer(url: string): boolean {
+  return /-pooler\./.test(url) || /[?&]pgbouncer=true\b/.test(url);
+}
+
 export function db() {
   if (!cached) {
-    cached = postgres(env().BRIDGE_DATABASE_URL, {
+    const url = env().BRIDGE_DATABASE_URL;
+    cached = postgres(url, {
       max: 5,
       idle_timeout: 20,
+      // A black-holed DB must fail the tick fast, not hang it.
+      connect_timeout: 10,
+      prepare: !usesPgBouncer(url),
+      connection: { statement_timeout: 15_000 },
       onnotice: () => void 0,
     });
   }
   return cached;
+}
+
+/** SELECT 1 within `timeoutMs`; false on any error or timeout (for /healthz). */
+export async function pingDb(timeoutMs = 2_000): Promise<boolean> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      db()`SELECT 1`,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("db ping timeout")), timeoutMs);
+      }),
+    ]);
+    return true;
+  } catch {
+    return false;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export type PreferredPath = "auto" | "rest" | "db_read";
@@ -100,16 +137,22 @@ export async function loadDueLinks(now: Date): Promise<PvsLinkRow[]> {
   // single-path vendors that don't have a db-read counterpart.
   //
   // C5: the poll cursor is joined in from pvs_sync_status (the one place
-  // checkpointSync writes it) so it actually round-trips. C7: push-adapter
-  // links (healthhub, red) are ALSO selected while their initial sync has
-  // not completed: they never poll, but their historical backfill runs
-  // through the same scheduler branch.
+  // checkpointSync writes it) so it actually round-trips.
   //
-  // M-S4 self-recovery: status='error' links are ALSO selected, so a link the
-  // scheduler tripped to 'error' is retried instead of being permanently dead
-  // until a manual DB edit. recordFailure parks an error link's next_poll_at an
-  // hour out, and the next_poll_at gate below throttles the retry to that
-  // cadence; a successful poll/sync clears the error (see clearErrorStatus).
+  // Push vendors (red, healthhub) are deliberately NOT selected. They have an
+  // initial sync here but no subscription wizard and no incremental pass yet
+  // (their live events would arrive through the inbound webhook, which nothing
+  // registers), so a hand-inserted link would finish its backfill and then sit
+  // there silently dead. Not starting it is the honest state until that exists.
+  // The adapters stay registered in the scheduler for when they are wired up.
+  //
+  // Legacy: status='error' links are ALSO selected. Older bridge versions
+  // tripped pvs_link.status to 'error' after N failures, which the portal
+  // answers with link_not_ready for every event, so such a link could never
+  // recover. The scheduler un-trips it when it claims the link
+  // (restoreLegacyErrorStatus); the bridge no longer writes 'error' itself.
+  // Callers must claimLink() before working a returned row: this SELECT is a
+  // candidate list, not a lock.
   const rows = await db()<{
     id: string;
     clinic_id: string;
@@ -126,13 +169,7 @@ export async function loadDueLinks(now: Date): Promise<PvsLinkRow[]> {
     LEFT JOIN pvs_sync_status s ON s.pvs_link_id = l.id
     WHERE (l.status = 'connected' OR l.status = 'error')  -- 'error' self-recovers (M-S4)
       AND l.preferred_path <> 'db_read'                  -- skip on-prem-owned links
-      AND (
-        l.pvs_vendor IN ('tomedo','pabau','consentz')    -- polling adapters
-        OR (
-          l.pvs_vendor IN ('healthhub','red')            -- push adapters:
-          AND s.last_initial_sync_completed_at IS NULL   -- initial sync only
-        )
-      )
+      AND l.pvs_vendor IN ('tomedo','pabau','consentz')  -- polling adapters only
       AND (s.next_poll_at IS NULL OR s.next_poll_at <= ${now})
     ORDER BY s.next_poll_at NULLS FIRST
     LIMIT 50
@@ -210,6 +247,30 @@ function decryptString(blob: Buffer): string {
   return Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
 }
 
+/**
+ * Atomically claim a link for ONE scheduler (mutual exclusion across machines).
+ *
+ * loadDueLinks is only a candidate list. The claim pushes next_poll_at out by
+ * `leaseMs` iff the link is still due, in a single INSERT .. ON CONFLICT DO
+ * UPDATE .. WHERE, so exactly one caller gets a row back even if two machines
+ * (a rolling deploy, an accidental scale-out) race on the same link. The lease
+ * is released by the work itself: checkpointSync / releaseLink / recordFailure
+ * all write a fresh next_poll_at. A crashed machine's lease simply expires.
+ */
+export async function claimLink(linkId: string, leaseMs: number): Promise<boolean> {
+  const leaseSec = Math.max(1, Math.ceil(leaseMs / 1000));
+  const rows = await db()<{ pvs_link_id: string }[]>`
+    INSERT INTO pvs_sync_status (pvs_link_id, next_poll_at)
+    VALUES (${linkId}, NOW() + ${leaseSec}::float8 * INTERVAL '1 second')
+    ON CONFLICT (pvs_link_id) DO UPDATE SET
+      next_poll_at = EXCLUDED.next_poll_at
+    WHERE pvs_sync_status.next_poll_at IS NULL
+       OR pvs_sync_status.next_poll_at <= NOW()
+    RETURNING pvs_link_id
+  `;
+  return rows.length > 0;
+}
+
 /** Update sync-status checkpoint after a successful poll. */
 export async function checkpointSync(
   linkId: string,
@@ -223,22 +284,61 @@ export async function checkpointSync(
     cursor: string | null;
     eventsIngested: number;
     nextPollAt: Date;
+    /** Non-fatal note from a SUCCESSFUL poll (e.g. "3 event(s) permanently
+     *  rejected by the portal and skipped: invalid_envelope x3"). Stored in
+     *  last_error so ops can see it; null clears a stale error. */
+    warning?: string | null;
   }
 ): Promise<void> {
+  const warning = input.warning ? input.warning.slice(0, 1000) : null;
   await db()`
     INSERT INTO pvs_sync_status
       (pvs_link_id, last_incremental_at, last_incremental_cursor,
-       consecutive_failure_count, next_poll_at, total_events_ingested)
-    VALUES (${linkId}, NOW(), ${input.cursor}, 0, ${input.nextPollAt}, ${input.eventsIngested})
+       consecutive_failure_count, next_poll_at, total_events_ingested,
+       last_error, last_error_at)
+    VALUES (${linkId}, NOW(), ${input.cursor}, 0, ${input.nextPollAt}, ${input.eventsIngested},
+            ${warning}, ${warning ? new Date() : null})
     ON CONFLICT (pvs_link_id) DO UPDATE SET
       last_incremental_at = NOW(),
       last_incremental_cursor = COALESCE(EXCLUDED.last_incremental_cursor, pvs_sync_status.last_incremental_cursor),
       consecutive_failure_count = 0,
       next_poll_at = EXCLUDED.next_poll_at,
+      total_events_ingested = pvs_sync_status.total_events_ingested + EXCLUDED.total_events_ingested,
+      last_error = EXCLUDED.last_error,
+      last_error_at = COALESCE(EXCLUDED.last_error_at, pvs_sync_status.last_error_at)
+  `;
+}
+
+/**
+ * Persist progress WITHOUT touching scheduling state: the cursor (poll
+ * watermark, or the initial-sync resume token while the initial sync is still
+ * running) and the number of events accepted since the last save. Called after
+ * every accepted chunk so a crash/restart resumes instead of starting over.
+ * A null cursor leaves the stored one untouched.
+ */
+export async function saveProgress(
+  linkId: string,
+  input: { cursor: string | null; eventsIngested: number }
+): Promise<void> {
+  await db()`
+    INSERT INTO pvs_sync_status
+      (pvs_link_id, last_incremental_cursor, total_events_ingested)
+    VALUES (${linkId}, ${input.cursor}, ${input.eventsIngested})
+    ON CONFLICT (pvs_link_id) DO UPDATE SET
+      last_incremental_cursor = COALESCE(EXCLUDED.last_incremental_cursor, pvs_sync_status.last_incremental_cursor),
       total_events_ingested = pvs_sync_status.total_events_ingested + EXCLUDED.total_events_ingested
   `;
-  // M-S4: a successful poll clears a self-recovered link's 'error' status.
-  await clearErrorStatus(linkId);
+}
+
+/** Make a link due again at `nextPollAt` (releases a claim lease) without
+ *  recording success or failure, e.g. an initial-sync run that used up its time
+ *  budget but made progress. */
+export async function releaseLink(linkId: string, nextPollAt: Date): Promise<void> {
+  await db()`
+    INSERT INTO pvs_sync_status (pvs_link_id, next_poll_at)
+    VALUES (${linkId}, ${nextPollAt})
+    ON CONFLICT (pvs_link_id) DO UPDATE SET next_poll_at = EXCLUDED.next_poll_at
+  `;
 }
 
 /** Stamp the start of an initial-sync attempt (C7). Kept separate from
@@ -267,78 +367,88 @@ export async function completeInitialSync(
     cursor: string | null;
     eventsIngested: number;
     nextPollAt: Date;
+    warning?: string | null;
   }
 ): Promise<void> {
+  const warning = input.warning ? input.warning.slice(0, 1000) : null;
   await db()`
     INSERT INTO pvs_sync_status
       (pvs_link_id, last_initial_sync_completed_at, last_incremental_cursor,
-       consecutive_failure_count, next_poll_at, total_events_ingested)
-    VALUES (${linkId}, NOW(), ${input.cursor}, 0, ${input.nextPollAt}, ${input.eventsIngested})
+       consecutive_failure_count, next_poll_at, total_events_ingested,
+       last_error, last_error_at)
+    VALUES (${linkId}, NOW(), ${input.cursor}, 0, ${input.nextPollAt}, ${input.eventsIngested},
+            ${warning}, ${warning ? new Date() : null})
     ON CONFLICT (pvs_link_id) DO UPDATE SET
       last_initial_sync_completed_at = NOW(),
       last_incremental_cursor = EXCLUDED.last_incremental_cursor,
       consecutive_failure_count = 0,
       next_poll_at = EXCLUDED.next_poll_at,
-      total_events_ingested = pvs_sync_status.total_events_ingested + EXCLUDED.total_events_ingested
+      total_events_ingested = pvs_sync_status.total_events_ingested + EXCLUDED.total_events_ingested,
+      last_error = EXCLUDED.last_error,
+      last_error_at = COALESCE(EXCLUDED.last_error_at, pvs_sync_status.last_error_at)
   `;
-  // M-S4: a completed initial sync clears a self-recovered link's 'error' status.
-  await clearErrorStatus(linkId);
 }
 
-/** Record a sync failure. Trips pvs_link.status='error' after FAIL_THRESHOLD. */
+/**
+ * Record a sync failure and schedule the retry. Failure state lives ONLY in
+ * pvs_sync_status (last_error, last_error_at, consecutive_failure_count,
+ * next_poll_at); pvs_link.status is never touched. A link never stops being
+ * retried: the backoff grows 1 min per consecutive failure up to 10 min and,
+ * once consecutive failures reach `failThreshold`, settles at 15 min so an
+ * outage is recovered from within minutes of the vendor/portal coming back.
+ *
+ * `retryAfterMs` (e.g. a portal 429 Retry-After) is a floor for the delay.
+ */
 export async function recordFailure(
   linkId: string,
   error: string,
-  failThreshold: number
+  failThreshold: number,
+  retryAfterMs = 0
 ): Promise<void> {
   // Backoff. M-S4 off-by-one: the DO UPDATE used the PRE-increment count in the
   // next_poll_at math, so the first failure on an existing row scheduled
   // LEAST(0,10)*60s = an IMMEDIATE retry (a hot loop). Use the post-increment
-  // count (`+ 1`) so the first failure waits one full backoff step. Once the
-  // link has crossed FAIL_THRESHOLD it is in 'error' and we back off to an
-  // hourly recovery cadence rather than hammering a dead link every 10 minutes.
+  // count (`+ 1`) so the first failure waits one full backoff step.
+  const message = error.slice(0, 1000);
+  const floorSec = Math.max(0, Math.ceil(retryAfterMs / 1000));
   const rows = await db()<{ consecutive_failure_count: number }[]>`
     INSERT INTO pvs_sync_status (pvs_link_id, last_error, last_error_at, consecutive_failure_count, next_poll_at)
-    VALUES (${linkId}, ${error}, NOW(), 1, NOW() + INTERVAL '60 seconds')
+    VALUES (${linkId}, ${message}, NOW(), 1,
+            NOW() + GREATEST(60, ${floorSec})::float8 * INTERVAL '1 second')
     ON CONFLICT (pvs_link_id) DO UPDATE SET
       last_error = EXCLUDED.last_error,
       last_error_at = NOW(),
       consecutive_failure_count = pvs_sync_status.consecutive_failure_count + 1,
-      next_poll_at = NOW() + (
+      next_poll_at = NOW() + GREATEST(
+        ${floorSec}::float8 * INTERVAL '1 second',
         CASE
           WHEN pvs_sync_status.consecutive_failure_count + 1 >= ${failThreshold}
-            THEN INTERVAL '1 hour'
+            THEN INTERVAL '15 minutes'
           ELSE LEAST(pvs_sync_status.consecutive_failure_count + 1, 10) * INTERVAL '60 seconds'
         END
       )
     RETURNING consecutive_failure_count
   `;
   const count = rows[0]?.consecutive_failure_count ?? 1;
-  if (count >= failThreshold) {
-    // Trip to 'error' idempotently; RETURNING is non-empty only on the actual
-    // transition, so we log loudly exactly once when a link enters error state.
-    const tripped = await db()<{ id: string }[]>`
-      UPDATE pvs_link
-      SET status = 'error', updated_at = NOW()
-      WHERE id = ${linkId} AND status <> 'error'
-      RETURNING id
-    `;
-    if (tripped.length > 0) {
-      console.error(
-        `[db] pvs_link ${linkId} entered status=error after ${count} consecutive failures; ` +
-          `last error: ${error}. It will be retried hourly for self-recovery.`
-      );
-    }
+  if (count === failThreshold) {
+    // Loud, once: the link keeps being retried (status is NOT changed).
+    console.error(
+      `[db] pvs_link ${linkId}: ${count} consecutive sync failures; last error: ${message}. ` +
+        `Still retrying every 15 min (pvs_link.status left untouched).`
+    );
   }
 }
 
 /**
- * Restore a link from status='error' back to 'connected' after a successful
- * poll or initial sync (M-S4 self-recovery). RETURNING is non-empty only on the
- * actual transition, so we log loudly exactly once when a link recovers and stay
- * silent on every healthy poll.
+ * Legacy un-trip. Bridge versions before this one wrote pvs_link.status='error'
+ * after FAIL_THRESHOLD failures; the portal answers link_not_ready for every
+ * event on such a link, so it could never recover on its own. The only writer
+ * of 'error' was the bridge, so when the scheduler claims a link that is still
+ * in that state it restores 'connected'. RETURNING is non-empty only on the
+ * actual transition, so it logs once and is silent on healthy links. A role
+ * without UPDATE on pvs_link just fails this call; the caller swallows that.
  */
-async function clearErrorStatus(linkId: string): Promise<void> {
+export async function restoreLegacyErrorStatus(linkId: string): Promise<boolean> {
   const recovered = await db()<{ id: string }[]>`
     UPDATE pvs_link
     SET status = 'connected', updated_at = NOW()
@@ -347,7 +457,21 @@ async function clearErrorStatus(linkId: string): Promise<void> {
   `;
   if (recovered.length > 0) {
     console.log(
-      `[db] pvs_link ${linkId} recovered from status=error back to connected`
+      `[db] pvs_link ${linkId} un-tripped from legacy status=error back to connected`
     );
   }
+  return recovered.length > 0;
+}
+
+/** Links currently failing / failing past the threshold (for /healthz, informational). */
+export async function failingLinkSummary(
+  failThreshold: number
+): Promise<{ failing: number; stuck: number }> {
+  const rows = await db()<{ failing: string; stuck: string }[]>`
+    SELECT
+      COUNT(*) FILTER (WHERE consecutive_failure_count > 0) AS failing,
+      COUNT(*) FILTER (WHERE consecutive_failure_count >= ${failThreshold}) AS stuck
+    FROM pvs_sync_status
+  `;
+  return { failing: Number(rows[0]?.failing ?? 0), stuck: Number(rows[0]?.stuck ?? 0) };
 }

@@ -5,6 +5,7 @@ import { join, resolve, sep } from "node:path";
 import { getSession } from "@/auth/session";
 import { documentByStorageKey } from "@/server/queries/documents";
 import { documentVisibleToRole } from "@/lib/roles";
+import { hasR2 } from "@/lib/env";
 
 /**
  * Dev-only passthrough for locally stored assets.
@@ -17,15 +18,19 @@ import { documentVisibleToRole } from "@/lib/roles";
  *   • Global paths (animations library, EINS branding) start with
  *     `global/` and are readable by any authenticated user.
  *
- * In production with STORAGE_DRIVER=r2, this route is unused and returns 404.
+ * Explicit 404 when R2 is configured and always in production (B-29): the
+ * local disk is ephemeral on Vercel, so this route must never serve there.
  */
 
 const STORAGE_ROOT = resolve(process.cwd(), "storage");
 
 export async function GET(
-  req: NextRequest,
+  _req: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
+  if (hasR2() || process.env.NODE_ENV === "production") {
+    return new NextResponse("Not Found", { status: 404 });
+  }
   const session = await getSession();
   if (!session) return new NextResponse("Unauthorized", { status: 401 });
 

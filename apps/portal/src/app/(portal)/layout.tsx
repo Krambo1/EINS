@@ -1,11 +1,14 @@
 import type { ReactNode } from "react";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { after } from "next/server";
 import { requireSession } from "@/auth/guards";
 import { PortalShell } from "./_components/PortalShell";
+import { anfragenNavBadge } from "@/lib/nav-badge-text";
 import { ActionFlashToast } from "./_components/ActionFlashToast";
 import { ChecklistReminderBanner } from "./_components/ChecklistReminderBanner";
 import { TourProvider } from "./_components/tour/TourProvider";
+import { OnboardingGateGuard } from "./_components/OnboardingGateGuard";
 import { getClinicHeader } from "@/server/queries/clinic";
 import {
   getOnboardingGateStatus,
@@ -18,6 +21,7 @@ import {
 import { getNavBadges } from "@/server/queries/navBadgesCache";
 import { CONTACT_CARD_COOKIE, type Role } from "@/lib/constants";
 import { readActionFlash } from "@/lib/flash";
+import { can } from "@/lib/roles";
 
 /**
  * Map first-segment of the current pathname to a NavSection so the layout
@@ -40,12 +44,6 @@ function currentSection(pathname: string | null): NavSection | null {
 
 export default async function PortalLayout({ children }: { children: ReactNode }) {
   const session = await requireSession();
-
-  // Clear the active section's "Neu" pill *before* the badge bundle runs —
-  // otherwise the layout would compute the badge from pre-mark state and
-  // the pill would only disappear on the next navigation. markSectionSeen
-  // calls invalidateNavBadges internally so the bundle refetch below sees
-  // the updated last-seen timestamp.
   const h = await headers();
   const pathname = h.get("x-portal-pathname");
 
@@ -55,31 +53,39 @@ export default async function PortalLayout({ children }: { children: ReactNode }
   // onboarding hub. Team roles and impersonating admins skip the gate (they
   // can't complete onboarding / shouldn't be forced through it). Computed once
   // here so the rest of the layout can reuse it for the banner + tour timing.
-  const gate =
-    session.role === "inhaber" && session.impersonatedByAdminId === null
-      ? await getOnboardingGateStatus(session.clinicId)
-      : null;
+  //
+  // Everything the layout needs is read in ONE parallel wave: gate status,
+  // clinic header, the six nav badges (one statement, see navBadgesCache.ts)
+  // and the flash cookie. The redirect is decided after the wave.
+  const gateApplies =
+    can(session.role, "onboarding.complete") && session.impersonatedByAdminId === null;
+  const [gate, clinic, badges, actionFlash, cookieStore] = await Promise.all([
+    gateApplies ? getOnboardingGateStatus(session.clinicId) : Promise.resolve(null),
+    getClinicHeader(session.clinicId),
+    getNavBadges(session.clinicId, session.userId, session.role as Role),
+    readActionFlash(),
+    cookies(),
+  ]);
   if (gate && !gate.gateComplete && !isGateAllowedPath(pathname)) {
     redirect("/onboarding");
   }
 
+  // Stamp the section as seen AFTER the response (not as a blocking write
+  // in the render path). The pill of the current section is overridden to 0
+  // below; the next render reads the stamp (badges are not cached).
   const section = currentSection(pathname);
   if (section) {
-    await markSectionSeen(session.clinicId, session.userId, section);
+    const { clinicId, userId } = session;
+    after(() => markSectionSeen(clinicId, userId, section));
   }
 
   // Sidebar contact card minimized state — read here (server-side) so the
   // first paint matches the user's last choice instead of flashing expanded.
   const contactCardCollapsed =
-    (await cookies()).get(CONTACT_CARD_COOKIE)?.value === "1";
-
-  const [clinic, badges, actionFlash] = await Promise.all([
-    getClinicHeader(session.clinicId),
-    getNavBadges(session.clinicId, session.userId, session.role as Role),
-    readActionFlash(),
-  ]);
+    cookieStore.get(CONTACT_CARD_COOKIE)?.value === "1";
   const {
     newRequests,
+    dueFollowups,
     newFeedback,
     timelineHasUpdate,
     medienHasUpdate,
@@ -132,23 +138,26 @@ export default async function PortalLayout({ children }: { children: ReactNode }
         }}
         clinic={clinic ?? { id: session.clinicId, displayName: "", logoUrl: null }}
         impersonating={session.impersonatedByAdminId !== null}
+        impersonationExpiresAt={
+          session.impersonatedByAdminId !== null
+            ? new Date(session.expiresAt).toISOString()
+            : null
+        }
         contactCardCollapsed={contactCardCollapsed}
         pendingBadges={{ leitfaden: !hasPassedLeitfaden }}
         navBadgeCounts={{
-          "/anfragen": newRequests,
+          "/anfragen": anfragenNavBadge(newRequests, dueFollowups),
           "/bewertungen": newFeedback,
           "/bewertungen/feedback": newFeedback,
-          // `markSectionSeen` above calls `revalidateTag`, but Next.js only
-          // applies tag invalidations to *subsequent* requests — the
-          // `getNavBadges` call in this same render still returns the
-          // pre-mark cached bundle. So if we just marked a section seen,
-          // override its pill to 0 regardless of what the bundle reports.
-          // Without this, the pill only disappears on the next navigation.
+          // The section the user is on is stamped as seen after this
+          // response (see `after` above), so the badges read in this render
+          // still count it as new. Override its pill to 0 here.
           "/fortschritt": section !== "fortschritt" && timelineHasUpdate ? "Neu" : 0,
           "/medien": section !== "medien" && medienHasUpdate ? "Neu" : 0,
           "/dokumente": section !== "dokumente" && dokumenteHasUpdate ? "Neu" : 0,
         }}
       >
+        <OnboardingGateGuard gateClosed={gate != null && !gate.gateComplete} />
         {showChecklistBanner && gate && (
           <ChecklistReminderBanner
             remaining={gate.requiredTotal - gate.requiredDelivered}

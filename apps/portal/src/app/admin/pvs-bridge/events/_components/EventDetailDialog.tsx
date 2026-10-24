@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from "@eins/ui";
 import { Loader2, RotateCw } from "lucide-react";
+import { DISPLAY_TIME_ZONE } from "@/lib/formatting";
 
 interface EventDetail {
   id: string;
@@ -46,6 +47,7 @@ const dtFormatter = new Intl.DateTimeFormat("de-DE", {
   hour: "2-digit",
   minute: "2-digit",
   second: "2-digit",
+  timeZone: DISPLAY_TIME_ZONE,
 });
 
 export function EventDetailDialog({ eventId, onClose }: Props) {
@@ -193,7 +195,7 @@ export function EventDetailDialog({ eventId, onClose }: Props) {
             </section>
 
             <section>
-              <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-fg-tertiary">
+              <h3 className="mb-1 text-xs font-medium text-fg-tertiary">
                 Payload (JSONB)
               </h3>
               <pre className="max-h-72 overflow-auto rounded-md border border-border bg-bg-secondary p-3 text-[11px] leading-snug">
@@ -202,7 +204,7 @@ export function EventDetailDialog({ eventId, onClose }: Props) {
             </section>
 
             <section>
-              <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-fg-tertiary">
+              <h3 className="mb-1 text-xs font-medium text-fg-tertiary">
                 Signatur
               </h3>
               <p className="text-xs text-fg-secondary">
@@ -213,7 +215,7 @@ export function EventDetailDialog({ eventId, onClose }: Props) {
             </section>
 
             <section>
-              <h3 className="mb-1 text-xs font-medium uppercase tracking-wide text-fg-tertiary">
+              <h3 className="mb-1 text-xs font-medium text-fg-tertiary">
                 Worker-Effekt
               </h3>
               <p className="text-xs text-fg-secondary">
@@ -279,7 +281,7 @@ function Field({
 }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <span className="text-[10px] font-medium uppercase tracking-wide text-fg-tertiary">
+      <span className="text-[10px] font-medium text-fg-tertiary">
         {label}
       </span>
       <span className="text-fg-primary">{value}</span>

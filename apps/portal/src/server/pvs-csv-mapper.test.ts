@@ -123,7 +123,7 @@ describe("pvs-csv-mapper", () => {
       expect(e.amountCents).toBe(123456);
     });
 
-    it("rejects negative amounts", () => {
+    it("turns negative amounts into InvoiceRefunded with the absolute amount", () => {
       const mapping = CsvMappingSchema.parse({
         stream: "invoices",
         columns: {
@@ -148,7 +148,12 @@ describe("pvs-csv-mapper", () => {
         },
         mapping,
       });
-      expect(out.ok).toBe(false);
+      expect(out.ok).toBe(true);
+      if (!out.ok) return;
+      const e = out.events[0]!;
+      if (e.kind !== "InvoiceRefunded") throw new Error("wrong kind");
+      expect(e.refundedAmountCents).toBe(1000);
+      expect(e.pvsInvoiceId).toBe("I-9");
     });
   });
 

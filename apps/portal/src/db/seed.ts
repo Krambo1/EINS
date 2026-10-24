@@ -14,6 +14,7 @@ import "../lib/load-env";
 import postgres from "postgres";
 import { randomUUID } from "node:crypto";
 import { hash as argon2Hash } from "@node-rs/argon2";
+import { attributionConfidence } from "../lib/sources";
 
 /**
  * Dev-only Default-Passwort für alle Demo-Seed-User. Stimmt mit dem RUN.md
@@ -38,7 +39,6 @@ const DEMO_CLINIC_ID = "c7d88b71-72da-4920-b939-5158b13d3449";
  */
 const DEMO_NEW_CLINIC_ID = "d1e2f3a4-b5c6-4d7e-8f90-1a2b3c4d5e6f";
 
-type ClientSql = ReturnType<typeof postgres>;
 
 // ----- Helpers -----
 function pick<T>(arr: readonly T[]): T {
@@ -326,7 +326,7 @@ async function main() {
 
       const slaAdd =
         status === "neu"
-          ? `+ interval '3 hours'`
+          ? `+ interval '2 hours'`
           : `+ interval '24 hours'`;
 
       const aiSignals = {
@@ -349,7 +349,7 @@ async function main() {
           sla_respond_by,
           created_at, dsgvo_consent_at,
           first_contacted_at, won_at,
-          utm, raw_payload
+          utm, raw_payload, attribution_confidence
         ) VALUES (
           ${requestId},
           ${clinicId},
@@ -376,7 +376,8 @@ async function main() {
           ${status !== "neu" ? new Date(createdAt.getTime() + 90 * 60_000).toISOString() : null},
           ${status === "gewonnen" ? new Date(createdAt.getTime() + 7 * 24 * 60 * 60_000).toISOString() : null},
           ${sql.json({ utm_source: source, utm_campaign: `demo_${randomInt(1, 4)}` })},
-          ${sql.json({ source })}
+          ${sql.json({ source })},
+          ${attributionConfidence({ source })}
         )
       `;
       // Seed one activity — Status change or note
@@ -550,10 +551,10 @@ async function main() {
       INSERT INTO animation_library (id, title, treatment_tag, description, storage_key_master, duration_s)
       VALUES
         (${animIds[0]!}, 'Botox Standard', 'botox',
-           'Klassischer 15-Sekunden-Clip für Botox-Behandlungen. Vorher/Nachher-Aufbau.',
+           'Erklär-Animation zu Botox-Behandlungen, 15s: Wirkung, Ablauf und Nachsorge.',
            'global/animations/botox-standard.mp4', 15),
         (${animIds[1]!}, 'Hyaluron Lippen', 'hyaluron',
-           'Aufbauvideo für Hyaluron-Lippenbehandlung, 20s, inkl. Endresultat.',
+           'Erklär-Animation zur Hyaluron-Lippenbehandlung, 20s: Ablauf und Nachsorge.',
            'global/animations/hyaluron-lippen.mp4', 20),
         (${animIds[2]!}, 'Laser Haarentfernung', 'laser',
            'Vorteil-Ersichtliches-Erklärvideo für Laser-Behandlungen, 18s.',
@@ -626,7 +627,7 @@ async function main() {
       VALUES
         (${inhaberId},   ${clinicId}, 'new_lead',    'Neue heiße Anfrage',     'Dr. Müller-Krug hat soeben eine Terminanfrage gestellt (KI-Bewertung 87).', '/anfragen'),
         (${marketingId}, ${clinicId}, 'sla_warning', 'Antwort-Frist in 60 Minuten', 'Eine Anfrage erreicht bald die Antwort-Frist. Bitte kontaktieren.',     '/anfragen'),
-        (${inhaberId},   ${clinicId}, 'asset_ready', 'Neue Medien verfügbar',  'Das Video vom Shooting am 14.04. ist bereit zum Download.',             '/medien')
+        (${inhaberId},   ${clinicId}, 'asset_ready', 'Neuer Beitrag bereit',   'Ein neuer Beitrag mit Ihrem KI-Klon liegt unter Medien zur Ansicht bereit.', '/medien')
     `;
 
     // --- platform_credentials (Werbe-Sync card on dashboard + Werbebudget page) ---
@@ -658,20 +659,27 @@ async function main() {
     const reportMonthLabel = new Intl.DateTimeFormat("de-DE", {
       month: "long",
       year: "numeric",
+      timeZone: "Europe/Berlin",
     }).format(reportEventDate);
     await sql`
       INSERT INTO clinic_timeline_entries (
         clinic_id, title, description, event_date, status, created_by_email
       ) VALUES
-        (${clinicId}, 'Auftakt-Gespräch',
-         'Erstes Treffen mit Ihrem Team. Wir klären Ihre Ziele, Ihre Wunsch-Patientinnen und die Bildsprache Ihrer Praxis.',
+        (${clinicId}, 'Onboarding-Gespräch',
+         'Erstes Gespräch per Video mit Ihrem Team. Wir klären Ihre Ziele, Ihre Wunsch-Patientinnen und die Themen Ihrer Beiträge.',
          now() - interval '52 days', 'abgeschlossen', 'team@eins.ag'),
-        (${clinicId}, 'Erste Werbeanzeigen gestartet',
-         'Anzeigen bei Instagram, Facebook und Google laufen parallel. Schwerpunkt: Hyaluron-Behandlungen.',
-         now() - interval '38 days', 'abgeschlossen', 'team@eins.ag'),
-        (${clinicId}, 'Foto- und Videoaufnahmen in München',
-         'Aufnahmen bei Ihnen vor Ort für die Werbeanzeigen im Frühjahr.',
-         now() - interval '21 days', 'abgeschlossen', 'team@eins.ag'),
+        (${clinicId}, 'Klon-Aufnahme und Einwilligung',
+         'Sie haben einmal wenige Minuten Video und Stimme mit dem Handy aufgenommen und die Einwilligung unterschrieben. Daraus entstand Ihr KI-Klon.',
+         now() - interval '49 days', 'abgeschlossen', 'team@eins.ag'),
+        (${clinicId}, 'Erste Beiträge veröffentlicht',
+         'Ihre ersten Beiträge mit Ihrem KI-Klon laufen organisch auf Ihren Kanälen. Schwerpunkt: Hyaluron-Behandlungen.',
+         now() - interval '42 days', 'abgeschlossen', 'team@eins.ag'),
+        (${clinicId}, 'Erste qualifizierte Anfrage',
+         'Die erste qualifizierte Anfrage über EINS liegt in Ihrem Portal. Ab diesem Tag beginnt Ihr erster bezahlter Leistungsmonat.',
+         now() - interval '35 days', 'abgeschlossen', 'team@eins.ag'),
+        (${clinicId}, 'Anzeigen hinter den wirkenden Beiträgen gestartet',
+         'Anzeigen bei Instagram, Facebook und Google laufen genau hinter den Beiträgen, die Anfragen gebracht haben.',
+         now() - interval '28 days', 'abgeschlossen', 'team@eins.ag'),
         (${clinicId}, 'Zwei Anzeigen-Varianten verglichen',
          'Die einfühlsamere Variante wird 37 % häufiger angeklickt. Sie wird ab dieser Woche unsere Haupt-Anzeige.',
          now() - interval '6 days', 'abgeschlossen', 'team@eins.ag'),
@@ -685,6 +693,131 @@ async function main() {
          'Wir blicken auf die letzten drei Monate zurück, verteilen das Werbebudget neu und entwickeln neue Anzeigen-Ideen für die kommenden Monate.',
          now() + interval '23 days', 'geplant', 'team@eins.ag')
     `;
+
+    // --- Beiträge (content_items, Phase 3/4): one post per status so every
+    // screen has data: admin tab "Beiträge" (gate, Freigabe-Paket, sent
+    // batches), portal /beitraege (approval buttons, change text, live, stop)
+    // and the public /freigabe/<token> page (link printed below). Fixed valid
+    // post codes (lib/post-code.ts: 5 chars, no vowels, digit and letter).
+    const { buildContentLinks } = await import("../lib/content-links");
+    const { approvalDueAt, APPROVAL_TOKEN_TTL_DAYS } = await import("../lib/content-gate");
+    const { createHash, randomBytes } = await import("node:crypto");
+    const seedOrigin = "https://www.praxis-dr-demo.de";
+    const kiCaption = (text: string) => `${text}\n\nKI-generiert`;
+    const confirmedBy = "team@eins.ag";
+    const posts: Array<{
+      key: string;
+      code: string;
+      title: string;
+      format: string;
+      status: string;
+      usesClone: boolean;
+      caption: string;
+      treatment: string;
+      daysAgo: number;
+      stopReason?: string;
+      gateReady?: boolean;
+    }> = [
+      { key: "entwurf_bereit", code: "b7k2x", title: "Was passiert bei einer Hyaluron-Behandlung?", format: "reel", status: "entwurf", usesClone: false, caption: kiCaption("Wie läuft eine Hyaluron-Behandlung in unserer Praxis ab? Wir erklären Ablauf, Dauer und Nachsorge."), treatment: "filler", daysAgo: 1, gateReady: true },
+      { key: "entwurf_offen", code: "c8m3z", title: "Drei Fragen zur Faltenbehandlung", format: "karussell", status: "entwurf", usesClone: false, caption: "Drei Fragen, die uns Patientinnen vor der ersten Faltenbehandlung oft stellen.", treatment: "botox", daysAgo: 1 },
+      { key: "freigabe", code: "d9n4p", title: "Laser-Haarentfernung im Herbst", format: "reel", status: "zur_freigabe", usesClone: false, caption: kiCaption("Warum der Herbst eine gute Zeit für die Laser-Haarentfernung ist."), treatment: "laser", daysAgo: 0 },
+      { key: "freigabe_klon", code: "f5r6t", title: "Dr. Demo erklärt Microneedling", format: "video", status: "zur_freigabe", usesClone: true, caption: kiCaption("Dr. Demo erklärt in einer Minute, was Microneedling für Ihre Haut tun kann."), treatment: "microneedling", daysAgo: 0 },
+      { key: "aenderung", code: "g2h7w", title: "Lippen natürlich betonen", format: "reel", status: "aenderung", usesClone: false, caption: kiCaption("Natürlich betonte Lippen: worauf wir bei der Behandlung achten."), treatment: "filler", daysAgo: 6 },
+      { key: "freigegeben", code: "k3s8v", title: "Ihr erster Termin bei uns", format: "story", status: "freigegeben", usesClone: false, caption: kiCaption("So läuft Ihr erster Beratungstermin bei uns ab."), treatment: "filler", daysAgo: 8 },
+      { key: "live", code: "m4t9z", title: "Botox gegen Zornesfalte: die häufigsten Fragen", format: "reel", status: "live", usesClone: true, caption: kiCaption("Dr. Demo beantwortet die häufigsten Fragen zur Behandlung der Zornesfalte."), treatment: "botox", daysAgo: 20 },
+      { key: "gestoppt", code: "n5v2b", title: "Sommeraktion Laser", format: "bild", status: "gestoppt", usesClone: false, caption: kiCaption("Laser-Behandlungen im Sommer."), treatment: "laser", daysAgo: 40, stopReason: "Praxis wünscht keine weitere Ausspielung" },
+    ];
+    const postIdByKey: Record<string, string> = {};
+    for (const p of posts) {
+      const id = randomUUID();
+      postIdByKey[p.key] = id;
+      const created = daysAgo(p.daysAgo + 2);
+      await sql`
+        INSERT INTO content_items (
+          id, clinic_id, code, title, treatment_id, format, uses_clone, ai_content, caption,
+          status, stop_reason, no_before_after_confirmed_by, no_before_after_confirmed_at,
+          created_by, created_at, updated_at
+        ) VALUES (
+          ${id}, ${clinicId}, ${p.code}, ${p.title}, ${treatmentIdBySlug[p.treatment] ?? null}, ${p.format},
+          ${p.usesClone}, true, ${p.caption}, ${p.status}, ${p.stopReason ?? null},
+          ${p.status === "entwurf" && !p.gateReady ? null : confirmedBy},
+          ${p.status === "entwurf" && !p.gateReady ? null : created.toISOString()},
+          ${confirmedBy}, ${created.toISOString()}, ${daysAgo(p.daysAgo).toISOString()}
+        )
+      `;
+      // Every post past the draft (and the ready draft) passed a clean HWG check.
+      if (p.status !== "entwurf" || p.gateReady) {
+        const checkId = randomUUID();
+        await sql`
+          INSERT INTO hwg_checks (id, clinic_id, actor_id, input, verdict, findings, created_at)
+          VALUES (${checkId}, ${clinicId}, NULL, ${p.caption.trim()}, 'clean', '[]'::jsonb, ${created.toISOString()})
+        `;
+        await sql`UPDATE content_items SET hwg_check_id = ${checkId} WHERE id = ${id}`;
+      }
+      for (const l of buildContentLinks(seedOrigin, p.code)) {
+        await sql`
+          INSERT INTO content_links (content_item_id, clinic_id, medium, url)
+          VALUES (${id}, ${clinicId}, ${l.medium}, ${l.url})
+        `;
+      }
+    }
+    await sql`
+      INSERT INTO content_publications (content_item_id, clinic_id, platform, permalink, published_at, published_by)
+      VALUES
+        (${postIdByKey.live!}, ${clinicId}, 'instagram', 'https://www.instagram.com/reel/DemoZornesfalte1/', ${daysAgo(18).toISOString()}, 'manuell'),
+        (${postIdByKey.gestoppt!}, ${clinicId}, 'instagram', 'https://www.instagram.com/p/DemoSommerLaser/', ${daysAgo(38).toISOString()}, 'manuell')
+    `;
+    await sql`
+      UPDATE content_publications SET stopped_at = ${daysAgo(30).toISOString()}
+      WHERE content_item_id = ${postIdByKey.gestoppt!}
+    `;
+
+    // Approval batches: an older, fully decided one (freigegeben, aenderung,
+    // live) and today's open one (one normal post, one clone post that only
+    // the Inhaber may decide). Tokens are stored as sha256 only.
+    const hashToken = (t: string) => createHash("sha256").update(t).digest("hex");
+    const tokenTtlMs = APPROVAL_TOKEN_TTL_DAYS * 24 * 60 * 60 * 1000;
+    const oldSent = daysAgo(9);
+    const oldBatchId = randomUUID();
+    await sql`
+      INSERT INTO content_approval_batches (id, clinic_id, sent_at, due_at, sent_by)
+      VALUES (${oldBatchId}, ${clinicId}, ${oldSent.toISOString()}, ${approvalDueAt(oldSent).toISOString()}, ${confirmedBy})
+    `;
+    const decidedRows: Array<{ key: string; decision: string; changeText: string | null; via: string; userId: string | null; ago: number }> = [
+      { key: "live", decision: "freigegeben", changeText: null, via: "link", userId: null, ago: 8 },
+      { key: "freigegeben", decision: "freigegeben", changeText: null, via: "portal", userId: marketingId, ago: 8 },
+      { key: "aenderung", decision: "aenderung", changeText: "Bitte am Ende noch den Hinweis auf das kostenlose Erstgespräch ergänzen.", via: "portal", userId: inhaberId, ago: 7 },
+    ];
+    for (const r of decidedRows) {
+      await sql`
+        INSERT INTO content_approvals (
+          batch_id, content_item_id, clinic_id, token_hash, token_expires_at, inhaber_only,
+          decision, change_text, decided_at, decided_by_user_id, decided_via, created_at
+        ) VALUES (
+          ${oldBatchId}, ${postIdByKey[r.key]!}, ${clinicId}, ${hashToken(randomBytes(32).toString("hex"))},
+          ${new Date(oldSent.getTime() + tokenTtlMs).toISOString()}, ${posts.find((p) => p.key === r.key)!.usesClone},
+          ${r.decision}, ${r.changeText}, ${daysAgo(r.ago).toISOString()}, ${r.userId}, ${r.via}, ${oldSent.toISOString()}
+        )
+      `;
+    }
+    const newSent = new Date();
+    const newBatchId = randomUUID();
+    await sql`
+      INSERT INTO content_approval_batches (id, clinic_id, sent_at, due_at, sent_by)
+      VALUES (${newBatchId}, ${clinicId}, ${newSent.toISOString()}, ${approvalDueAt(newSent).toISOString()}, ${confirmedBy})
+    `;
+    const openLinks: string[] = [];
+    for (const key of ["freigabe", "freigabe_klon"]) {
+      const token = randomBytes(32).toString("hex");
+      await sql`
+        INSERT INTO content_approvals (batch_id, content_item_id, clinic_id, token_hash, token_expires_at, inhaber_only, created_at)
+        VALUES (
+          ${newBatchId}, ${postIdByKey[key]!}, ${clinicId}, ${hashToken(token)},
+          ${new Date(newSent.getTime() + tokenTtlMs).toISOString()}, ${key === "freigabe_klon"}, ${newSent.toISOString()}
+        )
+      `;
+      openLinks.push(`${(process.env.APP_ORIGIN ?? "http://localhost:3001").replace(/\/$/, "")}/freigabe/${token}`);
+    }
 
     // --- feedback (Kunden-Portal Feedback-Postfach) ---
     // Demo-Zeilen, damit die nutzerseitige Status-Anzeige unter /feedback sichtbar
@@ -719,6 +852,8 @@ async function main() {
     console.log(`  Anfragen:   ${REQUEST_COUNT} (${newCount} neu, Schwerpunkt in den letzten 30 Tagen)`);
     console.log(`  KPI-Tage:   365`);
     console.log(`  Werbekonten: meta + google verbunden (Demo-Token)`);
+    console.log(`  Beiträge:    ${posts.length} (jeder Status, 2 warten auf Freigabe, davon 1 nur für die Inhaberin)`);
+    for (const link of openLinks) console.log(`  Freigabe-Link: ${link}`);
     console.log(
       `  Leitfaden:   ${leitfadenPdf.byteLength.toLocaleString("de-DE")} Bytes PDF → ${leitfadenKey} (Dokumente)`
     );

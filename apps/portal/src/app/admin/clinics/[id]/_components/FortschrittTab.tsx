@@ -1,6 +1,5 @@
 import {
   Badge,
-  Button,
   Card,
   CardContent,
   CardDescription,
@@ -10,7 +9,9 @@ import {
   Label,
   Textarea,
 } from "@eins/ui";
-import { formatDate } from "@/lib/formatting";
+import { berlinDateString, formatDate } from "@/lib/formatting";
+import { PendingSubmitButton } from "../../../_components/PendingSubmitButton";
+import { DangerSubmitButton } from "../../../_components/DangerSubmitButton";
 import {
   TIMELINE_STATUSES,
   TIMELINE_STATUS_LABELS,
@@ -41,7 +42,7 @@ function toDateInputValue(d: Date): string {
 }
 
 function todayIsoDate(): string {
-  return toDateInputValue(new Date());
+  return berlinDateString(new Date());
 }
 
 export function FortschrittTab({
@@ -68,7 +69,7 @@ export function FortschrittTab({
           <CardContent>
             <form action={seedDefaultJourneyAction}>
               <input type="hidden" name="clinicId" value={clinicId} />
-              <Button type="submit">Standard-Journey einsetzen</Button>
+              <PendingSubmitButton>Standard-Journey einsetzen</PendingSubmitButton>
             </form>
           </CardContent>
         </Card>
@@ -141,7 +142,7 @@ export function FortschrittTab({
             </div>
 
             <div className="md:col-span-12 flex justify-end">
-              <Button type="submit">Eintrag anlegen</Button>
+              <PendingSubmitButton>Eintrag anlegen</PendingSubmitButton>
             </div>
           </form>
         </CardContent>
@@ -172,7 +173,7 @@ export function FortschrittTab({
                           {TIMELINE_STATUS_LABELS[status] ?? status}
                         </Badge>
                         <span className="text-xs text-fg-secondary tabular-nums">
-                          {formatDate(e.eventDate)}
+                          {e.eventDate ? formatDate(e.eventDate) : (e.phaseLabel ?? "ohne Datum")}
                         </span>
                         <span className="font-medium text-fg-primary">
                           {e.title}
@@ -205,12 +206,11 @@ export function FortschrittTab({
                           </div>
 
                           <div className="md:col-span-3">
-                            <Label htmlFor={`ft-date-${e.id}`}>Datum</Label>
+                            <Label htmlFor={`ft-date-${e.id}`}>Datum (optional)</Label>
                             <Input
                               id={`ft-date-${e.id}`}
                               name="eventDate"
                               type="date"
-                              required
                               defaultValue={
                                 e.eventDate ? toDateInputValue(e.eventDate) : ""
                               }
@@ -248,7 +248,7 @@ export function FortschrittTab({
                           </div>
 
                           <div className="md:col-span-12 flex justify-end gap-2">
-                            <Button type="submit">Speichern</Button>
+                            <PendingSubmitButton>Speichern</PendingSubmitButton>
                           </div>
                         </form>
 
@@ -257,9 +257,13 @@ export function FortschrittTab({
                           className="md:col-span-12 flex justify-end border-t border-border pt-3"
                         >
                           <input type="hidden" name="id" value={e.id} />
-                          <Button type="submit" variant="outline" size="sm">
+                          <DangerSubmitButton
+                            size="sm"
+                            confirm={`Eintrag „${e.title}“ löschen? Die Praxis sieht ihn danach nicht mehr.`}
+                            pendingLabel="Wird gelöscht …"
+                          >
                             Eintrag löschen
-                          </Button>
+                          </DangerSubmitButton>
                         </form>
                       </div>
                     </details>

@@ -5,6 +5,7 @@ import type { Clinic, Treatment, QuizSubmissionPayload } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { useConsent } from "@/components/consent/consent-context";
 import { track } from "@/components/tracking/track";
+import { extractUtmFrom } from "@/lib/attribution";
 import {
   buildInitialState,
   deriveBranch,
@@ -69,11 +70,7 @@ export function QuizCard({ clinic, treatment, privacyHref }: Props) {
       if (!startedRef.current) {
         startedRef.current = true;
         if (consent.marketing) {
-          track({
-            event: "QuizStart",
-            eventId: eventIdRef.current,
-            treatment: treatment.slug,
-          });
+          track({ event: "QuizStart", eventId: eventIdRef.current });
         }
       }
       if (consent.marketing) {
@@ -81,12 +78,11 @@ export function QuizCard({ clinic, treatment, privacyHref }: Props) {
           event: "QuizStep",
           eventId: eventIdRef.current,
           step: completed,
-          treatment: treatment.slug,
           branch: deriveBranch(state),
         });
       }
     },
-    [consent.marketing, state, treatment.slug],
+    [consent.marketing, state],
   );
 
   /** Tile handler: select, show the highlight briefly, then advance. */
@@ -168,34 +164,31 @@ export function QuizCard({ clinic, treatment, privacyHref }: Props) {
             clinic={clinic}
             state={state}
             dispatch={dispatch}
-            privacyHref={privacyHref}
             isInfoOnly={isInfoOnly}
             honeypotRef={honeypotRef}
           />
         )}
       </div>
 
-      <div className="mt-5 flex items-center justify-between gap-3">
+      <div className="mt-5 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         {activeIndex > 0 ? (
-          <Button variant="ghost" onClick={onBack} disabled={state.submitting} className="text-sm">
+          <Button variant="ghost" onClick={onBack} disabled={state.submitting} className="order-2 self-start text-sm sm:order-none sm:self-end">
             ← Zurück
           </Button>
         ) : (
           <span aria-hidden />
         )}
         {isContact && (
-          <Button
-            variant="primary"
-            onClick={onSubmit}
-            disabled={state.submitting}
-            className="flex-1 sm:flex-none"
-          >
-            {state.submitting
-              ? "Senden …"
-              : isInfoOnly
-                ? "Informationen anfordern"
-                : "Beratungstermin anfragen"}
-          </Button>
+          <div className="min-w-0 sm:flex-1">
+            <p className="mb-2 text-sm text-brand-fg sm:text-right">
+              <a href={privacyHref} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center underline underline-offset-4 hover:text-brand-primary">
+                Datenschutz
+              </a>
+            </p>
+            <Button variant="primary" onClick={onSubmit} disabled={state.submitting} className="w-full !whitespace-normal">
+              {state.submitting ? "Senden …" : isInfoOnly ? "Informationen anfordern" : "Beratungstermin anfragen"}
+            </Button>
+          </div>
         )}
       </div>
 
@@ -241,7 +234,7 @@ function validateContact(state: QuizState, isInfoOnly: boolean) {
     if (digits.length < 8 || /^(\d)\1+$/.test(digits))
       e.phone = "Bitte eine gültige Telefonnummer angeben.";
   }
-  if (!state.consent) e.consent = "Bitte bestätigen Sie Datenschutz und Mindestalter.";
+  if (!state.consent) e.consent = "Bitte bestätigen Sie Ihre Einwilligung und Ihr Mindestalter.";
   return e;
 }
 
@@ -255,6 +248,7 @@ async function submit(
 ) {
   dispatch({ type: "submitting", value: true });
 
+  const utm = extractUtm();
   const payload: QuizSubmissionPayload & { website?: string } = {
     clinicSlug: clinic.slug,
     treatmentSlug: treatment.slug,
@@ -266,21 +260,23 @@ async function submit(
     firstName: state.firstName.trim(),
     email: state.email.trim(),
     phone: branch === "qualified" ? state.phone : undefined,
-    // Quiz v2: the combined checkbox covers privacy + age; marketing moved to
-    // the confirmation screen (starts false, DOI flips it); the notes field
-    // and its AI-scoring consent were removed — aiProcessing is always false.
+    // Optional self-report; the server keeps only the closed list (lib/self-reported-source.ts).
+    selfReportedSource: state.selfReportedSource ?? undefined,
+    // Final 14: explicit health-data consent and age. No inquiry data is
+    // released for advertising measurement; AI processing stays disabled.
     consents: {
       privacy: state.consent,
       ageGate: state.consent,
       marketing: false,
       aiProcessing: false,
+      adsMeasurement: false,
     },
     marketingConfirmedAt: null,
     website: honeypot || undefined,
     meta: {
       eventId: state.eventId,
       sourceUrl: typeof window !== "undefined" ? window.location.href : "",
-      utm: extractUtm(),
+      utm,
       fbc: getCookie("_fbc"),
       fbp: getCookie("_fbp"),
       ua: typeof navigator !== "undefined" ? navigator.userAgent : "",
@@ -302,16 +298,6 @@ async function submit(
       dispatch({ type: "submitting", value: false });
       return;
     }
-    // Lead fires ONLY for the qualified branch — the pixel keeps optimizing
-    // on full leads, not info requests.
-    if (branch === "qualified") {
-      track({
-        event: "Lead",
-        eventId: state.eventId,
-        treatment: treatment.slug,
-        branch,
-      });
-    }
     dispatch({ type: "submitted" });
   } catch {
     dispatch({
@@ -324,13 +310,10 @@ async function submit(
 
 function extractUtm(): Record<string, string> | undefined {
   if (typeof window === "undefined") return undefined;
-  const sp = new URLSearchParams(window.location.search);
-  const out: Record<string, string> = {};
-  for (const [k, v] of sp.entries()) {
-    if (k.startsWith("utm_")) out[k] = v;
-    if (k === "fbclid" || k === "gclid" || k === "ttclid") out[k] = v;
-  }
-  return Object.keys(out).length > 0 ? out : undefined;
+  // The inline attribution script (components/tracking/attribution-script.tsx)
+  // captured utm_* + click ids at parse time and removed utm_* from the
+  // address, so read its copy first (lib/attribution.ts, tested there).
+  return extractUtmFrom(window.__einsAttribution__, window.location.search);
 }
 
 function getCookie(name: string): string | undefined {

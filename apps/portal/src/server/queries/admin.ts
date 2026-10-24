@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import {
   and,
   asc,
@@ -17,11 +18,13 @@ import {
   type SQL,
 } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { channelGroupBy, channelKeys, channelOfGroup, type ChannelGroup } from "./_channel";
+import { firstAttemptAtSql, toAttemptDate } from "./response-time";
 import {
   REQUEST_STATUSES,
   type RequestStatus,
 } from "@/lib/constants";
-import type { CurrencyCode } from "@/lib/formatting";
+import { berlinDateString, type CurrencyCode } from "@/lib/formatting";
 import {
   KPI_THRESHOLDS,
   clinicHealthTone,
@@ -43,18 +46,148 @@ const startOfDayUtc = (d: Date) => {
   return x;
 };
 
-const startOfMonthUtc = (d: Date) => {
-  const x = new Date(d);
-  x.setUTCDate(1);
-  x.setUTCHours(0, 0, 0, 0);
-  return x;
-};
-
 const subDays = (d: Date, days: number) => {
   const x = new Date(d);
   x.setUTCDate(x.getUTCDate() - days);
   return x;
 };
+
+/** Berlin calendar helpers on ISO `YYYY-MM-DD` strings. Day boundaries for
+ *  everything a human reads as "heute / dieser Monat" are Berlin, not UTC. */
+const isoToDate = (iso: string) => new Date(`${iso}T00:00:00Z`);
+const isoAddDays = (iso: string, days: number) => {
+  const d = isoToDate(iso);
+  d.setUTCDate(d.getUTCDate() + days);
+  return isoDate(d);
+};
+const berlinToday = () => berlinDateString(new Date());
+
+/**
+ * The demo Praxis (seed slug `_template`, "Praxis Dr. Demo" in prod) carries
+ * seeded requests and spam for sales demos. It never counts in cross-clinic
+ * numbers, and neither do archived clinics (G-13).
+ */
+export const DEMO_CLINIC_SLUG = "_template";
+
+/** Ids of the demo Praxis (normally one; empty when it does not exist). */
+export const demoClinicIds = cache(async (): Promise<Set<string>> => {
+  const rows = await db
+    .select({ id: schema.clinics.id })
+    .from(schema.clinics)
+    .where(eq(schema.clinics.slug, DEMO_CLINIC_SLUG));
+  return new Set(rows.map((r) => r.id));
+});
+
+/** Predicate on the `clinics` table: active, non-demo Praxis. */
+const realClinicWhere = () =>
+  and(isNull(schema.clinics.archivedAt), ne(schema.clinics.slug, DEMO_CLINIC_SLUG))!;
+
+/** Same predicate for raw SQL with the clinics table aliased as `c`. */
+const REAL_CLINIC_SQL = sql.raw(
+  `(c.archived_at IS NULL AND c.slug <> '${DEMO_CLINIC_SLUG}')`
+);
+
+/**
+ * Live replacement for `kpi_daily` (G-06): kpi_daily is only written by the
+ * nightly pg-boss worker, which is off in production, so every admin number
+ * built on it read 0 while the Praxis had requests. This derived table
+ * computes the same per-(clinic, Berlin day) figures on the fly with the
+ * worker's own definitions (processors/kpi-rebuild.ts): spend from
+ * campaign_snapshots; leads = non-spam requests, cases = 'gewonnen', revenue
+ * = converted revenue of won requests, all bucketed by the request's Berlin
+ * creation day. `scope` filters the clinics table aliased as `c`.
+ */
+function liveKpiDaily(fromIso: string, toIso: string, scope: SQL): SQL {
+  return sql`(
+    SELECT u.clinic_id, u.day,
+      sum(u.spend)::float8        AS spend,
+      sum(u.revenue)::float8      AS revenue,
+      sum(u.leads)::int           AS leads,
+      sum(u.cases)::int           AS cases,
+      sum(u.no_shows)::int        AS no_shows,
+      sum(u.held)::int            AS held,
+      sum(u.appointments)::int    AS appointments
+    FROM (
+      SELECT cs.clinic_id, to_char(cs.snapshot_date, 'YYYY-MM-DD') AS day,
+        coalesce(cs.spend_eur, 0)::numeric AS spend, 0::numeric AS revenue,
+        0 AS leads, 0 AS cases, 0 AS no_shows, 0 AS held, 0 AS appointments
+      FROM campaign_snapshots cs
+      JOIN clinics c ON c.id = cs.clinic_id
+      WHERE cs.snapshot_date >= ${fromIso}::date
+        AND cs.snapshot_date <= ${toIso}::date
+        AND ${scope}
+      UNION ALL
+      SELECT r.clinic_id,
+        to_char((r.created_at AT TIME ZONE 'Europe/Berlin')::date, 'YYYY-MM-DD'),
+        0::numeric,
+        (CASE WHEN r.status = 'gewonnen' THEN coalesce(r.converted_revenue_eur, 0) ELSE 0 END)::numeric,
+        (r.status <> 'spam')::int,
+        (r.status = 'gewonnen')::int,
+        (r.status = 'no_show')::int,
+        (r.status IN ('beratung_erschienen','behandelt','gewonnen'))::int,
+        (r.status IN ('termin_vereinbart','beratung_erschienen','behandelt','gewonnen'))::int
+      FROM requests r
+      JOIN clinics c ON c.id = r.clinic_id
+      WHERE r.created_at >= (${fromIso}::date::timestamp AT TIME ZONE 'Europe/Berlin')
+        AND r.created_at < ((${toIso}::date + 1)::timestamp AT TIME ZONE 'Europe/Berlin')
+        AND ${scope}
+    ) u
+    GROUP BY u.clinic_id, u.day
+  )`;
+}
+
+interface LiveDayRow {
+  day: string;
+  spend: number;
+  revenue: number;
+  leads: number;
+  cases: number;
+  no_shows: number;
+  held: number;
+  appointments: number;
+}
+
+/** Live per-day totals across all clinics in `scope`, oldest first. */
+async function liveDailyTotals(fromIso: string, toIso: string, scope: SQL): Promise<LiveDayRow[]> {
+  const rows = (await db.execute(sql`
+    SELECT lk.day,
+      coalesce(sum(lk.spend), 0)::float8 AS spend,
+      coalesce(sum(lk.revenue), 0)::float8 AS revenue,
+      coalesce(sum(lk.leads), 0)::int AS leads,
+      coalesce(sum(lk.cases), 0)::int AS cases,
+      coalesce(sum(lk.no_shows), 0)::int AS no_shows,
+      coalesce(sum(lk.held), 0)::int AS held,
+      coalesce(sum(lk.appointments), 0)::int AS appointments
+    FROM ${liveKpiDaily(fromIso, toIso, scope)} lk
+    GROUP BY lk.day
+    ORDER BY lk.day
+  `)) as unknown as LiveDayRow[];
+  return rows.map((r) => ({
+    day: r.day,
+    spend: Number(r.spend),
+    revenue: Number(r.revenue),
+    leads: Number(r.leads),
+    cases: Number(r.cases),
+    no_shows: Number(r.no_shows),
+    held: Number(r.held),
+    appointments: Number(r.appointments),
+  }));
+}
+
+function sumDays(rows: LiveDayRow[], fromIso: string, toIso: string) {
+  const out = { spend: 0, revenue: 0, leads: 0, cases: 0, noShows: 0, held: 0, appointments: 0 };
+  for (const r of rows) {
+    if (r.day < fromIso || r.day > toIso) continue;
+    out.spend += r.spend;
+    out.revenue += r.revenue;
+    out.leads += r.leads;
+    out.cases += r.cases;
+    out.noShows += r.no_shows;
+    out.held += r.held;
+    out.appointments += r.appointments;
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------
 // Platform-overview KPI strip on /admin
@@ -108,67 +241,52 @@ export interface PlatformOverviewMetrics {
 }
 
 export async function platformOverviewMetrics(): Promise<PlatformOverviewMetrics> {
-  const now = new Date();
-  const monthStart = startOfMonthUtc(now);
-  const today = startOfDayUtc(now);
+  // Berlin calendar month (G-07). The comparison window is the SAME number of
+  // days at the start of the prior month (7 days vs 7 days on the 7th), not
+  // the full prior month, so the tiles do not read -75 % every morning.
+  const todayIso = berlinToday();
+  const monthStartIso = `${todayIso.slice(0, 8)}01`;
+  const dayOfMonth = Number(todayIso.slice(8, 10));
+  const priorMonthEndIso = isoAddDays(monthStartIso, -1);
+  const priorMonthStartIso = `${priorMonthEndIso.slice(0, 8)}01`;
+  const priorCompareEndIso = [isoAddDays(priorMonthStartIso, dayOfMonth - 1), priorMonthEndIso].sort()[0]!;
 
-  // Sparkline window — 30 days ending today.
-  const sparkFrom = subDays(today, 29);
+  // Sparkline window: 30 Berlin days ending today.
+  const sparkFromIso = isoAddDays(todayIso, -29);
+  const fromIso = [sparkFromIso, priorMonthStartIso].sort()[0]!;
 
-  // Prior period = previous calendar month (full month).
-  const priorMonthEnd = new Date(monthStart);
-  priorMonthEnd.setUTCDate(0);
-  const priorMonthStart = startOfMonthUtc(priorMonthEnd);
-
-  const [
-    [clinicCounts],
-    currencyRows,
-    [monthAgg],
-    [priorAgg],
-    sparkRows,
-  ] = await Promise.all([
+  const [[clinicCounts], currencyRows, dayRows] = await Promise.all([
     db
       .select({
         total: count(),
         active: sql<number>`count(*) filter (where ${schema.clinics.archivedAt} is null)::int`,
       })
-      .from(schema.clinics),
-    // Distinct billing currencies across all clinics — a superset of the
-    // clinics actually contributing to the month sums. While it stays a single
-    // entry (all-EUR today) the cross-clinic revenue total renders normally;
-    // the moment a CHF Praxis exists the total is flagged as mixed.
+      .from(schema.clinics)
+      .where(ne(schema.clinics.slug, DEMO_CLINIC_SLUG)),
+    // Distinct billing currencies across the real clinics contributing to the
+    // sums. One entry renders normally; EUR + CHF flags the total as mixed.
     db
       .selectDistinct({ currency: schema.clinics.currency })
-      .from(schema.clinics),
-    aggregateKpiRange(monthStart, today),
-    aggregateKpiRange(priorMonthStart, priorMonthEnd),
-    db
-      .select({
-        date: schema.kpiDaily.date,
-        spend: sql<number>`coalesce(sum(${schema.kpiDaily.totalSpendEur}), 0)`,
-        revenue: sql<number>`coalesce(sum(${schema.kpiDaily.revenueAttributedEur}), 0)`,
-        leads: sql<number>`coalesce(sum(${schema.kpiDaily.leads}), 0)`,
-      })
-      .from(schema.kpiDaily)
-      .where(
-        and(
-          gte(schema.kpiDaily.date, isoDate(sparkFrom)),
-          lte(schema.kpiDaily.date, isoDate(today))
-        )
-      )
-      .groupBy(schema.kpiDaily.date)
-      .orderBy(asc(schema.kpiDaily.date)),
+      .from(schema.clinics)
+      .where(realClinicWhere()),
+    liveDailyTotals(fromIso, todayIso, REAL_CLINIC_SQL),
   ]);
 
-  const sparklines = buildSparklineSeries(sparkRows, sparkFrom, today);
+  const sparklines = buildSparklineSeries(
+    dayRows.map((r) => ({ date: r.day, spend: r.spend, revenue: r.revenue, leads: r.leads })),
+    isoToDate(sparkFromIso),
+    isoToDate(todayIso)
+  );
 
-  const monthSpend = Number(monthAgg?.spend ?? 0);
-  const monthRevenue = Number(monthAgg?.revenue ?? 0);
-  const monthLeads = Number(monthAgg?.leads ?? 0);
-  const monthCases = Number(monthAgg?.cases ?? 0);
-  const priorSpend = Number(priorAgg?.spend ?? 0);
-  const priorRevenue = Number(priorAgg?.revenue ?? 0);
-  const priorLeads = Number(priorAgg?.leads ?? 0);
+  const month = sumDays(dayRows, monthStartIso, todayIso);
+  const prior = sumDays(dayRows, priorMonthStartIso, priorCompareEndIso);
+  const monthSpend = month.spend;
+  const monthRevenue = month.revenue;
+  const monthLeads = month.leads;
+  const monthCases = month.cases;
+  const priorSpend = prior.spend;
+  const priorRevenue = prior.revenue;
+  const priorLeads = prior.leads;
 
   const avgCpl = monthLeads > 0 ? monthSpend / monthLeads : null;
   const avgCpp = monthCases > 0 ? monthSpend / monthCases : null;
@@ -196,24 +314,6 @@ export async function platformOverviewMetrics(): Promise<PlatformOverviewMetrics
     },
     sparklines,
   };
-}
-
-async function aggregateKpiRange(from: Date, to: Date) {
-  const rows = await db
-    .select({
-      spend: sql<number>`coalesce(sum(${schema.kpiDaily.totalSpendEur}), 0)`,
-      revenue: sql<number>`coalesce(sum(${schema.kpiDaily.revenueAttributedEur}), 0)`,
-      leads: sql<number>`coalesce(sum(${schema.kpiDaily.leads}), 0)`,
-      cases: sql<number>`coalesce(sum(${schema.kpiDaily.casesWon}), 0)`,
-    })
-    .from(schema.kpiDaily)
-    .where(
-      and(
-        gte(schema.kpiDaily.date, isoDate(from)),
-        lte(schema.kpiDaily.date, isoDate(to))
-      )
-    );
-  return rows;
 }
 
 function buildSparklineSeries(
@@ -252,8 +352,10 @@ function buildSparklineSeries(
 
 type DeltaKind = "higher" | "lower" | "neutral";
 function pctDelta(current: number, prior: number, kind: DeltaKind): MetricDelta {
+  // No comparison base (first month, or nothing in the prior window): a
+  // percentage is meaningless, render "–" instead of "0 % vs. Vormonat".
   if (!Number.isFinite(prior) || prior === 0) {
-    return { value: 0, tone: "neutral" };
+    return { value: 0, tone: "neutral", suppressed: true };
   }
   // Current period is empty (e.g. a stale seed window, or before the first
   // sync of the month). The arithmetic would yield exactly -100 % on every
@@ -289,7 +391,8 @@ export async function pipelineFunnel(periodDays = 30): Promise<FunnelBucket[]> {
       total: sql<number>`count(*)::int`,
     })
     .from(schema.requests)
-    .where(gte(schema.requests.createdAt, since))
+    .innerJoin(schema.clinics, eq(schema.clinics.id, schema.requests.clinicId))
+    .where(and(gte(schema.requests.createdAt, since), realClinicWhere()))
     .groupBy(schema.requests.status);
 
   const map = new Map<string, number>();
@@ -314,7 +417,14 @@ export async function aiScoreDistribution(
       total: sql<number>`count(*)::int`,
     })
     .from(schema.requests)
-    .where(gte(schema.requests.createdAt, since))
+    .innerJoin(schema.clinics, eq(schema.clinics.id, schema.requests.clinicId))
+    .where(
+      and(
+        gte(schema.requests.createdAt, since),
+        ne(schema.requests.status, "spam"),
+        realClinicWhere()
+      )
+    )
     .groupBy(schema.requests.aiCategory);
 
   const out: AiCategoryDistribution = { hot: 0, warm: 0, cold: 0, unscored: 0 };
@@ -351,7 +461,8 @@ export async function slaBreachLeaderboard(limit = 5): Promise<SlaBreachRow[]> {
       and(
         isNull(schema.requests.firstContactedAt),
         sql`${schema.requests.slaRespondBy} < now()`,
-        eq(schema.requests.status, "neu")
+        eq(schema.requests.status, "neu"),
+        realClinicWhere()
       )
     )
     .groupBy(schema.clinics.id, schema.clinics.displayName)
@@ -404,6 +515,8 @@ export async function responseTimeRanking(
     FROM ${schema.requests} r
     JOIN ${schema.clinics} c ON c.id = r.clinic_id
     WHERE r.created_at >= ${since}::timestamptz
+      AND r.status <> 'spam'
+      AND ${REAL_CLINIC_SQL}
     GROUP BY c.id, c.display_name
     HAVING count(*) > 0
     ORDER BY median_min ASC NULLS LAST
@@ -432,40 +545,26 @@ export interface SpendRevenuePoint {
 }
 
 export async function spendRevenueSeries(days = 90): Promise<SpendRevenuePoint[]> {
-  const today = startOfDayUtc(new Date());
-  const from = subDays(today, days - 1);
-  const rows = await db
-    .select({
-      date: schema.kpiDaily.date,
-      spend: sql<number>`coalesce(sum(${schema.kpiDaily.totalSpendEur}), 0)`,
-      revenue: sql<number>`coalesce(sum(${schema.kpiDaily.revenueAttributedEur}), 0)`,
-    })
-    .from(schema.kpiDaily)
-    .where(
-      and(
-        gte(schema.kpiDaily.date, isoDate(from)),
-        lte(schema.kpiDaily.date, isoDate(today))
-      )
-    )
-    .groupBy(schema.kpiDaily.date)
-    .orderBy(asc(schema.kpiDaily.date));
+  const todayIso = berlinToday();
+  const fromIso = isoAddDays(todayIso, -(days - 1));
+  const rows = await liveDailyTotals(fromIso, todayIso, REAL_CLINIC_SQL);
+  return zeroFillDaily(rows, fromIso, todayIso);
+}
 
-  const map = new Map<string, { spend: number; revenue: number }>();
-  for (const r of rows) {
-    map.set(r.date, { spend: Number(r.spend), revenue: Number(r.revenue) });
-  }
+/** Daily spend/revenue series with one point per Berlin day, zero-filled. */
+function zeroFillDaily(rows: LiveDayRow[], fromIso: string, toIso: string): SpendRevenuePoint[] {
+  const map = new Map(rows.map((r) => [r.day, r] as const));
   const out: SpendRevenuePoint[] = [];
-  const cursor = new Date(from);
-  while (cursor.getTime() <= today.getTime()) {
-    const key = isoDate(cursor);
-    const r = map.get(key) ?? { spend: 0, revenue: 0 };
+  for (let key = fromIso; key <= toIso; key = isoAddDays(key, 1)) {
+    const r = map.get(key);
+    const spend = r?.spend ?? 0;
+    const revenue = r?.revenue ?? 0;
     out.push({
       date: key,
-      spendEur: r.spend,
-      revenueEur: r.revenue,
-      roas: r.spend > 0 ? Number((r.revenue / r.spend).toFixed(2)) : null,
+      spendEur: spend,
+      revenueEur: revenue,
+      roas: spend > 0 ? Number((revenue / spend).toFixed(2)) : null,
     });
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return out;
 }
@@ -487,10 +586,12 @@ export async function platformMix(periodDays = 30): Promise<PlatformMixRow[]> {
       leads: sql<number>`coalesce(sum(${schema.campaignSnapshots.leads}), 0)`,
     })
     .from(schema.campaignSnapshots)
+    .innerJoin(schema.clinics, eq(schema.clinics.id, schema.campaignSnapshots.clinicId))
     .where(
       and(
         gte(schema.campaignSnapshots.snapshotDate, isoDate(from)),
-        lte(schema.campaignSnapshots.snapshotDate, isoDate(today))
+        lte(schema.campaignSnapshots.snapshotDate, isoDate(today)),
+        realClinicWhere()
       )
     )
     .groupBy(schema.campaignSnapshots.platform);
@@ -530,10 +631,13 @@ export interface ClinicLeaderboardRow {
 export async function clinicLeaderboard(args: {
   periodDays?: number;
   limit?: number;
+  /** Only active, non-demo clinics (dashboard). /admin/clinics lists all. */
+  realOnly?: boolean;
 }): Promise<ClinicLeaderboardRow[]> {
   const days = args.periodDays ?? 30;
-  const today = startOfDayUtc(new Date());
-  const from = subDays(today, days - 1);
+  const todayIso = berlinToday();
+  const fromIso = isoAddDays(todayIso, -(days - 1));
+  const scope = args.realOnly ? REAL_CLINIC_SQL : sql`TRUE`;
 
   const rows = await db.execute<{
     clinic_id: string;
@@ -563,18 +667,20 @@ export async function clinicLeaderboard(args: {
       activity.last_login AS last_login,
       activity.last_request AS last_request
     FROM ${schema.clinics} c
-    LEFT JOIN LATERAL (
+    LEFT JOIN (
+      -- Live from requests + campaign_snapshots (G-06), not kpi_daily.
       SELECT
-        coalesce(sum(total_spend_eur), 0)              AS spend,
-        coalesce(sum(revenue_attributed_eur), 0)       AS revenue,
-        coalesce(sum(leads), 0)                        AS leads,
-        coalesce(sum(cases_won), 0)                    AS cases_won,
-        avg(no_show_rate)                              AS no_show_rate
-      FROM ${schema.kpiDaily}
-      WHERE clinic_id = c.id
-        AND date >= ${isoDate(from)}
-        AND date <= ${isoDate(today)}
-    ) kpi ON TRUE
+        lk.clinic_id,
+        coalesce(sum(lk.spend), 0)        AS spend,
+        coalesce(sum(lk.revenue), 0)      AS revenue,
+        coalesce(sum(lk.leads), 0)::int   AS leads,
+        coalesce(sum(lk.cases), 0)::int   AS cases_won,
+        CASE WHEN sum(lk.no_shows) + sum(lk.held) > 0
+          THEN sum(lk.no_shows)::float8 / (sum(lk.no_shows) + sum(lk.held))
+        END                               AS no_show_rate
+      FROM ${liveKpiDaily(fromIso, todayIso, scope)} lk
+      GROUP BY lk.clinic_id
+    ) kpi ON kpi.clinic_id = c.id
     LEFT JOIN LATERAL (
       SELECT
         (SELECT max(last_login_at) FROM ${schema.clinicUsers}
@@ -582,6 +688,7 @@ export async function clinicLeaderboard(args: {
         (SELECT max(created_at) FROM ${schema.requests}
           WHERE clinic_id = c.id) AS last_request
     ) activity ON TRUE
+    WHERE ${scope}
     ORDER BY c.display_name ASC
     ${args.limit ? sql`LIMIT ${args.limit}` : sql``}
   `);
@@ -655,16 +762,33 @@ export interface ClinicPerformance {
   }[];
 }
 
+/** Sum per-(source, UTM) groups into reporting-channel rows, largest first. */
+function foldByChannel(
+  rows: Array<ChannelGroup & { leads: number; revenue: number }>
+): { source: string; leads: number; revenueEur: number }[] {
+  const out = new Map<string, { source: string; leads: number; revenueEur: number }>();
+  for (const r of rows) {
+    const channel = channelOfGroup(r);
+    const row = out.get(channel) ?? { source: channel, leads: 0, revenueEur: 0 };
+    row.leads += Number(r.leads);
+    row.revenueEur += Number(r.revenue);
+    out.set(channel, row);
+  }
+  return Array.from(out.values()).sort((a, b) => b.leads - a.leads);
+}
+
 export async function clinicPerformance(
   clinicId: string,
   days = 90
 ): Promise<ClinicPerformance> {
   const today = startOfDayUtc(new Date());
   const from = subDays(today, days - 1);
+  const todayIso = berlinToday();
+  const fromIso = isoAddDays(todayIso, -(days - 1));
+  const clinicScope = sql`c.id = ${clinicId}`;
 
   const [
     [clinicRow],
-    [summaryRow],
     dailyRows,
     bySourceRows,
     platformRows,
@@ -676,40 +800,13 @@ export async function clinicPerformance(
       .from(schema.clinics)
       .where(eq(schema.clinics.id, clinicId))
       .limit(1),
+    // Live (G-06): kpi_daily is only built by the worker, which is off.
+    liveDailyTotals(fromIso, todayIso, clinicScope),
+    // Grouped by reporting channel (entry point + UTM) so organic and paid
+    // Meta stay apart; folded in channelOfGroup below.
     db
       .select({
-        spend: sql<number>`coalesce(sum(${schema.kpiDaily.totalSpendEur}), 0)`,
-        revenue: sql<number>`coalesce(sum(${schema.kpiDaily.revenueAttributedEur}), 0)`,
-        leads: sql<number>`coalesce(sum(${schema.kpiDaily.leads}), 0)`,
-        cases: sql<number>`coalesce(sum(${schema.kpiDaily.casesWon}), 0)`,
-        noShow: sql<number>`avg(${schema.kpiDaily.noShowRate})`,
-      })
-      .from(schema.kpiDaily)
-      .where(
-        and(
-          eq(schema.kpiDaily.clinicId, clinicId),
-          gte(schema.kpiDaily.date, isoDate(from)),
-          lte(schema.kpiDaily.date, isoDate(today))
-        )
-      ),
-    db
-      .select({
-        date: schema.kpiDaily.date,
-        spend: sql<number>`coalesce(${schema.kpiDaily.totalSpendEur}, 0)`,
-        revenue: sql<number>`coalesce(${schema.kpiDaily.revenueAttributedEur}, 0)`,
-      })
-      .from(schema.kpiDaily)
-      .where(
-        and(
-          eq(schema.kpiDaily.clinicId, clinicId),
-          gte(schema.kpiDaily.date, isoDate(from)),
-          lte(schema.kpiDaily.date, isoDate(today))
-        )
-      )
-      .orderBy(asc(schema.kpiDaily.date)),
-    db
-      .select({
-        source: schema.requests.source,
+        ...channelKeys,
         leads: sql<number>`count(*)::int`,
         revenue: sql<number>`coalesce(sum(${schema.requests.convertedRevenueEur}), 0)`,
       })
@@ -720,7 +817,7 @@ export async function clinicPerformance(
           gte(schema.requests.createdAt, from)
         )
       )
-      .groupBy(schema.requests.source),
+      .groupBy(...channelGroupBy),
     db
       .select({
         platform: schema.campaignSnapshots.platform,
@@ -756,30 +853,16 @@ export async function clinicPerformance(
       .orderBy(desc(schema.goals.createdAt)),
   ]);
 
-  const spend = Number(summaryRow?.spend ?? 0);
-  const revenue = Number(summaryRow?.revenue ?? 0);
-  const leads = Number(summaryRow?.leads ?? 0);
-  const cases = Number(summaryRow?.cases ?? 0);
-  const noShow = summaryRow?.noShow == null ? null : Number(summaryRow.noShow);
+  const totals = sumDays(dailyRows, fromIso, todayIso);
+  const spend = totals.spend;
+  const revenue = totals.revenue;
+  const leads = totals.leads;
+  const cases = totals.cases;
+  // No-show share among resolved consultations (same rule as kpi-rebuild).
+  const noShow =
+    totals.noShows + totals.held > 0 ? totals.noShows / (totals.noShows + totals.held) : null;
 
-  // Build daily series with zero-fill.
-  const dailyMap = new Map<string, { spend: number; revenue: number }>();
-  for (const r of dailyRows) {
-    dailyMap.set(r.date, { spend: Number(r.spend), revenue: Number(r.revenue) });
-  }
-  const daily: SpendRevenuePoint[] = [];
-  const cursor = new Date(from);
-  while (cursor.getTime() <= today.getTime()) {
-    const key = isoDate(cursor);
-    const r = dailyMap.get(key) ?? { spend: 0, revenue: 0 };
-    daily.push({
-      date: key,
-      spendEur: r.spend,
-      revenueEur: r.revenue,
-      roas: r.spend > 0 ? Number((r.revenue / r.spend).toFixed(2)) : null,
-    });
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
+  const daily = zeroFillDaily(dailyRows, fromIso, todayIso);
 
   const totalPlatformSpend = platformRows.reduce(
     (a, r) => a + Number(r.spend),
@@ -789,20 +872,26 @@ export async function clinicPerformance(
   const funnelMap = new Map<string, number>();
   for (const r of funnelRows) funnelMap.set(r.status, Number(r.total));
 
-  const todayIso = isoDate(today);
   const activeGoals = goalRows.filter(
     (g) => g.periodStart <= todayIso && g.periodEnd >= todayIso
   );
 
-  const goals = await Promise.all(
-    activeGoals.map(async (g) => ({
-      metric: g.metric,
-      targetValue: Number(g.targetValue),
-      currentValue: await goalCurrentValue(clinicId, g.metric, g.periodStart, g.periodEnd),
-      periodStart: g.periodStart,
-      periodEnd: g.periodEnd,
-    }))
-  );
+  // One live query for all active goals (D-23), summed per goal period.
+  const goalDays =
+    activeGoals.length > 0
+      ? await liveDailyTotals(
+          activeGoals.map((g) => g.periodStart).sort()[0]!,
+          activeGoals.map((g) => g.periodEnd).sort().reverse()[0]!,
+          clinicScope
+        )
+      : [];
+  const goals = activeGoals.map((g) => ({
+    metric: g.metric,
+    targetValue: Number(g.targetValue),
+    currentValue: goalCurrentValue(goalDays, g.metric, g.periodStart, g.periodEnd),
+    periodStart: g.periodStart,
+    periodEnd: g.periodEnd,
+  }));
 
   return {
     currency: (clinicRow?.currency ?? "EUR") as CurrencyCode,
@@ -817,11 +906,7 @@ export async function clinicPerformance(
       noShowRate: noShow,
     },
     daily,
-    bySource: bySourceRows.map((r) => ({
-      source: r.source,
-      leads: Number(r.leads),
-      revenueEur: Number(r.revenue),
-    })),
+    bySource: foldByChannel(bySourceRows),
     byPlatform: platformRows.map((r) => ({
       platform: r.platform as "meta" | "google" | "csv",
       spendEur: Number(r.spend),
@@ -836,38 +921,25 @@ export async function clinicPerformance(
   };
 }
 
-async function goalCurrentValue(
-  clinicId: string,
+function goalCurrentValue(
+  days: LiveDayRow[],
   metric: string,
   periodStart: string,
   periodEnd: string
-): Promise<number> {
-  const column = (() => {
-    switch (metric) {
-      case "leads":
-        return schema.kpiDaily.leads;
-      case "cases_won":
-        return schema.kpiDaily.casesWon;
-      case "appointments":
-        return schema.kpiDaily.appointments;
-      case "revenue":
-        return schema.kpiDaily.revenueAttributedEur;
-      default:
-        return null;
-    }
-  })();
-  if (!column) return 0;
-  const rows = await db
-    .select({ total: sql<number>`coalesce(sum(${column}), 0)` })
-    .from(schema.kpiDaily)
-    .where(
-      and(
-        eq(schema.kpiDaily.clinicId, clinicId),
-        gte(schema.kpiDaily.date, periodStart),
-        lte(schema.kpiDaily.date, periodEnd)
-      )
-    );
-  return Number(rows[0]?.total ?? 0);
+): number {
+  const t = sumDays(days, periodStart, periodEnd);
+  switch (metric) {
+    case "leads":
+      return t.leads;
+    case "cases_won":
+      return t.cases;
+    case "appointments":
+      return t.appointments;
+    case "revenue":
+      return t.revenue;
+    default:
+      return 0;
+  }
 }
 
 // ---------------------------------------------------------------
@@ -902,6 +974,8 @@ export interface AdminLeadRow {
   aiCategory: string | null;
   slaRespondBy: Date | null;
   firstContactedAt: Date | null;
+  /** First contact attempt per the 48-Werkstunden rule (queries/response-time.ts). */
+  firstAttemptAt: Date | null;
   createdAt: Date;
   convertedRevenueEur: number | null;
 }
@@ -922,7 +996,7 @@ export async function globalLeads(
   const offset = Math.max(0, opts.offset ?? 0);
   const where = buildLeadWhere(filters);
 
-  const [items, [{ total }], [aggRow]] = await Promise.all([
+  const [items, [aggRow]] = await Promise.all([
     db
       .select({
         id: schema.requests.id,
@@ -939,6 +1013,7 @@ export async function globalLeads(
         aiCategory: schema.requests.aiCategory,
         slaRespondBy: schema.requests.slaRespondBy,
         firstContactedAt: schema.requests.firstContactedAt,
+        firstAttemptAt: firstAttemptAtSql(),
         createdAt: schema.requests.createdAt,
         convertedRevenueEur: schema.requests.convertedRevenueEur,
       })
@@ -949,14 +1024,9 @@ export async function globalLeads(
       .limit(limit)
       .offset(offset),
     db
-      .select({ total: sql<number>`count(*)::int` })
-      .from(schema.requests)
-      .innerJoin(schema.clinics, eq(schema.clinics.id, schema.requests.clinicId))
-      .where(where),
-    db
       .select({
         total: sql<number>`count(*)::int`,
-        inFunnel: sql<number>`count(*) filter (where ${schema.requests.status} in ('termin_vereinbart','beratung_erschienen','gewonnen'))::int`,
+        inFunnel: sql<number>`count(*) filter (where ${schema.requests.status} in ('termin_vereinbart','beratung_erschienen','behandelt','gewonnen'))::int`,
         won: sql<number>`count(*) filter (where ${schema.requests.status} = 'gewonnen')::int`,
         revenue: sql<number>`coalesce(sum(${schema.requests.convertedRevenueEur}), 0)`,
         currencies: sql<string[] | null>`array_agg(distinct ${schema.clinics.currency})`,
@@ -971,10 +1041,11 @@ export async function globalLeads(
       ...i,
       status: i.status as RequestStatus,
       currency: i.currency as CurrencyCode,
+      firstAttemptAt: toAttemptDate(i.firstAttemptAt),
       convertedRevenueEur:
         i.convertedRevenueEur == null ? null : Number(i.convertedRevenueEur),
     })),
-    total: Number(total ?? 0),
+    total: Number(aggRow?.total ?? 0),
     aggregates: {
       total: Number(aggRow?.total ?? 0),
       inFunnel: Number(aggRow?.inFunnel ?? 0),
@@ -989,9 +1060,16 @@ function buildLeadWhere(filters: AdminLeadFilters): SQL | undefined {
   const predicates: SQL[] = [];
   if (filters.clinicIds?.length) {
     predicates.push(inArray(schema.requests.clinicId, filters.clinicIds));
+  } else {
+    // Cross-clinic inbox: no demo Praxis, no archived Praxis (G-13). A
+    // picked clinic (filter or clinic detail tab) is shown as it is.
+    predicates.push(realClinicWhere());
   }
   if (filters.status?.length) {
     predicates.push(inArray(schema.requests.status, filters.status));
+  } else {
+    // Spam stays hidden unless explicitly filtered for.
+    predicates.push(ne(schema.requests.status, "spam"));
   }
   if (filters.source?.length) {
     predicates.push(inArray(schema.requests.source, filters.source));
@@ -1021,7 +1099,7 @@ function buildLeadWhere(filters: AdminLeadFilters): SQL | undefined {
     );
   }
   if (filters.search) {
-    const term = `%${filters.search}%`;
+    const term = `%${escapeLike(filters.search)}%`;
     predicates.push(
       or(
         ilike(schema.requests.contactName, term),
@@ -1032,6 +1110,11 @@ function buildLeadWhere(filters: AdminLeadFilters): SQL | undefined {
     );
   }
   return predicates.length ? and(...predicates) : undefined;
+}
+
+/** Escape LIKE wildcards so a search for "50%" matches literally (G-23). */
+export function escapeLike(input: string): string {
+  return input.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
 // ---------------------------------------------------------------
@@ -1168,7 +1251,13 @@ export interface PendingOperations {
   stalledRequests: number;
 }
 
-export async function pendingOperationCounts(): Promise<PendingOperations> {
+/**
+ * Wrapped in React `cache` (D-16): the admin layout (nav badge) and the home
+ * page both call it in the same render; one set of queries serves both.
+ */
+export const pendingOperationCounts = cache(pendingOperationCountsImpl);
+
+async function pendingOperationCountsImpl(): Promise<PendingOperations> {
   const stalledThreshold = subDays(new Date(), 7);
 
   const [
@@ -1181,28 +1270,34 @@ export async function pendingOperationCounts(): Promise<PendingOperations> {
     db
       .select({ total: count() })
       .from(schema.requests)
+      .innerJoin(schema.clinics, eq(schema.clinics.id, schema.requests.clinicId))
       .where(
         and(
           isNull(schema.requests.firstContactedAt),
           sql`${schema.requests.slaRespondBy} < now()`,
-          eq(schema.requests.status, "neu")
+          eq(schema.requests.status, "neu"),
+          realClinicWhere()
         )
       ),
     db
       .select({ total: count() })
       .from(schema.animationInstances)
-      .where(eq(schema.animationInstances.status, "requested")),
+      .innerJoin(schema.clinics, eq(schema.clinics.id, schema.animationInstances.clinicId))
+      .where(and(eq(schema.animationInstances.status, "requested"), realClinicWhere())),
     db
       .select({ total: count() })
       .from(schema.animationInstances)
-      .where(eq(schema.animationInstances.status, "in_production")),
+      .innerJoin(schema.clinics, eq(schema.clinics.id, schema.animationInstances.clinicId))
+      .where(and(eq(schema.animationInstances.status, "in_production"), realClinicWhere())),
     db
       .select({ total: count() })
       .from(schema.platformCredentials)
-      .where(isNotNull(schema.platformCredentials.lastSyncError)),
+      .innerJoin(schema.clinics, eq(schema.clinics.id, schema.platformCredentials.clinicId))
+      .where(and(isNotNull(schema.platformCredentials.lastSyncError), realClinicWhere())),
     db
       .select({ total: count() })
       .from(schema.requests)
+      .innerJoin(schema.clinics, eq(schema.clinics.id, schema.requests.clinicId))
       .where(
         and(
           inArray(schema.requests.status, [
@@ -1210,7 +1305,8 @@ export async function pendingOperationCounts(): Promise<PendingOperations> {
             "termin_vereinbart",
             "beratung_erschienen",
           ]),
-          lte(schema.requests.createdAt, stalledThreshold)
+          lte(schema.requests.createdAt, stalledThreshold),
+          realClinicWhere()
         )
       ),
   ]);
@@ -1256,7 +1352,8 @@ export async function slaBreachQueue(limit = 30): Promise<SlaQueueRow[]> {
       and(
         isNull(schema.requests.firstContactedAt),
         sql`${schema.requests.slaRespondBy} < now()`,
-        eq(schema.requests.status, "neu")
+        eq(schema.requests.status, "neu"),
+        realClinicWhere()
       )
     )
     .orderBy(asc(schema.requests.slaRespondBy))
@@ -1297,7 +1394,7 @@ export async function syncErrorList(): Promise<SyncErrorRow[]> {
       schema.clinics,
       eq(schema.clinics.id, schema.platformCredentials.clinicId)
     )
-    .where(isNotNull(schema.platformCredentials.lastSyncError))
+    .where(and(isNotNull(schema.platformCredentials.lastSyncError), realClinicWhere()))
     .orderBy(desc(schema.platformCredentials.lastSyncedAt));
 
   return rows.map((r) => ({
@@ -1339,7 +1436,8 @@ export async function stalledLeads(limit = 30): Promise<StalledLeadRow[]> {
           "termin_vereinbart",
           "beratung_erschienen",
         ]),
-        lte(schema.requests.createdAt, since)
+        lte(schema.requests.createdAt, since),
+        realClinicWhere()
       )
     )
     .orderBy(asc(schema.requests.createdAt))
@@ -1483,7 +1581,7 @@ export async function auditOverview(periodDays = 30): Promise<AuditOverview> {
     volumeTrend: trend,
     heatmap: { clinicNames, actions, matrix },
     topActors: actorRows.map((r) => ({
-      actorEmail: r.actorEmail ?? "—",
+      actorEmail: r.actorEmail ?? "–",
       count: Number(r.total),
     })),
   };
@@ -1629,7 +1727,7 @@ export async function adminAllUsers(
     predicates.push(isNull(schema.clinicUsers.lastLoginAt));
   }
   if (filters.search) {
-    const term = `%${filters.search}%`;
+    const term = `%${escapeLike(filters.search)}%`;
     predicates.push(
       or(
         ilike(schema.clinicUsers.email, term),
@@ -1712,6 +1810,9 @@ export async function adminIntegrationHealth(): Promise<AdminIntegrationRow[]> {
       schema.clinics,
       eq(schema.clinics.id, schema.platformCredentials.clinicId)
     )
+    // G-14: the intake row is the Zielseiten secret, not a synced platform
+    // (never has lastSyncedAt); its health is the Messwege table below.
+    .where(and(ne(schema.platformCredentials.platform, "intake"), isNull(schema.clinics.archivedAt)))
     .orderBy(asc(schema.clinics.displayName), asc(schema.platformCredentials.platform));
 
   const now = Date.now();
@@ -1809,6 +1910,7 @@ export async function adminOnboardingStatus(): Promise<AdminOnboardingRow[]> {
         total: sql<number>`count(*)::int`,
       })
       .from(schema.platformCredentials)
+      .where(ne(schema.platformCredentials.platform, "intake"))
       .groupBy(schema.platformCredentials.clinicId),
     db
       .select({
@@ -1918,3 +2020,279 @@ export async function adminOnboardingStatus(): Promise<AdminOnboardingRow[]> {
 // Re-export tone helper for callers
 // ---------------------------------------------------------------
 export { KPI_THRESHOLDS };
+
+// ---------------------------------------------------------------
+// What needs Karam today (G-12): nav badges on Garantie-Uhr and Rückruf-Lage
+// plus the "Heute wichtig" card on the home page. Cached per render; each
+// part fails soft so the admin chrome never breaks on one bad query.
+// ---------------------------------------------------------------
+
+export interface AdminAttention {
+  /** Clinics with something to do on the Garantie-Uhr (badge). */
+  garantie: number;
+  garantieCandidates: number;
+  garantieEndingSoon: number;
+  /** K-9: active, non-demo Praxen without a signing date (no clock runs). */
+  garantieWithoutSignedOn: number;
+  invoicesUnsent: number;
+  unnotifiedDelays: number;
+  /** Clinics where a Rückruf step (Warnung, Pause, Fortsetzung) is possible. */
+  rueckruf: number;
+  /** Non-spam requests in real clinics since yesterday 00:00 Berlin. */
+  newRequestsSinceYesterday: number;
+}
+
+export const adminAttentionCounts = cache(adminAttentionCountsImpl);
+
+async function adminAttentionCountsImpl(): Promise<AdminAttention> {
+  const { listGuaranteeOverview } = await import("@/server/guarantee-clock");
+  const { listRueckrufLage } = await import("@/server/response-enforcement");
+  const soft = async <T,>(label: string, fn: () => Promise<T>, fallback: T): Promise<T> => {
+    try {
+      return await fn();
+    } catch (err) {
+      console.error(`[admin-attention] ${label} failed:`, err);
+      return fallback;
+    }
+  };
+
+  const [guaranteeAll, rueckrufAll, demoIds, unsentRows, [fresh]] = await Promise.all([
+    soft("garantie", () => listGuaranteeOverview(), []),
+    soft("rueckruf", () => listRueckrufLage(), []),
+    soft("demo", () => demoClinicIds(), new Set<string>()),
+    soft(
+      "invoice",
+      async () =>
+        (await db.execute(sql`
+          SELECT clinic_id FROM guarantee_clocks
+          WHERE qualifying_inquiry_on IS NOT NULL AND first_invoice_sent_on IS NULL
+        `)) as unknown as Array<{ clinic_id: string }>,
+      [] as Array<{ clinic_id: string }>
+    ),
+    soft(
+      "requests",
+      () =>
+        db
+          .select({ total: count() })
+          .from(schema.requests)
+          .innerJoin(schema.clinics, eq(schema.clinics.id, schema.requests.clinicId))
+          .where(
+            and(
+              ne(schema.requests.status, "spam"),
+              sql`${schema.requests.createdAt} >= ((date_trunc('day', now() AT TIME ZONE 'Europe/Berlin') - interval '1 day') AT TIME ZONE 'Europe/Berlin')`,
+              realClinicWhere()
+            )
+          ),
+      [{ total: 0 }]
+    ),
+  ]);
+
+  // The demo Praxis never counts here: badges, "Heute wichtig" and the admin
+  // cards all read these numbers and must name the same Praxen.
+  const guarantee = guaranteeAll.filter((g) => !demoIds.has(g.clinicId) && g.clinicSlug !== DEMO_CLINIC_SLUG);
+  const rueckruf = rueckrufAll.filter((r) => !demoIds.has(r.clinicId));
+  const unsent = new Set(unsentRows.map((r) => r.clinic_id));
+  const flagged = new Set<string>();
+  let candidates = 0;
+  let endingSoon = 0;
+  let unnotified = 0;
+  let withoutSignedOn = 0;
+  for (const g of guarantee) {
+    // K-9: listGuaranteeOverview already skips archived clinics.
+    if (g.state.status === "ohne_startdatum") {
+      withoutSignedOn++;
+      flagged.add(g.clinicId);
+    }
+    const running = g.state.status === "laeuft";
+    if (running && g.hasCandidate) {
+      candidates++;
+      flagged.add(g.clinicId);
+    }
+    if (running && g.state.daysLeft <= 14) {
+      endingSoon++;
+      flagged.add(g.clinicId);
+    }
+    if (g.unnotifiedDelayCount > 0) {
+      unnotified++;
+      flagged.add(g.clinicId);
+    }
+    if (g.state.status === "rechnung_faellig" && unsent.has(g.clinicId)) flagged.add(g.clinicId);
+  }
+  const invoicesUnsent = guarantee.filter(
+    (g) => g.state.status === "rechnung_faellig" && unsent.has(g.clinicId)
+  ).length;
+
+  return {
+    garantie: flagged.size,
+    garantieCandidates: candidates,
+    garantieEndingSoon: endingSoon,
+    invoicesUnsent,
+    unnotifiedDelays: unnotified,
+    garantieWithoutSignedOn: withoutSignedOn,
+    rueckruf: rueckruf.filter((r) => r.state.canWarn || r.state.canPause || r.state.resumeDue).length,
+    newRequestsSinceYesterday: Number(fresh?.total ?? 0),
+  };
+}
+
+// ---------------------------------------------------------------
+// Messwege (H-13): per real clinic, when did each EINS-Messweg last bring an
+// Anfrage. A Zielseite whose form breaks silently shows up here as "seit X
+// Tagen still" while the 90 days keep running.
+// ---------------------------------------------------------------
+
+export interface MesswegHealthRow {
+  clinicId: string;
+  clinicName: string;
+  /** Zielseiten-Secret exists (setup-intake ran for this Praxis). */
+  zielseiteConnected: boolean;
+  lastFormular: Date | null;
+  lastAnruf: Date | null;
+  lastBuchung: Date | null;
+  /** Any non-spam request, any source. */
+  lastAny: Date | null;
+  tone: ToneKey;
+  note: string;
+}
+
+/** Days without a Formular-Anfrage before a connected Zielseite is flagged. */
+export const MESSWEG_QUIET_DAYS = 14;
+
+export async function adminMesswegHealth(): Promise<MesswegHealthRow[]> {
+  const { classifyAttribution } = await import("@/lib/sources");
+  const [clinics, intake, bySource] = await Promise.all([
+    db
+      .select({ id: schema.clinics.id, name: schema.clinics.displayName })
+      .from(schema.clinics)
+      .where(realClinicWhere())
+      .orderBy(asc(schema.clinics.displayName)),
+    db
+      .select({ clinicId: schema.platformCredentials.clinicId })
+      .from(schema.platformCredentials)
+      .where(eq(schema.platformCredentials.platform, "intake")),
+    db
+      .select({
+        clinicId: schema.requests.clinicId,
+        source: schema.requests.source,
+        lastAt: sql<Date>`max(${schema.requests.createdAt})`,
+      })
+      .from(schema.requests)
+      .where(ne(schema.requests.status, "spam"))
+      .groupBy(schema.requests.clinicId, schema.requests.source),
+  ]);
+
+  const intakeSet = new Set(intake.map((r) => r.clinicId));
+  type Acc = { formular: Date | null; anruf: Date | null; buchung: Date | null; any: Date | null };
+  const acc = new Map<string, Acc>();
+  const later = (a: Date | null, b: Date) => (a && a > b ? a : b);
+  for (const r of bySource) {
+    const at = new Date(r.lastAt);
+    const cur = acc.get(r.clinicId) ?? { formular: null, anruf: null, buchung: null, any: null };
+    cur.any = later(cur.any, at);
+    const m = classifyAttribution({ source: r.source, utm: null }).messweg;
+    if (m) cur[m] = later(cur[m], at);
+    acc.set(r.clinicId, cur);
+  }
+
+  const now = Date.now();
+  const quietMs = MESSWEG_QUIET_DAYS * 86_400_000;
+  const rows = clinics.map((c): MesswegHealthRow => {
+    const a = acc.get(c.id) ?? { formular: null, anruf: null, buchung: null, any: null };
+    const connected = intakeSet.has(c.id);
+    let tone: ToneKey = "good";
+    let note = "Formular liefert Anfragen.";
+    if (!connected && !a.formular) {
+      tone = "neutral";
+      note = "Keine Zielseite angebunden.";
+    } else if (!a.formular) {
+      tone = "warn";
+      note = "Zielseite angebunden, noch keine Formular-Anfrage.";
+    } else if (now - a.formular.getTime() > quietMs) {
+      tone = "warn";
+      const days = Math.floor((now - a.formular.getTime()) / 86_400_000);
+      note = `Seit ${days} Tagen keine Formular-Anfrage. Zielseite prüfen.`;
+    }
+    return {
+      clinicId: c.id,
+      clinicName: c.name,
+      zielseiteConnected: connected,
+      lastFormular: a.formular,
+      lastAnruf: a.anruf,
+      lastBuchung: a.buchung,
+      lastAny: a.any,
+      tone,
+      note,
+    };
+  });
+  const order: Record<ToneKey, number> = { bad: 0, warn: 1, neutral: 2, good: 3 };
+  return rows.sort((x, y) => order[x.tone] - order[y.tone]);
+}
+
+// ---------------------------------------------------------------
+// Failed background jobs (E-10, admin view). Reads pg-boss directly; no
+// job payload is shown (it can carry patient data), only queue name, time,
+// retries, the Praxis and the error message.
+// ---------------------------------------------------------------
+
+export interface FailedJobRow {
+  id: string;
+  queue: string;
+  failedAt: Date | null;
+  createdAt: Date;
+  retryCount: number;
+  clinicId: string | null;
+  clinicName: string | null;
+  error: string | null;
+}
+
+export interface FailedJobs {
+  /** False when the pgboss schema does not exist (worker never started). */
+  available: boolean;
+  rows: FailedJobRow[];
+}
+
+export async function failedJobList(days = 14, limit = 100): Promise<FailedJobs> {
+  try {
+    const [probe] = (await db.execute(
+      sql`SELECT to_regclass('pgboss.job') IS NOT NULL AS ok`
+    )) as unknown as Array<{ ok: boolean }>;
+    if (!probe?.ok) return { available: false, rows: [] };
+    const rows = (await db.execute(sql`
+      SELECT j.id::text AS id, j.name AS queue, j.completed_on AS failed_at, j.created_on AS created_at,
+             j.retry_count AS retry_count,
+             c.id AS clinic_id, c.display_name AS clinic_name,
+             left(coalesce(j.output->>'message', j.output::text), 300) AS error
+      FROM pgboss.job j
+      LEFT JOIN clinics c
+        ON (j.data->>'clinicId') ~* '^[0-9a-f-]{36}$' AND c.id::text = (j.data->>'clinicId')
+      WHERE j.state = 'failed'
+        AND coalesce(j.completed_on, j.created_on) > now() - make_interval(days => ${days})
+      ORDER BY coalesce(j.completed_on, j.created_on) DESC
+      LIMIT ${limit}
+    `)) as unknown as Array<{
+      id: string;
+      queue: string;
+      failed_at: Date | null;
+      created_at: Date;
+      retry_count: number;
+      clinic_id: string | null;
+      clinic_name: string | null;
+      error: string | null;
+    }>;
+    return {
+      available: true,
+      rows: rows.map((r) => ({
+        id: r.id,
+        queue: r.queue,
+        failedAt: r.failed_at ? new Date(r.failed_at) : null,
+        createdAt: new Date(r.created_at),
+        retryCount: Number(r.retry_count),
+        clinicId: r.clinic_id,
+        clinicName: r.clinic_name,
+        error: r.error,
+      })),
+    };
+  } catch (err) {
+    console.error("[admin] failedJobList failed:", err);
+    return { available: false, rows: [] };
+  }
+}

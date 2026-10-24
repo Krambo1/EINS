@@ -17,10 +17,10 @@ const display = localFont({
 export const metadata: Metadata = {
   title: {
     default: "EINS Portal",
-    template: "%s — EINS Portal",
+    template: "%s - EINS Portal",
   },
   description:
-    "Kundenportal für Zahn- und Ästhetikpraxen: Anfragen, Werbebudget, Medien und Auswertungen an einem Ort.",
+    "Kundenportal für Praxen für ästhetische Medizin: Anfragen, Werbebudget, Medien und Auswertungen an einem Ort.",
   robots: { index: false, follow: false },
 };
 

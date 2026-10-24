@@ -57,9 +57,46 @@ export function hashEmail(email: string): string {
   return sha256Lower(email);
 }
 
-export function hashPhone(phoneE164OrDigits: string): string {
-  // Meta wants digits only, no `+`, no spaces.
-  return sha256Lower(phoneE164OrDigits.replace(/\D/g, ""));
+/**
+ * Pass 2: the international number as digits (E.164 without "+"), or null.
+ * Patients type national numbers ("0171 2345678"); Meta and Google match on
+ * the international one, so hashing the raw digits never matched anyone.
+ * A leading single 0 is the national trunk prefix: replaced by the default
+ * country code (49; EINS Praxen are DACH and the Praxis has no country
+ * field, so an Austrian or Swiss national number is mis-prefixed, which is
+ * no worse than the unmatched raw hash before). "00" and "+" already carry
+ * the country code; "(0)" after it is the bracketed trunk and is dropped.
+ * Bare digits without 0/00/+ are taken as already international.
+ */
+export function phoneToE164Digits(
+  raw: string,
+  defaultCountryCode = "49"
+): string | null {
+  const t = raw.trim().replace(/\(0\)/g, "");
+  const digits = t.replace(/\D/g, "");
+  if (digits.length < 6) return null;
+  let intl: string;
+  if (t.startsWith("+")) intl = digits;
+  else if (digits.startsWith("00")) intl = digits.slice(2);
+  else if (digits.startsWith("0")) return defaultCountryCode + digits.slice(1);
+  else return digits;
+  // Pass 2 (verifier): "+49 0171 ..." / "0043 0664 ...": a trunk 0 typed
+  // after a DACH country code is never dialled internationally.
+  const trunk = /^(49|43|41)0/.exec(intl);
+  return trunk ? trunk[1] + intl.slice(trunk[0].length) : intl;
+}
+
+export function hashPhone(raw: string): string | undefined {
+  // Meta wants digits only, no `+`, no spaces, WITH the country code.
+  // Pass 2 (verifier): junk (fewer than 6 digits) is not hashed at all.
+  const digits = phoneToE164Digits(raw);
+  return digits ? sha256Lower(digits) : undefined;
+}
+
+/** Google enhanced conversions: SHA-256 of the E.164 number WITH "+". */
+export function hashPhoneForGoogle(raw: string): string | undefined {
+  const digits = phoneToE164Digits(raw);
+  return digits ? sha256Lower(`+${digits}`) : undefined;
 }
 
 export function hashName(name: string): string {

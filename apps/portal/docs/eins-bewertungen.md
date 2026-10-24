@@ -31,12 +31,17 @@ it's prohibited:
    high-rating respondents to a public CTA while hiding it from low-rating
    respondents are misleading under §3 UWG.
 
-3. **Karam's own product spec** (Notion · LÖSUNG Praxis Entlastung Idea #6,
+3. **Karam's own product spec** (Obsidian `10 EINS/Notizsammlung/LÖSUNG Praxis Entlastung Niedriger Deckungsbeitrag pro Stunde.md`, Idea #6,
    "EINS Bewertungen"): explicitly "nicht gefiltert, nicht incentiviert".
 
-The compliant pattern (this implementation): **every rating sees both
-options**. Visual prominence flips with rating, but neither branch is hidden
-from the DOM. Patients self-select. That's what the BGH and Google want.
+**Current implementation (Karam's decision of 2026-10-10): the filter
+funnel.** 4 and 5 stars open the public review (Google, or Jameda when that is
+the practice's platform) at once, without a page of our own; 1 to 3 stars get
+a message form that goes only to the practice, with no public option. Karam
+chose this knowing the points above. Hauptvertrag 01 2.9 no longer promises
+"ohne Vorauswahl nach Zufriedenheit" and instead describes the funnel to the
+practice (changed the same day, Markdown and Word); the vault notes match. Remaining risk: if Google
+treats the funnel as review gating, the practice's profile is hit, not EINS's.
 
 ## Legal basis for sending the mail
 
@@ -124,9 +129,9 @@ lead-form submissions; rotating it in the portal UI affects only that flow now.
 - Per-IP rate-limit on all `/api/review-tokens/*` endpoints (60/min GET,
   30/min click, 10/min feedback, 20/10min unsubscribe).
 
-## Out of scope for v1 — track in Notion
+## Out of scope for v1 — track in the Obsidian vault
 
-- WhatsApp delivery channel (Superchat / 360dialog) — Notion product spec
+- WhatsApp delivery channel (Superchat / 360dialog) — product spec in the vault note above
   mentions it as a future channel.
 - Auto-pull of Google/Jameda aggregates into `reviews` snapshot — uses the
   existing GBP sync job slot in cron once OAuth is wired.

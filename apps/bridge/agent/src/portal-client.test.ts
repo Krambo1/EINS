@@ -112,6 +112,7 @@ describe("postEvent — P0-2 fetch timeout", () => {
       ok: false,
       retryable: true,
       reason: "http 503",
+      httpStatus: 503,
     });
     // After the call returns, advancing timers shouldn't cause anything to
     // happen (no pending timeouts left). Vitest doesn't blow up; the
@@ -207,20 +208,21 @@ describe("postEvent - auth-class rejection sets authFailure (H11)", () => {
 });
 
 describe("postEvent — retryable vs permanent HTTP statuses (review finding 4)", () => {
-  const cases: Array<{ status: number; retryable: boolean; why: string }> = [
+  const cases: Array<{ status: number; retryable: boolean; why: string; code?: string }> = [
     { status: 409, retryable: true, why: "link_not_ready, transient until operator confirms" },
     { status: 408, retryable: true, why: "request timeout" },
     { status: 425, retryable: true, why: "too early" },
     { status: 429, retryable: true, why: "rate limited" },
     { status: 503, retryable: true, why: "server error" },
-    { status: 400, retryable: false, why: "invalid envelope, genuinely malformed" },
-    { status: 404, retryable: false, why: "clinic not found, misconfiguration" },
+    { status: 400, retryable: false, why: "invalid envelope, genuinely malformed", code: "invalid_envelope" },
+    { status: 404, retryable: false, why: "clinic not found, misconfiguration", code: "clinic_not_found" },
+    { status: 404, retryable: true, why: "a 404 whose body is not a known portal error (proxy / bad deploy)", code: "x" },
   ];
-  for (const { status, retryable, why } of cases) {
-    it(`HTTP ${status} → retryable=${retryable} (${why})`, async () => {
+  for (const { status, retryable, why, code } of cases) {
+    it(`HTTP ${status} (${code}) → retryable=${retryable} (${why})`, async () => {
       vi.spyOn(globalThis, "fetch").mockImplementation(
         async () =>
-          new Response(JSON.stringify({ error: { code: "x" } }), { status })
+          new Response(JSON.stringify({ error: { code: code ?? "x" } }), { status })
       );
       const result = await postEvent('{"kind":"PatientUpserted"}');
       expect(result.ok).toBe(false);
@@ -234,7 +236,7 @@ describe("postEvent - L21 config is cached for the process lifetime", () => {
   it("reads config from disk only once across multiple POSTs", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(
       async () =>
-        new Response(JSON.stringify({ status: "ingested" }), {
+        new Response(JSON.stringify({ ok: true, status: "ingested" }), {
           status: 200,
           headers: { "content-type": "application/json" },
         })
@@ -249,7 +251,7 @@ describe("postEvent - L21 config is cached for the process lifetime", () => {
   it("keeps last-known-good config if config.json later goes corrupt (no silent no_config flip)", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(
       async () =>
-        new Response(JSON.stringify({ status: "ingested" }), {
+        new Response(JSON.stringify({ ok: true, status: "ingested" }), {
           status: 200,
           headers: { "content-type": "application/json" },
         })
@@ -371,5 +373,151 @@ describe("parseRetryAfterMs (M-A3)", () => {
     expect(parseRetryAfterMs("12x", NOW)).toBeNull();
     expect(parseRetryAfterMs("not-a-date", NOW)).toBeNull();
     expect(parseRetryAfterMs("abc123", NOW)).toBeNull();
+  });
+});
+
+describe("billing_conflict 403 is permanent, not auth", () => {
+  it("isAuthClassRejection: 403 billing_conflict JSON is NOT auth; unknown 403 still is", () => {
+    expect(
+      isAuthClassRejection(403, JSON.stringify({ error: { code: "billing_conflict" } }))
+    ).toBe(false);
+    expect(isAuthClassRejection(403, "<html>forbidden</html>")).toBe(true);
+    expect(isAuthClassRejection(403, JSON.stringify({ error: { code: "weird" } }))).toBe(true);
+    expect(isAuthClassRejection(401, '{"error":{"code":"billing_conflict"}}')).toBe(true);
+    expect(isAuthClassRejection(400, '{"error":{"code":"invalid_request"}}')).toBe(true);
+  });
+
+  it("postEvent on 403 billing_conflict: non-retryable, no authFailure", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response('{"error":{"code":"billing_conflict"}}', { status: 403 })
+    );
+    const result = await postEvent('{"kind":"InvoicePaid"}');
+    if (result.ok) throw new Error("unreachable");
+    expect(result.retryable).toBe(false);
+    expect(result.authFailure).toBeUndefined();
+    expect(result.reason).toMatch(/billing_conflict/);
+  });
+});
+
+describe("postEventBatch", () => {
+  const CLINIC = SAMPLE_CONFIG.clinicId;
+  const P = ['{"a":1}', '{"b":2}', '{"c":3}'];
+
+  async function batch(): Promise<typeof import("./portal-client").postEventBatch> {
+    return (await import("./portal-client.js")).postEventBatch;
+  }
+  function mockJson(status: number, body: unknown, headers: Record<string, string> = {}) {
+    return vi.spyOn(globalThis, "fetch").mockImplementation(
+      async () =>
+        new Response(typeof body === "string" ? body : JSON.stringify(body), {
+          status,
+          headers,
+        })
+    );
+  }
+
+  it("embeds payloads verbatim, signs the exact body, posts to /batch", async () => {
+    const spy = mockJson(201, { results: P.map(() => ({ status: "ingested" })) });
+    const postEventBatch = await batch();
+    const r = await postEventBatch(CLINIC, P);
+    expect(r).toEqual({ ok: true, outcomes: [{ ok: true }, { ok: true }, { ok: true }] });
+    const [url, init] = spy.mock.calls[0]! as unknown as [string, RequestInit];
+    expect(String(url)).toBe("https://portal.example/api/pvs/events/batch");
+    const body = init.body as string;
+    expect(body).toBe(`{"clinicId":"${CLINIC}","events":[{"a":1},{"b":2},{"c":3}]}`);
+    const { createHmac } = await import("node:crypto");
+    const expected = `sha256=${createHmac("sha256", "a".repeat(64)).update(body).digest("hex")}`;
+    expect((init.headers as Record<string, string>)["x-eins-signature"]).toBe(expected);
+  });
+
+  it("maps per-event results[] with permanent vs retryable reasons", async () => {
+    mockJson(201, {
+      results: [{ status: "quarantined" }, { error: "billing_conflict" }, { error: "link_not_ready" }],
+    });
+    const r = await (await batch())(CLINIC, P);
+    expect(r).toEqual({
+      ok: true,
+      outcomes: [
+        { ok: true },
+        { ok: false, retryable: false, reason: "billing_conflict" },
+        { ok: false, retryable: true, reason: "link_not_ready" },
+      ],
+    });
+  });
+
+  it("unknown per-event reason is retryable", async () => {
+    mockJson(201, { results: [{ error: "something_new" }, { status: "deduped" }, { status: "ingested" }] });
+    const r = await (await batch())(CLINIC, P);
+    if (!r.ok) throw new Error("unreachable");
+    expect(r.outcomes[0]).toEqual({ ok: false, retryable: true, reason: "something_new" });
+  });
+
+  it("old portal: derives outcomes from errors[]", async () => {
+    mockJson(201, { ok: true, errors: [{ idx: 1, reason: "invalid_envelope" }] });
+    const r = await (await batch())(CLINIC, P);
+    expect(r).toEqual({
+      ok: true,
+      outcomes: [{ ok: true }, { ok: false, retryable: false, reason: "invalid_envelope" }, { ok: true }],
+    });
+  });
+
+  it("ambiguous responses are a retryable batch failure", async () => {
+    const postEventBatch = await batch();
+    mockJson(201, { ok: true });
+    let r = await postEventBatch(CLINIC, P);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.retryable).toBe(true);
+    mockJson(201, { results: [{ status: "ingested" }] });
+    r = await postEventBatch(CLINIC, P);
+    expect(r.ok).toBe(false);
+    mockJson(201, "not json");
+    r = await postEventBatch(CLINIC, P);
+    expect(r.ok).toBe(false);
+  });
+
+  it("404 and 400 invalid_envelope request fallbackToSingle", async () => {
+    const postEventBatch = await batch();
+    mockJson(404, "not found");
+    let r = await postEventBatch(CLINIC, P);
+    expect(r).toMatchObject({ ok: false, fallbackToSingle: true });
+    mockJson(400, { error: { code: "invalid_envelope" } });
+    r = await postEventBatch(CLINIC, P);
+    expect(r).toMatchObject({ ok: false, fallbackToSingle: true });
+  });
+
+  it("401 and 400 invalid_request are authFailure", async () => {
+    const postEventBatch = await batch();
+    mockJson(401, "");
+    expect(await postEventBatch(CLINIC, P)).toMatchObject({ ok: false, authFailure: true });
+    mockJson(400, { error: { code: "invalid_request" } });
+    expect(await postEventBatch(CLINIC, P)).toMatchObject({ ok: false, authFailure: true });
+  });
+
+  it("429 carries Retry-After; 503 records httpStatus", async () => {
+    const postEventBatch = await batch();
+    mockJson(429, "", { "retry-after": "90" });
+    expect(await postEventBatch(CLINIC, P)).toMatchObject({
+      ok: false,
+      retryable: true,
+      retryAfterMs: 90_000,
+    });
+    mockJson(503, "");
+    expect(await postEventBatch(CLINIC, P)).toMatchObject({
+      ok: false,
+      retryable: true,
+      httpStatus: 503,
+    });
+  });
+
+  it("network failure is flagged networkFailure", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      throw new Error("ECONNREFUSED");
+    });
+    expect(await (await batch())(CLINIC, P)).toMatchObject({
+      ok: false,
+      retryable: true,
+      networkFailure: true,
+    });
   });
 });

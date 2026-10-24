@@ -12,8 +12,8 @@
 -- Blast radius before this fix: the revenue row itself survives (the
 -- event_log row is committed BEFORE linking runs, see pvs-events.ts), so
 -- cent-exact reconciliation still passed and no money was lost. What broke
--- is the patient LINK: the ingest call returns 500, the agent retries the
--- event forever against a constraint that can never accept it, and the
+-- is the patient LINK: the ingest call returns 500, the agent keeps
+-- retrying the event against a constraint that can never accept it, and the
 -- patient's lifetime_revenue_eur / dashboard attribution silently omit
 -- those payments. A Praxis whose PVS exports e-mail addresses but no
 -- stable external ID hits this on nearly every payment.

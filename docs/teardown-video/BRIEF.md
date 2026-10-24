@@ -27,11 +27,11 @@ Single source of truth. Re-read before resuming.
 ## Success criteria
 - Inhaber fühlt sich verstanden, nicht vorgeführt.
 - Klares "das war wertvoll, auch wenn ich nichts kaufe".
-- CTA bleibt weich/reply-only wie in der E-Mail.
+- CTA bleibt weich: **eine** Aufforderung, kein Druck. Ob Antwort oder Kalenderlink, ist frei (s. Non-goals).
 
 ## Non-goals
 - Kein Preis, keine Garantie, kein Festangebot im Video.
-- Kein Calendly/Link-Pushen (E-Mail-Logik: Antwort genügt).
+- Ein Kalenderlink im Outro ist in Ordnung (Entscheidung 2026-09-09). Er spart der Praxis einen Umlauf: wer überzeugt ist, sucht sich sofort einen Termin, statt auf eine Antwort mit Vorschlägen zu warten. Was gilt: **eine** Aufforderung im Outro, nicht zwei nebeneinander. Vorher stand hier „kein Calendly/Link-Pushen, Antwort genügt" — das widersprach dem gelebten Outro, und der Widerspruch war das eigentliche Problem.
 - Kein generischer Marketing-Vortrag ohne Praxis-Bezug.
 
 ## Buckets (= Sektionen, je einzeln scripten)
@@ -41,7 +41,7 @@ Single source of truth. Re-read before resuming.
 4. **Ihre Anzeigen** — Anzeigen-Durchgang (Promise 2).
 5. **Wo Patientinnen verloren gehen** — die Leck-Stellen synthetisiert (Promise 3).
 6. **Was ich zuerst ändern würde** — priorisierte Sofort-Fixes (Über-Lieferung 2).
-7. **Outro** — weicher, reply-only CTA wie in der E-Mail.
+7. **Outro** — weicher CTA, eine Aufforderung (Antwort oder Kalenderlink).
 
 ## Decision log
 - 2026-06-22 — Format: Vorlage, breite/personalisierte Platzhalter. Loom-Stil. ~5-7 Min.

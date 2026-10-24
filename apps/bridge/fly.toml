@@ -2,12 +2,23 @@
 # Fly.io config — EINS PVS Bridge (cloud side).
 #
 # Fastify server (apps/bridge/src/index.ts):
-#   GET  /healthz                      → liveness check
+#   GET  /healthz                      → 503 if the scheduler has not ticked in 3
+#                                        tick intervals or SELECT 1 fails (2 s)
 #   POST /webhooks/healthhub/:linkId   → HealthHub FHIR Subscription delivery
+#                                        (only with ENABLE_HEALTHHUB_WEBHOOK=true;
+#                                        shelved vendor, route not registered by default)
 #   POST /webhooks/red/:linkId         → RED webhook delivery
 # Plus the Postgres-polling scheduler tick loop (SCHEDULER_TICK_MS), which
 # must keep running even with no inbound HTTP traffic — hence the machine is
 # never auto-stopped.
+#
+# ONE MACHINE. The scheduler takes a per-link lease in pvs_sync_status
+# (claimLink: UPDATE next_poll_at ... WHERE due), so a second machine can never
+# poll or backfill the same link at the same time (rolling deploys overlap
+# safely). Running more than one buys nothing, though: the scheduler is a single
+# concurrency-limited loop and each extra machine only adds lease contention.
+# fly.toml cannot cap the machine count, so pin it after the first deploy:
+#   fly scale count 1 -a eins-bridge
 #
 # Built from the REPO ROOT so the pnpm workspace + lockfile are in the Docker
 # build context (apps/bridge/Dockerfile copies them).
@@ -23,6 +34,9 @@
 
 app = "eins-bridge"
 primary_region = "fra"   # Frankfurt — EU data residency for Praxis data
+# SIGTERM → the scheduler aborts in-flight vendor/portal requests; give it a
+# moment to flush before Fly sends SIGKILL.
+kill_timeout = 30
 
 [build]
   # Relative to THIS file's dir (apps/bridge). Build context is the repo root,
@@ -47,7 +61,10 @@ primary_region = "fra"   # Frankfurt — EU data residency for Praxis data
     method = "GET"
     path = "/healthz"
     interval = "15s"
+    # /healthz pings the DB with a 2 s cap, so 3 s leaves room for a slow answer.
     timeout = "3s"
+    # The scheduler's first tick is one SCHEDULER_TICK_MS (30 s) after boot;
+    # /healthz counts boot time as the last tick, so 10 s is plenty.
     grace_period = "10s"
 
 [[vm]]

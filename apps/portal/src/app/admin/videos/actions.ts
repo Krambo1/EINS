@@ -1,10 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { writeAudit } from "@/server/audit";
 import { requireAdmin } from "@/auth/admin-guards";
 import {
   createOutreachVideo,
   createVideoUploadTarget,
+  deleteOutreachVideo,
   setOutreachVideoArchived,
   type CreatedVideo,
   type VideoResult,
@@ -35,7 +38,7 @@ export async function createOutreachVideoAction(input: {
   title: string;
   message: string;
   recipientEmail: string;
-  notionPage: string;
+  obsidianRef: string;
   durationSeconds: number | null;
 }): Promise<VideoResult<CreatedVideo>> {
   const admin = await requireAdmin();
@@ -49,4 +52,25 @@ export async function setVideoArchivedAction(id: string, archived: boolean): Pro
   await setOutreachVideoArchived(id, archived);
   revalidatePath("/admin/videos");
   revalidatePath(`/admin/videos/${id}`);
+}
+
+export async function deleteVideoAction(id: string): Promise<void> {
+  const admin = await requireAdmin();
+  const result = await deleteOutreachVideo(id);
+  if (!result) {
+    redirect(`/admin/videos/${id}?fehler=${encodeURIComponent("Nur archivierte Videos lassen sich löschen.")}`);
+  }
+  await writeAudit({
+    actorEmail: admin.email,
+    action: "delete",
+    entityKind: "outreach_video",
+    entityId: id,
+    diff: { slug: result.slug, failedKeys: result.failedKeys },
+  });
+  revalidatePath("/admin/videos");
+  const msg =
+    result.failedKeys.length > 0
+      ? "Video gelöscht. Die Datei im Speicher konnte nicht entfernt werden, siehe Audit."
+      : "Video und Datei gelöscht.";
+  redirect(`/admin/videos?hinweis=${encodeURIComponent(msg)}`);
 }

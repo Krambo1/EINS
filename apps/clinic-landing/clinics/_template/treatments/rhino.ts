@@ -2,6 +2,7 @@ import type { Treatment } from "@/lib/types";
 
 export const templateRhino: Treatment = {
   slug: "nasenkorrektur-stadt",
+  urlCode: "a6",
   clinicSlug: "_template",
   category: "rhino",
   city: "[Stadt]",

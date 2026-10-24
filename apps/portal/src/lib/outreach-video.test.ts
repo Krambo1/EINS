@@ -7,7 +7,8 @@ import {
   extensionOf,
   formatDuration,
   isVideoExtension,
-  normalizeNotionId,
+  normalizeObsidianRef,
+  obsidianHref,
   parseVideoEvent,
   publicVideoUrl,
 } from "./outreach-video";
@@ -74,18 +75,56 @@ describe("deviceFromUserAgent", () => {
   });
 });
 
-describe("normalizeNotionId", () => {
+describe("normalizeObsidianRef", () => {
   const id = "36fe7fc8873481f983dbd08614a82787";
-  it("takes URLs, dashed UUIDs and bare ids", () => {
-    expect(normalizeNotionId(`https://www.notion.so/Praxis-Dr-Jafari-${id}?pvs=4`)).toBe(id);
-    expect(normalizeNotionId(`https://app.notion.com/p/${id}`)).toBe(id);
-    expect(normalizeNotionId("36fe7fc8-8734-81f9-83db-d08614a82787")).toBe(id);
-    expect(normalizeNotionId(id.toUpperCase())).toBe(id);
+  const uri = "obsidian://open?vault=Karam&file=10%20EINS%2FKunden%2FLeads%2FPraxis-Eintr%C3%A4ge%2FDr%20Jafari";
+  it("takes lead-ids as bare or dashed hex", () => {
+    expect(normalizeObsidianRef(id)).toBe(id);
+    expect(normalizeObsidianRef(id.toUpperCase())).toBe(id);
+    expect(normalizeObsidianRef("36fe7fc8-8734-81f9-83db-d08614a82787")).toBe(id);
+    expect(normalizeObsidianRef(`  ${id}
+`)).toBe(id);
   });
-  it("returns null when there is no id", () => {
-    expect(normalizeNotionId("")).toBeNull();
-    expect(normalizeNotionId(null)).toBeNull();
-    expect(normalizeNotionId("https://www.notion.so/some-page")).toBeNull();
+  it("keeps an obsidian:// URI of the Karam vault as is", () => {
+    expect(normalizeObsidianRef(uri)).toBe(uri);
+  });
+  it("rejects URIs of other vaults or actions", () => {
+    expect(normalizeObsidianRef("obsidian://open?vault=Other&file=x")).toBeNull();
+    expect(normalizeObsidianRef("obsidian://open?vault=Karam")).toBeNull();
+    expect(normalizeObsidianRef("obsidian://new?vault=Karam&file=x")).toBeNull();
+  });
+  it("turns wikilinks and vault paths into an open URI without .md", () => {
+    const want = "obsidian://open?vault=Karam&file=10%20EINS%2FOutreach%2FTeardowns%2FDr%20Jafari";
+    expect(normalizeObsidianRef("[[10 EINS/Outreach/Teardowns/Dr Jafari]]")).toBe(want);
+    expect(normalizeObsidianRef("[[10 EINS/Outreach/Teardowns/Dr Jafari|Teardown]]")).toBe(want);
+    expect(normalizeObsidianRef("[[10 EINS/Outreach/Teardowns/Dr Jafari#Befund]]")).toBe(want);
+    expect(normalizeObsidianRef("10 EINS/Outreach/Teardowns/Dr Jafari.md")).toBe(want);
+    expect(normalizeObsidianRef("10 EINS\\Outreach\\Teardowns\\Dr Jafari.md")).toBe(want);
+  });
+  it("returns null for everything else", () => {
+    expect(normalizeObsidianRef("")).toBeNull();
+    expect(normalizeObsidianRef(null)).toBeNull();
+    expect(normalizeObsidianRef("https://www.notion.so/some-page")).toBeNull();
+    expect(normalizeObsidianRef(`https://www.notion.so/Praxis-${id}`)).toBeNull();
+    expect(normalizeObsidianRef("Dr Jafari")).toBeNull();
+    expect(normalizeObsidianRef("../secret.md")).toBeNull();
+    expect(normalizeObsidianRef("C:/Users/x/note.md")).toBeNull();
+    expect(normalizeObsidianRef("[[ ]]")).toBeNull();
+  });
+});
+
+describe("obsidianHref", () => {
+  const id = "36fe7fc8873481f983dbd08614a82787";
+  it("links a URI as is and a lead-id as a property search", () => {
+    const uri = "obsidian://open?vault=Karam&file=a%2Fb";
+    expect(obsidianHref(uri)).toBe(uri);
+    expect(obsidianHref(id)).toBe(
+      `obsidian://search?vault=Karam&query=${encodeURIComponent(`["lead-id":${id}]`)}`
+    );
+  });
+  it("returns null for empty or unknown values", () => {
+    expect(obsidianHref(null)).toBeNull();
+    expect(obsidianHref("javascript:alert(1)")).toBeNull();
   });
 });
 
@@ -109,5 +148,29 @@ describe("slugs and small helpers", () => {
     expect(isVideoExtension("mkv")).toBe(false);
     expect(formatDuration(247)).toBe("4:07");
     expect(formatDuration(59)).toBe("0:59");
+  });
+});
+
+describe("isLikelyScanner (G-18)", () => {
+  it("flags scanners, bots and empty agents", async () => {
+    const { isLikelyScanner } = await import("./outreach-video");
+    expect(isLikelyScanner(null)).toBe(true);
+    expect(isLikelyScanner("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 HeadlessChrome/120.0")).toBe(true);
+    expect(isLikelyScanner("Mozilla/5.0 (compatible; Googlebot/2.1)")).toBe(true);
+    expect(isLikelyScanner("python-requests/2.31")).toBe(true);
+    expect(isLikelyScanner("WhatsApp/2.23.20.0")).toBe(true);
+  });
+  it("lets normal browsers through", async () => {
+    const { isLikelyScanner } = await import("./outreach-video");
+    expect(
+      isLikelyScanner(
+        "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+      )
+    ).toBe(false);
+    expect(
+      isLikelyScanner(
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+      )
+    ).toBe(false);
   });
 });

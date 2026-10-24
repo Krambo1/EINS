@@ -12,18 +12,19 @@ export default async function RedSetupPage() {
         <div className="mb-2 flex items-center gap-2 text-sm">
           <Link
             href="/einstellungen/integrationen/setup"
-            className="text-muted-foreground hover:underline"
+            className="inline-flex min-h-11 items-center font-medium text-fg-primary hover:underline"
           >
             ← Anbieter wählen
           </Link>
         </div>
         <h1 className="text-2xl font-semibold">
           RED interchange
-          <Badge tone="neutral" className="ml-3 text-xs">V1.5 – in Vorbereitung</Badge>
+          <Badge tone="neutral" className="ml-3">In Vorbereitung</Badge>
         </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Nativer FHIR-Adapter gegen die RED-Schnittstelle. Praxis generiert in
-          RED Client-Credentials, fügt sie hier ein.
+        <p className="mt-1 text-base text-fg-primary">
+          Direkte Verbindung über die Standard-Schnittstelle von RED. FHIR ist
+          ein verbreitetes Austauschformat für Gesundheitsdaten. Sie erzeugen in
+          RED Zugangsdaten und fügen sie hier ein.
         </p>
       </header>
 
@@ -39,7 +40,8 @@ export default async function RedSetupPage() {
             automatisch Patient/Appointment/Encounter/Invoice-Resources.
           </p>
           <p>
-            <strong>Geplante Verfügbarkeit:</strong> Wochen 3-5 der PVS-Bridge-Roadmap.
+            <strong>Noch nicht verfügbar.</strong> Wir melden uns, sobald diese
+            Verbindung bereitsteht. Bis dahin können Sie den CSV-Upload nutzen.
           </p>
         </CardContent>
       </Card>

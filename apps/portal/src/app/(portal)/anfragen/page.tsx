@@ -9,47 +9,53 @@ import {
 } from "@/server/queries/requests";
 import { dueFollowups } from "@/server/queries/followups";
 import { listTreatments } from "@/server/queries/treatments";
+import { cacheClinicQuery } from "@/server/queries/_cache";
+import { can } from "@/lib/roles";
 import {
   Card,
   CardContent,
-  Badge,
   StatusPill,
   EmptyState,
   Button,
+  ExplainerPopover,
 } from "@eins/ui";
-import {
-  REQUEST_SORTS,
-  SOURCE_LABELS,
-  type RequestSort,
-  type RequestStatus,
-  type AiCategory,
-} from "@/lib/constants";
-import { formatDateTime, formatMoney, formatRelative } from "@/lib/formatting";
-import { AlertTriangle, Banknote, Inbox, Sparkles } from "lucide-react";
-import { SourceLabel } from "@/app/_components/Brand";
+import { SOURCE_LABELS } from "@/lib/constants";
+import { formatMoney, formatRelative } from "@/lib/formatting";
+import { Download, Inbox, UserPlus } from "lucide-react";
 import { AnfragenFilters } from "./_components/AnfragenFilters";
 import { CallQueue } from "./_components/CallQueue";
+import { TimingLine } from "./_components/TimingLine";
+import { AI_SCORE_EXPLANATION, aiCategoryWord, aiScoreText } from "./_lib/ai-score";
+import { rowTiming } from "./_lib/row-timing";
+import { responseRuleStartForClinic } from "@/server/guarantee-clock";
 import { RequestListSkeleton } from "./_components/RequestListSkeleton";
 import { ChapterLaunchLink } from "@/app/(portal)/_components/tour/ChapterLaunchLink";
+import {
+  hasListFilter,
+  listQueryString,
+  parseAnfragenParams,
+  type AnfragenSearchParams,
+} from "./_lib/list-params";
 
 export const metadata = { title: "Anfragen" };
 
-type Search = {
-  status?: string;
-  source?: string;
-  aiCategory?: string;
-  treatment?: string;
-  search?: string;
-  slaBreached?: string;
-  stale?: string;
-  sort?: string;
-  page?: string;
-};
+type Search = AnfragenSearchParams;
+
+// Treatments change rarely and do not depend on the list filters; without a
+// cache every keystroke in the search box re-read them (D-19).
+const listTreatmentsCached = cacheClinicQuery("anfragenTreatments", listTreatments, {
+  revalidate: 300,
+});
 
 // 25 rows × per-row component graph keeps the list page's HTML payload
 // inside ~250 KB. Was 50 — observed shipping ~1.1 MB in dev for a single
 // list render with that page size.
 const PAGE_SIZE = 25;
+
+/** Desktop columns: Anfrage, Status, KI-Bewertung, Umsatz. Header and rows share it. */
+const LIST_COLUMNS = "lg:grid-cols-[minmax(0,1fr)_10rem_7.5rem_6.5rem]";
+
+const LTV_HINT = "Gesamtumsatz dieses Patienten über alle Behandlungen";
 
 export default async function AnfragenPage({
   searchParams,
@@ -61,6 +67,8 @@ export default async function AnfragenPage({
 
   const isFrontdesk = session.role === "frontdesk";
   const isInhaber = session.role === "inhaber";
+  // "Anfrage anlegen" (Empfang): everyone who works Anfragen.
+  const canCreate = can(session.role, "requests.update");
 
   return (
     <div className="space-y-6">
@@ -72,11 +80,21 @@ export default async function AnfragenPage({
           <h1 className="text-3xl font-semibold md:text-4xl">Anfragen.</h1>
           <p className="mt-2 text-base text-fg-primary md:text-lg">
             {isFrontdesk
-              ? "Anfragen behandeln, anrufen und closen. Die heißesten zuerst."
+              ? "Anfragen bearbeiten und anrufen. Die dringendsten zuerst."
               : "Alle Patienten-Anfragen an einem Ort. Schnell reagieren, nichts vergessen."}
           </p>
         </div>
-        {isInhaber && <ChapterLaunchLink chapter="anfragen" />}
+        <div className="flex flex-wrap items-center gap-3">
+          {isInhaber && <ChapterLaunchLink chapter="anfragen" />}
+          {canCreate && (
+            <Button asChild size="sm">
+              <Link href="/anfragen/neu">
+                <UserPlus className="h-4 w-4" aria-hidden />
+                Anfrage anlegen
+              </Link>
+            </Button>
+          )}
+        </div>
       </header>
 
       <Suspense fallback={<FiltersSkeleton />}>
@@ -97,7 +115,7 @@ export default async function AnfragenPage({
  */
 async function FiltersLoader({ session }: { session: ResolvedSession }) {
   const [treatments, aiCounts] = await Promise.all([
-    listTreatments(session.clinicId, session.userId),
+    listTreatmentsCached(session.clinicId, session.userId),
     aiCategoryCounts(session.clinicId, session.userId),
   ]);
 
@@ -125,44 +143,33 @@ async function RequestListLoader({
   session: ResolvedSession;
   params: Search;
 }) {
-  const page = Math.max(1, Number(params.page ?? 1));
-  const statusFilter = params.status?.split(",").filter(Boolean) as RequestStatus[] | undefined;
-  const sourceFilter = params.source?.split(",").filter(Boolean) as string[] | undefined;
-  const aiFilter = params.aiCategory?.split(",").filter(Boolean) as AiCategory[] | undefined;
-  const treatmentFilter = params.treatment?.split(",").filter(Boolean);
-  const sort: RequestSort = (REQUEST_SORTS as readonly string[]).includes(
-    params.sort ?? ""
-  )
-    ? (params.sort as RequestSort)
-    : "neueste";
+  // Validated: unknown values from old or hand-edited links are dropped
+  // instead of failing in the database (C-22).
+  const list = parseAnfragenParams(params);
+  const { page, sort } = list;
+  const filtered = hasListFilter(list);
 
-  // Call-queue is only useful when there are no filters applied — once the
-  // MFA filters down to "spam" or one specific treatment, surfacing a hero
+  // Call-queue is only useful when there are no filters applied: once the
+  // team filters down to "spam" or one specific treatment, surfacing a hero
   // "Jetzt anrufen" card from a different priority slice would be misleading.
-  // Also frontdesk-only: Inhaber/Marketing don't make the calls.
+  // Shown to everyone who works Anfragen (C-20): in small Praxen the
+  // Inhaberin calls back herself, and her Wiedervorlagen must surface too.
   const showCallQueue =
-    session.role === "frontdesk" &&
-    page === 1 &&
-    !statusFilter?.length &&
-    !sourceFilter?.length &&
-    !aiFilter?.length &&
-    !treatmentFilter?.length &&
-    !params.search &&
-    params.slaBreached !== "1" &&
-    params.stale !== "1";
+    can(session.role, "requests.update") && page === 1 && !filtered;
+  const canExport = can(session.role, "requests.view");
 
-  const [{ items, total }, callQueue, dueList] = await Promise.all([
+  const [{ items, total }, callQueue, dueList, ruleStart] = await Promise.all([
     listRequests(
       session.clinicId,
       session.userId,
       {
-        status: statusFilter,
-        source: sourceFilter,
-        aiCategory: aiFilter,
-        treatmentId: treatmentFilter,
-        search: params.search,
-        slaBreachedOnly: params.slaBreached === "1",
-        staleOnly: params.stale === "1",
+        status: list.status,
+        source: list.source,
+        aiCategory: list.aiCategory,
+        treatmentId: list.treatmentId,
+        search: list.search,
+        slaBreachedOnly: list.slaBreachedOnly,
+        staleOnly: list.staleOnly,
       },
       { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE, sort }
     ),
@@ -172,26 +179,61 @@ async function RequestListLoader({
     showCallQueue
       ? dueFollowups(session.clinicId, session.userId)
       : Promise.resolve([]),
+    // K-3: no "nicht beantwortet" for inquiries before the signing date.
+    responseRuleStartForClinic(session.clinicId),
   ]);
+  const now = new Date();
 
   return (
     <div className="space-y-6">
-      <div className="text-sm text-fg-secondary">
-        {total === 0
-          ? "Keine Einträge"
-          : `${total} Eintrag${total === 1 ? "" : "e"}`}
-      </div>
-
       {showCallQueue && callQueue.length > 0 && (
-        <CallQueue leads={callQueue} dueCount={dueList.length} />
+        <CallQueue
+          leads={callQueue}
+          dueCount={dueList.length}
+          // No country column on clinics; CHF billing means a Swiss Praxis.
+          countryCode={session.currency === "CHF" ? "41" : "49"}
+          ruleStart={ruleStart}
+        />
       )}
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <span className="text-sm font-medium text-fg-primary">
+            {total === 0
+              ? "Keine Einträge"
+              : `${total} ${total === 1 ? "Eintrag" : "Einträge"}`}
+          </span>
+          {/* Phones have no column header, so the score explanation sits here. */}
+          {total > 0 && (
+            <span className="inline-flex items-center text-sm text-fg-primary lg:hidden">
+              Was heißt die KI-Bewertung?
+              <ExplainerPopover term="KI-Bewertung" ariaLabel="Erklärung zur KI-Bewertung">
+                {AI_SCORE_EXPLANATION}
+              </ExplainerPopover>
+            </span>
+          )}
+        </div>
+        {canExport && total > 0 && (
+          <Button asChild variant="outline" size="sm">
+            <a
+              href={`/api/requests/export${
+                listQueryString(params) ? `?${listQueryString(params)}` : ""
+              }`}
+              download
+            >
+              <Download className="h-4 w-4" />
+              {filtered ? "Auswahl als CSV herunterladen" : "Alle als CSV herunterladen"}
+            </a>
+          </Button>
+        )}
+      </div>
 
       {items.length === 0 ? (
         <EmptyState
           icon={<Inbox className="h-8 w-8" />}
           title="Keine Anfragen gefunden"
           description={
-            params.search || params.status
+            filtered
               ? "Versuchen Sie es mit weniger Filtern."
               : "Sobald neue Anfragen eingehen, erscheinen sie hier."
           }
@@ -199,130 +241,86 @@ async function RequestListLoader({
       ) : (
         <Card data-tour="anfragen-list">
           <CardContent className="p-0">
-            <div className="hidden border-b border-border px-5 py-3 text-xs font-medium uppercase tracking-wide text-fg-tertiary md:grid md:items-center md:gap-4 md:grid-cols-[minmax(0,1.5fr)_10rem_5rem_7rem_11rem_8rem]">
+            {/* Desktop: one fixed grid, so status, score and Umsatz line up
+                in their own columns on every row. Phones: the same facts
+                sit in one line under the name, status first. */}
+            <div className={`hidden border-b border-border px-5 py-3 text-sm font-medium text-fg-primary lg:grid lg:items-center lg:gap-x-4 ${LIST_COLUMNS}`}>
               <div>Anfrage</div>
-              <div>Quelle</div>
-              <div className="tabular-nums">Bewertung</div>
-              <div>Reaktion</div>
               <div>Status</div>
-              <div className="text-right">Datum</div>
+              <div className="inline-flex items-center justify-end gap-1 whitespace-nowrap">
+                KI-Bewertung
+                <ExplainerPopover term="KI-Bewertung" ariaLabel="Erklärung zur KI-Bewertung">
+                  {AI_SCORE_EXPLANATION}
+                </ExplainerPopover>
+              </div>
+              <div className="text-right" title={LTV_HINT}>Umsatz</div>
             </div>
 
-            <ul className="grid grid-cols-[minmax(0,1fr)_auto] divide-y divide-border px-4 md:gap-x-4 md:px-5 md:grid-cols-[minmax(0,1.5fr)_10rem_5rem_7rem_11rem_8rem]">
+            <ul className={`grid grid-cols-1 divide-y divide-border px-4 md:px-5 lg:gap-x-4 ${LIST_COLUMNS}`}>
               {items.map((r) => {
-                const slaBreached =
-                  !r.firstContactedAt &&
-                  r.slaRespondBy &&
-                  r.slaRespondBy.getTime() < Date.now();
-                const ageMs = Date.now() - r.createdAt.getTime();
-                const stale =
-                  ageMs > 14 * 24 * 60 * 60 * 1000 && !r.firstContactedAt;
-                const responseMs =
-                  r.firstContactedAt && r.createdAt
-                    ? r.firstContactedAt.getTime() - r.createdAt.getTime()
+                const timing = rowTiming(
+                  {
+                    createdAt: r.createdAt,
+                    firstAttemptAt: r.firstAttemptAt,
+                    status: r.status,
+                    ruleStart,
+                    firstContactedAt: r.firstContactedAt,
+                    slaRespondBy: r.slaRespondBy,
+                  },
+                  now
+                );
+                const score =
+                  r.aiScore != null ? aiScoreText(r.aiScore) : aiCategoryWord(r.aiCategory);
+                const ltv =
+                  r.patientLtv != null && r.patientLtv > 0
+                    ? formatMoney(r.patientLtv, session.currency)
                     : null;
+                const source =
+                  SOURCE_LABELS[r.source as keyof typeof SOURCE_LABELS] ?? r.source;
                 return (
-                  <li
-                    key={r.id}
-                    className="col-span-full grid grid-cols-subgrid"
-                  >
+                  <li key={r.id} className="col-span-full grid grid-cols-subgrid">
                     <Link
                       href={`/anfragen/${r.id}`}
-                      className="col-span-full grid grid-cols-subgrid items-center gap-4 py-4 transition hover:bg-bg-secondary md:py-5"
+                      className="col-span-full grid grid-cols-subgrid items-baseline gap-y-1 py-4 transition hover:bg-bg-secondary md:py-5"
                     >
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="truncate text-base font-semibold text-fg-primary md:text-lg">
-                            {r.contactName ?? "Unbekannt"}
-                          </span>
-                          {(r.aiCategory || r.aiScore != null) && (
-                            <Badge
-                              tone={
-                                r.aiCategory === "hot"
-                                  ? "accent"
-                                  : r.aiCategory === "warm"
-                                  ? "warn"
-                                  : "neutral"
-                              }
-                            >
-                              <span className="inline-flex items-center gap-1">
-                                <Sparkles className="h-3 w-3" />
-                                {r.aiCategory === "hot"
-                                  ? "Sehr heiß"
-                                  : r.aiCategory === "warm"
-                                  ? "Warm"
-                                  : r.aiCategory === "cold"
-                                  ? "Kalt"
-                                  : null}
-                                {r.aiScore != null && (
-                                  <span className="tabular-nums">
-                                    {r.aiCategory ? `· ${r.aiScore}` : `KI ${r.aiScore}`}
-                                  </span>
-                                )}
-                              </span>
-                            </Badge>
-                          )}
-                          {stale && <Badge tone="warn">Stagniert</Badge>}
-                          {r.patientLtv != null && r.patientLtv > 0 && (
-                            <Badge
-                              tone="good"
-                              title="Lifetime-Wert dieses Patienten"
-                            >
-                              <Banknote className="h-3 w-3" aria-hidden />
-                              <span className="tabular-nums">
-                                {formatMoney(r.patientLtv, session.currency)}
-                              </span>
-                            </Badge>
-                          )}
+                      <div className="min-w-0 space-y-1">
+                        <div className="truncate text-base font-semibold text-fg-primary md:text-lg">
+                          {r.contactName ?? "Unbekannt"}
                         </div>
-                        <div className="mt-0.5 truncate text-sm text-fg-secondary">
-                          {r.treatmentName ?? r.treatmentWish ?? "Keine Angabe zur Behandlung"}
-                          {r.contactEmail ? ` · ${r.contactEmail}` : ""}
+                        {/* Phones only: status and facts in one line. */}
+                        <div className="flex min-w-0 items-center gap-x-1.5 text-sm text-fg-secondary lg:hidden">
+                          <StatusPill status={r.status} />
+                          {score && (
+                            <span className="whitespace-nowrap tabular-nums">· KI {score}</span>
+                          )}
+                          {ltv && <span className="whitespace-nowrap tabular-nums">· {ltv}</span>}
                         </div>
+                        <div className="truncate text-sm text-fg-secondary">
+                          {[
+                            r.treatmentName ?? r.treatmentWish ?? "Keine Angabe zur Behandlung",
+                            source,
+                            formatRelative(r.createdAt),
+                          ].join(" · ")}
+                        </div>
+                        <TimingLine timing={timing} className="max-w-full" />
                       </div>
 
-                      <div className="hidden min-w-0 truncate text-sm text-fg-primary md:block">
-                        <SourceLabel
-                          source={r.source}
-                          label={
-                            SOURCE_LABELS[
-                              r.source as keyof typeof SOURCE_LABELS
-                            ] ?? r.source
-                          }
-                        />
-                      </div>
-
-                      <div className="hidden items-center gap-1 text-sm tabular-nums text-fg-secondary md:flex">
-                        <Sparkles className="h-3.5 w-3.5" />
-                        {r.aiScore ?? "–"}
-                      </div>
-                      <div className="hidden text-sm tabular-nums text-fg-secondary md:block">
-                        {responseMs == null
-                          ? "—"
-                          : responseMs < 60_000
-                          ? "< 1 Min"
-                          : responseMs < 3600_000
-                          ? `${Math.round(responseMs / 60_000)} Min`
-                          : `${(responseMs / 3600_000).toFixed(1).replace(".", ",")} Std`}
-                      </div>
-
-                      <div className="hidden md:block">
+                      <div className="hidden lg:block">
                         <StatusPill status={r.status} />
                       </div>
 
-                      <div className="text-right">
-                        <div className="text-sm tabular-nums text-fg-secondary">
-                          {formatRelative(r.createdAt)}
-                        </div>
-                        {slaBreached && (
-                          <div
-                            className="mt-1 inline-flex items-center justify-end gap-1 text-xs text-tone-bad"
-                            title={`Überfällig seit ${formatDateTime(r.slaRespondBy)}`}
-                          >
-                            <AlertTriangle className="h-3.5 w-3.5" />
-                            Überfällig
-                          </div>
-                        )}
+                      <div
+                        className="hidden whitespace-nowrap text-right text-sm tabular-nums text-fg-primary lg:block"
+                        title={score ? AI_SCORE_EXPLANATION : undefined}
+                      >
+                        {score}
+                      </div>
+
+                      <div
+                        className="hidden whitespace-nowrap text-right text-sm font-medium tabular-nums text-fg-primary lg:block"
+                        title={ltv ? LTV_HINT : undefined}
+                      >
+                        {ltv}
                       </div>
                     </Link>
                   </li>
@@ -342,12 +340,16 @@ async function RequestListLoader({
           <div className="flex gap-2">
             {page > 1 && (
               <Button asChild variant="outline" size="sm">
-                <Link href={`/anfragen?page=${page - 1}`}>← Zurück</Link>
+                <Link href={`/anfragen?${listQueryString(params, page - 1)}`}>
+                  ← Zurück
+                </Link>
               </Button>
             )}
             {page * PAGE_SIZE < total && (
               <Button asChild variant="outline" size="sm">
-                <Link href={`/anfragen?page=${page + 1}`}>Weiter →</Link>
+                <Link href={`/anfragen?${listQueryString(params, page + 1)}`}>
+                  Weiter →
+                </Link>
               </Button>
             )}
           </div>

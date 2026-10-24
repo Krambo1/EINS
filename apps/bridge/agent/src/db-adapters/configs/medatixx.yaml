@@ -35,6 +35,21 @@
 #   - InvoicePaid needs: pvsAppointmentId (CRITICAL for ROI attribution)
 #   - clinicId is stamped by the runner.
 
+# NOTE on transport security: node-firebird 1.1.10 does NOT implement wire
+# encryption (there is no wireCrypt option in its attach/DPB code), so traffic
+# between the agent and the Firebird server is UNENCRYPTED. Run the agent on the
+# Firebird server itself (host: localhost / 127.0.0.1) or on a trusted wired
+# LAN segment. The agent reads through an explicit read-only, read-committed,
+# NO WAIT transaction, so it never blocks the PVS and never writes.
+# Firebird 4+ defaults to AuthServer = Srp256, which this driver cannot speak:
+# enable Legacy_Auth / Srp in firebird.conf (AuthServer = Srp, Legacy_Auth) or
+# the stream reports auth_failed with that hint.
+# charset: leave unset for UTF8 (the server transliterates WIN1252 databases).
+# For databases whose text columns are charset NONE set
+#   charset: NONE        (and optionally decodeAs: win1252)
+# and CAST such columns to OCTETS in the query so they arrive as bytes and are
+# decoded with iconv-lite.
+
 vendor: medatixx-db
 driver: firebird
 bridgeSource: medatixx
@@ -51,10 +66,10 @@ connection:
   # The IT contact sets the actual path at --enable-db-adapter time.
   database: ""
   options:
-    # Firebird wire encryption: on for any 3.x/4.x server. Set to false
-    # only if the Praxis still runs Firebird 2.5 (deprecated by Indamed
-    # / medatixx since 2019; very rare on a current PVS install).
-    wireEncryption: true
+    # No wireEncryption option: node-firebird cannot encrypt the wire. See the
+    # transport-security note in this file's header comment block and run the
+    # agent on the Firebird server (host: localhost).
+    {}
 
 streams:
   # ----- 1. Patients (PAT) ------------------------------------------------
@@ -188,6 +203,7 @@ streams:
   # export OR the data must be visible in RECH directly; the latter is
   # the default.
   - kind: InvoicePaid
+    statusColumn: STATUS
     cursorColumn: modified_at
     cursorType: timestamp
     tiebreakColumn: id
@@ -258,6 +274,12 @@ streams:
   # Cancellations stay on stream 3 (AppointmentStatusChanged -> cancelled); no
   # AppointmentCancelled stream until a real schema separates patient- vs
   # Praxis-side cancel.
+  # PROBE TODO (review finding 12): a Storno / Gutschrift booked as a NEW row has its own
+  # id here (pvsRefundId = that id, sent automatically). To net the ORIGINAL invoice and
+  # sum several partial credit notes, the schema probe must find the Storno reference
+  # column (original invoice id) and map it as `originalInvoiceId: <column>` below
+  # (select it in the query too). Until then pvsInvoiceId stays the row id, which is
+  # only right when the invoice row itself flips to storniert (flag-flip case).
   - kind: InvoiceRefunded
     cursorColumn: modified_at
     cursorType: timestamp

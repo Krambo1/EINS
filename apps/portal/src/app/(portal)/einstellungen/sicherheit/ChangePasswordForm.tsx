@@ -5,10 +5,10 @@ import { useFormStatus } from "react-dom";
 import { Button, Input, Label } from "@eins/ui";
 import { changePasswordAction, type SettingsActionState } from "./actions";
 
-function SubmitButton() {
+function SubmitButton({ blocked }: { blocked: boolean }) {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending}>
+    <Button type="submit" disabled={pending || blocked}>
       {pending ? "Wird gespeichert…" : "Passwort ändern"}
     </Button>
   );
@@ -21,7 +21,7 @@ export function ChangePasswordForm() {
   );
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
-  const mismatch = pw && pw2 && pw !== pw2;
+  const mismatch = pw.length > 0 && pw2.length > 0 && pw !== pw2;
 
   return (
     <form action={action} className="space-y-4">
@@ -48,7 +48,7 @@ export function ChangePasswordForm() {
             value={pw}
             onChange={(e) => setPw(e.target.value)}
           />
-          <p className="text-xs text-fg-secondary">
+          <p className="text-sm text-fg-secondary">
             Mindestens 12 Zeichen, mit mindestens 3 von 4: Großbuchstabe,
             Kleinbuchstabe, Ziffer, Sonderzeichen.
           </p>
@@ -57,6 +57,7 @@ export function ChangePasswordForm() {
           <Label htmlFor="newPassword2">Wiederholung</Label>
           <Input
             id="newPassword2"
+            name="newPassword2"
             type="password"
             autoComplete="new-password"
             required
@@ -74,7 +75,7 @@ export function ChangePasswordForm() {
       {state && !state.ok && (
         <div
           role="alert"
-          className="rounded-xl border border-tone-bad/40 bg-tone-bad/10 p-3 text-sm text-fg-primary"
+          className="rounded-xl border border-[var(--tone-bad-border)] bg-[var(--tone-bad-bg)] p-3 text-sm text-fg-primary"
         >
           {state.error}
         </div>
@@ -82,12 +83,12 @@ export function ChangePasswordForm() {
       {state && state.ok && (
         <div
           role="status"
-          className="rounded-xl border border-tone-good/40 bg-tone-good/10 p-3 text-sm text-fg-primary"
+          className="rounded-xl border border-[var(--tone-good-border)] bg-[var(--tone-good-bg)] p-3 text-sm text-fg-primary"
         >
           {state.message}
         </div>
       )}
-      <SubmitButton />
+      <SubmitButton blocked={mismatch} />
     </form>
   );
 }

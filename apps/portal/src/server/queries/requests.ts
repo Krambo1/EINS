@@ -4,7 +4,7 @@ import {
   asc,
   desc,
   eq,
-  gte,
+  getTableColumns,
   ilike,
   inArray,
   isNull,
@@ -14,10 +14,13 @@ import {
   type SQL,
 } from "drizzle-orm";
 import { withClinicContext, schema } from "@/db/client";
-import type { RequestStatus, RequestSort } from "@/lib/constants";
+import type { AnyRequestStatus, RequestStatus, RequestSort } from "@/lib/constants";
+import { responseDeadline } from "@/lib/werkstunden";
 import { avatarUrlForKey } from "@/server/avatars";
 import { invalidateNavBadges } from "./navBadgesCache";
 import { cacheClinicQuery, SHORT_REVALIDATE_S } from "./_cache";
+import { firstAttemptAtSql, toAttemptDate } from "./response-time";
+import { openCountsAtPoints, openQueuePoints } from "./requests-open-queue";
 
 /**
  * Read helpers for the Anfragen inbox and detail views.
@@ -38,6 +41,8 @@ export interface RequestListItem {
   aiCategory: string | null;
   slaRespondBy: Date | null;
   firstContactedAt: Date | null;
+  /** First contact attempt per the 48-Werkstunden rule (queries/response-time.ts). */
+  firstAttemptAt: Date | null;
   createdAt: Date;
   assignedTo: string | null;
   /** Lifetime-Wert des verknüpften Patienten; null wenn keiner verknüpft ist. */
@@ -80,7 +85,7 @@ function requestSortOrderBy(sort: RequestSort): SQL[] {
 }
 
 export interface RequestListFilters {
-  status?: RequestStatus[];
+  status?: AnyRequestStatus[];
   source?: string[];
   aiCategory?: ("hot" | "warm" | "cold")[];
   treatmentId?: string[];
@@ -89,6 +94,94 @@ export interface RequestListFilters {
   slaBreachedOnly?: boolean;
   /** When true, only return rows with no activity in the last 14 days. */
   staleOnly?: boolean;
+}
+
+/** Escape LIKE/ILIKE wildcards so a typed `%` or `_` matches literally (C-23). */
+export function escapeLike(term: string): string {
+  return term.replace(/[\\%_]/g, (c) => "\\" + c);
+}
+
+/**
+ * Digits of a typed phone number, reduced to the national number without
+ * leading zeros or country code, so "0170 123", "+49 170 123" and
+ * "0049170123" all search for "170123". Null when the term does not look like
+ * a phone number (letters, or fewer than 4 digits).
+ */
+export function phoneSearchDigits(term: string): string | null {
+  if (!/^[\d\s+()\/.-]+$/.test(term)) return null;
+  const hadIntlPrefix = /^\s*(\+|00)/.test(term);
+  let digits = term.replace(/\D/g, "");
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  if (hadIntlPrefix && /^(49|43|41)/.test(digits)) digits = digits.slice(2);
+  digits = digits.replace(/^0+/, "");
+  return digits.length >= 4 ? digits : null;
+}
+
+function requestListWhere(clinicId: string, filters: RequestListFilters): SQL {
+    const predicates = [eq(schema.requests.clinicId, clinicId)];
+
+    if (filters.status?.length) {
+      predicates.push(inArray(schema.requests.status, filters.status));
+    }
+    if (filters.source?.length) {
+      predicates.push(inArray(schema.requests.source, filters.source));
+    }
+    if (filters.aiCategory?.length) {
+      predicates.push(inArray(schema.requests.aiCategory, filters.aiCategory));
+    }
+    if (filters.treatmentId?.length) {
+      predicates.push(inArray(schema.requests.treatmentId, filters.treatmentId));
+    }
+    if (filters.search) {
+      const term = `%${escapeLike(filters.search)}%`;
+      const phoneDigits = phoneSearchDigits(filters.search);
+      predicates.push(
+        or(
+          ilike(schema.requests.contactName, term),
+          ilike(schema.requests.contactEmail, term),
+          ilike(schema.requests.contactPhone, term),
+          ilike(schema.requests.treatmentWish, term),
+          ...(phoneDigits
+            ? [
+                sql`regexp_replace(coalesce(${schema.requests.contactPhone}, ''), '\\D', '', 'g') LIKE ${`%${phoneDigits}%`}`,
+              ]
+            : [])
+        )!
+      );
+    }
+    if (filters.assignedTo === "unassigned") {
+      predicates.push(isNull(schema.requests.assignedTo));
+    } else if (filters.assignedTo) {
+      predicates.push(eq(schema.requests.assignedTo, filters.assignedTo));
+    }
+    if (filters.slaBreachedOnly) {
+      // Same predicate as slaBreachedCount (V2 Neben 2): only open "neu"
+      // Anfragen, so the list matches the number on the dashboard.
+      predicates.push(
+        and(
+          isNull(schema.requests.firstContactedAt),
+          sql`${schema.requests.slaRespondBy} < now()`,
+          eq(schema.requests.status, "neu")
+        )!
+      );
+    }
+    if (filters.staleOnly) {
+      // "No activity in the last 14 days" = no recent activity row exists.
+      // NOT EXISTS hits the (request_id, created_at) compound index added
+      // in migration 0005 — index-only scan, short-circuits on the first
+      // matching row instead of computing MAX over the heap. Replaces a
+      // pair of correlated subqueries that ORed "max(created_at) < N days
+      // ago" with "count(*) = 0".
+      predicates.push(
+        sql`NOT EXISTS (
+          SELECT 1 FROM request_activities ra
+          WHERE ra.request_id = ${schema.requests.id}
+            AND ra.created_at >= now() - interval '14 days'
+        )`
+      );
+    }
+
+    return and(...predicates)!;
 }
 
 /**
@@ -110,61 +203,7 @@ export async function listRequests(
   const sort = opts.sort ?? "neueste";
 
   return withClinicContext(clinicId, userId, async (tx) => {
-    const predicates = [eq(schema.requests.clinicId, clinicId)];
-
-    if (filters.status?.length) {
-      predicates.push(inArray(schema.requests.status, filters.status));
-    }
-    if (filters.source?.length) {
-      predicates.push(inArray(schema.requests.source, filters.source));
-    }
-    if (filters.aiCategory?.length) {
-      predicates.push(inArray(schema.requests.aiCategory, filters.aiCategory));
-    }
-    if (filters.treatmentId?.length) {
-      predicates.push(inArray(schema.requests.treatmentId, filters.treatmentId));
-    }
-    if (filters.search) {
-      const term = `%${filters.search}%`;
-      predicates.push(
-        or(
-          ilike(schema.requests.contactName, term),
-          ilike(schema.requests.contactEmail, term),
-          ilike(schema.requests.contactPhone, term),
-          ilike(schema.requests.treatmentWish, term)
-        )!
-      );
-    }
-    if (filters.assignedTo === "unassigned") {
-      predicates.push(isNull(schema.requests.assignedTo));
-    } else if (filters.assignedTo) {
-      predicates.push(eq(schema.requests.assignedTo, filters.assignedTo));
-    }
-    if (filters.slaBreachedOnly) {
-      predicates.push(
-        and(
-          isNull(schema.requests.firstContactedAt),
-          sql`${schema.requests.slaRespondBy} < now()`
-        )!
-      );
-    }
-    if (filters.staleOnly) {
-      // "No activity in the last 14 days" = no recent activity row exists.
-      // NOT EXISTS hits the (request_id, created_at) compound index added
-      // in migration 0005 — index-only scan, short-circuits on the first
-      // matching row instead of computing MAX over the heap. Replaces a
-      // pair of correlated subqueries that ORed "max(created_at) < N days
-      // ago" with "count(*) = 0".
-      predicates.push(
-        sql`NOT EXISTS (
-          SELECT 1 FROM request_activities ra
-          WHERE ra.request_id = ${schema.requests.id}
-            AND ra.created_at >= now() - interval '14 days'
-        )`
-      );
-    }
-
-    const whereClause = and(...predicates);
+    const whereClause = requestListWhere(clinicId, filters);
 
     const [items, [{ count }]] = await Promise.all([
       tx
@@ -182,6 +221,7 @@ export async function listRequests(
           aiCategory: schema.requests.aiCategory,
           slaRespondBy: schema.requests.slaRespondBy,
           firstContactedAt: schema.requests.firstContactedAt,
+          firstAttemptAt: firstAttemptAtSql(),
           createdAt: schema.requests.createdAt,
           assignedTo: schema.requests.assignedTo,
           patientLtv: schema.patients.lifetimeRevenueEur,
@@ -209,11 +249,122 @@ export async function listRequests(
       items: items.map((i) => ({
         ...i,
         status: i.status as RequestStatus,
+        firstAttemptAt: toAttemptDate(i.firstAttemptAt),
         patientLtv: i.patientLtv != null ? Number(i.patientLtv) : null,
       })),
       total: Number(count ?? 0),
     };
   });
+}
+
+export interface RequestSearchHit {
+  id: string;
+  contactName: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  treatmentWish: string | null;
+}
+
+/**
+ * Typeahead for the command palette (D-20): same search predicate as the
+ * inbox, but no count, no joins and no per-row attempt subquery.
+ */
+export async function searchRequestsLite(
+  clinicId: string,
+  userId: string,
+  search: string,
+  limit = 6
+): Promise<RequestSearchHit[]> {
+  return withClinicContext(
+    clinicId,
+    userId,
+    (tx) =>
+      tx
+        .select({
+          id: schema.requests.id,
+          contactName: schema.requests.contactName,
+          contactEmail: schema.requests.contactEmail,
+          contactPhone: schema.requests.contactPhone,
+          treatmentWish: schema.requests.treatmentWish,
+        })
+        .from(schema.requests)
+        .where(requestListWhere(clinicId, { search }))
+        .orderBy(desc(schema.requests.createdAt))
+        .limit(limit),
+    "requests:search-lite"
+  );
+}
+
+export interface RequestExportRow {
+  id: string;
+  createdAt: Date;
+  contactName: string | null;
+  contactEmail: string | null;
+  contactPhone: string | null;
+  treatmentName: string | null;
+  treatmentWish: string | null;
+  source: string;
+  status: string;
+  aiCategory: string | null;
+  firstContactedAt: Date | null;
+  message: string | null;
+  utmCampaign: string | null;
+  utmContent: string | null;
+}
+
+/** Upper bound for one CSV export, keeps the function inside its time limit. */
+export const REQUEST_EXPORT_MAX_ROWS = 10_000;
+
+/**
+ * Every Anfrage matching the inbox filters, for the CSV export (H-09).
+ * Same WHERE and ORDER BY as the list, capped at REQUEST_EXPORT_MAX_ROWS.
+ */
+export async function exportRequests(
+  clinicId: string,
+  userId: string,
+  filters: RequestListFilters,
+  sort: RequestSort = "neueste"
+): Promise<{ rows: RequestExportRow[]; truncated: boolean }> {
+  return withClinicContext(
+    clinicId,
+    userId,
+    async (tx) => {
+      const rows = await tx
+        .select({
+          id: schema.requests.id,
+          createdAt: schema.requests.createdAt,
+          contactName: schema.requests.contactName,
+          contactEmail: schema.requests.contactEmail,
+          contactPhone: schema.requests.contactPhone,
+          treatmentName: schema.treatments.name,
+          treatmentWish: schema.requests.treatmentWish,
+          source: schema.requests.source,
+          status: schema.requests.status,
+          aiCategory: schema.requests.aiCategory,
+          firstContactedAt: schema.requests.firstContactedAt,
+          message: schema.requests.message,
+          utmCampaign: sql<string | null>`${schema.requests.utm}->>'utm_campaign'`,
+          utmContent: sql<string | null>`${schema.requests.utm}->>'utm_content'`,
+        })
+        .from(schema.requests)
+        .leftJoin(
+          schema.treatments,
+          eq(schema.requests.treatmentId, schema.treatments.id)
+        )
+        .leftJoin(
+          schema.patients,
+          eq(schema.requests.patientId, schema.patients.id)
+        )
+        .where(requestListWhere(clinicId, filters))
+        .orderBy(...requestSortOrderBy(sort))
+        .limit(REQUEST_EXPORT_MAX_ROWS + 1);
+      return {
+        rows: rows.slice(0, REQUEST_EXPORT_MAX_ROWS),
+        truncated: rows.length > REQUEST_EXPORT_MAX_ROWS,
+      };
+    },
+    "requests:export"
+  );
 }
 
 /**
@@ -284,6 +435,15 @@ export async function markRequestViewed(
   }
 }
 
+/** The nested quiz answers inside `ai_signals`, if any (jsonb is `unknown`). */
+export function quizFromSignals(signals: unknown): Record<string, unknown> | null {
+  if (!signals || typeof signals !== "object") return null;
+  const quiz = (signals as Record<string, unknown>).quiz;
+  return !!quiz && typeof quiz === "object" && !Array.isArray(quiz)
+    ? (quiz as Record<string, unknown>)
+    : null;
+}
+
 export interface CallQueueLead {
   id: string;
   contactName: string | null;
@@ -296,8 +456,12 @@ export interface CallQueueLead {
   aiScore: number | null;
   aiCategory: string | null;
   message: string | null;
+  /** Patient answers from the Zielseiten-Quiz (`ai_signals.quiz`), C-26. */
+  quiz: Record<string, unknown> | null;
   slaRespondBy: Date | null;
   firstContactedAt: Date | null;
+  /** First contact attempt per the 48-Werkstunden rule (queries/response-time.ts). */
+  firstAttemptAt: Date | null;
   createdAt: Date;
   /** Earliest still-pending Wiedervorlage for this lead, NULL if none. */
   nextFollowupAt: Date | null;
@@ -307,19 +471,25 @@ export interface CallQueueLead {
 }
 
 /**
- * Prioritised lead-queue for the "Call Center" view (frontdesk only).
+ * Prioritised lead-queue for the "Jetzt anrufen" view (every role that
+ * works Anfragen, see anfragen/page.tsx).
  *
  * Surfaces leads still in the manual working phase: status ∈ {neu,
  * kontaktiert, nicht_erreicht, termin_vereinbart}. `kontaktiert` /
  * `nicht_erreicht` keep worked-but-unbooked leads visible so they don't
  * vanish the moment the MFA logs a first call. Sort order is the order the
- * MFA/Sekretariat should actually pick up the phone in:
- *   1. Fällige Wiedervorlage (pending, due_at <= now) — der MFA hat hier
- *      selbst einen Rückruf-Termin gesetzt, der jetzt ansteht
- *   2. SLA-überfällig & noch nicht kontaktiert (hottest accountability signal)
- *   3. KI-Kategorie hot → warm → kalt/unbekannt
- *   4. Neu vor bereits angefasst
- *   5. Innerhalb der Stufe: älteste zuerst (FIFO, nichts fällt hinten runter)
+ * MFA/Sekretariat should actually pick up the phone in (C-17: the
+ * 48-Werkstunden deadline leads, the KI category only breaks ties, so a cold
+ * Anfrage cannot be pushed back by newer hot ones until its deadline is lost):
+ *   1. Fällige Wiedervorlage (pending, due_at <= now): selbst gesetzter
+ *      Rückruf-Termin, der jetzt ansteht
+ *   2. Noch kein Kontaktversuch und die 48-Werkstunden-Frist läuft noch:
+ *      älteste zuerst = nächste Frist zuerst (die Frist wächst monoton mit
+ *      dem Eingang)
+ *   3. Noch kein Kontaktversuch, Frist schon verstrichen
+ *   4. Bereits angefasst (kontaktiert, nicht erreicht, Termin)
+ *   Innerhalb 3 und 4: KI-Kategorie hot → warm → kalt/unbekannt, dann
+ *   älteste zuerst.
  *
  * The earliest pending Wiedervorlage is pulled per lead via a correlated
  * subquery so the "fällig zuerst" ordering happens BEFORE the LIMIT — a lead
@@ -343,7 +513,12 @@ export async function nextCallQueueLeads(
         AND rf.status = 'pending'
     )`;
 
-    const rows = await tx
+    // M-2: both correlated subqueries are computed ONCE per open Anfrage in
+    // this inner select; the ORDER BY below reads the columns. Inlined in
+    // the ORDER BY, Postgres evaluated the first-attempt subquery four times
+    // and the follow-up one three times per row (8 SubPlans, now 2). Same
+    // rows, same order.
+    const q = tx
       .select({
         id: schema.requests.id,
         contactName: schema.requests.contactName,
@@ -355,9 +530,11 @@ export async function nextCallQueueLeads(
         status: schema.requests.status,
         aiScore: schema.requests.aiScore,
         aiCategory: schema.requests.aiCategory,
+        aiSignals: schema.requests.aiSignals,
         message: schema.requests.message,
         slaRespondBy: schema.requests.slaRespondBy,
         firstContactedAt: schema.requests.firstContactedAt,
+        firstAttemptAt: firstAttemptAtSql().as("first_attempt_at"),
         createdAt: schema.requests.createdAt,
         pvsAppointmentId: schema.requests.pvsAppointmentId,
         nextFollowupAt: nextFollowupAt.as("next_followup_at"),
@@ -378,32 +555,59 @@ export async function nextCallQueueLeads(
           ])
         )
       )
+      // OFFSET 0 keeps Postgres from pulling the subquery up and pasting the
+      // subqueries back into every ORDER BY term (measured: 95 -> 24 ms at
+      // 3,865 open Anfragen). Drizzle drops a numeric 0, hence the sql chunk.
+      .offset(sql`0` as unknown as number)
+      .as("call_queue");
+
+    const runningSince = responseDeadlineRunningSince(new Date());
+    const noAttempt = sql`${q.firstAttemptAt} IS NULL`;
+    const deadlineRunning = sql`(${noAttempt} AND ${q.createdAt} >= ${runningSince.toISOString()}::timestamptz)`;
+
+    const rows = await tx
+      .select()
+      .from(q)
       .orderBy(
-        sql`(${nextFollowupAt} IS NOT NULL AND ${nextFollowupAt} <= now()) DESC`,
-        sql`(${schema.requests.firstContactedAt} IS NULL
-              AND ${schema.requests.slaRespondBy} IS NOT NULL
-              AND ${schema.requests.slaRespondBy} < now()) DESC`,
-        sql`CASE ${schema.requests.aiCategory}
+        sql`(${q.nextFollowupAt} IS NOT NULL AND ${q.nextFollowupAt} <= now()) DESC`,
+        sql`${deadlineRunning} DESC`,
+        sql`${noAttempt} DESC`,
+        sql`CASE WHEN ${deadlineRunning} THEN ${q.createdAt} END ASC NULLS LAST`,
+        sql`CASE ${q.aiCategory}
               WHEN 'hot' THEN 0
               WHEN 'warm' THEN 1
               WHEN 'cold' THEN 2
               ELSE 3
             END`,
-        sql`CASE ${schema.requests.status}
-              WHEN 'neu' THEN 0
-              ELSE 1
-            END`,
-        schema.requests.createdAt
+        q.createdAt
       )
       .limit(limit);
 
-    return rows.map(({ pvsAppointmentId, ...r }) => ({
+    return rows.map(({ pvsAppointmentId, aiSignals, ...r }) => ({
       ...r,
+      quiz: quizFromSignals(aiSignals),
       status: r.status as RequestStatus,
+      firstAttemptAt: toAttemptDate(r.firstAttemptAt),
       nextFollowupAt: r.nextFollowupAt ? new Date(r.nextFollowupAt) : null,
       pvsControlled: pvsAppointmentId != null,
     }));
   });
+}
+
+/**
+ * Earliest `createdAt` whose 48-Werkstunden deadline is still in the future
+ * at `now`. The deadline grows monotonically with the arrival time, so a
+ * binary search over the last 30 days finds the cut (to ~1 s).
+ */
+export function responseDeadlineRunningSince(now: Date): Date {
+  let lo = now.getTime() - 30 * 86_400_000; // deadline long gone
+  let hi = now.getTime(); // just arrived, deadline ahead
+  while (hi - lo > 1000) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (responseDeadline(new Date(mid)).getTime() > now.getTime()) hi = mid;
+    else lo = mid;
+  }
+  return new Date(hi);
 }
 
 export interface OpenLeadForDashboard {
@@ -488,40 +692,8 @@ export const openLeadsForDashboard = cacheClinicQuery(
   { revalidate: SHORT_REVALIDATE_S }
 );
 
-/** Inbound request count series for the last N days — Detail-mode sparkline. */
-export async function inboundCountSeries(
-  clinicId: string,
-  userId: string,
-  days = 30
-): Promise<number[]> {
-  return withClinicContext(clinicId, userId, async (tx) => {
-    const since = new Date();
-    since.setDate(since.getDate() - days);
-    const rows = await tx
-      .select({
-        date: sql<string>`to_char(${schema.requests.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
-        count: sql<number>`count(*)::int`,
-      })
-      .from(schema.requests)
-      .where(
-        and(
-          eq(schema.requests.clinicId, clinicId),
-          gte(schema.requests.createdAt, since)
-        )
-      )
-      .groupBy(sql`to_char(${schema.requests.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`);
-    const map = new Map<string, number>(
-      rows.map((r) => [r.date, Number(r.count)])
-    );
-    const out: number[] = [];
-    const cursor = new Date(since);
-    while (cursor.getTime() <= Date.now()) {
-      out.push(map.get(cursor.toISOString().slice(0, 10)) ?? 0);
-      cursor.setDate(cursor.getDate() + 1);
-    }
-    return out;
-  });
-}
+/** Newest Verlauf entries loaded on the detail page (D-6). */
+export const REQUEST_ACTIVITY_LIMIT = 200;
 
 export async function getRequestWithActivities(
   clinicId: string,
@@ -529,8 +701,11 @@ export async function getRequestWithActivities(
   requestId: string
 ) {
   return withClinicContext(clinicId, userId, async (tx) => {
-    const [request] = await tx
-      .select()
+    const [row] = await tx
+      .select({
+        ...getTableColumns(schema.requests),
+        firstAttemptAt: firstAttemptAtSql(),
+      })
       .from(schema.requests)
       .where(
         and(
@@ -540,7 +715,8 @@ export async function getRequestWithActivities(
       )
       .limit(1);
 
-    if (!request) return null;
+    if (!row) return null;
+    const { firstAttemptAt, ...request } = row;
 
     const [activities, treatmentRow, locationRow] = await Promise.all([
       tx
@@ -563,7 +739,8 @@ export async function getRequestWithActivities(
           eq(schema.requestActivities.actorId, schema.clinicUsers.id)
         )
         .where(eq(schema.requestActivities.requestId, requestId))
-        .orderBy(desc(schema.requestActivities.createdAt)),
+        .orderBy(desc(schema.requestActivities.createdAt))
+        .limit(REQUEST_ACTIVITY_LIMIT),
       request.treatmentId
         ? tx
             .select({ name: schema.treatments.name })
@@ -584,6 +761,8 @@ export async function getRequestWithActivities(
 
     return {
       request,
+      /** First contact attempt per the 48-Werkstunden rule. */
+      firstAttemptAt: toAttemptDate(firstAttemptAt),
       activities: activities.map((a) => ({
         ...a,
         actorAvatarUrl: avatarUrlForKey(a.actorAvatarKey, a.actorAvatarUpdatedAt),
@@ -630,7 +809,7 @@ export const requestStatusCounts = cacheClinicQuery(
  * are actually marked Kalt" rather than shifting as you click around.
  * Rows with no aiCategory yet are dropped (no bucket to land in).
  */
-export async function aiCategoryCounts(clinicId: string, userId: string) {
+async function aiCategoryCountsUncached(clinicId: string, userId: string) {
   return withClinicContext(clinicId, userId, async (tx) => {
     const rows = await tx
       .select({
@@ -645,6 +824,16 @@ export async function aiCategoryCounts(clinicId: string, userId: string) {
     return map;
   });
 }
+
+/**
+ * Cached for SHORT_REVALIDATE_S (D-19): independent of the list filters, so
+ * typing in the search box no longer re-counts every Anfrage of the Praxis.
+ */
+export const aiCategoryCounts = cacheClinicQuery(
+  "aiCategoryCounts",
+  aiCategoryCountsUncached,
+  { revalidate: SHORT_REVALIDATE_S }
+);
 
 /** Requests where SLA is breached (not yet responded AND sla_respond_by < now()). */
 async function slaBreachedCountUncached(clinicId: string, userId: string) {
@@ -667,287 +856,12 @@ async function slaBreachedCountUncached(clinicId: string, userId: string) {
 /**
  * Cached for SHORT_REVALIDATE_S. Range-independent — same reasoning as
  * requestStatusCounts. The `< now()` breach cutoff being up to ~30s stale on
- * the dashboard tile is immaterial against the 3h SLA window.
+ * the dashboard tile is immaterial against the 2h SLA window.
  */
 export const slaBreachedCount = cacheClinicQuery(
   "slaBreachedCount",
   slaBreachedCountUncached,
   { revalidate: SHORT_REVALIDATE_S }
-);
-
-/** Requests created in the last N days — for "Neue Anfragen heute". */
-export async function recentRequestsCount(
-  clinicId: string,
-  userId: string,
-  days = 1
-) {
-  const since = new Date();
-  since.setDate(since.getDate() - days);
-  return withClinicContext(clinicId, userId, async (tx) => {
-    const rows = await tx
-      .select({ count: sql<number>`count(*)::int` })
-      .from(schema.requests)
-      .where(
-        and(
-          eq(schema.requests.clinicId, clinicId),
-          gte(schema.requests.createdAt, since)
-        )
-      );
-    return Number(rows[0]?.count ?? 0);
-  });
-}
-
-/**
- * Total requests in an arbitrary [from, to] window with prior-period
- * comparison, plus the non-spam (`leads`) subset for the current window.
- * "Total" means every request that landed in the inbox — regardless of
- * `status` — so it includes spam, duplicates, archived, etc. "Leads"
- * matches the kpi-rebuild worker's definition (`status <> 'spam'`), so
- * the rate is consistent with the leads-card numbers, but computed in the
- * same query as `total` against the same source table — guaranteeing
- * leads ≤ total even when the kpi_daily denormalization is stale or
- * shifted by a timezone boundary.
- *
- * Used by the dashboard's "Anfragen gesamt" top-metric card. The prior
- * window is the same number of days immediately before `from`, so the
- * delta matches the comparison conventions used by `kpiSummaryWithComparison`.
- */
-export async function totalRequestsInRangeWithComparison(
-  clinicId: string,
-  userId: string,
-  from: Date,
-  to: Date
-): Promise<{
-  current: number;
-  leads: number;
-  prior: number;
-  deltaPct: number | null;
-}> {
-  const windowMs = to.getTime() - from.getTime();
-  const priorFrom = new Date(from.getTime() - windowMs - 1);
-  const priorTo = new Date(from.getTime() - 1);
-  return withClinicContext(clinicId, userId, async (tx) => {
-    const currentRowsP = tx
-      .select({
-        total: sql<number>`count(*)::int`,
-        leads: sql<number>`count(*) filter (where ${schema.requests.status} <> 'spam')::int`,
-      })
-      .from(schema.requests)
-      .where(
-        and(
-          eq(schema.requests.clinicId, clinicId),
-          gte(schema.requests.createdAt, from),
-          lte(schema.requests.createdAt, to)
-        )
-      );
-
-    const priorRowsP = tx
-      .select({ count: sql<number>`count(*)::int` })
-      .from(schema.requests)
-      .where(
-        and(
-          eq(schema.requests.clinicId, clinicId),
-          gte(schema.requests.createdAt, priorFrom),
-          lte(schema.requests.createdAt, priorTo)
-        )
-      );
-
-    const [currentRows, priorRows] = await Promise.all([currentRowsP, priorRowsP]);
-    const current = Number(currentRows[0]?.total ?? 0);
-    const leads = Number(currentRows[0]?.leads ?? 0);
-    const prior = Number(priorRows[0]?.count ?? 0);
-    const deltaPct =
-      prior > 0
-        ? Number(((current - prior) / prior).toFixed(4))
-        : current > 0
-        ? null
-        : 0;
-    return { current, leads, prior, deltaPct };
-  });
-}
-
-/**
- * Daily count of incoming requests across a [from, to] window. Returns
- * dense series (zero-filled for missing days) so the chart can render
- * without gap interpolation.
- */
-export async function totalRequestsDailyInRange(
-  clinicId: string,
-  userId: string,
-  from: Date,
-  to: Date
-): Promise<{ dates: string[]; counts: number[] }> {
-  return withClinicContext(clinicId, userId, async (tx) => {
-    const rows = await tx
-      .select({
-        date: sql<string>`to_char(${schema.requests.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
-        count: sql<number>`count(*)::int`,
-      })
-      .from(schema.requests)
-      .where(
-        and(
-          eq(schema.requests.clinicId, clinicId),
-          gte(schema.requests.createdAt, from),
-          lte(schema.requests.createdAt, to)
-        )
-      )
-      .groupBy(sql`to_char(${schema.requests.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`);
-    const map = new Map<string, number>(
-      rows.map((r) => [r.date, Number(r.count)])
-    );
-    const dates: string[] = [];
-    const counts: number[] = [];
-    const cursor = new Date(from);
-    cursor.setUTCHours(0, 0, 0, 0);
-    const end = new Date(to);
-    end.setUTCHours(0, 0, 0, 0);
-    while (cursor.getTime() <= end.getTime()) {
-      const iso = cursor.toISOString().slice(0, 10);
-      dates.push(iso);
-      counts.push(map.get(iso) ?? 0);
-      cursor.setDate(cursor.getDate() + 1);
-    }
-    return { dates, counts };
-  });
-}
-
-/**
- * Leads (status <> 'spam') and won cases in [from, to], with a prior-period
- * comparison on the lead count. Computed directly from the `requests` table —
- * distinct from the equivalent fields on `kpiSummaryUncached`, which sums the
- * denormalized `kpi_daily` table and can drift if the rebuild worker hasn't
- * run for those dates. Used by the dashboard's "Anfragen" top-metric card so
- * that its number stays mathematically consistent with the "Anfragen gesamt"
- * card (leads ≤ total, both sourced from the same query path).
- *
- * "Leads" matches the kpi-rebuild definition (everything that isn't spam).
- * Seit Migration 0046 ist jede Anfrage im Portal per Definition qualifiziert
- * — die alte Qualifizierungs-Stage ist weg.
- */
-async function leadsInRangeWithComparisonUncached(
-  clinicId: string,
-  userId: string,
-  from: Date,
-  to: Date
-): Promise<{
-  leads: number;
-  won: number;
-  priorLeads: number;
-  leadsDeltaPct: number | null;
-}> {
-  const windowMs = to.getTime() - from.getTime();
-  const priorFrom = new Date(from.getTime() - windowMs - 1);
-  const priorTo = new Date(from.getTime() - 1);
-  return withClinicContext(clinicId, userId, async (tx) => {
-    const currentRowsP = tx
-      .select({
-        leads: sql<number>`count(*) filter (where ${schema.requests.status} <> 'spam')::int`,
-        won: sql<number>`count(*) filter (where ${schema.requests.status} = 'gewonnen')::int`,
-      })
-      .from(schema.requests)
-      .where(
-        and(
-          eq(schema.requests.clinicId, clinicId),
-          gte(schema.requests.createdAt, from),
-          lte(schema.requests.createdAt, to)
-        )
-      );
-
-    const priorRowsP = tx
-      .select({
-        leads: sql<number>`count(*) filter (where ${schema.requests.status} <> 'spam')::int`,
-      })
-      .from(schema.requests)
-      .where(
-        and(
-          eq(schema.requests.clinicId, clinicId),
-          gte(schema.requests.createdAt, priorFrom),
-          lte(schema.requests.createdAt, priorTo)
-        )
-      );
-
-    const [currentRows, priorRows] = await Promise.all([currentRowsP, priorRowsP]);
-    const leads = Number(currentRows[0]?.leads ?? 0);
-    const won = Number(currentRows[0]?.won ?? 0);
-    const priorLeads = Number(priorRows[0]?.leads ?? 0);
-    const leadsDeltaPct =
-      priorLeads > 0
-        ? Number(((leads - priorLeads) / priorLeads).toFixed(4))
-        : leads > 0
-        ? null
-        : 0;
-    return { leads, won, priorLeads, leadsDeltaPct };
-  });
-}
-
-/**
- * Cached for SHORT_REVALIDATE_S, keyed by (clinic, from, to). The Anfragen
- * top-metric card owns the rLeads toggle: switching it is a legitimate cache
- * miss (new window), but switching any *other* card re-renders the route and
- * would otherwise re-run this query for the unchanged leads window. Returns
- * only numbers, so it caches cleanly.
- */
-export const leadsInRangeWithComparison = cacheClinicQuery(
-  "leadsInRangeWithComparison",
-  leadsInRangeWithComparisonUncached,
-  { dateArgs: [0, 1], revalidate: SHORT_REVALIDATE_S }
-);
-
-/**
- * Daily count of leads (status <> 'spam') across [from, to]. Dense series,
- * zero-filled. Live equivalent of the per-day `leads` column on `kpi_daily`
- * — sparkline-friendly for the leads top-metric card.
- */
-async function leadsDailyInRangeUncached(
-  clinicId: string,
-  userId: string,
-  from: Date,
-  to: Date
-): Promise<{ dates: string[]; counts: number[] }> {
-  return withClinicContext(clinicId, userId, async (tx) => {
-    const rows = await tx
-      .select({
-        date: sql<string>`to_char(${schema.requests.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`,
-        count: sql<number>`count(*) filter (where ${schema.requests.status} <> 'spam')::int`,
-      })
-      .from(schema.requests)
-      .where(
-        and(
-          eq(schema.requests.clinicId, clinicId),
-          gte(schema.requests.createdAt, from),
-          lte(schema.requests.createdAt, to)
-        )
-      )
-      .groupBy(sql`to_char(${schema.requests.createdAt} AT TIME ZONE 'UTC', 'YYYY-MM-DD')`);
-    const map = new Map<string, number>(
-      rows.map((r) => [r.date, Number(r.count)])
-    );
-    const dates: string[] = [];
-    const counts: number[] = [];
-    const cursor = new Date(from);
-    cursor.setUTCHours(0, 0, 0, 0);
-    const end = new Date(to);
-    end.setUTCHours(0, 0, 0, 0);
-    while (cursor.getTime() <= end.getTime()) {
-      const iso = cursor.toISOString().slice(0, 10);
-      dates.push(iso);
-      counts.push(map.get(iso) ?? 0);
-      cursor.setDate(cursor.getDate() + 1);
-    }
-    return { dates, counts };
-  });
-}
-
-/**
- * Cached for SHORT_REVALIDATE_S, keyed by (clinic, from, to). Leads sparkline
- * for the Anfragen top-metric card; switching a *different* card would
- * otherwise re-run it for the unchanged leads window. Returns only string
- * dates + numbers, so it caches cleanly.
- */
-export const leadsDailyInRange = cacheClinicQuery(
-  "leadsDailyInRange",
-  leadsDailyInRangeUncached,
-  { dateArgs: [0, 1], revalidate: SHORT_REVALIDATE_S }
 );
 
 /**
@@ -959,12 +873,13 @@ export const leadsDailyInRange = cacheClinicQuery(
  * `openRequests = statusCounts.neu` headline.
  *
  * Historical reconstruction walks *backwards* from each request's current
- * status: status_at(R, T) = (earliest status_change AFTER T).meta.from,
- * falling back to R.status when no later change exists. This is robust to
- * seed rows that were inserted directly in a terminal status without a
- * corresponding `status_change` activity, while still being exact for
- * production data where every transition is logged as a `status_change`
- * activity by the upstream PVS sync.
+ * status: status_at(R, T) = status before the earliest status_change AFTER
+ * T, falling back to R.status when no later change exists. "Status before"
+ * = meta.from, else the new status (meta.to ?? meta.derivedStatus) of the
+ * previous change, else 'neu'; rows without any of those keys are ignored
+ * (rule in requests-open-queue.ts). This is robust to seed rows inserted
+ * directly in a terminal status without a `status_change` activity, and to
+ * older PVS rows that only carry meta.derivedStatus.
  *
  * Used by the dashboard's "Offene Anfragen" top-metric card to give the
  * range toggle, delta, and sparkline a coherent metric — replaces an
@@ -983,67 +898,82 @@ async function openQueueDailyInRangeWithComparisonUncached(
   prior: number;
   deltaPct: number | null;
 }> {
-  // `from` is start-of-day, `to` is end-of-day (per `dashboardRangeWindow`).
-  // Prior anchor: the instant just before this window began.
-  const priorAt = new Date(from.getTime() - 1);
+  // Points: the instant just before the window (prior anchor) and the end of
+  // every Berlin day in the window. One pass over the Anfragen and their
+  // status changes instead of a correlated subquery per (day x Anfrage).
+  const { dates, priorAt, dayEnds } = openQueuePoints(from, to);
+  const points = [priorAt, ...dayEnds];
+  const lastPoint = new Date(Math.max(...points));
   return withClinicContext(clinicId, userId, async (tx) => {
-    const dailyRows = await tx.execute(sql`
-      WITH days AS (
-        SELECT generate_series(
-          (${from.toISOString()}::timestamptz AT TIME ZONE 'UTC')::date,
-          (${to.toISOString()}::timestamptz AT TIME ZONE 'UTC')::date,
-          interval '1 day'
-        )::date AS d
-      )
-      SELECT
-        to_char(d.d, 'YYYY-MM-DD') AS date,
-        COUNT(*) FILTER (
-          WHERE r.created_at <= (d.d + interval '1 day' - interval '1 microsecond')
-            AND COALESCE(
-              (
-                SELECT ra.meta->>'from'
-                FROM request_activities ra
-                WHERE ra.request_id = r.id
-                  AND ra.kind = 'status_change'
-                  AND ra.created_at > (d.d + interval '1 day' - interval '1 microsecond')
-                ORDER BY ra.created_at ASC
-                LIMIT 1
-              ),
-              r.status
-            ) = 'neu'
-        )::int AS open_count
-      FROM days d
-      CROSS JOIN requests r
-      WHERE r.clinic_id = ${clinicId}
-      GROUP BY d.d
-      ORDER BY d.d
-    `);
+    const [reqRows, changeRows] = await Promise.all([
+      tx
+        .select({
+          id: schema.requests.id,
+          createdAt: schema.requests.createdAt,
+          status: schema.requests.status,
+        })
+        .from(schema.requests)
+        .where(
+          and(
+            eq(schema.requests.clinicId, clinicId),
+            lte(schema.requests.createdAt, lastPoint)
+          )
+        ),
+      // Status changes after the prior anchor, each with the new status of
+      // its predecessor (LAG over ALL changes of the Anfrage, so the first
+      // change in the window still knows the status it left when its row
+      // has no meta.from). Rows without from/to/derivedStatus are no status
+      // change and are dropped before the LAG. One scan of this Praxis's
+      // status changes, no per-day or per-Anfrage subquery.
+      tx.execute(sql`
+        SELECT s.request_id, s.created_ms, s.from_status, s.to_status, s.prev_to
+        FROM (
+          SELECT ra.id,
+                 ra.request_id,
+                 ra.created_at,
+                 floor(extract(epoch FROM ra.created_at) * 1000)::float8 AS created_ms,
+                 ra.meta->>'from' AS from_status,
+                 COALESCE(ra.meta->>'to', ra.meta->>'derivedStatus') AS to_status,
+                 LAG(COALESCE(ra.meta->>'to', ra.meta->>'derivedStatus')) OVER (
+                   PARTITION BY ra.request_id ORDER BY ra.created_at, ra.id
+                 ) AS prev_to
+          FROM request_activities ra
+          JOIN requests r ON r.id = ra.request_id
+          WHERE r.clinic_id = ${clinicId}
+            AND r.created_at <= ${lastPoint.toISOString()}::timestamptz
+            AND ra.kind = 'status_change'
+            AND (
+              ra.meta->>'from' IS NOT NULL
+              OR ra.meta->>'to' IS NOT NULL
+              OR ra.meta->>'derivedStatus' IS NOT NULL
+            )
+        ) s
+        WHERE s.created_at > ${new Date(priorAt).toISOString()}::timestamptz
+        ORDER BY s.request_id, s.created_at, s.id
+      `),
+    ]);
+    const changes = changeRows as unknown as Array<{
+      request_id: string;
+      created_ms: number | string;
+      from_status: string | null;
+      to_status: string | null;
+      prev_to: string | null;
+    }>;
 
-    const priorRows = await tx.execute(sql`
-      SELECT COUNT(*)::int AS open_count
-      FROM requests r
-      WHERE r.clinic_id = ${clinicId}
-        AND r.created_at <= ${priorAt.toISOString()}::timestamptz
-        AND COALESCE(
-          (
-            SELECT ra.meta->>'from'
-            FROM request_activities ra
-            WHERE ra.request_id = r.id
-              AND ra.kind = 'status_change'
-              AND ra.created_at > ${priorAt.toISOString()}::timestamptz
-            ORDER BY ra.created_at ASC
-            LIMIT 1
-          ),
-          r.status
-        ) = 'neu'
-    `);
-
-    const rows = dailyRows as unknown as Array<{ date: string; open_count: number }>;
-    const dates = rows.map((r) => r.date);
-    const counts = rows.map((r) => Number(r.open_count));
+    const openAt = openCountsAtPoints(
+      points,
+      reqRows.map((r) => ({ id: r.id, createdAt: r.createdAt.getTime(), status: r.status })),
+      changes.map((c) => ({
+        requestId: c.request_id,
+        createdAt: Number(c.created_ms),
+        from: c.from_status,
+        to: c.to_status,
+        prevTo: c.prev_to,
+      }))
+    );
+    const prior = openAt[0] ?? 0;
+    const counts = openAt.slice(1);
     const current = counts.length > 0 ? counts[counts.length - 1]! : 0;
-    const priorResult = priorRows as unknown as Array<{ open_count: number }>;
-    const prior = Number(priorResult[0]?.open_count ?? 0);
     const deltaPct =
       prior > 0
         ? Number(((current - prior) / prior).toFixed(4))
@@ -1055,11 +985,11 @@ async function openQueueDailyInRangeWithComparisonUncached(
 }
 
 /**
- * Cached for SHORT_REVALIDATE_S, keyed by (clinic, from, to). The open-queue
- * sparkline + delta is the heaviest dashboard query (per-day correlated
- * status-history subquery over a cross join); caching it per window means an
- * unrelated TimeRangeToggle no longer pays for it. Returns only string dates
- * + numbers.
+ * Cached for SHORT_REVALIDATE_S, keyed by (clinic, from, to). Backs the
+ * dashboard's "Offene Anfragen" sparkline + delta (re-exported as
+ * `openQueueDaily` from kpis.ts); caching it per window means an unrelated
+ * TimeRangeToggle no longer pays for it. Returns only string dates +
+ * numbers.
  */
 export const openQueueDailyInRangeWithComparison = cacheClinicQuery(
   "openQueueDailyInRangeWithComparison",

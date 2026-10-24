@@ -15,6 +15,13 @@ const config: NextConfig = {
   // serverless function bundle; without this the import resolves fine locally
   // but throws "Cannot find module" on Vercel once STORAGE_DRIVER=r2.
   serverExternalPackages: ["@aws-sdk/client-s3", "@aws-sdk/s3-request-presigner"],
+  // /api/health compares the shipped migration files with schema_migrations
+  // (server/migration-status.ts reads them from disk at runtime). They are not
+  // imported, so file tracing would leave them out of the Vercel bundle and
+  // health would only ever report `migrations: "unknown"`.
+  outputFileTracingIncludes: {
+    "/api/health": ["./src/db/migrations/*.sql"],
+  },
   experimental: {
     // File uploads go direct-to-storage (presigned R2 PUT, see
     // server/uploads.ts), so server actions only ever carry metadata — but
@@ -76,6 +83,18 @@ const config: NextConfig = {
             value: "base-uri 'self'; object-src 'none'; frame-ancestors 'none'",
           },
         ],
+      },
+      // The magic-link landing pages carry the one-time token in the URL.
+      // No Referer at all from there. This entry must come AFTER the global
+      // one: when several entries set the same key, the last match wins
+      // (next/dist/server/lib/router-utils/resolve-routes.js assigns in order).
+      {
+        source: "/login/link",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+      },
+      {
+        source: "/admin/login/link",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
       },
     ];
   },

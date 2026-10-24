@@ -6,8 +6,18 @@ import {
   issueAdminPasswordResetLink,
   verifyAdminPassword,
 } from "@/auth/admin-password";
+import {
+  ADMIN_AUTH_BUCKETS,
+  emailBucketId,
+  ipBucketId,
+} from "@/auth/rate-limit-policy";
 import { getTrustedClientIp } from "@/lib/client-ip";
 import { rateLimit } from "@/server/rate-limit";
+import {
+  releaseRateLimitSlots,
+  reserveRateLimitSlot,
+  type RateLimitSlot,
+} from "@/server/rate-limit-slot";
 import { writeAudit } from "@/server/audit";
 
 /**
@@ -65,20 +75,44 @@ const ERR_INVALID_INPUT = "Bitte E-Mail und Passwort angeben.";
 const ERR_INVALID_CREDS = "E-Mail oder Passwort stimmt nicht.";
 const ERR_RATE_LIMITED = "Zu viele Anmelde-Versuche. Bitte einen Moment warten.";
 
-async function checkRateLimits(
+/**
+ * Separate buckets (B-5, admin track): password attempts count failures only;
+ * link and reset requests have their own buckets, so a password lockout never
+ * blocks the recovery mail. Each attempt reserves a slot in both buckets
+ * atomically BEFORE the Argon2 verify (V3 Neben 2), so a parallel burst never
+ * runs more than 10 guesses per address or 30 per IP and window; a completed
+ * login gives both back. Returns the held slots, or null when either bucket is
+ * full (nothing stays reserved).
+ */
+async function reservePasswordAttempt(
   email: string,
-  label: string
+  ip: string
+): Promise<Array<RateLimitSlot | null> | null> {
+  const b = ADMIN_AUTH_BUCKETS;
+  const results = await Promise.all([
+    reserveRateLimitSlot(b.passwordFailByEmail.scope, emailBucketId(email), b.passwordFailByEmail),
+    reserveRateLimitSlot(b.passwordFailByIp.scope, ipBucketId(ip), b.passwordFailByIp),
+  ]);
+  const held = results.map((r) => (r.ok ? r.slot : null));
+  if (results.every((r) => r.ok)) return held;
+  // One bucket refused: hand back the other slot, a refused attempt is not
+  // counted (same as the old peek).
+  await releaseRateLimitSlots(held);
+  return null;
+}
+
+async function checkLinkRateLimits(
+  email: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const ip = (await getTrustedClientIp()) ?? "unknown";
-  const rl = await rateLimit(`${label}:email`, email, {
-    limit: 10,
-    windowSeconds: 60 * 60,
-  });
-  const rlIp = await rateLimit(`${label}:ip`, ip, {
-    limit: 30,
-    windowSeconds: 60 * 60,
-  });
-  if (!rl.ok || !rlIp.ok) {
+  const b = ADMIN_AUTH_BUCKETS;
+  const ip = ipBucketId(await getTrustedClientIp());
+  const id = emailBucketId(email);
+  const [burst, hour, perIp] = await Promise.all([
+    rateLimit(b.linkByEmailBurst.scope, id, b.linkByEmailBurst),
+    rateLimit(b.linkByEmailHour.scope, id, b.linkByEmailHour),
+    rateLimit(b.linkByIp.scope, ip, b.linkByIp),
+  ]);
+  if (!burst.ok || !hour.ok || !perIp.ok) {
     return { ok: false, error: ERR_RATE_LIMITED };
   }
   return { ok: true };
@@ -101,9 +135,12 @@ export async function adminPasswordLoginAction(
   }
   const email = parsed.data.email.toLowerCase();
   const rememberMe = formData.get("remember") === "on";
+  const ip = ipBucketId(await getTrustedClientIp());
 
-  const rl = await checkRateLimits(email, "admin-login");
-  if (!rl.ok) return rl;
+  const slots = await reservePasswordAttempt(email, ip);
+  if (!slots) {
+    return { ok: false, error: ERR_RATE_LIMITED };
+  }
 
   // verifyAdminPassword läuft IMMER (auch für non-allowlisted Mails), damit
   // weder der Allowlist-Check noch das "kein Passwort gesetzt"-Signal per
@@ -111,6 +148,7 @@ export async function adminPasswordLoginAction(
   // ruft aber trotzdem den argon2-Dummy-Verify aus @/auth/password auf.
   const match = await verifyAdminPassword(email, parsed.data.password);
   if (!match) {
+    // The reserved slots stay taken: they are the failure count.
     await writeAudit({
       actorEmail: email,
       action: "login",
@@ -125,6 +163,9 @@ export async function adminPasswordLoginAction(
     // runs at session MINT, not only at read (pentest authn-02b).
     await createAdminSession(match.id, { rememberMe });
   } catch {
+    // No session minted: the slots stay counted like a wrong password, so a
+    // correct guess from outside the allowlist leaves no trace in the
+    // remaining attempts either.
     await writeAudit({
       actorEmail: email,
       action: "login",
@@ -134,6 +175,8 @@ export async function adminPasswordLoginAction(
     return { ok: false, error: ERR_INVALID_CREDS };
   }
 
+  // Session minted: not a failure, give both slots back (B-5 semantics).
+  await releaseRateLimitSlots(slots);
   await writeAudit({
     actorEmail: email,
     action: "login",
@@ -160,7 +203,7 @@ export async function requestAdminMagicLinkAction(
   }
   const email = parsed.data.email.toLowerCase();
 
-  const rl = await checkRateLimits(email, "admin-login");
+  const rl = await checkLinkRateLimits(email);
   if (!rl.ok) return rl;
 
   await issueAdminMagicLink(email);
@@ -187,7 +230,7 @@ export async function requestAdminPasswordResetAction(
   }
   const email = parsed.data.email.toLowerCase();
 
-  const rl = await checkRateLimits(email, "admin-login");
+  const rl = await checkLinkRateLimits(email);
   if (!rl.ok) return rl;
 
   await issueAdminPasswordResetLink(email);

@@ -47,25 +47,25 @@ export function OverviewTab({
           tone="accent"
         />
         <MetricTile
-          label="ROAS"
+          label="Werbeertrag"
           value={summary.roas == null ? "–" : `${summary.roas.toFixed(2)}×`}
           sublabel={`Ziel ≥ ${KPI_THRESHOLDS.roas.good}×`}
           tone={roasTone}
         />
         <MetricTile
-          label="CPL"
+          label="Kosten je Anfrage"
           value={summary.cpl == null ? "–" : formatEuro(summary.cpl)}
           sublabel={`Ziel ≤ ${KPI_THRESHOLDS.cpl.good} €`}
           tone={cplTone}
         />
         <MetricTile
-          label="Cost per Patient"
+          label="Kosten pro Patient"
           value={summary.cpp == null ? "–" : formatEuro(summary.cpp)}
           sublabel={`Ziel ≤ ${KPI_THRESHOLDS.cpp.good} €`}
           tone={cppTone}
         />
         <MetricTile
-          label="No-Show"
+          label="Nicht erschienen"
           value={
             summary.noShowRate == null
               ? "–"
@@ -132,7 +132,7 @@ function Field({
 }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
+      <dt className="text-sm font-medium text-fg-primary">
         {label}
       </dt>
       <dd

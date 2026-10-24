@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { and, desc, isNull, or, sql } from "drizzle-orm";
 import { withClinicContext, schema } from "@/db/client";
 
 /**
@@ -58,8 +58,14 @@ export async function getActiveAlerts(
           )
         )
       )
-      .orderBy(desc(schema.dashboardAlerts.createdAt));
-  });
+      // Severity rank, then recency, capped in SQL (not in JS after
+      // loading every active alert).
+      .orderBy(
+        sql`CASE ${schema.dashboardAlerts.severity} WHEN 'extreme' THEN 3 WHEN 'high' THEN 2 WHEN 'warn' THEN 1 ELSE 0 END DESC`,
+        desc(schema.dashboardAlerts.createdAt)
+      )
+      .limit(limit);
+  }, "anomalies:active");
 
   return rows
     .map((r) => ({
@@ -98,20 +104,4 @@ function parseActionSteps(value: unknown): string[] {
     }
   }
   return [];
-}
-
-/** Internal: assert an alert belongs to the clinic before mutating. */
-export async function assertAlertOwned(
-  alertId: string,
-  clinicId: string,
-  userId: string
-): Promise<boolean> {
-  return await withClinicContext(clinicId, userId, async (tx) => {
-    const [row] = await tx
-      .select({ id: schema.dashboardAlerts.id })
-      .from(schema.dashboardAlerts)
-      .where(eq(schema.dashboardAlerts.id, alertId))
-      .limit(1);
-    return !!row;
-  });
 }

@@ -12,8 +12,9 @@ The five paths in production (May 2026):
    Pabau + Consentz shipped 2026-05-21 per Phase 3 of
    UNIVERSAL_ADAPTER_BUILD.md.
 2. **Cloud FHIR push** (`src/adapters/healthhub/`). Shelved; do not retry.
-3. **On-prem GDT-Agent** (`agent/`). chokidar folder watcher for GDT files,
-   plus Honorar-CSV watcher. Production today.
+3. **On-prem GDT-Agent** (`agent/`). chokidar folder watcher for GDT/BDT
+   patient master data (no billing data), plus Honorar-CSV watcher for
+   revenue. Production today.
 4. **On-prem SQL-introspection** (`agent/src/db-adapters/`). Direct DB read
    via vendor YAML config; ships AppointmentCreated, AppointmentStatusChanged,
    EncounterCompleted, InvoicePaid, RecallScheduled events that GDT cannot
@@ -57,33 +58,33 @@ The five paths in production (May 2026):
 
 ## Layout
 
-- `src/index.ts` — entry point. Boots Fastify on port 7300 + the
+- `src/index.ts` - entry point. Boots Fastify on port 7300 + the
   scheduler that polls due `pvs_link` rows every 30s.
-- `src/config.ts` — env vars (`BRIDGE_DATABASE_URL`,
+- `src/config.ts` - env vars (`BRIDGE_DATABASE_URL`,
   `PORTAL_BASE_URL`, `BRIDGE_PUBLIC_URL`, `APP_KEY` for shared
   encrypted-secret decryption).
-- `src/portal-client.ts` — `postEvent(event)` and `postBatch(events)`
+- `src/portal-client.ts` - `postEvent(event)` and `postBatch(events)`
   helpers that sign the body with the clinic's PVS secret and POST.
-- `src/canonical/types.ts` — TypeScript mirror of the portal's
+- `src/canonical/types.ts` - TypeScript mirror of the portal's
   `PvsEventSchema`. Adapters return values of these types.
-- `src/canonical/sign.ts` — HMAC-SHA256 helper used both by the Bridge
+- `src/canonical/sign.ts` - HMAC-SHA256 helper used both by the Bridge
   and by the GDT-Agent (shared via workspace symlink).
-- `src/adapters/Adapter.ts` — interface that each PVS vendor implements.
-- `src/adapters/{tomedo,healthhub,red,pabau,consentz}/` — per-vendor implementations.
-- `src/adapters/_fhir/normalize-shared.ts` — code shared between
+- `src/adapters/Adapter.ts` - interface that each PVS vendor implements.
+- `src/adapters/{tomedo,healthhub,red,pabau,consentz}/` - per-vendor implementations.
+- `src/adapters/_fhir/normalize-shared.ts` - code shared between
   HealthHub and RED (both FHIR-based).
-- `src/inbound/` — Fastify routes for the two push adapters:
+- `src/inbound/` - Fastify routes for the two push adapters:
   `POST /webhooks/healthhub/:linkId` and `POST /webhooks/red/:linkId`.
-- `src/sync/` — initial-sync streamer, incremental-poll, scheduler.
-- `src/db/client.ts` — read-only postgres-js connection used to load
+- `src/sync/` - initial-sync streamer, incremental-poll, scheduler.
+- `src/db/client.ts` - read-only postgres-js connection used to load
   `pvs_link`, `pvs_sync_status`, `platform_credentials` rows.
-- `n8n-templates/canonical-emitter.json` — reference copy of the n8n
+- `n8n-templates/canonical-emitter.json` - reference copy of the n8n
   workflow template. The file actually served to Praxis admins lives at
   `apps/portal/public/pvs-bridge/n8n-templates/canonical-emitter.json`
   (served as a static asset under `/pvs-bridge/n8n-templates/…`). Keep
-  these two in lockstep when changing the template — the portal copy is
+  these two in lockstep when changing the template - the portal copy is
   what ships to Vercel.
-- `agent/` — the on-prem GDT-Agent (separate buildable sub-project).
+- `agent/` - the on-prem GDT-Agent (separate buildable sub-project).
 
 ## Production deployment
 

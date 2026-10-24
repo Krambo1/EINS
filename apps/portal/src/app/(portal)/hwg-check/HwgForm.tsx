@@ -39,9 +39,9 @@ export function HwgForm() {
         />
         <div className="flex items-center justify-between">
           <p className="text-xs text-fg-secondary">
-            Die Prüfung ist eine automatische Vorab-Einschätzung, kein
-            Rechtsrat. Bei Zweifel ziehen wir vor Veröffentlichung eine
-            juristische Freigabe hinzu.
+            Die Prüfung ist eine automatische Vorab-Einschätzung anhand
+            typischer Formulierungen. Beiträge von EINS prüfen wir zusätzlich,
+            bevor sie zu Ihrer Freigabe kommen.
           </p>
           <SubmitButton />
         </div>
@@ -73,9 +73,9 @@ function ResultPanel({
     clean: {
       icon: <CheckCircle2 className="h-6 w-6" />,
       tone: "good" as const,
-      title: "Keine HWG-Treffer gefunden",
+      title: "Keine der geprüften Muster gefunden",
       description:
-        "Der Text enthält keine der geprüften Risikomuster. Eine abschließende juristische Freigabe ersetzt das nicht.",
+        "Der Text enthält keine der geprüften Risiko-Formulierungen. Heilversprechen in eigenen Worten und Bilder erkennt die Prüfung nicht.",
     },
     warn: {
       icon: <AlertTriangle className="h-6 w-6" />,
@@ -121,7 +121,7 @@ function ResultPanel({
           <>
             {/* Highlighted input */}
             <div>
-              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-fg-secondary">
+              <div className="mb-1 text-sm font-medium text-fg-primary">
                 Markierter Text
               </div>
               <p className="whitespace-pre-wrap rounded-xl border border-border bg-bg-secondary p-4 text-base leading-relaxed">
@@ -130,7 +130,7 @@ function ResultPanel({
             </div>
 
             <div>
-              <div className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-secondary">
+              <div className="mb-2 text-sm font-medium text-fg-primary">
                 Fundstellen ({findings.length})
               </div>
               <ul className="space-y-2">

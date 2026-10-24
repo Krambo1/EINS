@@ -44,6 +44,7 @@ export const EVENT_KINDS = [
   "AppointmentCancelled",
   "EncounterCompleted",
   "InvoicePaid",
+  "InvoiceRefunded",
   "RecallScheduled",
   "PatientMerged",
 ] as const;

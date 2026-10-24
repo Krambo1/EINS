@@ -1,5 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { trustedIpFromHeaders } from "@/lib/client-ip";
+import { eq } from "drizzle-orm";
+import { db, schema } from "@/db/client";
+import { env } from "@/lib/env";
+import { normalizeAllowedLandingOrigin } from "@/lib/review-url-allowlist";
+import { reviewRateLimitIp } from "@/lib/review-relay-ip";
 import { rateLimit } from "@/server/rate-limit";
 import { writeAudit } from "@/server/audit";
 import {
@@ -13,12 +17,10 @@ import {
  *
  * Honors the one-click unsubscribe in every review-request email.
  *
- * Same token-as-auth model. Note that we ACCEPT both GET and POST here:
- * §7 UWG + RFC 8058 "one-click unsubscribe" must work without further
- * confirmation, and most mail clients fire a GET when the user clicks
- * the footer link. We're still careful to require a POST when the
- * unsubscribe is triggered programmatically (e.g. mail clients that
- * implement List-Unsubscribe-Post).
+ * Same token-as-auth model. POST unsubscribes: RFC 8058 one-click from the
+ * List-Unsubscribe header (Gmail/Yahoo/Apple Mail) and the button on the
+ * clinic-landing confirmation page. GET only redirects to that page (see
+ * GET below). Works for expired tokens too (E-18).
  */
 async function handle(
   request: NextRequest,
@@ -32,13 +34,12 @@ async function handle(
     );
   }
 
-  const ip =
-    trustedIpFromHeaders(
-      request.headers.get("x-forwarded-for"),
-      request.headers.get("x-real-ip")
-    ) ?? "anon";
+  // J-8: patient IP signed by clinic-landing, else the caller's IP.
+  const ip = reviewRateLimitIp(request, token);
+  // Generous: RFC 8058 one-click POSTs come from the mail provider's shared
+  // IPs (Gmail), and the 64-hex token cannot be guessed anyway.
   const rl = await rateLimit("review-tokens-unsubscribe", ip, {
-    limit: 20,
+    limit: 200,
     windowSeconds: 600,
   });
   if (!rl.ok) {
@@ -48,7 +49,7 @@ async function handle(
     );
   }
 
-  const recall = await resolveReviewToken(token);
+  const recall = await resolveReviewToken(token, { allowExpired: true });
   const result = await unsubscribeViaToken(token);
 
   if (recall) {
@@ -67,11 +68,40 @@ async function handle(
   );
 }
 
+/**
+ * GET never unsubscribes (B-22): mail security scanners open every link and
+ * would silently opt patients out. A browser that opens the List-Unsubscribe
+ * URL lands on the confirmation page with one button (clinic-landing
+ * /r/unsubscribe), which then POSTs here.
+ */
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   ctx: { params: Promise<{ token: string }> }
 ) {
-  return handle(request, ctx);
+  const { token } = await ctx.params;
+  if (!isValidTokenShape(token)) {
+    return NextResponse.json({ error: { code: "not_found" } }, { status: 404 });
+  }
+  const [row] = await db
+    .select({ origin: schema.clinics.reviewLandingOrigin })
+    .from(schema.reviewEmailSchedule)
+    .innerJoin(schema.clinics, eq(schema.reviewEmailSchedule.clinicId, schema.clinics.id))
+    .where(eq(schema.reviewEmailSchedule.reviewToken, token))
+    .limit(1);
+  // J-4: a stored origin outside the allowlist (saved before the check
+  // existed) falls back to the EINS default instead of redirecting there.
+  const stored = row?.origin
+    ? normalizeAllowedLandingOrigin(
+        row.origin,
+        env.CLINIC_LANDING_ORIGIN,
+        env.CLINIC_LANDING_ORIGINS
+      )
+    : null;
+  const origin = (stored ?? env.CLINIC_LANDING_ORIGIN).replace(/\/$/, "");
+  return NextResponse.redirect(
+    `${origin}/r/unsubscribe?token=${encodeURIComponent(token)}`,
+    303
+  );
 }
 
 export async function POST(

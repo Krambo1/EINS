@@ -1,6 +1,7 @@
 import type {
   DbConnectionParams,
   DbDriver,
+  QueryOptions,
   QueryResult,
 } from "../types.js";
 
@@ -59,6 +60,8 @@ type MssqlModule = {
   /** The mssql DateTime2 type factory / marker. Passed to Request.input() to
    *  bind a Date at full precision instead of legacy datetime (M-D8). */
   DateTime2: unknown;
+  /** The mssql legacy DateTime type marker (1/300 s ticks). */
+  DateTime: unknown;
 };
 
 let cachedModule: MssqlModule | null = null;
@@ -150,23 +153,29 @@ export class MssqlDriver implements DbDriver {
 
   async query(
     sql: string,
-    params: Record<string, string | number | Date>
+    params: Record<string, string | number | Date>,
+    options?: QueryOptions
   ): Promise<QueryResult> {
     if (!this.pool || !this.healthy) {
       await this.connect(this.params!);
     }
-    // M-D8: bind a Date cursor as DateTime2 (100ns grain) rather than letting
-    // mssql/tedious infer legacy `datetime`, whose 3.33ms rounding can push the
-    // bound value off the exact stored timestamp so the keyset equality arm
-    // (`modified_at = :cursor AND id > :cursorTiebreak`) misses rows in a
-    // sub-3ms same-timestamp cluster at the batch boundary, silently skipping
-    // them. Strings and numbers keep mssql's default inference.
+    // The Date cursor is bound with an EXPLICIT type matching the cursor column.
+    // Legacy `datetime` columns (what most PVS schemas use) store 1/300 s ticks;
+    // a ms-rounded JS Date widened to datetime2 never equals the stored value,
+    // so the keyset equality arm (`modified_at = :cursor AND id > :tiebreak`)
+    // re-reads the same rows forever or skips rows at a batch boundary. So the
+    // default is DateTime (SQL Server rounds the bound value the same way it
+    // rounded the stored one); only a stream that declares
+    // `cursorSqlType: datetime2` binds DateTime2 (100 ns grain).
+    // Strings and numbers keep mssql's default inference.
     const mod = await getModule();
+    const dateType =
+      options?.cursorSqlType === "datetime2" ? mod.DateTime2 : mod.DateTime;
     const { translated, bindings } = translateNamedToAt(sql, params);
     const req = this.pool!.request();
     for (const [name, value] of bindings) {
       if (value instanceof Date) {
-        req.input(name, mod.DateTime2, value);
+        req.input(name, dateType, value);
       } else {
         req.input(name, value);
       }

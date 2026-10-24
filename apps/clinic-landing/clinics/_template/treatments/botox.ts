@@ -10,6 +10,7 @@ import type { Treatment } from "@/lib/types";
  */
 export const templateBotox: Treatment = {
   slug: "faltenbehandlung-stadt",
+  urlCode: "a1",
   clinicSlug: "_template",
   category: "botox",
   city: "[Stadt]",

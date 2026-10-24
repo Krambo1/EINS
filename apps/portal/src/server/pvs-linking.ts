@@ -1,6 +1,7 @@
 import "server-only";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, isNull, or, sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
+import { enqueuePvsStatusDerive } from "@/server/jobs";
 import type { PatientUpsertedEvent } from "@/server/pvs-events";
 import { parseLeadTokenFromBemerkung } from "@/server/pvs-token";
 
@@ -30,7 +31,9 @@ import { parseLeadTokenFromBemerkung } from "@/server/pvs-token";
  *   Auto-accept rule (post P1-1):
  *     • Exactly one candidate exists with email-exact match, AND
  *     • that candidate's score is 1.0 (i.e. the email matches and no
- *       other signal is in disagreement).
+ *       other signal is in disagreement), AND
+ *     • names are compatible and dob does not conflict (shared family
+ *       email guard).
  *   Anything else (including multi-email collisions, phone-trigram-only
  *   matches, name+dob-only matches) creates a NEW patient row + map and
  *   writes a linking_failure for one-click operator merge.
@@ -58,6 +61,64 @@ export interface LinkCandidate {
   isEmailExact: boolean;
   /** Human-readable trace, e.g. "email exact + name 0.92 (trigram)". */
   reason: string;
+  /** Portal patient's full name / dob, used by the auto-accept compat check. */
+  fullName?: string | null;
+  dob?: string | null;
+  /** pg_trgm similarity(patient.full_name, event.fullName), when both exist. */
+  nameSimilarity?: number | null;
+}
+
+/** Minimal event identity used by the auto-accept compatibility check. */
+export interface LinkEventIdentity {
+  fullName?: string | null;
+  dob?: string | null;
+}
+
+function normalizeNameForCompare(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\u00df/g, "ss")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z\s,\-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** "Last, First" -> Last; "First Middle Last" -> Last. */
+function lastNameOf(normalized: string): string {
+  if (normalized.includes(",")) return normalized.split(",")[0]!.trim();
+  const parts = normalized.split(" ").filter(Boolean);
+  return parts[parts.length - 1] ?? "";
+}
+
+/**
+ * Names are compatible when either side is unknown (nothing to contradict),
+ * the normalized last names are equal (hyphenated double names match on any
+ * part), or the trigram similarity of the full names is >= 0.6.
+ */
+export function namesCompatible(
+  a: string | null | undefined,
+  b: string | null | undefined,
+  similarity?: number | null
+): boolean {
+  if (!a?.trim() || !b?.trim()) return true;
+  if (typeof similarity === "number" && similarity >= 0.6) return true;
+  const la = lastNameOf(normalizeNameForCompare(a));
+  const lb = lastNameOf(normalizeNameForCompare(b));
+  if (!la || !lb) return true;
+  if (la === lb) return true;
+  const pa = la.split("-");
+  const pb = lb.split("-");
+  return pa.some((x) => x.length > 1 && pb.includes(x));
+}
+
+function dobConflicts(
+  a: string | null | undefined,
+  b: string | null | undefined
+): boolean {
+  if (!a || !b) return false;
+  return a.slice(0, 10) !== b.slice(0, 10);
 }
 
 // ---------------------------------------------------------------
@@ -85,12 +146,23 @@ export interface LinkCandidate {
  * spinning up a Postgres.
  */
 export function chooseAutoAcceptCandidate(
-  candidates: LinkCandidate[]
+  candidates: LinkCandidate[],
+  event?: LinkEventIdentity
 ): LinkCandidate | null {
   const emailExact = candidates.filter((c) => c.isEmailExact);
   if (emailExact.length !== 1) return null;
   const winner = emailExact[0]!;
   if (winner.score < 1.0) return null;
+  // Shared family email (parent = lead, daughter = PVS patient): the email
+  // alone does not prove it is the same person. Require compatible names and
+  // no dob conflict when both sides carry the data; otherwise the caller
+  // routes to the review queue and creates no link.
+  if (event) {
+    if (!namesCompatible(winner.fullName, event.fullName, winner.nameSimilarity)) {
+      return null;
+    }
+    if (dobConflicts(winner.dob, event.dob)) return null;
+  }
   return winner;
 }
 
@@ -149,7 +221,9 @@ export async function upsertPatientFromPvs(
   // Stage 1: existing map.
   const stage1 = await resolvePatientLink(event.clinicId, event.pvsPatientId);
   if (stage1) {
-    await mergePvsDataIntoPatient(stage1.portalPatientId, event);
+    if (!(await newerPatientUpsertApplied(event))) {
+      await mergePvsDataIntoPatient(stage1.portalPatientId, event, stage1.method);
+    }
     return {
       portalPatientId: stage1.portalPatientId,
       method: stage1.method,
@@ -186,12 +260,64 @@ export async function upsertPatientFromPvs(
               confidenceScore: "1.0",
             },
           });
-        await mergePvsDataIntoPatient(matched.patientId, event);
+        await mergePvsDataIntoPatient(matched.patientId, event, "bemerkung_token");
         return {
           portalPatientId: matched.patientId,
           method: "bemerkung_token",
           candidates: [],
         };
+      }
+      if (matched) {
+        // Pass 2: the token names an Anfrage that has no patient yet, which
+        // is the normal case (nothing creates a patient at lead intake). It
+        // used to fall through to Stage 3, where a lead with a typo'd email
+        // or no email never matched, so the strongest link we have was
+        // thrown away. Create the patient from the PVS data, carry the
+        // Anfrage's source as first touch, and stamp the Anfrage.
+        const newPatientId = await createPatientFromPvs(event, matched.source);
+        const inserted = await db
+          .insert(schema.pvsPatientMap)
+          .values({
+            clinicId: event.clinicId,
+            pvsPatientId: event.pvsPatientId,
+            portalPatientId: newPatientId,
+            linkMethod: "bemerkung_token",
+            confidenceScore: "1.0",
+          })
+          .onConflictDoNothing({
+            target: [
+              schema.pvsPatientMap.clinicId,
+              schema.pvsPatientMap.pvsPatientId,
+            ],
+          })
+          .returning({ portalPatientId: schema.pvsPatientMap.portalPatientId });
+        let portalPatientId = newPatientId;
+        let method = "bemerkung_token";
+        if (!inserted || inserted.length === 0) {
+          // Lost a race with a concurrent event for the same PVS patient.
+          const winnerMap = await resolvePatientLink(
+            event.clinicId,
+            event.pvsPatientId
+          );
+          if (winnerMap && winnerMap.portalPatientId !== newPatientId) {
+            await db
+              .delete(schema.patients)
+              .where(eq(schema.patients.id, newPatientId));
+            portalPatientId = winnerMap.portalPatientId;
+            method = winnerMap.method;
+          }
+        }
+        await db
+          .update(schema.requests)
+          .set({ patientId: portalPatientId })
+          .where(
+            and(
+              eq(schema.requests.id, matched.requestId),
+              eq(schema.requests.clinicId, event.clinicId),
+              isNull(schema.requests.patientId)
+            )
+          );
+        return { portalPatientId, method, candidates: [] };
       }
     }
   }
@@ -200,7 +326,10 @@ export async function upsertPatientFromPvs(
   // review-queue UI), then apply the P1-1 tightened auto-accept gate.
   const candidates = await findFuzzyCandidates(event);
 
-  const winner = chooseAutoAcceptCandidate(candidates);
+  const winner = chooseAutoAcceptCandidate(candidates, {
+    fullName: event.fullName,
+    dob: event.dob,
+  });
   if (winner) {
     await db
       .insert(schema.pvsPatientMap)
@@ -222,7 +351,7 @@ export async function upsertPatientFromPvs(
           confidenceScore: "1.0",
         },
       });
-    await mergePvsDataIntoPatient(winner.patientId, event);
+    await mergePvsDataIntoPatient(winner.patientId, event, "email_exact");
     return {
       portalPatientId: winner.patientId,
       method: "email_exact",
@@ -238,19 +367,81 @@ export async function upsertPatientFromPvs(
   // phone+name+dob fuzzy, etc.) we return them so the caller writes a
   // linking_failure for one-click operator merge.
   const newPatientId = await createPatientFromPvs(event);
-  await db.insert(schema.pvsPatientMap).values({
-    clinicId: event.clinicId,
-    pvsPatientId: event.pvsPatientId,
-    portalPatientId: newPatientId,
-    linkMethod: "external_id",
-    confidenceScore: "1.0",
-  });
+  // ON CONFLICT DO NOTHING: two concurrent events for the same new PVS patient
+  // both reach this point. The loser must not blow up on the unique map key
+  // nor leave a ghost patient behind.
+  const inserted = await db
+    .insert(schema.pvsPatientMap)
+    .values({
+      clinicId: event.clinicId,
+      pvsPatientId: event.pvsPatientId,
+      portalPatientId: newPatientId,
+      linkMethod: "external_id",
+      confidenceScore: "1.0",
+    })
+    .onConflictDoNothing({
+      target: [
+        schema.pvsPatientMap.clinicId,
+        schema.pvsPatientMap.pvsPatientId,
+      ],
+    })
+    .returning({ portalPatientId: schema.pvsPatientMap.portalPatientId });
+  if (!inserted || inserted.length === 0) {
+    const winnerMap = await resolvePatientLink(event.clinicId, event.pvsPatientId);
+    if (winnerMap && winnerMap.portalPatientId !== newPatientId) {
+      // Lost the race: drop the patient row we just created (nothing else
+      // references it yet) and use the winner's.
+      await db
+        .delete(schema.patients)
+        .where(eq(schema.patients.id, newPatientId));
+      return {
+        portalPatientId: winnerMap.portalPatientId,
+        method: winnerMap.method,
+        candidates: [],
+      };
+    }
+  }
 
   return {
     portalPatientId: newPatientId,
     method: "external_id",
     candidates,
   };
+}
+
+/**
+ * Pass 2: when a PVS id is re-pointed (manual resolve, PatientMerged), the
+ * Anfragen attached to the patient it left must follow it, or they lose
+ * their PVS status and revenue (the new patient's derive only attaches
+ * Anfragen that have no patient). Moves them only when the old patient has
+ * no PVS id left, i.e. it was nothing but that PVS identity.
+ */
+export async function moveRequestsOfUnmappedPatient(
+  clinicId: string,
+  fromPatientId: string,
+  toPatientId: string
+): Promise<void> {
+  if (fromPatientId === toPatientId) return;
+  const [stillMapped] = await db
+    .select({ id: schema.pvsPatientMap.id })
+    .from(schema.pvsPatientMap)
+    .where(
+      and(
+        eq(schema.pvsPatientMap.clinicId, clinicId),
+        eq(schema.pvsPatientMap.portalPatientId, fromPatientId)
+      )
+    )
+    .limit(1);
+  if (stillMapped) return;
+  await db
+    .update(schema.requests)
+    .set({ patientId: toPatientId })
+    .where(
+      and(
+        eq(schema.requests.clinicId, clinicId),
+        eq(schema.requests.patientId, fromPatientId)
+      )
+    );
 }
 
 // ---------------------------------------------------------------
@@ -308,7 +499,7 @@ export async function recordLinkingFailure(input: {
 async function findRequestByLeadPrefix(
   clinicId: string,
   prefix: string
-): Promise<{ requestId: string; patientId: string | null } | null> {
+): Promise<{ requestId: string; patientId: string | null; source: string } | null> {
   // prefix is 8 hex chars; collision probability across clinic-scoped
   // requests is ~1 in 2^32 / requestsPerClinic. For a Praxis with 1000
   // requests, false-positive rate ≈ 0.00002%. Acceptable; we still order
@@ -318,6 +509,7 @@ async function findRequestByLeadPrefix(
     .select({
       id: schema.requests.id,
       patientId: schema.requests.patientId,
+      source: schema.requests.source,
     })
     .from(schema.requests)
     .where(
@@ -329,7 +521,11 @@ async function findRequestByLeadPrefix(
     .orderBy(desc(schema.requests.createdAt))
     .limit(2);
   if (rows.length !== 1) return null;
-  return { requestId: rows[0]!.id, patientId: rows[0]!.patientId };
+  return {
+    requestId: rows[0]!.id,
+    patientId: rows[0]!.patientId,
+    source: rows[0]!.source,
+  };
 }
 
 async function findFuzzyCandidates(
@@ -367,6 +563,9 @@ async function findFuzzyCandidates(
     score: number;
     reason: string;
     is_email_exact: boolean;
+    full_name: string | null;
+    dob: string | null;
+    name_similarity: number | null;
   }>(sql`
     WITH scored AS (
       SELECT
@@ -402,7 +601,13 @@ async function findFuzzyCandidates(
         (
           CASE WHEN ${emailLower}::text IS NOT NULL AND lower(p.email::text) = ${emailLower}::text
                THEN 'email exact' ELSE '' END
-        ) AS email_reason
+        ) AS email_reason,
+        p.full_name AS full_name,
+        p.dob::text AS dob,
+        (
+          CASE WHEN ${fullName}::text IS NOT NULL AND p.full_name IS NOT NULL
+               THEN similarity(p.full_name, ${fullName}::text) ELSE NULL END
+        ) AS name_similarity
       FROM patients p
       WHERE p.clinic_id = ${event.clinicId}::uuid
         AND (
@@ -416,7 +621,10 @@ async function findFuzzyCandidates(
       id,
       LEAST(1.0, raw_score) AS score,
       email_reason AS reason,
-      is_email_exact
+      is_email_exact,
+      full_name,
+      dob,
+      name_similarity
     FROM scored
     WHERE raw_score > 0
     ORDER BY raw_score DESC
@@ -428,6 +636,12 @@ async function findFuzzyCandidates(
     score: Number(r.score),
     isEmailExact: Boolean(r.is_email_exact),
     reason: r.reason || buildReason(event),
+    fullName: r.full_name ?? null,
+    dob: r.dob ?? null,
+    nameSimilarity:
+      r.name_similarity === null || r.name_similarity === undefined
+        ? null
+        : Number(r.name_similarity),
   }));
 }
 
@@ -441,9 +655,37 @@ function buildReason(event: PatientUpsertedEvent): string {
 }
 
 async function createPatientFromPvs(
-  event: PatientUpsertedEvent
+  event: PatientUpsertedEvent,
+  firstTouchSource = "pvs"
 ): Promise<string> {
-  const emailLower = event.email?.trim().toLowerCase() ?? null;
+  let emailLower = event.email?.trim().toLowerCase() ?? null;
+  let phone = event.phone ?? null;
+  // patients has UNIQUE(clinic_id, email) and UNIQUE(clinic_id, phone). When the
+  // linker declined to merge into the existing holder (shared family email, or
+  // a review-queue candidate) the new patient must not claim the same email or
+  // phone, or the insert fails with 23505 and the event can never apply.
+  if (emailLower || phone) {
+    const holders = await db
+      .select({ email: schema.patients.email, phone: schema.patients.phone })
+      .from(schema.patients)
+      .where(
+        and(
+          eq(schema.patients.clinicId, event.clinicId),
+          or(
+            emailLower
+              ? sql`lower(${schema.patients.email}::text) = ${emailLower}`
+              : undefined,
+            phone ? eq(schema.patients.phone, phone) : undefined
+          )
+        )
+      );
+    for (const h of holders) {
+      if (emailLower && String(h.email ?? "").toLowerCase() === emailLower) {
+        emailLower = null;
+      }
+      if (phone && h.phone === phone) phone = null;
+    }
+  }
   // citext customType declares notNull:true in the Drizzle layer even
   // though the DB column is nullable; the cast to `string` is the
   // narrowest workaround. Drizzle serializes null to SQL NULL fine.
@@ -452,22 +694,69 @@ async function createPatientFromPvs(
     .values({
       clinicId: event.clinicId,
       email: emailLower as unknown as string,
-      phone: event.phone ?? null,
+      phone,
       fullName: event.fullName ?? null,
       dob: event.dob ?? null,
       gender: event.gender ?? null,
       pvsPatientId: event.pvsPatientId,
       externalId: event.externalId ?? null,
-      firstTouchSource: "pvs",
+      firstTouchSource,
     })
     .returning({ id: schema.patients.id });
   return row!.id;
 }
 
+/**
+ * Pass 2: the agent re-orders events (a retried row is sent behind newer
+ * ones), so an OLDER PatientUpserted can arrive after a newer one of the same
+ * PVS patient and used to overwrite the newer email / phone / name. Every
+ * producer stamps occurredAt with the record's modification time (DB
+ * modified_at, REST modifiedAt, GDT file mtime), so a later occurredAt from
+ * the same source that is already applied means this event is stale. Uses
+ * pvs_event_log_patient_idx (clinic_id, payload->>'pvsPatientId', occurred_at).
+ * Equal times still merge (unchanged behaviour).
+ */
+async function newerPatientUpsertApplied(event: PatientUpsertedEvent): Promise<boolean> {
+  const occurredAt = new Date(event.occurredAt);
+  if (Number.isNaN(occurredAt.getTime())) return false;
+  const [row] = await db
+    .select({ id: schema.pvsEventLog.id })
+    .from(schema.pvsEventLog)
+    .where(
+      and(
+        eq(schema.pvsEventLog.clinicId, event.clinicId),
+        sql`${schema.pvsEventLog.payload}->>'pvsPatientId' = ${event.pvsPatientId}::text`,
+        eq(schema.pvsEventLog.kind, "PatientUpserted"),
+        eq(schema.pvsEventLog.bridgeSource, event.bridgeSource),
+        gt(schema.pvsEventLog.occurredAt, occurredAt),
+        isNotNull(schema.pvsEventLog.appliedAt)
+      )
+    )
+    .limit(1);
+  return !!row;
+}
+
 async function mergePvsDataIntoPatient(
   portalPatientId: string,
-  event: PatientUpsertedEvent
+  event: PatientUpsertedEvent,
+  linkMethod?: string
 ): Promise<void> {
+  // An email_exact link is only a weak identity signal (shared family
+  // email): never overwrite identity fields of the existing portal patient,
+  // fill them only when empty. Stage-1/token/manual links are authoritative.
+  const fillOnly = linkMethod === "email_exact";
+  // Pass 2: patients has UNIQUE(clinic_id, email) and UNIQUE(clinic_id,
+  // phone). A PVS record whose email or phone already belongs to ANOTHER
+  // portal patient (family member, duplicate the operator has not merged)
+  // made this UPDATE fail with 23505 on every retry, so the event never
+  // applied and the patient's PVS data froze. Keep the current value then.
+  const emailLower = event.email ? event.email.trim().toLowerCase() : null;
+  const emailHeldElsewhere = emailLower
+    ? sql`EXISTS (SELECT 1 FROM patients q WHERE q.clinic_id = patients.clinic_id AND q.id <> patients.id AND lower(q.email::text) = ${emailLower}::text)`
+    : sql`FALSE`;
+  const phoneHeldElsewhere = event.phone
+    ? sql`EXISTS (SELECT 1 FROM patients q WHERE q.clinic_id = patients.clinic_id AND q.id <> patients.id AND q.phone = ${event.phone}::text)`
+    : sql`FALSE`;
   // Only overwrite fields if the PVS provides them — never clobber a
   // portal-side value with NULL. The denormalized pvs_patient_id is updated
   // unconditionally so the patient detail page can show "primary PVS id".
@@ -475,14 +764,27 @@ async function mergePvsDataIntoPatient(
     .update(schema.patients)
     .set({
       lastSeenAt: new Date(),
-      email: event.email
-        ? event.email.trim().toLowerCase()
+      email: emailLower
+        ? sql`CASE WHEN ${emailHeldElsewhere} THEN ${schema.patients.email} ELSE ${emailLower}::citext END`
         : sql`${schema.patients.email}`,
-      phone: event.phone ?? sql`${schema.patients.phone}`,
-      fullName: event.fullName ?? sql`${schema.patients.fullName}`,
-      dob: event.dob ?? sql`${schema.patients.dob}`,
+      phone: !event.phone
+        ? sql`${schema.patients.phone}`
+        : fillOnly
+          ? sql`CASE WHEN ${phoneHeldElsewhere} THEN ${schema.patients.phone} ELSE COALESCE(${schema.patients.phone}, ${event.phone}::text) END`
+          : sql`CASE WHEN ${phoneHeldElsewhere} THEN ${schema.patients.phone} ELSE ${event.phone}::text END`,
+      fullName: fillOnly
+        ? sql`COALESCE(${schema.patients.fullName}, ${event.fullName ?? null})`
+        : (event.fullName ?? sql`${schema.patients.fullName}`),
+      dob: fillOnly
+        ? sql`COALESCE(${schema.patients.dob}, ${event.dob ?? null}::date)`
+        : (event.dob ?? sql`${schema.patients.dob}`),
       gender: event.gender ?? sql`${schema.patients.gender}`,
-      pvsPatientId: event.pvsPatientId,
+      // Pass 2 (verifier): patients_pvs_id_unique (clinic_id, pvs_patient_id).
+      // After a manual re-link or a PatientMerged the map points this PVS id at
+      // a new patient while the old one still carries the id, so the next
+      // PatientUpserted failed with 23505 on every retry (agent queue stuck,
+      // contact data frozen). The column is a display copy; the map links.
+      pvsPatientId: sql`CASE WHEN EXISTS (SELECT 1 FROM patients q WHERE q.clinic_id = patients.clinic_id AND q.id <> patients.id AND q.pvs_patient_id = ${event.pvsPatientId}::text) THEN patients.pvs_patient_id ELSE ${event.pvsPatientId}::text END`,
     })
     .where(eq(schema.patients.id, portalPatientId));
 }
@@ -583,6 +885,11 @@ export async function manuallyResolveLinkingFailure(input: {
     .limit(1);
   if (!patient) return;
 
+  // Pass 2: the patient this PVS id pointed at before the operator's pick
+  // (usually the one Stage 3 created). Without a derive it kept the lifetime
+  // revenue and its Anfragen kept the PVS revenue, counted twice.
+  const previous = await resolvePatientLink(failure.clinicId, failure.pvsPatientId);
+
   await db
     .insert(schema.pvsPatientMap)
     .values({
@@ -605,6 +912,15 @@ export async function manuallyResolveLinkingFailure(input: {
         linkedBy: input.resolverUserId,
       },
     });
+
+  if (previous && previous.portalPatientId !== input.pickedPatientId) {
+    await moveRequestsOfUnmappedPatient(
+      failure.clinicId,
+      previous.portalPatientId,
+      input.pickedPatientId
+    );
+    await enqueuePvsStatusDerive(failure.clinicId, previous.portalPatientId);
+  }
 
   await db
     .update(schema.linkingFailures)

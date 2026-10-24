@@ -93,7 +93,7 @@ SELECT * FROM (VALUES
   (60,  'Woche 3 bis 4',   'Ihre Kampagnen werden aufgebaut',
         'Wir richten Ihre Anzeigen bei Instagram, Facebook und Google ein: Zielgruppen, Budgets und alle nötigen Formate. Den Budget-Plan stimmen wir vorab mit Ihnen ab.',
         'geplant'),
-  (70,  'Woche 5',         'Start Ihrer Anzeigen',
+  (70,  'Tag 22',          'Start Ihrer Anzeigen',
         'Ihre Kampagnen gehen live. Die ersten Patienten-Anfragen erreichen Ihr Team erfahrungsgemäß innerhalb der ersten Woche. Den Start beobachten wir täglich.',
         'geplant'),
   (80,  'Ab Woche 6',      'Feinschliff und Optimierung',

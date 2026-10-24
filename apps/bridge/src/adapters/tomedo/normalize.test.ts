@@ -1,3 +1,4 @@
+import type { InvoicePaidEvent } from "../../canonical/types.js";
 import { describe, it, expect } from "vitest";
 import {
   normalizePatient,
@@ -32,7 +33,7 @@ describe("tomedo normalize", () => {
       appointmentId: "A1",
       amountCents: 12500,
       paidAt: "2026-01-02T03:04:05.000Z",
-    });
+    })! as InvoicePaidEvent; // (normalizeInvoice may also return a refund, see invoice-findings.test.ts)
     expect(ev.kind).toBe("InvoicePaid");
     expect(ev.pvsExternalEventId).toBe("tomedo:invoice:R1");
     expect(ev.occurredAt).toBe("2026-01-02T03:04:05.000Z");
@@ -105,7 +106,7 @@ describe("tomedo cross-path dedup contract (REST side)", () => {
       appointmentId: "A1",
       amountCents: 12500,
       paidAt: FIXTURE.paidAt,
-    });
+    })!;
     expect(ev.pvsExternalEventId).toBe(tomedoEventId.invoice("R1"));
     expect(ev.pvsExternalEventId).toBe("tomedo:invoice:R1");
     expect(ev.occurredAt).toBe(FIXTURE.paidAt);
@@ -147,8 +148,30 @@ describe("tomedo timestamp normalisation (isoUtc)", () => {
       appointmentId: "A1",
       amountCents: 100,
       paidAt: "2026-03-05T11:22:33Z",
-    });
+    })! as InvoicePaidEvent;
     expect(ev.occurredAt).toBe(FIXTURE.paidAt);
     expect(ev.paidAt).toBe(FIXTURE.paidAt);
+  });
+});
+
+describe("tomedo AppointmentStatusChanged + unpaid invoices", () => {
+  const base = { id: "A1", patientId: "P1", startAt: "2026-03-05T10:00:00Z", modifiedAt: "2026-03-05T11:00:00Z" };
+
+  it("emits a status event once the appointment moved past 'scheduled'", async () => {
+    const { normalizeAppointmentEvents } = await import("./normalize.js");
+    const evs = normalizeAppointmentEvents("c", { ...base, status: "cancelled" });
+    expect(evs.map((e) => e.kind)).toEqual(["AppointmentCreated", "AppointmentStatusChanged"]);
+  });
+
+  it("emits only AppointmentCreated for a plain scheduled appointment", async () => {
+    const { normalizeAppointmentEvents } = await import("./normalize.js");
+    const evs = normalizeAppointmentEvents("c", { ...base, status: "scheduled" });
+    expect(evs.map((e) => e.kind)).toEqual(["AppointmentCreated"]);
+  });
+
+  it("an unpaid invoice (empty paidAt) yields null instead of a bogus InvoicePaid", () => {
+    expect(
+      normalizeInvoice("c", { id: "R1", patientId: "P1", appointmentId: "A1", amountCents: 1, paidAt: "" })
+    ).toBeNull();
   });
 });

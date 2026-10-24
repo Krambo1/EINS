@@ -41,3 +41,23 @@ export function uploadFileToTarget(
     xhr.send(file);
   });
 }
+
+/**
+ * German, plain-language text for an error thrown by `uploadFileToTarget`.
+ * Shared by every upload surface so size, expiry and connection problems read
+ * the same everywhere.
+ */
+export function uploadErrorMessage(err: unknown): string {
+  const code = err instanceof Error ? err.message : "";
+  if (code === "too_large") {
+    return "Die Datei ist zu groß. Bitte verkleinern Sie sie oder schicken Sie einen Freigabe-Link.";
+  }
+  if (code === "network_error") {
+    return "Die Verbindung ist beim Hochladen abgebrochen. Bitte prüfen Sie Ihre Internetverbindung und versuchen Sie es erneut.";
+  }
+  if (code === "aborted") return "Das Hochladen wurde abgebrochen.";
+  if (code === "upload_failed_403") {
+    return "Der Upload-Link ist abgelaufen. Bitte versuchen Sie es erneut.";
+  }
+  return "Hochladen fehlgeschlagen. Bitte versuchen Sie es erneut.";
+}

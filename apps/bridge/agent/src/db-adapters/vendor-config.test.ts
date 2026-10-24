@@ -129,3 +129,21 @@ describe("vendor-config", () => {
     }
   });
 });
+
+describe("vendor-config: cursorSqlType (finding 2)", () => {
+  const withField = (line: string) =>
+    VALID.replace("    cursorType: timestamp\n", `    cursorType: timestamp\n    ${line}\n`);
+
+  it("accepts datetime / datetime2 and carries it onto the stream", async () => {
+    const cfg = await loadVendorConfigFromString(withField("cursorSqlType: datetime2"), "t.yaml");
+    expect(cfg.streams[0].cursorSqlType).toBe("datetime2");
+    const none = await loadVendorConfigFromString(VALID, "t.yaml");
+    expect(none.streams[0].cursorSqlType).toBeUndefined();
+  });
+
+  it("rejects an unknown cursorSqlType", async () => {
+    await expect(
+      loadVendorConfigFromString(withField("cursorSqlType: timestamp9"), "t.yaml")
+    ).rejects.toThrow(/cursorSqlType/);
+  });
+});

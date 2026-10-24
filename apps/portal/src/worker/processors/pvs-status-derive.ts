@@ -1,9 +1,11 @@
-import { and, asc, desc, eq, gte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { enqueueInvoiceConversions } from "@/server/ads-conversion-outbox";
 import { enqueueKpiRebuild } from "@/server/jobs";
 import { scheduleReviewRequest } from "@/server/patient-events";
+import { notifyOps } from "@/server/ops-alerts";
 import type { PvsEvent } from "@/server/pvs-events";
+import { attachRequestsToPatient } from "@/server/request-patient-link";
 
 /**
  * PVS Bridge — request.status + revenue derivation worker.
@@ -103,13 +105,28 @@ interface InvoiceEvent {
   /** pvs_event_log row id of the InvoicePaid event — outbox dedup key. */
   eventLogId: string;
   amountCents: number;
+  /** Pass 2: amountCents minus this invoice's (clamped) refunds. The ads
+   *  fanout sends this, and never a zero or fully refunded invoice. */
+  netCents: number;
   paidAt: Date;
   /** Phase 11: the invoice's currency (EUR/CHF), threaded to the ads outbox. */
   currency?: "EUR" | "CHF";
 }
 
-interface AppointmentBucket {
+export interface AppointmentBucket {
+  /** The PVS appointment id, or `synthetic:<source>::<invoice>` for a
+   *  synthetic bucket (see `synthetic`). */
   pvsAppointmentId: string;
+  /**
+   * Pass 2: true for an invoice that carries no appointment and no resolvable
+   * encounter (the normal case for Honorar CSV exports). Before pass 2 such
+   * revenue only reached the patient total, never a lead, a dashboard number
+   * or an ads conversion. A synthetic bucket is attributed like an
+   * appointment (to the patient's lead that existed at the payment date) but
+   * never becomes the request's pvs_appointment_id and contributes a status
+   * only through its money (gewonnen when > 0).
+   */
+  synthetic: boolean;
   scheduledAt: Date | null;
   treatmentCode: string | null;
   treatmentLabel: string | null;
@@ -126,6 +143,10 @@ interface AppointmentBucket {
     | "no_show"
     | "cancelled";
   invoiceCents: number;
+  /** Pass 2: refunds netted against this bucket's invoices (each invoice's
+   *  refunds clamped at its paid amount). Lets a full refund be told apart
+   *  from "no payment ever" when a gewonnen lead would be downgraded. */
+  refundedCents: number;
   earliestInvoiceAt: Date | null;
   /**
    * One entry per InvoicePaid event tied to this appointment. Carried
@@ -140,6 +161,10 @@ export async function processPvsStatusDerive(
   job: PvsStatusDeriveJob
 ): Promise<void> {
   const { clinicId, portalPatientId } = job;
+  // Pass 2: stamped on the patient at the end (pvs_derived_at). Captured
+  // BEFORE the events are read, so an event ingested while this run is busy
+  // still counts as newer and pvs-reconcile re-derives the patient.
+  const derivedAt = new Date();
 
   // 1) Find the set of PVS patient ids that map to this portal patient.
   //    (Patient merges can result in multiple pvs ids → one portal patient.)
@@ -152,10 +177,11 @@ export async function processPvsStatusDerive(
         eq(schema.pvsPatientMap.portalPatientId, portalPatientId)
       )
     );
-  if (mapRows.length === 0) {
-    // Nothing to derive — patient has no PVS events linked.
-    return;
-  }
+  // Pass 2: no early return. A patient whose last PVS id was re-pointed to
+  // another portal patient (fuzzy-link fix, manual resolve) has no map rows
+  // left, but still carries the lifetime revenue and the lead revenue derived
+  // from that PVS id. Folding zero events resets both (with the usual
+  // alarms) instead of double counting the money on two patients.
   const pvsPatientIds = mapRows.map((r) => r.pvsPatientId);
 
   // 2) Pull the full event-log history for these PVS ids, ordered by
@@ -164,28 +190,50 @@ export async function processPvsStatusDerive(
   //    The payload->>'pvsPatientId' index (created in 0022) makes this
   //    fast even for big partitions.
   //
-  //    The `::text[]` cast on the param is non-negotiable: postgres.js binds
-  //    JS arrays as `unknown`, and `ANY($1)` without a typed RHS raises
-  //    42P18 ("could not determine data type of parameter"). The catch path
-  //    in applyPvsEvent surfaces that as a 500 so the producer retries —
-  //    but the retry loops forever until the cast is in place.
-  const events = await db
+  //    The array MUST go through `sql.param(...)`: drizzle 0.36 expands a
+  //    bare JS array inside sql`` into a row tuple `($1, $2, ...)`, which
+  //    Postgres rejects ("malformed array literal" with one id, "cannot cast
+  //    type record to text[]" with two or more). `sql.param` binds the whole
+  //    array as ONE parameter; the `::text[]` cast then gives `ANY($1)` a
+  //    typed RHS. Guarded by src/db/sql-array-param.test.ts.
+  const events = pvsPatientIds.length === 0 ? [] : await db
     .select({
       id: schema.pvsEventLog.id,
       kind: schema.pvsEventLog.kind,
       occurredAt: schema.pvsEventLog.occurredAt,
+      ingestedAt: schema.pvsEventLog.ingestedAt,
       payload: schema.pvsEventLog.payload,
     })
     .from(schema.pvsEventLog)
     .where(
       and(
         eq(schema.pvsEventLog.clinicId, clinicId),
-        sql`${schema.pvsEventLog.payload}->>'pvsPatientId' = ANY(${pvsPatientIds}::text[])`
+        sql`${schema.pvsEventLog.payload}->>'pvsPatientId' = ANY(${sql.param(pvsPatientIds)}::text[])`
       )
     )
     .orderBy(asc(schema.pvsEventLog.occurredAt));
 
-  if (events.length === 0) return;
+  // Pass 2: attach this PVS patient's open Anfragen (same email, or same
+  // phone and name) BEFORE the requests are read below. Nothing else ever
+  // set requests.patient_id, so without this no Anfrage got PVS status or
+  // revenue. The earliest non-PatientUpserted event tells an existing patient
+  // from one the Anfrage brought (first-touch source). Best-effort: a failure
+  // here must not stop the derive itself.
+  if (pvsPatientIds.length > 0) {
+    let earliestActivity: Date | null = null;
+    for (const e of events) {
+      if (e.kind === "PatientUpserted") continue;
+      if (!earliestActivity || e.occurredAt < earliestActivity) earliestActivity = e.occurredAt;
+    }
+    try {
+      await attachRequestsToPatient(clinicId, portalPatientId, earliestActivity);
+    } catch (err) {
+      console.warn(
+        "[pvs-status-derive] attaching Anfragen failed",
+        JSON.stringify({ clinicId, portalPatientId, error: String(err) })
+      );
+    }
+  }
 
   // 3) Fold events into per-appointment buckets + patient-level aggregates.
   const buckets = foldEvents(events);
@@ -221,7 +269,11 @@ export async function processPvsStatusDerive(
     : 0;
 
   // 4) Apply changes per appointment.
-  await applyAppointmentBuckets(clinicId, portalPatientId, buckets);
+  const fanoutFailures = await applyAppointmentBuckets(
+    clinicId,
+    portalPatientId,
+    buckets
+  );
 
   // 5) Update patient aggregate. P2-3: raise an anomaly alert when the
   // lifetime revenue would swing by more than the threshold. We STILL
@@ -252,7 +304,13 @@ export async function processPvsStatusDerive(
     .update(schema.patients)
     .set({
       lifetimeRevenueEur: (buckets.invoiceTotalsCents / 100).toFixed(2),
-      lastSeenAt: clampActivityTimestamp(buckets.maxOccurredAt, now),
+      // No events (re-pointed away): keep the last real activity.
+      lastSeenAt: buckets.maxOccurredAt
+        ? clampActivityTimestamp(buckets.maxOccurredAt, now)
+        : undefined,
+      // Pass 2: not stamped when an ads-outbox insert failed, so the
+      // pvs-reconcile stale-derive scan re-derives this patient as well.
+      pvsDerivedAt: fanoutFailures === 0 ? derivedAt : undefined,
     })
     .where(eq(schema.patients.id, portalPatientId));
 
@@ -264,6 +322,16 @@ export async function processPvsStatusDerive(
       now
     );
     if (range) await enqueueKpiRebuild(clinicId, range.from, range.to);
+  }
+
+  // Pass 2: an outbox insert that failed used to be logged and forgotten
+  // ("reconcile will retry", which it never did), so that Purchase was lost.
+  // Every request write above is done and idempotent; failing the job now
+  // makes pg-boss retry it, and the outbox UNIQUE keys absorb the replay.
+  if (fanoutFailures > 0) {
+    throw new Error(
+      `pvs-status-derive: ${fanoutFailures} ads-outbox insert(s) failed for patient ${portalPatientId}, retrying`
+    );
   }
 }
 
@@ -397,6 +465,7 @@ async function raiseDualPathRevenueAlarm(args: {
 }): Promise<void> {
   const dedupeKey = `pvs_dual_path_revenue:${args.portalPatientId}`;
   const sourceList = args.sources.join(", ");
+  const alertBody = `Für einen Patienten wurden Rechnungs-Ereignisse aus mehreren Anbindungen gezählt (${sourceList}). Wenn beide Pfade dieselbe PVS abbilden, sind Lifetime-Revenue und der Umsatz der zugehörigen Anfragen wahrscheinlich doppelt gezählt. Das Portal nimmt neue Rechnungsdaten nur noch aus der führenden Quelle an; die bereits eingelesenen Ereignisse müssen bereinigt werden.`;
   try {
     await db
       .insert(schema.dashboardAlerts)
@@ -405,14 +474,17 @@ async function raiseDualPathRevenueAlarm(args: {
         kind: "pvs_dual_path_revenue",
         severity: "high",
         title: `PVS: Umsätze aus zwei Datenpfaden bei einem Patienten (${sourceList})`,
-        body: `Für einen Patienten wurden Rechnungs-Ereignisse aus mehreren Anbindungen gezählt (${sourceList}). Wenn beide Pfade dieselbe PVS abbilden, sind Lifetime-Revenue und der Umsatz der zugehörigen Anfragen wahrscheinlich doppelt gezählt. Das Portal nimmt neue Rechnungsdaten nur noch aus der führenden Quelle an; die bereits eingelesenen Ereignisse müssen bereinigt werden.`,
+        body: alertBody,
         actionSteps: [
           "Rechnungs-Historie des Patienten in der PVS mit den Portal-Ereignissen vergleichen.",
           "Doppelte Ereignisse des nicht führenden Pfads via pnpm pvs:reconcile bereinigen (unlink + replay-events).",
           "Prüfen, dass billing_enabled in pvs_link_source nur für die führende Quelle aktiv ist.",
         ],
         metric: "pvs_dual_path_revenue_sources",
-        observedValue: sourceList,
+        // dashboard_alerts.observed_value is numeric(14,4): a source-name
+        // string raised 22P02 and the alert was never written. The sources
+        // are in the title/body instead.
+        observedValue: null,
         dedupeKey,
       })
       .onConflictDoUpdate({
@@ -421,7 +493,7 @@ async function raiseDualPathRevenueAlarm(args: {
           schema.dashboardAlerts.dedupeKey,
         ],
         set: {
-          observedValue: sourceList,
+          body: alertBody,
           updatedAt: new Date(),
         },
       });
@@ -431,6 +503,14 @@ async function raiseDualPathRevenueAlarm(args: {
       err
     );
   }
+  // Probably double-counted revenue: page EINS (rate-limited per clinic).
+  await notifyOps({
+    clinicId: args.clinicId,
+    kind: "pvs_dual_path_revenue",
+    severity: "high",
+    title: `PVS: Umsätze aus zwei Datenpfaden (${sourceList})`,
+    body: alertBody,
+  });
 }
 
 async function raiseStatusDowngradeAlarm(args: {
@@ -536,6 +616,10 @@ export function foldEvents(
     id: string;
     kind: string;
     occurredAt: Date;
+    /** Insert time (Postgres now() = transaction start). Tie-break for
+     *  invoice/refund rows with an equal occurredAt; optional so callers and
+     *  tests that predate it keep working. */
+    ingestedAt?: Date | null;
     payload: unknown;
   }>
 ): AppointmentBuckets {
@@ -578,31 +662,76 @@ export function foldEvents(
     amountCents: number;
     apptId: string | null;
     eventLogId: string;
+    ingestedAt: Date | null;
     paidAt: Date;
     occurredAt: Date;
+    sourceRevision: number | null;
     currency?: "EUR" | "CHF";
     /** M-D6: provenance of the counted payment, for dual-path detection. */
     bridgeSource: string | undefined;
   }
   interface RefundEntry {
     refundedAmountCents: number;
-    explicitApptId: string | null;
     pvsInvoiceId: string | null;
     bridgeSource: string | undefined;
     occurredAt: Date;
+    sourceRevision: number | null;
+    eventLogId: string;
+    ingestedAt: Date | null;
   }
   const paidByInvoice = new Map<string, PaidEntry>();
   const unkeyedPaid: PaidEntry[] = [];
-  const refundByInvoice = new Map<string, RefundEntry>();
-  const unkeyedRefund: RefundEntry[] = [];
+  // Pass 2: highest amount any version of an invoice ever carried. CSV and
+  // DB exports have no refund document: a storno or credit shows up as the
+  // same invoice re-emitted with a lower amount (0 for a full storno). The
+  // latest version already sets the revenue; the drop is recorded as
+  // refunded so a lead whose invoice went to 0 is downgraded like a refund
+  // instead of being held at gewonnen with an unexplained-drop alarm.
+  const peakPaidByInvoice = new Map<string, number>();
+  // Pass 2 (open item 1): per invoice key, one entry per refund document
+  // (pvsRefundId; "" for producers that send none). Versions of one refund
+  // document are latest-wins; distinct documents are SUMMED, so two partial
+  // credit notes of one invoice both count instead of the later replacing
+  // the earlier.
+  const refundsByInvoice = new Map<string, Map<string, RefundEntry>>();
+  let unkeyedRefunds = 0;
   const invoiceKey = (bridgeSource: string | undefined, pvsInvoiceId: string) =>
     `${bridgeSource ?? ""}::${pvsInvoiceId}`;
+  // Pass 2: a producer revision (CSV invoice-book revision, DB modified_at)
+  // decides first when both versions carry one: arrival order is not
+  // production order (the agent retries a failed row behind newer ones), and
+  // a corrected payment date may be EARLIER than the original.
+  // Otherwise latest occurredAt wins; on a tie the later INSERT wins
+  // (ingestedAt), so a corrected re-export with the same paidAt replaces the
+  // stale amount. ingestedAt is the transaction start time, so two rows
+  // inserted in the same transaction still tie; the event log id (a random
+  // UUID) is only the last-resort deterministic tie-break, not "later wins".
+  const isLaterEntry = (
+    a: { occurredAt: Date; eventLogId: string; ingestedAt: Date | null; sourceRevision: number | null },
+    b: { occurredAt: Date; eventLogId: string; ingestedAt: Date | null; sourceRevision: number | null }
+  ): boolean => {
+    if (
+      a.sourceRevision !== null &&
+      b.sourceRevision !== null &&
+      a.sourceRevision !== b.sourceRevision
+    ) {
+      return a.sourceRevision > b.sourceRevision;
+    }
+    const d = a.occurredAt.getTime() - b.occurredAt.getTime();
+    if (d !== 0) return d > 0;
+    if (a.ingestedAt && b.ingestedAt) {
+      const i = a.ingestedAt.getTime() - b.ingestedAt.getTime();
+      if (i !== 0) return i > 0;
+    }
+    return a.eventLogId >= b.eventLogId;
+  };
 
-  const ensure = (id: string): AppointmentBucket => {
+  const ensure = (id: string, synthetic = false): AppointmentBucket => {
     let b = byAppt.get(id);
     if (!b) {
       b = {
         pvsAppointmentId: id,
+        synthetic,
         scheduledAt: null,
         treatmentCode: null,
         treatmentLabel: null,
@@ -614,6 +743,7 @@ export function foldEvents(
         noShowAt: null,
         appointmentStatus: "scheduled",
         invoiceCents: 0,
+        refundedCents: 0,
         earliestInvoiceAt: null,
         invoiceEvents: [],
       };
@@ -643,14 +773,20 @@ export function foldEvents(
         // Status changes are time-ordered (we iterate ASC), so the latest
         // wins implicitly.
         b.appointmentStatus = payload.newStatus;
-        if (payload.newStatus === "no_show" && !b.noShowAt) {
-          b.noShowAt = e.occurredAt;
+        // Pass 2: a no-show is a STATE, not a one-way flag. A receptionist's
+        // mis-click corrected to checked_in (or a later completion) used to
+        // keep the lead at no_show forever.
+        if (payload.newStatus === "no_show") {
+          if (!b.noShowAt) b.noShowAt = e.occurredAt;
+        } else {
+          b.noShowAt = null;
         }
         break;
       }
       case "AppointmentCancelled": {
         const b = ensure(payload.pvsAppointmentId);
         b.appointmentStatus = "cancelled";
+        b.noShowAt = null;
         break;
       }
       case "EncounterCompleted": {
@@ -659,6 +795,7 @@ export function foldEvents(
           b.pvsEncounterId = payload.pvsEncounterId;
           b.completedAt = new Date(payload.completedAt);
           b.appointmentStatus = "completed";
+          b.noShowAt = null;
           b.treatmentCode = payload.treatmentCode ?? b.treatmentCode;
           b.treatmentLabel = payload.treatmentLabel ?? b.treatmentLabel;
         }
@@ -682,16 +819,24 @@ export function foldEvents(
           amountCents: payload.amountCents,
           apptId,
           eventLogId: e.id,
+          ingestedAt: e.ingestedAt ?? null,
           paidAt: new Date(payload.paidAt),
           occurredAt: e.occurredAt,
+          sourceRevision: payload.sourceRevision ?? null,
           currency: payload.currency,
           bridgeSource: payload.bridgeSource,
         };
         if (payload.pvsInvoiceId) {
           const key = invoiceKey(payload.bridgeSource, payload.pvsInvoiceId);
+          peakPaidByInvoice.set(
+            key,
+            Math.max(peakPaidByInvoice.get(key) ?? 0, payload.amountCents)
+          );
           const prev = paidByInvoice.get(key);
-          // Latest occurredAt wins; >= keeps ASC "last row wins" on ties.
-          if (!prev || entry.occurredAt >= prev.occurredAt) {
+          // Latest occurredAt wins; on an equal occurredAt (corrected
+          // re-export with the same paidAt) the later insert wins, see
+          // isLaterEntry.
+          if (!prev || isLaterEntry(entry, prev)) {
             paidByInvoice.set(key, entry);
           }
         } else {
@@ -702,26 +847,33 @@ export function foldEvents(
       case "InvoiceRefunded": {
         // #10 + H4: money out. Collect and dedup the same way as InvoicePaid,
         // so a re-emitted refund is netted once. Reconciled after the loop:
-        // subtract from the patient total and, where the appointment is
-        // resolvable (explicit, or via the original invoice's pvsInvoiceId),
-        // from that bucket too, so request-level revenue and the gewonnen
-        // status net down. The ads-platform refund/adjustment is a follow-up;
-        // v1 corrects the dashboard numbers.
+        // subtract from the patient total and from the bucket the invoice's
+        // revenue landed on, so request-level revenue and the gewonnen status
+        // net down. The ads-platform refund/adjustment is a follow-up; v1
+        // corrects the dashboard numbers.
         const entry: RefundEntry = {
           refundedAmountCents: payload.refundedAmountCents,
-          explicitApptId: payload.pvsAppointmentId ?? null,
           pvsInvoiceId: payload.pvsInvoiceId ?? null,
           bridgeSource: payload.bridgeSource,
           occurredAt: e.occurredAt,
+          sourceRevision: payload.sourceRevision ?? null,
+          eventLogId: e.id,
+          ingestedAt: e.ingestedAt ?? null,
         };
         if (payload.pvsInvoiceId) {
           const key = invoiceKey(payload.bridgeSource, payload.pvsInvoiceId);
-          const prev = refundByInvoice.get(key);
-          if (!prev || entry.occurredAt >= prev.occurredAt) {
-            refundByInvoice.set(key, entry);
+          let docs = refundsByInvoice.get(key);
+          if (!docs) {
+            docs = new Map();
+            refundsByInvoice.set(key, docs);
+          }
+          const docKey = payload.pvsRefundId ?? "";
+          const prev = docs.get(docKey);
+          if (!prev || isLaterEntry(entry, prev)) {
+            docs.set(docKey, entry);
           }
         } else {
-          unkeyedRefund.push(entry);
+          unkeyedRefunds++;
         }
         break;
       }
@@ -741,13 +893,6 @@ export function foldEvents(
   const paidEntries = [...paidByInvoice.values(), ...unkeyedPaid].sort(
     (a, b) => a.occurredAt.getTime() - b.occurredAt.getTime()
   );
-  // #10: map each (deduped) invoice to the appointment it landed on, so a later
-  // InvoiceRefunded keyed only by pvsInvoiceId can net the same bucket.
-  // null = the invoice was appt-less (patient-level only).
-  const invoiceApptIndex = new Map<string, string | null>();
-  for (const [key, paid] of paidByInvoice) {
-    invoiceApptIndex.set(key, paid.apptId);
-  }
   // M-D6: track which continuous sources contributed counted revenue. Two or
   // more means a dual ingest path slipped past the billing-authority gate.
   const revenueSources = new Set<string>();
@@ -756,32 +901,71 @@ export function foldEvents(
       revenueSources.add(paid.bridgeSource);
     }
   }
+  // #10: index each (deduped) invoice by the bucket its revenue landed on, so
+  // an InvoiceRefunded keyed only by pvsInvoiceId nets that same bucket.
+  const paidIndex = new Map<string, { bucket: AppointmentBucket; paid: PaidEntry; inv: InvoiceEvent }>();
+  const keyOfPaid = new Map<PaidEntry, string>();
+  for (const [key, paid] of paidByInvoice) keyOfPaid.set(paid, key);
   for (const paid of paidEntries) {
     invoiceTotalsCents += paid.amountCents;
-    if (paid.apptId) {
-      const b = ensure(paid.apptId);
-      b.invoiceCents += paid.amountCents;
-      if (!b.earliestInvoiceAt || paid.paidAt < b.earliestInvoiceAt) {
-        b.earliestInvoiceAt = paid.paidAt;
-      }
-      b.invoiceEvents.push({
-        eventLogId: paid.eventLogId,
-        amountCents: paid.amountCents,
-        paidAt: paid.paidAt,
-        currency: paid.currency,
-      });
+    const key = keyOfPaid.get(paid);
+    // Pass 2: an invoice with no appointment and no resolvable encounter gets
+    // its own synthetic bucket instead of reaching the patient total only.
+    const b = paid.apptId
+      ? ensure(paid.apptId)
+      : ensure(`synthetic:${key ?? `row:${paid.eventLogId}`}`, true);
+    b.invoiceCents += paid.amountCents;
+    if (!b.earliestInvoiceAt || paid.paidAt < b.earliestInvoiceAt) {
+      b.earliestInvoiceAt = paid.paidAt;
+    }
+    const inv: InvoiceEvent = {
+      eventLogId: paid.eventLogId,
+      amountCents: paid.amountCents,
+      netCents: paid.amountCents,
+      paidAt: paid.paidAt,
+      currency: paid.currency,
+    };
+    b.invoiceEvents.push(inv);
+    if (key) {
+      paidIndex.set(key, { bucket: b, paid, inv });
+      const drop = (peakPaidByInvoice.get(key) ?? 0) - paid.amountCents;
+      if (drop > 0) b.refundedCents += drop;
     }
   }
-  for (const refund of [...refundByInvoice.values(), ...unkeyedRefund]) {
-    invoiceTotalsCents -= refund.refundedAmountCents;
-    const key = refund.pvsInvoiceId
-      ? invoiceKey(refund.bridgeSource, refund.pvsInvoiceId)
-      : null;
-    const refundApptId =
-      refund.explicitApptId ?? (key ? invoiceApptIndex.get(key) ?? null : null);
-    if (refundApptId) {
-      ensure(refundApptId).invoiceCents -= refund.refundedAmountCents;
+  // Refunds only net a KNOWN paid invoice of the same bridgeSource::pvsInvoiceId.
+  // A refund whose invoice has no folded InvoicePaid (invoice from before the
+  // agent cutover, or paid through a different source) is an orphan: counted
+  // and logged, never subtracted from revenue (B2).
+  // Pass 2: distinct refund documents of one invoice are summed, and the sum
+  // is clamped at that invoice's paid amount, so refunds of one invoice can
+  // never eat another invoice's revenue.
+  let orphanRefunds = unkeyedRefunds;
+  for (const [key, docs] of refundsByInvoice) {
+    const hit = paidIndex.get(key);
+    if (!hit) {
+      orphanRefunds += docs.size;
+      continue;
     }
+    let refunded = 0;
+    for (const [docKey, doc] of docs) {
+      // Pass 2 (verifier): a refund without its own document id (CSV: the
+      // net of one export) is superseded by a LATER version of the invoice,
+      // which is again a net state and already contains it. Subtracting it
+      // again counted an overlapping export's credit twice. A credit note
+      // with its own id is a separate document and always nets.
+      if (docKey === "" && isLaterEntry(hit.paid, doc)) continue;
+      refunded += doc.refundedAmountCents;
+    }
+    const applied = Math.min(refunded, hit.paid.amountCents);
+    invoiceTotalsCents -= applied;
+    hit.bucket.invoiceCents -= applied;
+    hit.bucket.refundedCents += applied;
+    hit.inv.netCents = hit.paid.amountCents - applied;
+  }
+  if (orphanRefunds > 0) {
+    console.warn(
+      `[pvs-status-derive] ${orphanRefunds} orphan InvoiceRefunded event(s) without a matching InvoicePaid ignored`
+    );
   }
 
   // #10: a refund can only drive a total or bucket below zero if we never saw
@@ -810,108 +994,213 @@ async function applyAppointmentBuckets(
   clinicId: string,
   portalPatientId: string,
   buckets: AppointmentBuckets
-): Promise<void> {
-  // For each appointment bucket, find the existing request row (if any) and
-  // update it. If no existing request links to this appointment, we look
-  // for the most-recent unlinked request for this patient and attach.
-  for (const bucket of buckets.byAppt.values()) {
-    const derivedStatus = deriveStatusForBucket(bucket);
-    if (!derivedStatus) continue;
+): Promise<number> {
+  const all = [...buckets.byAppt.values()];
+  let fanoutFailures = 0;
 
-    // Find existing request linked to this appointment, with current
-    // status so the cascade-downgrade alarm can compare before applying.
-    const [linked] = await db
-      .select({
-        id: schema.requests.id,
-        currentStatus: schema.requests.status,
-      })
-      .from(schema.requests)
-      .where(
-        and(
-          eq(schema.requests.clinicId, clinicId),
-          eq(schema.requests.pvsAppointmentId, bucket.pvsAppointmentId)
-        )
+  // Pass 2: load the candidate requests once, then attribute every bucket in
+  // memory (assignBucketsToRequests) and write ONE aggregate per request.
+  // Before, each appointment was matched on its own and a lead could hold
+  // only one: once the consultation linked the request, the later treatment
+  // appointment (with the actual invoice) found no request and its revenue
+  // never reached the lead, the dashboard or the ads conversion.
+  const cols = {
+    id: schema.requests.id,
+    createdAt: schema.requests.createdAt,
+    pvsAppointmentId: schema.requests.pvsAppointmentId,
+    status: schema.requests.status,
+    statusSource: schema.requests.statusSource,
+    convertedRevenueEur: schema.requests.convertedRevenueEur,
+  };
+  const patientRequests = await db
+    .select(cols)
+    .from(schema.requests)
+    .where(
+      and(
+        eq(schema.requests.clinicId, clinicId),
+        eq(schema.requests.patientId, portalPatientId)
       )
-      .limit(1);
-
-    if (linked) {
-      const applied = await applyToRequest(
-        linked.id,
-        bucket,
-        derivedStatus,
-        linked.currentStatus,
-        clinicId
-      );
-      if (applied) {
-        await fanoutInvoiceConversions(clinicId, linked.id, bucket);
-        if (bucket.completedAt) {
-          await maybeScheduleReviewForCompletedEncounter({
-            clinicId,
-            portalPatientId,
-            requestId: linked.id,
-            bucket,
-          });
-        }
-      }
-      continue;
-    }
-
-    // Attempt attach: latest open request for this patient that doesn't
-    // yet have a pvs_appointment_id.
-    const [attachable] = await db
-      .select({
-        id: schema.requests.id,
-        currentStatus: schema.requests.status,
-      })
-      .from(schema.requests)
-      .where(
-        and(
-          eq(schema.requests.clinicId, clinicId),
-          eq(schema.requests.patientId, portalPatientId),
-          sql`${schema.requests.pvsAppointmentId} IS NULL`
+    );
+  const realApptIds = all.filter((b) => !b.synthetic).map((b) => b.pvsAppointmentId);
+  const linkedRequests = realApptIds.length
+    ? await db
+        .select(cols)
+        .from(schema.requests)
+        .where(
+          and(
+            eq(schema.requests.clinicId, clinicId),
+            inArray(schema.requests.pvsAppointmentId, realApptIds)
+          )
         )
-      )
-      .orderBy(desc(schema.requests.createdAt))
-      .limit(1);
-    if (attachable) {
-      const applied = await applyToRequest(
-        attachable.id,
-        bucket,
-        derivedStatus,
-        attachable.currentStatus,
-        clinicId
-      );
-      if (applied) {
-        await fanoutInvoiceConversions(clinicId, attachable.id, bucket);
-        if (bucket.completedAt) {
-          await maybeScheduleReviewForCompletedEncounter({
-            clinicId,
-            portalPatientId,
-            requestId: attachable.id,
-            bucket,
-          });
-        }
+    : [];
+
+  const assigned = assignBucketsToRequests(all, patientRequests, linkedRequests);
+  const byId = new Map<string, (typeof patientRequests)[number]>();
+  for (const r of [...patientRequests, ...linkedRequests]) byId.set(r.id, r);
+
+  for (const [requestId, reqBuckets] of assigned) {
+    const current = byId.get(requestId);
+    if (!current) continue;
+    const agg = aggregateRequestBuckets(reqBuckets, current.pvsAppointmentId);
+    const applied = await applyToRequest(current, agg, clinicId);
+    if (!applied) continue;
+    fanoutFailures += await fanoutInvoiceConversions(
+      clinicId,
+      requestId,
+      conversionsToSend(reqBuckets)
+    );
+    for (const bucket of reqBuckets) {
+      if (bucket.completedAt) {
+        await maybeScheduleReviewForCompletedEncounter({
+          clinicId,
+          portalPatientId,
+          requestId,
+          bucket,
+        });
       }
-      continue;
     }
-    // No existing request → don't synthesize one. The patient row holds the
-    // PVS data; if this person never came through the lead funnel, they
-    // simply aren't an attributable lead. KPIs reflect that correctly.
   }
+
+  // Pass 2: PVS-derived revenue on a lead that no longer receives any bucket
+  // (its PVS patient was re-pointed elsewhere, or a payment now belongs to a
+  // newer lead) is stale. Left alone, the same money counted on two leads.
+  // convertedRevenueEur of a statusSource='pvs' request is derive-owned, so
+  // it is reset to 0; a gewonnen status is NOT taken back silently (P2-3),
+  // the downgrade alarm asks the operator instead.
+  for (const r of patientRequests) {
+    if (assigned.has(r.id) || r.statusSource !== "pvs") continue;
+    if (!(toCents(r.convertedRevenueEur) ?? 0)) continue;
+    await db
+      .update(schema.requests)
+      .set({ convertedRevenueEur: "0.00" })
+      .where(eq(schema.requests.id, r.id));
+    await db.insert(schema.requestActivities).values({
+      requestId: r.id,
+      actorId: null,
+      kind: "status_change",
+      body: "PVS: Umsatz entfernt (keine zugeordnete Rechnung mehr)",
+      meta: {
+        source: "pvs",
+        from: r.status,
+        to: r.status,
+        invoiceCents: 0,
+        previousRevenueEur: r.convertedRevenueEur,
+      },
+    });
+    if (r.status === "gewonnen") {
+      await raiseStatusDowngradeAlarm({
+        clinicId,
+        requestId: r.id,
+        pvsAppointmentId: r.pvsAppointmentId ?? "ohne Termin",
+        fromStatus: r.status,
+        toStatus: "unbekannt",
+        invoiceCents: 0,
+      });
+    }
+  }
+  return fanoutFailures;
 }
 
-export function deriveStatusForBucket(
-  b: AppointmentBucket
-):
+const ATTACH_SLACK_MS = 24 * 60 * 60 * 1000;
+
+/** Best available "when did this appointment take place" for a bucket. */
+function bucketReferenceDate(b: AppointmentBucket): Date | null {
+  return b.scheduledAt ?? b.completedAt ?? b.earliestInvoiceAt ?? b.noShowAt;
+}
+
+/**
+ * True when the bucket's appointment is not older than request.createdAt - 1d.
+ * Used only for the heuristic attach path (no pvs_appointment_id link).
+ */
+export function appointmentIsRecentEnough(
+  b: AppointmentBucket,
+  requestCreatedAt: Date | null
+): boolean {
+  if (!requestCreatedAt) return true;
+  const ref = bucketReferenceDate(b);
+  if (!ref) return false;
+  return ref.getTime() >= requestCreatedAt.getTime() - ATTACH_SLACK_MS;
+}
+
+/** The request fields attribution needs. */
+export interface RequestCandidate {
+  id: string;
+  createdAt: Date | null;
+  pvsAppointmentId: string | null;
+  status: string;
+}
+
+/**
+ * Pass 2: attribute every bucket of one patient to at most one request.
+ *
+ *   1. A real appointment already linked to a request (requests.pvs_appointment_id)
+ *      stays on that request. The link is stable across derive runs, even when
+ *      the linked request belongs to another portal patient (re-point history).
+ *   2. Otherwise the bucket goes to the patient's LATEST request that already
+ *      existed at the bucket's date (createdAt <= reference date). Only when
+ *      there is none, a request created within the 1-day slack after it
+ *      (createdAt - 1 day <= reference date, the B4 recency guard) qualifies.
+ *      A lead created after the treatment did not cause it.
+ *   3. No such request: the bucket stays patient-level only (no lead to credit).
+ *
+ * Spam requests never receive PVS data. Several buckets may land on one
+ * request; aggregateRequestBuckets folds them. Pure, for unit tests.
+ */
+export function assignBucketsToRequests(
+  buckets: AppointmentBucket[],
+  patientRequests: RequestCandidate[],
+  linkedRequests: RequestCandidate[] = []
+): Map<string, AppointmentBucket[]> {
+  const linkedByAppt = new Map<string, RequestCandidate>();
+  for (const r of [...patientRequests, ...linkedRequests]) {
+    if (r.pvsAppointmentId) linkedByAppt.set(r.pvsAppointmentId, r);
+  }
+  // Latest first; a null createdAt sorts last (treated as oldest).
+  const candidates = patientRequests
+    .filter((r) => r.status !== "spam")
+    .sort((a, b) => (b.createdAt?.getTime() ?? -Infinity) - (a.createdAt?.getTime() ?? -Infinity));
+  const out = new Map<string, AppointmentBucket[]>();
+  const push = (id: string, b: AppointmentBucket) => {
+    const list = out.get(id);
+    if (list) list.push(b);
+    else out.set(id, [b]);
+  };
+  for (const b of buckets) {
+    if (!b.synthetic) {
+      const linked = linkedByAppt.get(b.pvsAppointmentId);
+      if (linked) {
+        push(linked.id, b);
+        continue;
+      }
+    }
+    // A lead that existed BEFORE the bucket's date wins over one created in
+    // the 1-day slack after it. Otherwise a lead submitted the evening after
+    // a payment would take that payment away from the lead that caused it.
+    const ref = bucketReferenceDate(b);
+    const target =
+      candidates.find((r) => !r.createdAt || (ref !== null && r.createdAt.getTime() <= ref.getTime())) ??
+      candidates.find((r) => appointmentIsRecentEnough(b, r.createdAt));
+    if (target) push(target.id, b);
+  }
+  return out;
+}
+
+export type DerivedStatus =
   | "gewonnen"
   | "behandelt"
   | "no_show"
   | "beratung_erschienen"
-  | "termin_vereinbart"
-  | null {
+  | "termin_vereinbart";
+
+export function deriveStatusForBucket(b: AppointmentBucket): DerivedStatus | null {
   if (b.invoiceCents > 0) return "gewonnen";
-  if (b.completedAt) return "behandelt";
-  if (b.appointmentStatus === "no_show" || b.noShowAt) return "no_show";
+  // A synthetic bucket is only money: without a positive amount it says
+  // nothing about the lead's stage.
+  if (b.synthetic) return null;
+  // Pass 2: a PVS that reports completion only as a status change (no
+  // EncounterCompleted) still treated the patient.
+  if (b.completedAt || b.appointmentStatus === "completed") return "behandelt";
+  if (b.appointmentStatus === "no_show") return "no_show";
   if (b.appointmentStatus === "checked_in") return "beratung_erschienen";
   if (b.appointmentStatus === "cancelled") {
     // Cancelled appointments don't drive a request status change beyond
@@ -922,37 +1211,165 @@ export function deriveStatusForBucket(
   return "termin_vereinbart";
 }
 
+/** Pass 2: furthest funnel stage wins when one lead has several appointments.
+ *  A no-show ranks lowest: a rebooked appointment after a no-show is
+ *  termin_vereinbart again. */
+const STATUS_RANK: Record<DerivedStatus, number> = {
+  no_show: 1,
+  termin_vereinbart: 2,
+  beratung_erschienen: 3,
+  behandelt: 4,
+  gewonnen: 5,
+};
+
+export interface RequestAggregate {
+  status: DerivedStatus | null;
+  /** Net revenue across the request's buckets (after refunds). */
+  invoiceCents: number;
+  refundedCents: number;
+  /** Earliest payment of a bucket that still carries revenue. */
+  wonAt: Date | null;
+  /** The real appointment the request is linked to: the existing link when it
+   *  is among the buckets, else the earliest real bucket. Never synthetic. */
+  primary: AppointmentBucket | null;
+  completedAt: Date | null;
+  completedEncounterId: string | null;
+  noShowAt: Date | null;
+}
+
+/** Pass 2: fold all buckets attributed to one request. Pure. */
+export function aggregateRequestBuckets(
+  buckets: AppointmentBucket[],
+  existingPvsAppointmentId: string | null = null
+): RequestAggregate {
+  let status: DerivedStatus | null = null;
+  let invoiceCents = 0;
+  let refundedCents = 0;
+  let wonAt: Date | null = null;
+  let completedAt: Date | null = null;
+  let completedEncounterId: string | null = null;
+  let noShowAt: Date | null = null;
+  for (const b of buckets) {
+    const s = deriveStatusForBucket(b);
+    if (s && (!status || STATUS_RANK[s] > STATUS_RANK[status])) status = s;
+    invoiceCents += b.invoiceCents;
+    refundedCents += b.refundedCents;
+    if (b.invoiceCents > 0 && b.earliestInvoiceAt && (!wonAt || b.earliestInvoiceAt < wonAt)) {
+      wonAt = b.earliestInvoiceAt;
+    }
+    if (b.completedAt && (!completedAt || b.completedAt > completedAt)) {
+      completedAt = b.completedAt;
+      completedEncounterId = b.pvsEncounterId;
+    }
+    if (b.noShowAt && (!noShowAt || b.noShowAt > noShowAt)) noShowAt = b.noShowAt;
+  }
+  const real = buckets.filter((b) => !b.synthetic);
+  const primary =
+    (existingPvsAppointmentId
+      ? real.find((b) => b.pvsAppointmentId === existingPvsAppointmentId)
+      : undefined) ??
+    real
+      .slice()
+      .sort(
+        (a, b) =>
+          (bucketReferenceDate(a)?.getTime() ?? Infinity) -
+            (bucketReferenceDate(b)?.getTime() ?? Infinity) ||
+          a.pvsAppointmentId.localeCompare(b.pvsAppointmentId)
+      )[0] ??
+    null;
+  return {
+    status,
+    invoiceCents,
+    refundedCents,
+    wonAt,
+    primary,
+    completedAt,
+    completedEncounterId,
+    noShowAt: status === "no_show" ? noShowAt : null,
+  };
+}
+
 /**
- * Apply the derived status to a request row. Returns `true` if the
- * write happened, `false` if it was suppressed (P2-3 cascade-downgrade
- * gate). When suppressed, the caller MUST also skip the downstream
- * ads-conversion fanout — the alarm row holds the change in a queue
- * for operator review, and firing CAPI/OCI on top of a still-gewonnen
- * request would emit duplicate conversion events later when the
- * operator approves.
+ * Pass 2: the lead's money went back. All of its revenue was refunded, so a
+ * gewonnen -> lower move is explained by the PVS itself, not by a linker
+ * error. Such downgrades are applied (revenue written as 0.00) instead of
+ * being held behind the P2-3 alarm forever with the refunded amount still on
+ * the dashboard.
+ */
+export function isRefundExplained(agg: RequestAggregate): boolean {
+  return agg.invoiceCents === 0 && agg.refundedCents > 0;
+}
+
+/** Pass 2: the purchases to report for one request: each invoice once, at its
+ *  net (refund-adjusted) value, never a zero or fully refunded invoice. */
+export function conversionsToSend(
+  buckets: AppointmentBucket[]
+): Array<{ eventLogId: string; valueCents: number; paidAt: Date; currency?: "EUR" | "CHF" }> {
+  const out: Array<{ eventLogId: string; valueCents: number; paidAt: Date; currency?: "EUR" | "CHF" }> = [];
+  for (const b of buckets) {
+    for (const inv of b.invoiceEvents) {
+      if (inv.netCents > 0) {
+        out.push({ eventLogId: inv.eventLogId, valueCents: inv.netCents, paidAt: inv.paidAt, currency: inv.currency });
+      }
+    }
+  }
+  return out;
+}
+
+const toCents = (eur: string | null | undefined): number | null =>
+  eur === null || eur === undefined ? null : Math.round(parseFloat(eur) * 100);
+
+/**
+ * Apply one request's aggregate. Returns `true` if the status write happened,
+ * `false` if it was suppressed (P2-3 cascade-downgrade gate) or there was
+ * nothing to write. When suppressed, the caller MUST also skip the downstream
+ * ads-conversion fanout — the alarm row holds the change in a queue for
+ * operator review, and firing CAPI/OCI on top of a still-gewonnen request
+ * would emit duplicate conversion events later when the operator approves.
  */
 async function applyToRequest(
-  requestId: string,
-  bucket: AppointmentBucket,
-  derivedStatus: NonNullable<ReturnType<typeof deriveStatusForBucket>>,
-  currentStatus: string,
+  current: {
+    id: string;
+    status: string;
+    pvsAppointmentId: string | null;
+    convertedRevenueEur: string | null;
+  },
+  agg: RequestAggregate,
   clinicId: string
 ): Promise<boolean> {
+  const requestId = current.id;
+  const currentStatus = current.status;
+  const derivedStatus = agg.status;
+  const refundExplained = isRefundExplained(agg);
+  if (!derivedStatus && !refundExplained) return false;
+
   // P2-3: status-downgrade alarm. If the current row is already
   // 'gewonnen' but the new derive run wouldn't keep it there, hold the
   // change behind a dashboard alert. The alarm row's dedupe_key uses
   // requestId + day so a re-run on the same day doesn't multiply rows.
+  // Pass 2: a downgrade explained by refunds is applied (below), except when
+  // the buckets carry no other stage to fall back to: then only the revenue
+  // is corrected and the status is held for the operator.
   if (currentStatus === "gewonnen" && derivedStatus !== "gewonnen") {
-    await raiseStatusDowngradeAlarm({
-      clinicId,
-      requestId,
-      pvsAppointmentId: bucket.pvsAppointmentId,
-      fromStatus: currentStatus,
-      toStatus: derivedStatus,
-      invoiceCents: bucket.invoiceCents,
-    });
-    return false;
+    if (!refundExplained || !derivedStatus) {
+      if (refundExplained) {
+        await db
+          .update(schema.requests)
+          .set({ convertedRevenueEur: "0.00" })
+          .where(eq(schema.requests.id, requestId));
+      }
+      await raiseStatusDowngradeAlarm({
+        clinicId,
+        requestId,
+        pvsAppointmentId: agg.primary?.pvsAppointmentId ?? current.pvsAppointmentId ?? "ohne Termin",
+        fromStatus: currentStatus,
+        toStatus: derivedStatus ?? "unbekannt",
+        invoiceCents: agg.invoiceCents,
+      });
+      return false;
+    }
   }
+  if (!derivedStatus) return false;
 
   // Stamp firstContactedAt on the *first* transition out of 'neu'. Any
   // bridge-derived status (termin_vereinbart, beratung_erschienen, behandelt,
@@ -965,41 +1382,57 @@ async function applyToRequest(
   // können (Option 1b der first-contacted-Strategie).
   const stampFirstContact = currentStatus === "neu";
 
+  const newRevenueEur =
+    agg.invoiceCents > 0
+      ? (agg.invoiceCents / 100).toFixed(2)
+      : refundExplained
+        ? "0.00"
+        : undefined;
+
   await db
     .update(schema.requests)
     .set({
       status: derivedStatus,
       statusSource: "pvs",
-      pvsAppointmentId: bucket.pvsAppointmentId,
-      pvsEncounterId: bucket.pvsEncounterId ?? undefined,
-      appointmentAt: bucket.scheduledAt ?? undefined,
-      noShowAt: bucket.noShowAt ?? undefined,
-      completedAt: bucket.completedAt ?? undefined,
-      convertedRevenueEur:
-        bucket.invoiceCents > 0
-          ? (bucket.invoiceCents / 100).toFixed(2)
-          : undefined,
-      wonAt:
-        bucket.invoiceCents > 0 && bucket.earliestInvoiceAt
-          ? bucket.earliestInvoiceAt
-          : undefined,
+      // Keep an existing link; a synthetic bucket never becomes one.
+      pvsAppointmentId: current.pvsAppointmentId ? undefined : agg.primary?.pvsAppointmentId,
+      pvsEncounterId: agg.completedEncounterId ?? agg.primary?.pvsEncounterId ?? undefined,
+      appointmentAt: agg.primary?.scheduledAt ?? undefined,
+      // Pass 2: cleared when the lead is no longer a no-show.
+      noShowAt: agg.noShowAt,
+      completedAt: agg.completedAt ?? undefined,
+      convertedRevenueEur: newRevenueEur,
+      wonAt: agg.invoiceCents > 0 ? (agg.wonAt ?? undefined) : refundExplained ? null : undefined,
       firstContactedAt: stampFirstContact ? new Date() : undefined,
     })
     .where(eq(schema.requests.id, requestId));
 
   // Log the auto-update as a request_activity so the timeline shows it.
-  await db.insert(schema.requestActivities).values({
-    requestId,
-    actorId: null,
-    kind: "status_change",
-    body: `PVS: ${derivedStatus}`,
-    meta: {
-      source: "pvs",
-      pvsAppointmentId: bucket.pvsAppointmentId,
-      invoiceCents: bucket.invoiceCents,
-      derivedStatus,
-    },
-  });
+  // Pass 2: only when something visible changed. Every derive run (each new
+  // PVS event of the patient) used to add another identical "PVS: gewonnen".
+  const revenueChanged =
+    newRevenueEur !== undefined && toCents(newRevenueEur) !== toCents(current.convertedRevenueEur);
+  if (derivedStatus !== currentStatus || revenueChanged) {
+    await db.insert(schema.requestActivities).values({
+      requestId,
+      actorId: null,
+      kind: "status_change",
+      body: `PVS: ${derivedStatus}`,
+      // Pass 2: from/to like every other status_change writer. The KPI
+      // open-queue history (queries/kpis.ts) reads meta.from and the forecast
+      // stage history (queries/forecast.ts) reads meta.to; PVS moves were
+      // invisible to both.
+      meta: {
+        source: "pvs",
+        from: currentStatus,
+        to: derivedStatus,
+        pvsAppointmentId: agg.primary?.pvsAppointmentId ?? current.pvsAppointmentId,
+        invoiceCents: agg.invoiceCents,
+        refundedCents: agg.refundedCents,
+        derivedStatus,
+      },
+    });
+  }
 
   return true;
 }
@@ -1012,17 +1445,20 @@ async function applyToRequest(
  * makes this safe under derive-replay — rows already inserted on a prior
  * run are no-ops on the insert side and don't re-enqueue.
  *
- * Best-effort: failure to insert/enqueue MUST NOT roll back the request
- * update above. Practical reason: pvs-status-derive is the source of truth
- * for "gewonnen" status in the UI; if the enqueue fails, we still want the
- * praxis to see the correct status. The nightly pvs-reconcile job will
- * re-emit any missing outbox rows.
+ * Failure to insert/enqueue MUST NOT roll back the request update above.
+ * Practical reason: pvs-status-derive is the source of truth for "gewonnen"
+ * status in the UI; if the enqueue fails, we still want the praxis to see
+ * the correct status. Returns the number of failed inserts; the caller fails
+ * the derive job after every request is written, so pg-boss retries it (no
+ * other job re-emits missing outbox rows).
  */
 async function fanoutInvoiceConversions(
   clinicId: string,
   requestId: string,
-  bucket: AppointmentBucket
-): Promise<void> {
+  sends: ReturnType<typeof conversionsToSend>
+): Promise<number> {
+  // Pass 2: nothing to report (no invoice, all zero or fully refunded).
+  if (sends.length === 0) return 0;
   // P2-3: look up the request's click-id age + the platform's most-
   // recent activity. If the click is older than STALE_CLICK_ID_DAYS the
   // platform will reject the upload anyway, so we hold the conversion
@@ -1078,23 +1514,24 @@ async function fanoutInvoiceConversions(
     // organically months later, not via the ad", which is exactly the
     // case we want to suppress automated emission for.
     let totalValueCents = 0;
-    for (const invoice of bucket.invoiceEvents) totalValueCents += invoice.amountCents;
+    for (const invoice of sends) totalValueCents += invoice.valueCents;
     await raiseStaleClickIdAlarm({
       clinicId,
       requestId,
       clickCreatedAt: reqRow.createdAt,
       valueEur: totalValueCents / 100,
     });
-    return;
+    return 0;
   }
 
-  for (const invoice of bucket.invoiceEvents) {
+  let failures = 0;
+  for (const invoice of sends) {
     try {
       await enqueueInvoiceConversions({
         clinicId,
         requestId,
         pvsEventLogId: invoice.eventLogId,
-        valueEur: invoice.amountCents / 100,
+        valueEur: invoice.valueCents / 100,
         // Phase 11: attribute in the invoice's real currency (EUR/CHF);
         // defaults EUR in the outbox insert.
         currency: invoice.currency,
@@ -1105,9 +1542,12 @@ async function fanoutInvoiceConversions(
         `[pvs-status-derive] ads-outbox fanout failed (request=${requestId}, event_log=${invoice.eventLogId}):`,
         err
       );
-      // Swallow — request update already committed; reconcile job will retry.
+      // Request update already committed; the caller fails the job after
+      // all requests are written so pg-boss retries (pass 2).
+      failures++;
     }
   }
+  return failures;
 }
 
 // ---------------------------------------------------------------

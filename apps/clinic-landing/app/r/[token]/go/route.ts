@@ -41,16 +41,40 @@ function isAllowedReviewTarget(
 /**
  * EINS Bewertungen — public-click redirector.
  *
- * Records the platform click on the portal, then 302s the patient to the
- * configured Google / Jameda review URL. We do the round-trip server-side
- * so JS-disabled mail readers still get tracked and the link in the
- * landing page can render as a regular `<a href>`.
+ * POST (the CTA buttons on /r/<token> are small forms): books the star the
+ * patient picked (hidden field `rating`, if any) and the platform click on
+ * the portal, then 303s to the configured Google / Jameda review URL.
+ * Server-side, so it works without JS.
+ *
+ * GET only redirects and records nothing: a mail or link scanner that
+ * follows the URL must not create a rating or a public click (E-31).
  */
 export async function GET(
   request: NextRequest,
   ctx: { params: { token: string } }
 ) {
-  const { token } = ctx.params;
+  return handle(request, ctx.params.token, null);
+}
+
+export async function POST(
+  request: NextRequest,
+  ctx: { params: { token: string } }
+) {
+  let rating: number | null = null;
+  try {
+    const n = Number((await request.formData()).get("rating"));
+    if (Number.isInteger(n) && n >= 1 && n <= 5) rating = n;
+  } catch {
+    // no form body: still a deliberate click, record the platform only
+  }
+  return handle(request, ctx.params.token, { rating });
+}
+
+async function handle(
+  request: NextRequest,
+  token: string,
+  record: { rating: number | null } | null
+) {
   if (!isValidTokenShape(token)) {
     return NextResponse.json({ error: "bad_token" }, { status: 400 });
   }
@@ -80,7 +104,7 @@ export async function GET(
     const back = new URL(`/r/${token}`, request.nextUrl.origin);
     back.searchParams.set("err", "platform_not_configured");
     back.searchParams.set("p", platform);
-    return NextResponse.redirect(back, { status: 302 });
+    return NextResponse.redirect(back, { status: 303 });
   }
 
   if (!isAllowedReviewTarget(platform, target)) {
@@ -89,11 +113,18 @@ export async function GET(
     const back = new URL(`/r/${token}`, request.nextUrl.origin);
     back.searchParams.set("err", "invalid_review_url");
     back.searchParams.set("p", platform);
-    return NextResponse.redirect(back, { status: 302 });
+    return NextResponse.redirect(back, { status: 303 });
   }
 
-  // Fire-and-forget — we don't block the redirect on the click ping.
-  await postClick(token, { target: "public", platform });
+  if (record) {
+    // Rating first, so the portal's public_redirect inbox row carries it.
+    // postClick never throws (failures are logged), the redirect always runs.
+    if (record.rating !== null) {
+      await postClick(token, { target: "land", rating: record.rating });
+    }
+    await postClick(token, { target: "public", platform });
+  }
 
-  return NextResponse.redirect(target, { status: 302 });
+  // 303 so a POST turns into a plain GET on the review site.
+  return NextResponse.redirect(target, { status: 303 });
 }

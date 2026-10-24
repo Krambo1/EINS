@@ -42,7 +42,7 @@ export const QUIZ_QUESTIONS: readonly QuizQuestion[] = [
       { id: "d", label: "Unter 1 Stunde" },
     ],
     correctIndex: 1,
-    sourceHint: "Abschnitt „KPI-Ziele für jeden Anruf“ — Reaktionszeit.",
+    sourceHint: "Abschnitt „Zielwerte für jeden Anruf“, Reaktionszeit.",
   },
   {
     id: "q2-preisfrage",
@@ -79,7 +79,7 @@ export const QUIZ_QUESTIONS: readonly QuizQuestion[] = [
       {
         id: "b",
         label:
-          "„Donnerstag oder eher nächste Woche?“ — zwei konkrete Termin-Vorschläge",
+          "„Donnerstag oder eher nächste Woche?“: zwei konkrete Termin-Vorschläge",
       },
       {
         id: "c",
@@ -93,7 +93,7 @@ export const QUIZ_QUESTIONS: readonly QuizQuestion[] = [
     ],
     correctIndex: 1,
     sourceHint:
-      "Goldene Prinzipien #3 — „Eine Antwort, ein Termin-Angebot“.",
+      "Goldene Prinzipien #3: „Eine Antwort, ein Termin-Angebot“.",
   },
   {
     id: "q4-einwand-reihenfolge",
@@ -101,7 +101,7 @@ export const QUIZ_QUESTIONS: readonly QuizQuestion[] = [
       "In welcher Reihenfolge beantworten Sie einen Patienten-Einwand?",
     options: [
       { id: "a", label: "Widerlegen → Vorteile aufzählen → drängen" },
-      { id: "b", label: "Anerkennen → reframen → Termin anbieten" },
+      { id: "b", label: "Anerkennen → anders einordnen → Termin anbieten" },
       {
         id: "c",
         label: "Termin anbieten → Einwand ignorieren → nachfassen",
@@ -110,7 +110,7 @@ export const QUIZ_QUESTIONS: readonly QuizQuestion[] = [
     ],
     correctIndex: 1,
     sourceHint:
-      "Goldene Prinzipien #1 — „Anerkennen, reframen, Termin anbieten“.",
+      "Goldene Prinzipien #1: „Anerkennen, anders einordnen, Termin anbieten“.",
   },
   {
     id: "q5-medizinische-fragen",
@@ -136,21 +136,21 @@ export const QUIZ_QUESTIONS: readonly QuizQuestion[] = [
     ],
     correctIndex: 2,
     sourceHint:
-      "Quelle:Goldene Prinzipien #5 + § 7 Abs. 4 MBO-Ä, § 1 HeilprG + Einwand B5.",
+      "Quelle: Goldene Prinzipien #5 + § 7 Abs. 4 MBO-Ä, § 1 HeilprG + Einwand B5.",
   },
   {
     id: "q6-stille",
     prompt:
       "Wie lange schweigen Sie nach einem konkreten Termin-Vorschlag, bevor Sie nachschieben?",
     options: [
-      { id: "a", label: "0 Sekunden — sofort eine zweite Option anbieten" },
+      { id: "a", label: "0 Sekunden: sofort eine zweite Option anbieten" },
       { id: "b", label: "1 Sekunde" },
       { id: "c", label: "3 Sekunden" },
       { id: "d", label: "10 Sekunden" },
     ],
     correctIndex: 2,
     sourceHint:
-      "Quelle:Goldene Prinzipien #6 — „Stille aushalten“.",
+      "Quelle: Goldene Prinzipien #6: „Stille aushalten“.",
   },
   {
     id: "q7-abschlussquote",
@@ -164,7 +164,7 @@ export const QUIZ_QUESTIONS: readonly QuizQuestion[] = [
     ],
     correctIndex: 1,
     sourceHint:
-      "Abschnitt „KPI-Ziele für jeden Anruf“ — Abschlussquote.",
+      "Abschnitt „Zielwerte für jeden Anruf“, Abschlussquote.",
   },
   {
     id: "q8-spiegeln",
@@ -178,12 +178,12 @@ export const QUIZ_QUESTIONS: readonly QuizQuestion[] = [
     ],
     correctIndex: 1,
     sourceHint:
-      "Quelle:Goldene Prinzipien #4 — „Spiegeln statt widerlegen“.",
+      "Quelle: Goldene Prinzipien #4: „Spiegeln statt widerlegen“.",
   },
   {
     id: "q9-rote-flaggen",
     prompt:
-      "Bei welcher der folgenden Patient:innen vereinbaren Sie keinen Beratungstermin?",
+      "Bei welcher der folgenden Personen vereinbaren Sie keinen Beratungstermin?",
     options: [
       {
         id: "a",
@@ -208,12 +208,12 @@ export const QUIZ_QUESTIONS: readonly QuizQuestion[] = [
     ],
     correctIndex: 2,
     sourceHint:
-      "Quelle:Discovery-Block „Rote Flaggen, bei denen kein Termin vereinbart wird“.",
+      "Quelle: Bedarfsfragen, Block „Rote Flaggen, bei denen kein Termin vereinbart wird“.",
   },
   {
     id: "q10-vor-dem-anruf",
     prompt:
-      "Welcher der folgenden Punkte gehört NICHT zur 30-Sekunden-Vorbereitung vor einem Anruf?",
+      "Welcher der folgenden Punkte gehört nicht zur 30-Sekunden-Vorbereitung vor einem Anruf?",
     options: [
       {
         id: "a",
@@ -237,7 +237,7 @@ export const QUIZ_QUESTIONS: readonly QuizQuestion[] = [
     ],
     correctIndex: 3,
     sourceHint:
-      "Quelle:Abschnitt „Vor jedem Anruf in 30 Sekunden“ + Discovery-Block C („Niemals direkt fragen ‚Wie viel können Sie ausgeben?‘“).",
+      "Quelle: Abschnitt „Vor jedem Anruf in 30 Sekunden“ + Bedarfsfragen, Block C („Niemals direkt fragen ‚Wie viel können Sie ausgeben?‘“).",
   },
 ] as const;
 

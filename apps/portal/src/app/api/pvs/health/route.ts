@@ -108,24 +108,6 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // 60/min per clinic. Schema-drift detection is naturally rare (one
-  // signal per real config change); auth/connection signals batch
-  // through this same path. A clinic flooding > 60/min is almost
-  // certainly looping on a non-recoverable error and should back off.
-  const rl = await rateLimit("pvs-health", event.clinicId, {
-    limit: 60,
-    windowSeconds: 60,
-  });
-  if (!rl.ok) {
-    return NextResponse.json(
-      { error: { code: "rate_limited" } },
-      {
-        status: 429,
-        headers: { "Retry-After": String(rl.resetInSeconds) },
-      }
-    );
-  }
-
   const sigOk = await verifyClinicSignature(event.clinicId, raw, sig, "pvs");
   if (!sigOk) {
     after(() =>
@@ -142,6 +124,28 @@ export async function POST(request: NextRequest) {
       })
     );
     return genericFail();
+  }
+
+  // Spent only by AUTHENTICATED requests (after the signature check): a
+  // per-clinic bucket charged before auth lets anyone who knows a clinicId
+  // starve that clinic. The per-IP gate above stays first.
+  //
+  // 60/min per clinic. Schema-drift detection is naturally rare (one
+  // signal per real config change); auth/connection signals batch
+  // through this same path. A clinic flooding > 60/min is almost
+  // certainly looping on a non-recoverable error and should back off.
+  const rl = await rateLimit("pvs-health", event.clinicId, {
+    limit: 60,
+    windowSeconds: 60,
+  });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: { code: "rate_limited" } },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rl.resetInSeconds) },
+      }
+    );
   }
 
   try {

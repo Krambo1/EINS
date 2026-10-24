@@ -21,8 +21,21 @@ const schema = z.object({
     .max(64),
   PORT: z.coerce.number().int().positive().default(7300),
   SCHEDULER_TICK_MS: z.coerce.number().int().positive().default(30_000),
-  /** Max consecutive failures before pvs_link.status → 'error'. */
+  /** Consecutive failures after which a link's retry backoff settles at its
+   *  slowest cadence (15 min) and one loud log line is emitted. The bridge no
+   *  longer writes pvs_link.status='error' (the portal would reject every event
+   *  for such a link, so it could never recover); the failing state lives in
+   *  pvs_sync_status.last_error / consecutive_failure_count and /healthz. */
   FAIL_THRESHOLD: z.coerce.number().int().positive().default(10),
+  /** Links the scheduler works on concurrently (a slow vendor must not stall
+   *  every other Praxis). */
+  SCHEDULER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(3),
+  /** HealthHub is a shelved vendor (medatixx akkreditierung pending): its
+   *  webhook route is only registered when this is "true". Default off. */
+  ENABLE_HEALTHHUB_WEBHOOK: z
+    .enum(["true", "false", "1", "0"])
+    .default("false")
+    .transform((v) => v === "true" || v === "1"),
 });
 
 export type BridgeEnv = z.infer<typeof schema>;

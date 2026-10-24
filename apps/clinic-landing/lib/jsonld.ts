@@ -40,12 +40,12 @@ export function buildJsonLd(clinic: Clinic, treatment: Treatment, pageUrl: strin
   const service = {
     "@context": "https://schema.org",
     "@type": "MedicalProcedure",
-    "@id": `${baseUrl}/${treatment.slug}#procedure`,
+    "@id": `${baseUrl}/${treatment.urlCode}#procedure`,
     name: treatment.h1,
     description: treatment.subline,
     procedureType: "https://schema.org/TherapeuticProcedure",
     bodyLocation: treatment.category,
-    url: `${baseUrl}/${treatment.slug}`,
+    url: `${baseUrl}/${treatment.urlCode}`,
     provider: { "@id": `${baseUrl}#medical-business` },
     offers: {
       "@type": "Offer",
@@ -62,7 +62,7 @@ export function buildJsonLd(clinic: Clinic, treatment: Treatment, pageUrl: strin
   const faq = {
     "@context": "https://schema.org",
     "@type": "FAQPage",
-    "@id": `${baseUrl}/${treatment.slug}#faq`,
+    "@id": `${baseUrl}/${treatment.urlCode}#faq`,
     mainEntity: treatment.faq.map((f) => ({
       "@type": "Question",
       name: f.q,

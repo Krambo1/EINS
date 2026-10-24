@@ -3,7 +3,6 @@ import {
   Card,
   CardContent,
   EmptyState,
-  Badge,
 } from "@eins/ui";
 import { requirePermissionOrRedirect } from "@/auth/guards";
 import { KindFilterSelect } from "./_components/KindFilterSelect";
@@ -126,8 +125,8 @@ export default async function DokumentePage({
           href="/dokumente"
           className={`rounded-full border px-3 py-1.5 text-sm transition ${
             !kind
-              ? "border-accent bg-accent/15 text-fg-primary"
-              : "border-border text-fg-secondary hover:bg-bg-secondary"
+              ? "border-fg-primary bg-fg-primary font-medium text-bg-primary"
+              : "border-border bg-bg-primary text-fg-secondary hover:bg-bg-secondary"
           }`}
         >
           Alle
@@ -138,8 +137,8 @@ export default async function DokumentePage({
             href={`/dokumente?kind=${k}`}
             className={`rounded-full border px-3 py-1.5 text-sm transition ${
               kind === k
-                ? "border-accent bg-accent/15 text-fg-primary"
-                : "border-border text-fg-secondary hover:bg-bg-secondary"
+                ? "border-fg-primary bg-fg-primary font-medium text-bg-primary"
+                : "border-border bg-bg-primary text-fg-secondary hover:bg-bg-secondary"
             }`}
           >
             {DOCUMENT_KIND_LABELS[k]}
@@ -169,16 +168,13 @@ export default async function DokumentePage({
                     >
                       <div className="min-w-0 sm:flex-1">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <Icon className="h-4 w-4 shrink-0 text-accent" />
+                          <Icon className="h-4 w-4 shrink-0 text-fg-secondary" />
                           <span className="min-w-0 break-words text-base font-medium text-fg-primary md:text-lg">
                             {d.title}
                           </span>
-                          <Badge tone="neutral" className="shrink-0">
-                            {d.badge}
-                          </Badge>
                         </div>
                         <div className="mt-1 text-sm text-fg-secondary">
-                          {d.description}
+                          {d.badge} · {d.description}
                         </div>
                       </div>
                       <div className="flex shrink-0 gap-2">
@@ -193,7 +189,7 @@ export default async function DokumentePage({
                         <a
                           href={d.href}
                           download={d.downloadName}
-                          className="opa-btn-primary opa-focus-ring inline-flex flex-1 items-center justify-center gap-1 rounded-md px-3 py-2 text-sm font-medium sm:flex-none"
+                          className="inline-flex flex-1 items-center justify-center gap-1 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-bg-secondary sm:flex-none"
                         >
                           <Download className="h-4 w-4" />
                           Herunterladen
@@ -213,16 +209,15 @@ export default async function DokumentePage({
                       <span className="min-w-0 break-words text-base font-medium text-fg-primary md:text-lg">
                         {d.title}
                       </span>
-                      <Badge tone="neutral" className="shrink-0">
-                        {DOCUMENT_KIND_LABELS[d.kind as DocumentKind] ?? d.kind}
-                      </Badge>
                       {d.version > 1 && (
-                        <span className="shrink-0 text-xs text-fg-secondary">
-                          v{d.version}
+                        <span className="shrink-0 text-sm text-fg-secondary">
+                          Fassung {d.version}
                         </span>
                       )}
                     </div>
                     <div className="mt-1 text-sm text-fg-secondary">
+                      {DOCUMENT_KIND_LABELS[d.kind as DocumentKind] ?? d.kind}
+                      {" · "}
                       {d.validFrom && (
                         <>Gültig ab {formatDate(d.validFrom)}</>
                       )}
@@ -244,7 +239,7 @@ export default async function DokumentePage({
                     <a
                       href={d.url}
                       download
-                      className="opa-btn-primary opa-focus-ring inline-flex flex-1 items-center justify-center gap-1 rounded-md px-3 py-2 text-sm font-medium sm:flex-none"
+                      className="inline-flex flex-1 items-center justify-center gap-1 rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-bg-secondary sm:flex-none"
                     >
                       <Download className="h-4 w-4" />
                       Herunterladen

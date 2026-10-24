@@ -2,14 +2,19 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("../db/client.js", () => ({
   loadDueLinks: vi.fn(),
+  claimLink: vi.fn(),
   checkpointSync: vi.fn(),
+  saveProgress: vi.fn(),
+  releaseLink: vi.fn(),
   recordFailure: vi.fn(),
+  restoreLegacyErrorStatus: vi.fn(),
   markInitialSyncStarted: vi.fn(),
   completeInitialSync: vi.fn(),
 }));
 vi.mock("../portal-client.js", () => ({
   postAll: vi.fn(),
   postBatch: vi.fn(),
+  POST_CHUNK: 200,
 }));
 vi.mock("../config.js", () => ({
   env: () => ({
@@ -21,12 +26,14 @@ vi.mock("../config.js", () => ({
 
 import {
   checkpointSync,
+  saveProgress,
+  releaseLink,
   recordFailure,
   markInitialSyncStarted,
   completeInitialSync,
   type PvsLinkRow,
 } from "../db/client.js";
-import { postAll, postBatch } from "../portal-client.js";
+import { postAll, type PostAllResult } from "../portal-client.js";
 import { _internal } from "./scheduler.js";
 import { tomedoAdapter } from "../adapters/tomedo/index.js";
 import type { Adapter } from "../adapters/Adapter.js";
@@ -60,6 +67,21 @@ function link(overrides: Partial<PvsLinkRow> = {}): PvsLinkRow {
   };
 }
 
+/** A fully-populated postAll result with overrides. */
+function res(over: Partial<PostAllResult> = {}): PostAllResult {
+  return {
+    ingested: 0,
+    deduped: 0,
+    quarantined: 0,
+    errors: 0,
+    skipped: 0,
+    skippedByReason: {},
+    dropped: 0,
+    droppedByReason: {},
+    ...over,
+  };
+}
+
 function event(id: string): CanonicalEvent {
   return {
     kind: "PatientUpserted",
@@ -75,12 +97,9 @@ beforeEach(() => {
   vi.mocked(recordFailure).mockReset().mockResolvedValue(undefined);
   vi.mocked(markInitialSyncStarted).mockReset().mockResolvedValue(undefined);
   vi.mocked(completeInitialSync).mockReset().mockResolvedValue(undefined);
-  vi.mocked(postAll)
-    .mockReset()
-    .mockResolvedValue({ ingested: 0, deduped: 0, errors: 0 });
-  vi.mocked(postBatch)
-    .mockReset()
-    .mockResolvedValue({ ok: true, status: 200, body: { ingested: 1 } });
+  vi.mocked(saveProgress).mockReset().mockResolvedValue(undefined);
+  vi.mocked(releaseLink).mockReset().mockResolvedValue(undefined);
+  vi.mocked(postAll).mockReset().mockResolvedValue(res());
 });
 
 describe("runPoll cursor round-trip (C5)", () => {
@@ -100,7 +119,11 @@ describe("runPoll cursor round-trip (C5)", () => {
     };
     const l = link({ lastCursor: "CURSOR-PREV" });
     await _internal.runPoll(l, adapter);
-    expect(poll).toHaveBeenCalledWith(l, "CURSOR-PREV");
+    expect(poll).toHaveBeenCalledWith(
+      l,
+      "CURSOR-PREV",
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
     expect(checkpointSync).toHaveBeenCalledWith(
       "link-1",
       expect.objectContaining({ cursor: "CURSOR-NEXT" })
@@ -122,7 +145,11 @@ describe("runPoll cursor round-trip (C5)", () => {
     };
     const l = link({ lastCursor: null });
     await _internal.runPoll(l, adapter);
-    expect(poll).toHaveBeenCalledWith(l, null);
+    expect(poll).toHaveBeenCalledWith(
+      l,
+      null,
+      expect.objectContaining({ signal: expect.any(AbortSignal) })
+    );
   });
 });
 
@@ -144,11 +171,7 @@ describe("runInitialLoad (C7)", () => {
   }
 
   it("marks completion and seeds the cursor with the sync-start watermark", async () => {
-    vi.mocked(postBatch).mockResolvedValue({
-      ok: true,
-      status: 200,
-      body: { ingested: 1, deduped: 0, errors: [] },
-    });
+    vi.mocked(postAll).mockResolvedValue(res({ ingested: 1 }));
     const adapter = backfillAdapter({
       events: [event("e1")],
       seed: (iso) => `seed:${iso}`,
@@ -168,27 +191,23 @@ describe("runInitialLoad (C7)", () => {
   });
 
   it("does NOT mark completion when a batch is rejected; records a failure instead", async () => {
-    vi.mocked(postBatch).mockResolvedValue({
-      ok: false,
-      status: 502,
-      body: {},
-    });
+    vi.mocked(postAll).mockResolvedValue(
+      res({ errors: 1, failure: "http 502: http_502 x1" })
+    );
     const adapter = backfillAdapter({ events: [event("e1")] });
     await _internal.runInitialLoad(link({ initialSyncCompletedAt: null }), adapter);
     expect(completeInitialSync).not.toHaveBeenCalled();
     expect(recordFailure).toHaveBeenCalledWith(
       "link-1",
-      expect.stringContaining("initial sync"),
+      expect.stringContaining("http 502"),
       5
     );
   });
 
-  it("does NOT mark completion when the portal reports per-event errors", async () => {
-    vi.mocked(postBatch).mockResolvedValue({
-      ok: true,
-      status: 200,
-      body: { ingested: 0, deduped: 0, errors: [{ index: 0 }] },
-    });
+  it("does NOT mark completion when the portal reports retryable per-event errors", async () => {
+    vi.mocked(postAll).mockResolvedValue(
+      res({ errors: 1, failure: "http 201: link_not_ready x1" })
+    );
     const adapter = backfillAdapter({ events: [event("e1")] });
     await _internal.runInitialLoad(link({ initialSyncCompletedAt: null }), adapter);
     expect(completeInitialSync).not.toHaveBeenCalled();
@@ -213,18 +232,18 @@ describe("runPoll post-error handling (H14)", () => {
   }
 
   it("does NOT checkpoint when postAll reports errors > 0; records a failure instead", async () => {
-    vi.mocked(postAll).mockResolvedValue({ ingested: 1, deduped: 0, errors: 1 });
+    vi.mocked(postAll).mockResolvedValue(res({ ingested: 1, deduped: 0, errors: 1 }));
     await _internal.runPoll(link({ lastCursor: "CURSOR-PREV" }), pollAdapter("CURSOR-NEXT"));
     expect(checkpointSync).not.toHaveBeenCalled();
     expect(recordFailure).toHaveBeenCalledWith(
       "link-1",
-      expect.stringContaining("failed to post"),
+      expect.stringMatching(/1 event\(s\) failed to post.*cursor not advanced/),
       5
     );
   });
 
   it("checkpoints normally when errors == 0", async () => {
-    vi.mocked(postAll).mockResolvedValue({ ingested: 2, deduped: 0, errors: 0 });
+    vi.mocked(postAll).mockResolvedValue(res({ ingested: 2, deduped: 0, errors: 0 }));
     await _internal.runPoll(link({ lastCursor: "CURSOR-PREV" }), pollAdapter("CURSOR-NEXT"));
     expect(checkpointSync).toHaveBeenCalledWith(
       "link-1",
@@ -274,7 +293,7 @@ describe("runPoll wall-clock budget (H15)", () => {
           resolvePoll = res as typeof resolvePoll;
         })) as Adapter["poll"],
     };
-    vi.mocked(postAll).mockResolvedValue({ ingested: 1, deduped: 0, errors: 0 });
+    vi.mocked(postAll).mockResolvedValue(res({ ingested: 1, deduped: 0, errors: 0 }));
     await _internal.runPoll(link({ lastCursor: "CURSOR-PREV" }), adapter, {
       deadlineMs: 10,
     });

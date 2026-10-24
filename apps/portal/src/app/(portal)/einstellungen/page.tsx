@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import {
   Card,
   CardContent,
@@ -13,7 +13,7 @@ import {
 import { requireSession } from "@/auth/guards";
 import { db, schema } from "@/db/client";
 import { ROLES, ROLE_LABELS, type Role } from "@/lib/constants";
-import { formatDateTime, formatRelative } from "@/lib/formatting";
+import { formatDate, formatDateTime, formatRelative } from "@/lib/formatting";
 import { can } from "@/lib/roles";
 import { hasMeta, hasGoogle } from "@/lib/env";
 import {
@@ -27,10 +27,7 @@ import {
   createLocationAction,
   archiveLocationAction,
   updateReviewSettingsAction,
-  rotateIntakeSecretAction,
-  consumeIntakeSecretFlash,
-  syncReviewsNowAction,
-  consumeReviewSyncFlash,
+  resendInviteAction,
 } from "./actions";
 import {
   UserPlus,
@@ -39,7 +36,7 @@ import {
   Unplug,
   Plus,
   MapPin,
-  RefreshCw,
+  Send,
   ListChecks,
   ClipboardList,
   ClipboardCheck,
@@ -49,8 +46,12 @@ import { listLocations } from "@/server/queries/locations";
 import { Brand } from "@/app/_components/Brand";
 import { TourRelaunchCard } from "@/app/(portal)/_components/tour/TourRelaunchCard";
 import { AvatarUploader } from "./_components/AvatarUploader";
+import { ConfirmSubmitButton } from "./_components/ConfirmSubmitButton";
+import { IntakeSecretRotator } from "./_components/IntakeSecretRotator";
+import { ReviewSyncButton } from "./_components/ReviewSyncButton";
 import { Avatar } from "@eins/ui";
 import { avatarUrlForKey } from "@/server/avatars";
+import { auditLabel } from "./_audit-label";
 
 export const metadata = { title: "Einstellungen" };
 
@@ -58,69 +59,99 @@ export default async function EinstellungenPage() {
   const session = await requireSession();
   const isInhaber = session.role === "inhaber";
 
-  const [clinic] = await db
-    .select()
-    .from(schema.clinics)
-    .where(eq(schema.clinics.id, session.clinicId))
-    .limit(1);
+  const canViewAudit = can(session.role, "audit.view");
 
-  // One-shot flash: plaintext of a freshly rotated intake/HMAC secret.
-  // Showed once, then the cookie is wiped. Only Inhaber can trigger rotation.
-  const flashedIntakeSecret = isInhaber ? await consumeIntakeSecretFlash() : null;
+  // D-10: every query below is independent, so they run in parallel, and
+  // each selects only the columns this page renders (no encrypted tokens,
+  // no password hashes in the render).
+  const [clinicRows, teamRows, credentials, treatments, locations, recentAudit] =
+    await Promise.all([
+      db
+        .select({
+          id: schema.clinics.id,
+          createdAt: schema.clinics.createdAt,
+          displayName: schema.clinics.displayName,
+          defaultDoctorEmail: schema.clinics.defaultDoctorEmail,
+          hwgContactName: schema.clinics.hwgContactName,
+          hwgContactEmail: schema.clinics.hwgContactEmail,
+          googlePlaceId: schema.clinics.googlePlaceId,
+          googleReviewUrl: schema.clinics.googleReviewUrl,
+          jamedaProfileUrl: schema.clinics.jamedaProfileUrl,
+          jamedaReviewUrl: schema.clinics.jamedaReviewUrl,
+          reviewConsentAttested: schema.clinics.reviewConsentAttested,
+          reviewInboxEmail: schema.clinics.reviewInboxEmail,
+          reviewLandingOrigin: schema.clinics.reviewLandingOrigin,
+          reviewRequestDelayDays: schema.clinics.reviewRequestDelayDays,
+          reviewRequestEnabled: schema.clinics.reviewRequestEnabled,
+        })
+        .from(schema.clinics)
+        .where(eq(schema.clinics.id, session.clinicId))
+        .limit(1),
+      isInhaber
+        ? db
+            .select({
+              id: schema.clinicUsers.id,
+              email: schema.clinicUsers.email,
+              fullName: schema.clinicUsers.fullName,
+              role: schema.clinicUsers.role,
+              invitedAt: schema.clinicUsers.invitedAt,
+              lastLoginAt: schema.clinicUsers.lastLoginAt,
+              passwordSetAt: schema.clinicUsers.passwordSetAt,
+              avatarKey: schema.clinicUsers.avatarKey,
+              avatarUpdatedAt: schema.clinicUsers.avatarUpdatedAt,
+            })
+            .from(schema.clinicUsers)
+            .where(
+              and(
+                eq(schema.clinicUsers.clinicId, session.clinicId),
+                isNull(schema.clinicUsers.archivedAt)
+              )
+            )
+            .orderBy(schema.clinicUsers.createdAt)
+        : Promise.resolve([]),
+      isInhaber
+        ? db
+            .select({
+              platform: schema.platformCredentials.platform,
+              accountId: schema.platformCredentials.accountId,
+              lastSyncedAt: schema.platformCredentials.lastSyncedAt,
+              // E6: which Facebook page is bound (id only, no token).
+              metaPageId: schema.platformCredentials.metaPageId,
+            })
+            .from(schema.platformCredentials)
+            .where(eq(schema.platformCredentials.clinicId, session.clinicId))
+        : Promise.resolve([]),
+      listTreatments(session.clinicId, session.userId),
+      listLocations(session.clinicId, session.userId),
+      // Audit-Log — owner only. The rows contain login times, uploads and
+      // IMPERSONATE_START events (incl. EINS admin emails), so the query
+      // itself is gated on the same permission that gates the card below.
+      // Newest first (the old ascending order showed the first 20 rows ever).
+      canViewAudit
+        ? db
+            .select({
+              id: schema.auditLog.id,
+              action: schema.auditLog.action,
+              entityKind: schema.auditLog.entityKind,
+              actorEmail: schema.auditLog.actorEmail,
+              impersonatedByAdminId: schema.auditLog.impersonatedByAdminId,
+              createdAt: schema.auditLog.createdAt,
+            })
+            .from(schema.auditLog)
+            .where(eq(schema.auditLog.clinicId, session.clinicId))
+            .orderBy(desc(schema.auditLog.createdAt))
+            .limit(20)
+        : Promise.resolve([]),
+    ]);
+  const clinic = clinicRows[0];
 
-  // One-shot flash: per-platform outcome of the manual review sync.
-  const flashedReviewSync = isInhaber ? await consumeReviewSyncFlash() : null;
-
-  const teamRows = isInhaber
-    ? await db
-        .select()
-        .from(schema.clinicUsers)
-        .where(
-          and(
-            eq(schema.clinicUsers.clinicId, session.clinicId),
-            isNull(schema.clinicUsers.archivedAt)
-          )
-        )
-        .orderBy(schema.clinicUsers.createdAt)
-    : [];
   const team = teamRows.map((m) => ({
     ...m,
     avatarUrl: avatarUrlForKey(m.avatarKey, m.avatarUpdatedAt),
   }));
 
-  const credentials = isInhaber
-    ? await db
-        .select()
-        .from(schema.platformCredentials)
-        .where(eq(schema.platformCredentials.clinicId, session.clinicId))
-    : [];
-
   const metaCred = credentials.find((c) => c.platform === "meta");
   const googleCred = credentials.find((c) => c.platform === "google");
-
-  const [treatments, locations] = await Promise.all([
-    listTreatments(session.clinicId, session.userId),
-    listLocations(session.clinicId, session.userId),
-  ]);
-
-  // Audit-Log — owner only. The rows contain login times, uploads and
-  // IMPERSONATE_START events (incl. EINS admin emails), so the query itself is
-  // gated on the same permission that gates the card below.
-  const canViewAudit = can(session.role, "audit.view");
-  const recentAudit = canViewAudit
-    ? await db
-        .select({
-          id: schema.auditLog.id,
-          action: schema.auditLog.action,
-          entityKind: schema.auditLog.entityKind,
-          actorEmail: schema.auditLog.actorEmail,
-          createdAt: schema.auditLog.createdAt,
-        })
-        .from(schema.auditLog)
-        .where(eq(schema.auditLog.clinicId, session.clinicId))
-        .orderBy(schema.auditLog.createdAt)
-        .limit(20)
-    : [];
 
   return (
     <div className="space-y-10">
@@ -156,7 +187,7 @@ export default async function EinstellungenPage() {
               name={session.fullName}
               email={session.email}
             />
-            <p className="mt-2 text-xs text-fg-secondary">
+            <p className="mt-2 text-sm text-fg-secondary">
               JPG, PNG oder WebP, wird quadratisch auf 512&times;512 zugeschnitten.
             </p>
           </div>
@@ -177,7 +208,7 @@ export default async function EinstellungenPage() {
               <div>
                 <label className="mb-1 block text-sm font-medium">E-Mail</label>
                 <Input defaultValue={session.email} readOnly disabled />
-                <p className="mt-1 text-xs text-fg-secondary">
+                <p className="mt-1 text-sm text-fg-secondary">
                   Änderung auf Anfrage.
                 </p>
               </div>
@@ -193,10 +224,16 @@ export default async function EinstellungenPage() {
             </div>
           </form>
           <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4 text-sm">
-            <span className="text-fg-secondary">Rolle:</span>
+            <span className="font-medium text-fg-primary">Rolle:</span>
             <Badge tone="neutral">
               {ROLE_LABELS[session.role as Role] ?? session.role}
             </Badge>
+            {clinic && (
+              <>
+                <span className="ml-3 font-medium text-fg-primary">Kunde seit:</span>
+                <span className="text-fg-secondary">{formatDate(clinic.createdAt)}</span>
+              </>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -229,13 +266,13 @@ export default async function EinstellungenPage() {
                   href: "/onboarding/fragebogen",
                   icon: <ClipboardList className="h-4 w-4" />,
                   label: "Fragebogen zum Start",
-                  desc: "Ziele, Behandlungen und Ihre Zahlen-Baseline.",
+                  desc: "Ziele, Behandlungen und Ihre Ausgangswerte.",
                 },
                 {
                   href: "/onboarding/checkliste",
                   icon: <ClipboardCheck className="h-4 w-4" />,
                   label: "Checkliste zum Start",
-                  desc: "Zugänge, Logo, Fotos und Einwilligungen.",
+                  desc: "Zugänge, Logo, Bildmaterial, Klon-Aufnahme und Einwilligung.",
                 },
               ].map((row) => (
                 <li
@@ -290,8 +327,8 @@ export default async function EinstellungenPage() {
                   type="email"
                   defaultValue={clinic.defaultDoctorEmail ?? ""}
                 />
-                <p className="mt-1 text-xs text-fg-secondary">
-                  Erscheint in Video-Produktionen und HWG-Prüfungen.
+                <p className="mt-1 text-sm text-fg-secondary">
+                  Erscheint in HWG-Prüfungen.
                 </p>
               </div>
               <div>
@@ -330,8 +367,8 @@ export default async function EinstellungenPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             <p className="text-sm text-fg-secondary">
-              Nach jedem Termin geht eine Bitte um Rückmeldung an die
-              Patient:in. Hohe Bewertungen werden zu Google &amp; Jameda
+              Nach jedem Termin geht eine Bitte um Rückmeldung an den
+              Patienten. Hohe Bewertungen werden zu Google &amp; Jameda
               eingeladen, kritische landen vertraulich in Ihrem{" "}
               <Link
                 href="/bewertungen/feedback"
@@ -358,7 +395,7 @@ export default async function EinstellungenPage() {
                     Bewertungs-Anfragen aktivieren
                   </span>
                   <span className="block text-sm text-fg-secondary">
-                    Nur aktivieren, wenn Sie Patient:innen bei Termin-
+                    Nur aktivieren, wenn Sie Patienten bei Termin-
                     vereinbarung über die spätere E-Mail informieren
                     (siehe Onboarding-Checkliste).
                   </span>
@@ -377,7 +414,7 @@ export default async function EinstellungenPage() {
                     Einwilligung der Praxis bestätigen
                   </span>
                   <span className="block text-sm text-fg-secondary">
-                    Wir informieren unsere Patient:innen bereits bei der
+                    Wir informieren unsere Patienten bereits bei der
                     Terminvereinbarung darüber, dass sie nach dem Termin eine
                     E-Mail mit der Bitte um eine Bewertung erhalten und dieser
                     jederzeit widersprechen können. Nur mit dieser Bestätigung
@@ -398,7 +435,7 @@ export default async function EinstellungenPage() {
                   placeholder="https://g.page/r/…/review"
                   maxLength={500}
                 />
-                <p className="mt-1 text-xs text-fg-secondary">
+                <p className="mt-1 text-sm text-fg-secondary">
                   Aus dem „Google Business"-Profil unter „Mehr Rezensionen
                   erhalten".
                 </p>
@@ -428,7 +465,7 @@ export default async function EinstellungenPage() {
                   max={30}
                   defaultValue={clinic.reviewRequestDelayDays ?? 3}
                 />
-                <p className="mt-1 text-xs text-fg-secondary">
+                <p className="mt-1 text-sm text-fg-secondary">
                   Empfohlen: 3 Tage. So sind frische Eindrücke noch präsent,
                   aber Schwellungen / Erströtungen sind schon abgeklungen.
                 </p>
@@ -436,7 +473,7 @@ export default async function EinstellungenPage() {
 
               <div>
                 <label className="mb-1 block text-sm font-medium">
-                  Praxis-Domain für Patient:innen-Link
+                  Internetadresse für den Link an Patienten
                 </label>
                 <Input
                   name="reviewLandingOrigin"
@@ -445,8 +482,10 @@ export default async function EinstellungenPage() {
                   placeholder="https://praxis-ihre-praxis.de"
                   maxLength={500}
                 />
-                <p className="mt-1 text-xs text-fg-secondary">
-                  Optional: wenn leer, nehmen wir die Standard-Praxisseite.
+                <p className="mt-1 text-sm text-fg-secondary">
+                  Optional. Unter dieser Adresse öffnen Patienten die
+                  Bitte um Bewertung. Wenn leer, nehmen wir die
+                  Standard-Praxisseite.
                 </p>
               </div>
 
@@ -461,7 +500,7 @@ export default async function EinstellungenPage() {
                   placeholder={clinic.defaultDoctorEmail ?? "praxis@…"}
                   maxLength={200}
                 />
-                <p className="mt-1 text-xs text-fg-secondary">
+                <p className="mt-1 text-sm text-fg-secondary">
                   Wenn leer, geht die Benachrichtigung an die leitende
                   Ärztin / den leitenden Arzt.
                 </p>
@@ -469,11 +508,11 @@ export default async function EinstellungenPage() {
 
               <div className="md:col-span-2 mt-4 rounded-xl border border-border bg-bg-secondary p-4">
                 <h3 className="text-sm font-semibold text-fg-primary">
-                  Live-Synchronisation der Bewertungen
+                  Sternwerte automatisch abrufen
                 </h3>
                 <p className="mt-1 text-sm text-fg-secondary">
-                  Hinterlegen Sie pro Plattform die Profil-ID. Wir holen
-                  jede Nacht (04:00 UTC) automatisch Sternwert und Anzahl
+                  Hinterlegen Sie pro Plattform, wo Ihre Praxis zu finden
+                  ist. Wir holen jede Nacht automatisch Sternwert und Anzahl
                   der Bewertungen von Google und Jameda und zeigen sie auf
                   der Bewertungen-Seite an.
                 </p>
@@ -490,8 +529,9 @@ export default async function EinstellungenPage() {
                   maxLength={255}
                   pattern="[A-Za-z0-9_\-:]+"
                 />
-                <p className="mt-1 text-xs text-fg-secondary">
-                  Finden Sie unter{" "}
+                <p className="mt-1 text-sm text-fg-secondary">
+                  Die Place-ID ist die feste Nummer Ihrer Praxis bei Google
+                  Maps. Finden Sie sie unter{" "}
                   <a
                     href="https://developers.google.com/maps/documentation/places/web-service/place-id"
                     target="_blank"
@@ -500,7 +540,7 @@ export default async function EinstellungenPage() {
                   >
                     Place-ID-Finder
                   </a>
-                  . Praxis-Namen eingeben → ID kopieren.
+                  : Praxis-Namen eingeben, ID kopieren.
                 </p>
               </div>
 
@@ -515,10 +555,9 @@ export default async function EinstellungenPage() {
                   placeholder="https://www.jameda.de/berlin/aerzte/…/uebersicht/"
                   maxLength={500}
                 />
-                <p className="mt-1 text-xs text-fg-secondary">
+                <p className="mt-1 text-sm text-fg-secondary">
                   Die öffentliche Profilseite (ohne „/bewerten/" am Ende).
-                  Jameda hat keine API. Wir lesen die Bewertung aus den
-                  strukturierten Daten der Profilseite aus.
+                  Wir lesen Sternwert und Anzahl direkt von dieser Seite ab.
                 </p>
               </div>
 
@@ -540,34 +579,8 @@ export default async function EinstellungenPage() {
                     sonst läuft der Abgleich täglich automatisch.
                   </p>
                 </div>
-                <form action={syncReviewsNowAction}>
-                  <Button type="submit" variant="outline" size="sm">
-                    <RefreshCw className="h-4 w-4" />
-                    Jetzt aktualisieren
-                  </Button>
-                </form>
+                <ReviewSyncButton />
               </div>
-              {flashedReviewSync && (
-                <ul className="mt-3 space-y-1 text-sm">
-                  {flashedReviewSync.map((o) => (
-                    <li key={o.platform} className="flex items-center gap-2">
-                      {o.ok ? (
-                        <Badge tone="good">OK</Badge>
-                      ) : (
-                        <Badge tone="warn">Fehler</Badge>
-                      )}
-                      <span className="font-medium text-fg-primary capitalize">
-                        {o.platform}
-                      </span>
-                      {!o.ok && o.error && (
-                        <span className="text-fg-secondary truncate">
-                          · {o.error}
-                        </span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              )}
             </div>
 
             <Separator />
@@ -579,49 +592,30 @@ export default async function EinstellungenPage() {
                   Zielseiten-Anbindung
                 </h3>
                 <p className="mt-1 text-sm text-fg-secondary">
-                  Ihre Zielseiten-Formulare senden neue Anfragen signiert an
-                  das Portal. Dafür werden die folgende Praxis-ID und das
-                  Geheimnis verwendet.
+                  Ihre Zielseiten-Formulare senden neue Anfragen an das
+                  Portal. Ein geheimer Schlüssel sorgt dafür, dass nur Ihre
+                  eigenen Formulare Anfragen eintragen können. Das richtet
+                  EINS für Sie ein; Sie müssen hier normalerweise nichts tun.
                 </p>
-              </div>
-              <div className="rounded-xl border border-border bg-bg-secondary p-3 font-mono text-xs">
-                <div className="text-fg-secondary">Praxis-ID (clinicId)</div>
-                <div className="mt-1 break-all text-fg-primary">{clinic.id}</div>
               </div>
               <div className="rounded-xl border border-border bg-bg-secondary p-3">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <div className="font-mono text-xs text-fg-secondary">
-                      HMAC-Geheimnis (X-EINS-Signature)
+                    <div className="text-sm font-medium text-fg-primary">
+                      Geheimer Schlüssel{" "}
+                      <span className="font-normal text-fg-secondary">
+                        (technisch: HMAC, X-EINS-Signature)
+                      </span>
                     </div>
-                    <p className="mt-1 text-xs text-fg-secondary">
-                      Wird beim Rotieren einmalig angezeigt. Nach einer Rotation
-                      müssen Ihre Zielseiten-Formulare mit dem neuen Geheimnis
-                      aktualisiert werden, sonst werden Anfragen bis dahin
-                      abgelehnt.
+                    <p className="mt-1 text-sm text-fg-secondary">
+                      Wird beim Erneuern einmalig angezeigt. Der bisherige
+                      Schlüssel gilt danach noch 24 Stunden. Bis dahin müssen
+                      Ihre Zielseiten-Formulare den neuen Schlüssel verwenden,
+                      sonst werden Anfragen abgelehnt.
                     </p>
                   </div>
-                  <form action={rotateIntakeSecretAction}>
-                    <Button type="submit" variant="outline" size="sm">
-                      Geheimnis rotieren
-                    </Button>
-                  </form>
+                  <IntakeSecretRotator />
                 </div>
-                {flashedIntakeSecret && (
-                  <div className="mt-3 rounded-lg border border-fg-primary/30 bg-bg-primary p-3">
-                    <div className="text-xs font-semibold text-fg-primary">
-                      Neues Geheimnis (einmalig sichtbar):
-                    </div>
-                    <code className="mt-1 block break-all font-mono text-sm text-fg-primary">
-                      {flashedIntakeSecret}
-                    </code>
-                    <p className="mt-2 text-xs text-fg-secondary">
-                      Wenn Sie diese Seite verlassen, ist das Geheimnis nicht
-                      mehr aus dem Portal abrufbar. Bei Verlust rotieren Sie
-                      es einfach erneut.
-                    </p>
-                  </div>
-                )}
               </div>
             </div>
           </CardContent>
@@ -641,19 +635,19 @@ export default async function EinstellungenPage() {
               className="grid gap-3 rounded-xl border border-border bg-bg-secondary p-4 md:grid-cols-[1fr_1fr_auto_auto]"
             >
               <div>
-                <label className="mb-1 block text-xs font-medium text-fg-secondary">
+                <label className="mb-1 block text-sm font-medium text-fg-primary">
                   Name
                 </label>
                 <Input name="fullName" required maxLength={200} />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-fg-secondary">
+                <label className="mb-1 block text-sm font-medium text-fg-primary">
                   E-Mail
                 </label>
                 <Input name="email" type="email" required />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-fg-secondary">
+                <label className="mb-1 block text-sm font-medium text-fg-primary">
                   Rolle
                 </label>
                 <select
@@ -713,7 +707,7 @@ export default async function EinstellungenPage() {
                         <div className="mt-0.5 text-sm text-fg-secondary">
                           {m.email}
                           {m.lastLoginAt && (
-                            <> · Letzter Login {formatRelative(m.lastLoginAt)}</>
+                            <> · Zuletzt angemeldet {formatRelative(m.lastLoginAt)}</>
                           )}
                           {!m.lastLoginAt && m.invitedAt && (
                             <> · Eingeladen {formatRelative(m.invitedAt)}</>
@@ -722,17 +716,26 @@ export default async function EinstellungenPage() {
                       </div>
                     </div>
                     {!isSelf && (
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap gap-2">
+                        {!m.lastLoginAt && !m.passwordSetAt && (
+                          <form action={resendInviteAction}>
+                            <input type="hidden" name="userId" value={m.id} />
+                            <Button type="submit" variant="outline" size="sm">
+                              <Send className="h-4 w-4" />
+                              Einladung erneut senden
+                            </Button>
+                          </form>
+                        )}
                         <form action={removeTeamMemberAction}>
                           <input type="hidden" name="userId" value={m.id} />
-                          <Button
-                            type="submit"
+                          <ConfirmSubmitButton
                             variant="outline"
                             size="sm"
+                            confirmText={`${m.fullName ?? m.email} wirklich aus dem Team entfernen? Die Person wird sofort abgemeldet.`}
                           >
                             <Trash2 className="h-4 w-4" />
                             Entfernen
-                          </Button>
+                          </ConfirmSubmitButton>
                         </form>
                       </div>
                     )}
@@ -758,6 +761,9 @@ export default async function EinstellungenPage() {
               accountId={metaCred?.accountId ?? null}
               lastSyncedAt={metaCred?.lastSyncedAt ?? null}
               available={hasMeta()}
+              extra={
+                metaCred ? <MetaPageLine pageId={metaCred.metaPageId} /> : null
+              }
             />
             <IntegrationRow
               platform="google"
@@ -780,32 +786,21 @@ export default async function EinstellungenPage() {
               <CardContent className="space-y-4">
                 <p className="text-sm text-fg-secondary">
                   Diese Kategorien sortieren neue Anfragen automatisch nach
-                  Behandlungsart. Stichwörter werden im Anfrage-Text gesucht.
+                  Behandlungsart. Der Name und die Stichwörter werden im
+                  Anfrage-Text gesucht.
                 </p>
                 <form
                   action={createTreatmentAction}
-                  className="grid gap-3 rounded-xl border border-border bg-bg-secondary p-4 md:grid-cols-[1fr_1fr_1.5fr_auto]"
+                  className="grid gap-3 rounded-xl border border-border bg-bg-secondary p-4 md:grid-cols-[1fr_1.5fr_auto]"
                 >
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-fg-secondary">
+                    <label className="mb-1 block text-sm font-medium text-fg-primary">
                       Name
                     </label>
                     <Input name="name" required maxLength={120} placeholder="z. B. Microneedling" />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-fg-secondary">
-                      Kürzel (slug)
-                    </label>
-                    <Input
-                      name="slug"
-                      required
-                      maxLength={60}
-                      pattern="[a-z0-9\-]+"
-                      placeholder="microneedling"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-fg-secondary">
+                    <label className="mb-1 block text-sm font-medium text-fg-primary">
                       Stichwörter (Komma-getrennt)
                     </label>
                     <Input name="keywords" maxLength={500} placeholder="needling, skinpen" />
@@ -819,24 +814,25 @@ export default async function EinstellungenPage() {
 
                 <ul className="divide-y divide-border">
                   {treatments.map((t) => (
-                    <li key={t.id} className="flex items-center justify-between py-2">
-                      <div>
+                    <li key={t.id} className="flex items-center justify-between gap-3 py-2">
+                      <div className="min-w-0 flex-1 break-words">
                         <span className="font-medium text-fg-primary">{t.name}</span>
-                        <span className="ml-2 text-xs text-fg-secondary">
-                          {t.slug}
-                        </span>
                         {t.keywords && (
-                          <div className="mt-0.5 text-xs text-fg-tertiary">
+                          <div className="mt-0.5 text-sm text-fg-secondary">
                             Stichwörter: {t.keywords}
                           </div>
                         )}
                       </div>
-                      <form action={archiveTreatmentAction}>
+                      <form action={archiveTreatmentAction} className="shrink-0">
                         <input type="hidden" name="treatmentId" value={t.id} />
-                        <Button type="submit" variant="outline" size="sm">
+                        <ConfirmSubmitButton
+                          variant="outline"
+                          size="sm"
+                          confirmText={`Behandlung „${t.name}“ archivieren? Neue Anfragen werden ihr dann nicht mehr zugeordnet.`}
+                        >
                           <Trash2 className="h-4 w-4" />
                           Archivieren
-                        </Button>
+                        </ConfirmSubmitButton>
                       </form>
                     </li>
                   ))}
@@ -857,13 +853,13 @@ export default async function EinstellungenPage() {
                   className="grid gap-3 rounded-xl border border-border bg-bg-secondary p-4 md:grid-cols-[1fr_2fr_auto]"
                 >
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-fg-secondary">
+                    <label className="mb-1 block text-sm font-medium text-fg-primary">
                       Name
                     </label>
                     <Input name="name" required maxLength={200} />
                   </div>
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-fg-secondary">
+                    <label className="mb-1 block text-sm font-medium text-fg-primary">
                       Adresse (optional)
                     </label>
                     <Input name="address" maxLength={500} />
@@ -877,22 +873,26 @@ export default async function EinstellungenPage() {
                 </form>
                 <ul className="divide-y divide-border">
                   {locations.map((l) => (
-                    <li key={l.id} className="flex items-center justify-between py-2">
-                      <div>
+                    <li key={l.id} className="flex items-center justify-between gap-3 py-2">
+                      <div className="min-w-0 flex-1 break-words">
                         <span className="font-medium text-fg-primary">{l.name}</span>
                         {l.isPrimary && <Badge tone="accent">Hauptstandort</Badge>}
                         {l.address && (
-                          <div className="mt-0.5 text-xs text-fg-secondary">
+                          <div className="mt-0.5 text-sm text-fg-secondary">
                             {l.address}
                           </div>
                         )}
                       </div>
-                      <form action={archiveLocationAction}>
+                      <form action={archiveLocationAction} className="shrink-0">
                         <input type="hidden" name="locationId" value={l.id} />
-                        <Button type="submit" variant="outline" size="sm">
+                        <ConfirmSubmitButton
+                          variant="outline"
+                          size="sm"
+                          confirmText={`Standort „${l.name}“ archivieren?`}
+                        >
                           <Trash2 className="h-4 w-4" />
                           Archivieren
-                        </Button>
+                        </ConfirmSubmitButton>
                       </form>
                     </li>
                   ))}
@@ -905,29 +905,35 @@ export default async function EinstellungenPage() {
           {canViewAudit && recentAudit.length > 0 && (
             <Card id="audit" className="scroll-mt-24">
               <CardHeader>
-                <CardTitle>Audit-Log (letzte 20 Aktionen)</CardTitle>
+                <CardTitle>Protokoll (letzte 20 Aktionen)</CardTitle>
               </CardHeader>
               <CardContent>
+                <p className="mb-3 text-sm text-fg-secondary">
+                  Wer in Ihrem Portal zuletzt was geändert hat, mit Datum und
+                  Uhrzeit.
+                </p>
                 <ul className="divide-y divide-border">
                   {recentAudit.map((a) => (
                     <li
                       key={a.id}
-                      className="flex items-center justify-between py-1.5 text-sm"
+                      className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 py-2 text-sm"
                     >
-                      <span>
-                        <span className="font-mono text-xs uppercase text-fg-secondary">
-                          {a.action}
-                        </span>
-                        <span className="ml-2 text-fg-primary">
-                          {a.entityKind ?? "–"}
+                      <span className="min-w-0 break-words">
+                        <span className="text-fg-primary">
+                          {auditLabel(a.action, a.entityKind)}
                         </span>
                         {a.actorEmail && (
-                          <span className="ml-2 text-fg-secondary">
+                          <span className="ml-2 break-all text-fg-secondary">
                             · {a.actorEmail}
                           </span>
                         )}
+                        {a.impersonatedByAdminId && (
+                          <span className="ml-2 text-fg-secondary">
+                            · durch EINS in Ihrer Ansicht
+                          </span>
+                        )}
                       </span>
-                      <span className="text-xs text-fg-tertiary tabular-nums">
+                      <span className="text-sm text-fg-secondary tabular-nums">
                         {formatDateTime(a.createdAt)}
                       </span>
                     </li>
@@ -937,27 +943,43 @@ export default async function EinstellungenPage() {
             </Card>
           )}
 
-          {clinic && (
-            <Card id="technische-details" className="scroll-mt-24">
-              <CardHeader>
-                <CardTitle>Technische Details</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-2 text-sm md:grid-cols-2">
-                <div>
-                  <span className="text-fg-secondary">Praxis-ID:</span>{" "}
-                  <code className="font-mono">{clinic.id}</code>
-                </div>
-                <div>
-                  <span className="text-fg-secondary">Kunde seit:</span>{" "}
-                  {formatDateTime(clinic.createdAt)}
-                </div>
-                <div>
-                  <span className="text-fg-secondary">Ihr Nutzer-ID:</span>{" "}
-                  <code className="font-mono">{session.userId}</code>
-                </div>
-              </CardContent>
-        </Card>
-      )}
+    </div>
+  );
+}
+
+/**
+ * E6: which Facebook page receives the Meta-Anfragen, with a link to the
+ * picker. Shown whenever Meta is connected: knowing whether the account
+ * admins more than one page would cost a Graph call on every render, so the
+ * picker itself says when there is only one page.
+ */
+function MetaPageLine({ pageId }: { pageId: string | null }) {
+  const href = "/einstellungen/integrationen/meta-seite";
+  if (!pageId) {
+    return (
+      <div className="mt-2 space-y-1">
+        <p className="text-sm text-fg-primary">
+          Noch keine Facebook-Seite gewählt. Ohne Seite kommen keine Anfragen
+          aus Meta-Formularen in Ihr Portal.
+        </p>
+        <Button asChild>
+          <Link href={href}>Facebook-Seite wählen</Link>
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-x-3 text-sm text-fg-secondary">
+      <span>
+        <span className="font-medium text-fg-primary">Facebook-Seite:</span>{" "}
+        <span className="break-all">Seiten-ID {pageId}</span>
+      </span>
+      <Link
+        href={href}
+        className="inline-flex min-h-11 items-center font-medium text-fg-primary underline"
+      >
+        Andere Seite wählen
+      </Link>
     </div>
   );
 }
@@ -969,6 +991,7 @@ function IntegrationRow({
   accountId,
   lastSyncedAt,
   available,
+  extra,
 }: {
   platform: "meta" | "google";
   label: React.ReactNode;
@@ -976,6 +999,8 @@ function IntegrationRow({
   accountId: string | null;
   lastSyncedAt: Date | null;
   available: boolean;
+  /** Extra line under the account info (E6: Facebook page). */
+  extra?: React.ReactNode;
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-bg-secondary p-4">
@@ -989,35 +1014,43 @@ function IntegrationRow({
           )}
         </div>
         {connected ? (
-          <div className="mt-1 text-xs text-fg-secondary">
-            Konto-ID: {accountId ?? "–"} · Abgleich:{" "}
-            {lastSyncedAt ? formatRelative(lastSyncedAt) : "noch nie"}
-          </div>
+          <>
+            <div className="mt-1 text-sm text-fg-secondary">
+              Konto-ID: {accountId ?? "–"} · Abgleich:{" "}
+              {lastSyncedAt ? formatRelative(lastSyncedAt) : "noch nie"}
+            </div>
+            {extra}
+          </>
         ) : !available ? (
-          <div className="mt-1 text-xs text-fg-secondary">
+          <div className="mt-1 text-sm text-fg-secondary">
             Diese Verbindung ist in Ihrer Umgebung noch nicht konfiguriert.
             Bitte wenden Sie sich an EINS.
           </div>
         ) : (
-          <div className="mt-1 text-xs text-fg-secondary">
-            Einmalig verbinden, danach synchronisieren wir täglich.
+          <div className="mt-1 text-sm text-fg-secondary">
+            Einmal verbinden, danach holen wir Ihre Werbezahlen täglich ab.
           </div>
         )}
       </div>
       {connected ? (
         <form action={disconnectIntegrationAction}>
           <input type="hidden" name="platform" value={platform} />
-          <Button type="submit" variant="outline" size="sm">
+          <ConfirmSubmitButton
+            variant="outline"
+            size="sm"
+            confirmText="Verbindung wirklich trennen? Danach fließen keine Werbezahlen mehr in Ihre Auswertung, bis Sie neu verbinden."
+          >
             <Unplug className="h-4 w-4" />
             Trennen
-          </Button>
+          </ConfirmSubmitButton>
         </form>
       ) : available ? (
         <Button asChild size="sm">
-          <Link href={`/api/integrations/${platform}/start`}>
+          {/* Plain <a>: a prefetched Link would hit the OAuth start route. */}
+          <a href={`/api/integrations/${platform}/start`}>
             <LinkIcon className="h-4 w-4" />
             Verbinden
-          </Link>
+          </a>
         </Button>
       ) : null}
     </div>

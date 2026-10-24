@@ -13,6 +13,7 @@ import {
   isAnswered,
   type DiscoveryAnswers,
 } from "@/app/(portal)/onboarding/fragebogen/content";
+import { DISPLAY_TIME_ZONE } from "@/lib/formatting";
 
 export interface FragebogenTabData {
   status: "entwurf" | "eingereicht";
@@ -84,6 +85,7 @@ export function FragebogenTab({ data }: { data: FragebogenTabData | null }) {
                   day: "2-digit",
                   month: "2-digit",
                   year: "numeric",
+                  timeZone: DISPLAY_TIME_ZONE,
                 })}
                 {data.submittedByName ? ` von ${data.submittedByName}` : null}
               </>
@@ -94,6 +96,7 @@ export function FragebogenTab({ data }: { data: FragebogenTabData | null }) {
                   day: "2-digit",
                   month: "2-digit",
                   year: "numeric",
+                  timeZone: DISPLAY_TIME_ZONE,
                 })}
               </>
             )}
@@ -104,6 +107,7 @@ export function FragebogenTab({ data }: { data: FragebogenTabData | null }) {
                   day: "2-digit",
                   month: "2-digit",
                   year: "numeric",
+                  timeZone: DISPLAY_TIME_ZONE,
                 })}
               </div>
             )}

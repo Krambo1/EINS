@@ -1,7 +1,9 @@
 import "server-only";
-import { and, eq } from "drizzle-orm";
+import { createHash } from "node:crypto";
+import { and, eq, lt, sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { enqueueCapiPurchase, enqueueOciPurchase } from "@/server/jobs";
+import { META_PURCHASE_REPORTING } from "@/lib/ads-report-gate";
 
 /**
  * Outbox helpers for closed-loop revenue attribution.
@@ -22,11 +24,45 @@ export interface EnqueueInvoiceConversionArgs {
   clinicId: string;
   requestId: string;
   pvsEventLogId: string;
+  /** Invoice identity. Optional: looked up from the pvs_event_log row when omitted. */
+  bridgeSource?: string;
+  pvsInvoiceId?: string;
   /** Value (decimal) in `currency`. Stored verbatim on the outbox row. */
   valueEur: number;
   /** Currency of valueEur (EUR/CHF). Defaults EUR. Sent to CAPI/OCI. Phase 11. */
   currency?: "EUR" | "CHF";
   occurredAt: Date;
+}
+
+/**
+ * Wire-level dedup id (Meta event_id / Google order_id) for one invoice. Derived
+ * from (clinic, bridgeSource, pvsInvoiceId) so every re-emission of the same
+ * invoice maps to the same id; hashed so arbitrary invoice ids stay within the
+ * platforms' length/charset limits.
+ */
+export function invoiceDedupKey(
+  clinicId: string,
+  bridgeSource: string,
+  pvsInvoiceId: string
+): string {
+  const h = createHash("sha256")
+    .update(`${clinicId}|${bridgeSource}|${pvsInvoiceId}`)
+    .digest("hex")
+    .slice(0, 32);
+  return `purchase-inv-${h}`;
+}
+
+/**
+ * order_id sent to Meta/Google. Invoice-keyed rows use their dedup key; legacy
+ * rows (written before 0080) keep the pvs_event_log id they were first sent with.
+ */
+export function conversionOrderId(row: {
+  dedupKey: string;
+  pvsEventLogId: string;
+}): string {
+  return row.dedupKey.startsWith("purchase-inv-")
+    ? row.dedupKey
+    : row.pvsEventLogId;
 }
 
 export interface EnqueueResult {
@@ -37,11 +73,16 @@ export interface EnqueueResult {
 }
 
 /**
- * Insert outbox rows for both channels and enqueue workers for the rows
- * that didn't already exist. The (clinic_id, channel, pvs_event_log_id)
- * UNIQUE index is what makes this idempotent under replays.
+ * Insert outbox rows for each reported channel and enqueue workers for the
+ * rows that didn't already exist. Meta only while META_PURCHASE_REPORTING is
+ * on (currently off: Google only). The (clinic_id, channel, pvs_event_log_id)
+ * UNIQUE index is what makes this idempotent under replays, and the
+ * (clinic_id, channel, bridge_source, pvs_invoice_id) partial UNIQUE index
+ * (migration 0080) makes it idempotent across re-emitted invoices and admin
+ * replays, which arrive as NEW pvs_event_log rows. Only InvoicePaid rows are
+ * accepted: an InvoiceRefunded never creates a Purchase conversion.
  *
- * We always create BOTH channel rows, even if the request lacks a click id
+ * We create a row per reported channel, even if the request lacks a click id
  * for that channel — the worker is the right place to decide "skipped",
  * because it can tell admins the precise reason in response_body. Creating
  * the row also gives /admin a per-channel record of every invoice for
@@ -52,10 +93,44 @@ export async function enqueueInvoiceConversions(
 ): Promise<EnqueueResult> {
   const inserted: AdsChannel[] = [];
   const alreadyExists: AdsChannel[] = [];
-  const channels: AdsChannel[] = ["meta", "google"];
+  // Pass 2: a zero (or refunded-to-zero) invoice is not a purchase. Before,
+  // a 0 € Kassenleistung or a storniert-then-reissued invoice reported a
+  // Purchase worth 0, which counts as a conversion in Meta / Google and skews
+  // bidding. Guarded here as well as in derive, so no caller can send one.
+  if (!(args.valueEur > 0)) return { inserted, alreadyExists };
+  const channels: AdsChannel[] = META_PURCHASE_REPORTING ? ["meta", "google"] : ["google"];
+
+  // Resolve the invoice identity (and refuse non-InvoicePaid rows).
+  let bridgeSource = args.bridgeSource ?? null;
+  let pvsInvoiceId = args.pvsInvoiceId ?? null;
+  if (!bridgeSource || !pvsInvoiceId) {
+    const [ev] = await db
+      .select({
+        kind: schema.pvsEventLog.kind,
+        bridgeSource: schema.pvsEventLog.bridgeSource,
+        payload: schema.pvsEventLog.payload,
+      })
+      .from(schema.pvsEventLog)
+      .where(
+        and(
+          eq(schema.pvsEventLog.id, args.pvsEventLogId),
+          eq(schema.pvsEventLog.clinicId, args.clinicId)
+        )
+      )
+      .limit(1);
+    if (ev) {
+      if (ev.kind !== "InvoicePaid") return { inserted, alreadyExists };
+      bridgeSource = ev.bridgeSource;
+      const pid = (ev.payload as { pvsInvoiceId?: unknown } | null)?.pvsInvoiceId;
+      pvsInvoiceId = typeof pid === "string" && pid ? pid : null;
+    }
+  }
+  const dedupKey =
+    bridgeSource && pvsInvoiceId
+      ? invoiceDedupKey(args.clinicId, bridgeSource, pvsInvoiceId)
+      : `purchase-${args.requestId}-${args.pvsEventLogId}`;
 
   for (const channel of channels) {
-    const dedupKey = `purchase-${args.requestId}-${args.pvsEventLogId}`;
     const [row] = await db
       .insert(schema.adsConversionOutbox)
       .values({
@@ -68,21 +143,18 @@ export async function enqueueInvoiceConversions(
         currency: args.currency ?? "EUR",
         occurredAt: args.occurredAt,
         dedupKey,
+        bridgeSource: pvsInvoiceId ? bridgeSource : null,
+        pvsInvoiceId,
       })
-      .onConflictDoNothing({
-        target: [
-          schema.adsConversionOutbox.clinicId,
-          schema.adsConversionOutbox.channel,
-          schema.adsConversionOutbox.pvsEventLogId,
-        ],
-      })
+      // No target: either UNIQUE (per event, or per invoice) may fire.
+      .onConflictDoNothing()
       .returning({ id: schema.adsConversionOutbox.id });
 
     if (row) {
       inserted.push(channel);
       // Enqueue is best-effort; jobs.ts swallows enqueue errors so a
-      // broken queue can't roll back the outbox insert. The
-      // pvs-reconcile worker re-enqueues stuck pending rows nightly.
+      // broken queue can't roll back the outbox insert. A lost enqueue is
+      // picked up by reenqueueStuckOutbox() (pvs-apply-sweep worker).
       if (channel === "meta") await enqueueCapiPurchase(row.id);
       else await enqueueOciPurchase(row.id);
     } else {
@@ -218,6 +290,13 @@ export async function loadRequestForOutbox(
   fbp: string | null;
   clickUserAgent: string | null;
   clickIpAnon: string | null;
+  source: string | null;
+  utm: unknown;
+  adsConsentAt: Date | null;
+  adsConsentVersion: string | null;
+  adsConsentRevokedAt: Date | null;
+  /** Click time proxy: OCI clamps the conversion time after it (pass 2). */
+  createdAt: Date;
 } | null> {
   const [row] = await db
     .select({
@@ -233,6 +312,14 @@ export async function loadRequestForOutbox(
       fbp: schema.requests.fbp,
       clickUserAgent: schema.requests.clickUserAgent,
       clickIpAnon: schema.requests.clickIpAnon,
+      // Report gate (src/lib/ads-report-gate.ts): channel + consent, read at
+      // send time so a revoke before sending stops the report.
+      source: schema.requests.source,
+      utm: schema.requests.utm,
+      adsConsentAt: schema.requests.adsConsentAt,
+      adsConsentVersion: schema.requests.adsConsentVersion,
+      adsConsentRevokedAt: schema.requests.adsConsentRevokedAt,
+      createdAt: schema.requests.createdAt,
     })
     .from(schema.requests)
     .where(
@@ -243,4 +330,47 @@ export async function loadRequestForOutbox(
     )
     .limit(1);
   return row ?? null;
+}
+
+/**
+ * Re-enqueue outbox rows that have sat in `pending` for longer than
+ * `olderThanMinutes` (lost enqueue, worker down). The channel workers are
+ * idempotent (status check + platform-side order_id dedup) and the enqueue
+ * helpers coalesce on a singletonKey, so this is safe to run repeatedly.
+ */
+export async function reenqueueStuckOutbox(
+  olderThanMinutes = 30,
+  limit = 200
+): Promise<{ found: number; enqueued: number; failed: number }> {
+  const cutoff = new Date(Date.now() - olderThanMinutes * 60 * 1000);
+  const rows = await db
+    .select({
+      id: schema.adsConversionOutbox.id,
+      channel: schema.adsConversionOutbox.channel,
+    })
+    .from(schema.adsConversionOutbox)
+    .where(
+      and(
+        eq(schema.adsConversionOutbox.status, "pending"),
+        lt(
+          sql`COALESCE(${schema.adsConversionOutbox.lastAttemptAt}, ${schema.adsConversionOutbox.createdAt})`,
+          cutoff
+        )
+      )
+    )
+    .orderBy(schema.adsConversionOutbox.createdAt)
+    .limit(limit);
+  let enqueued = 0;
+  let failed = 0;
+  for (const r of rows) {
+    const jobId =
+      r.channel === "meta"
+        ? await enqueueCapiPurchase(r.id)
+        : await enqueueOciPurchase(r.id);
+    // null = coalesced with an already-queued job, or a failed enqueue; both
+    // are re-tried on the next sweep, so only count the sure successes.
+    if (jobId) enqueued++;
+    else failed++;
+  }
+  return { found: rows.length, enqueued, failed };
 }

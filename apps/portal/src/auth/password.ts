@@ -1,6 +1,12 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
 import { hash as argon2Hash, verify as argon2Verify } from "@node-rs/argon2";
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_CLASSES,
+  PASSWORD_MIN_LENGTH,
+  countCharacterClasses,
+} from "./password-rules";
 
 /**
  * Passwort-Hashing + Stärke-Check.
@@ -11,12 +17,12 @@ import { hash as argon2Hash, verify as argon2Verify } from "@node-rs/argon2";
  *   - 12 Zeichen Minimum
  *   - 3 von 4 Zeichenarten: Großbuchstabe, Kleinbuchstabe, Ziffer, Sonderzeichen
  * Gilt identisch für Clinic-User und Admin. Login (Verify) erzwingt die Regeln
- * NICHT, sie greifen nur beim Setzen/Ändern.
+ * NICHT, sie greifen nur beim Setzen/Ändern. Zahlen und Zählung liegen in
+ * @/auth/password-rules, damit die Set-Password-Seite dieselben Regeln live
+ * anzeigen kann.
  */
 
-export const PASSWORD_MIN_LENGTH = 12;
-export const PASSWORD_MAX_LENGTH = 256;
-export const PASSWORD_MIN_CLASSES = 3;
+export { PASSWORD_MAX_LENGTH, PASSWORD_MIN_CLASSES, PASSWORD_MIN_LENGTH };
 
 export interface PasswordPolicyResult {
   ok: boolean;
@@ -49,21 +55,6 @@ export function checkPasswordPolicy(input: unknown): PasswordPolicyResult {
     };
   }
   return { ok: true };
-}
-
-/**
- * Zählt, wie viele der vier Klassen (Groß / Klein / Ziffer / Sonderzeichen)
- * im Passwort vorkommen. Umlaute zählen zu Groß/Klein; alles außerhalb von
- * ASCII-Buchstaben + Umlauten + Ziffern gilt als Sonderzeichen (inklusive
- * Leerzeichen und Unicode-Symbolen).
- */
-function countCharacterClasses(input: string): number {
-  let n = 0;
-  if (/[A-ZÄÖÜ]/.test(input)) n++;
-  if (/[a-zäöüß]/.test(input)) n++;
-  if (/[0-9]/.test(input)) n++;
-  if (/[^A-Za-zÄÖÜäöüß0-9]/.test(input)) n++;
-  return n;
 }
 
 /** Hash a plaintext password. Caller stores the returned string verbatim. */

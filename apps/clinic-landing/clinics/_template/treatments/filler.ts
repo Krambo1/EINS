@@ -2,6 +2,7 @@ import type { Treatment } from "@/lib/types";
 
 export const templateFiller: Treatment = {
   slug: "hyaluron-stadt",
+  urlCode: "a2",
   clinicSlug: "_template",
   category: "filler",
   city: "[Stadt]",

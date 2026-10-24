@@ -241,6 +241,15 @@ function finishInsert(
     state.trace.push("link_source:seed");
     return [];
   }
+  if (table.__tag === "pvs_agent_status") {
+    if (!isTx) {
+      throw new Error("agent status seed must happen inside a transaction");
+    }
+    // Seeded for the heartbeat_never scan: first_heartbeat_at stays NULL.
+    expect(vals.firstHeartbeatAt).toBeNull();
+    state.trace.push("agent_status:seed");
+    return [];
+  }
   if (table.__tag === "pvs_link_audit") {
     if (!isTx) {
       throw new Error("audit write must happen inside a transaction (P1-3)");
@@ -279,6 +288,10 @@ vi.mock("@/db/client", () => {
         __tag: "pvs_link_source",
         clinicId: { __column: "clinic_id" },
         bridgeSource: { __column: "bridge_source" },
+      },
+      pvsAgentStatus: {
+        __tag: "pvs_agent_status",
+        clinicId: { __column: "clinic_id" },
       },
       pvsLinkAudit: { __tag: "pvs_link_audit" },
       platformCredentials: { __tag: "platform_credentials" },
@@ -389,6 +402,7 @@ describe("redeemAgentEnrollment — P0-1 atomicity contract", () => {
       "mint:credential",
       "link:upsert",
       "link_source:seed",
+      "agent_status:seed",
       "audit:enrollment_redeemed",
       "tx:commit",
     ]);

@@ -15,9 +15,22 @@
 app = "eins-worker"
 primary_region = "fra"   # Frankfurt — EU data residency for Praxis data
 
+# SIGTERM -> SIGKILL grace period. boss.stop({ graceful: true }) waits up to
+# 30 s for in-flight jobs; Fly's default of 5 s killed them mid-run (E-22).
+kill_signal  = "SIGTERM"
+kill_timeout = 35
+
 [build]
   dockerfile = "apps/portal/Dockerfile"
 
 [[vm]]
   size   = "shared-cpu-1x"
   memory = "512mb"
+
+# Restart on ANY exit, including exit code 0. The worker exits 0 on SIGTERM and
+# exits 1 itself when its heartbeat has been failing for 5 minutes; both must
+# bring it back, otherwise cron, health scan and PVS derive stay down silently.
+# (No port-based [checks]: the worker listens on nothing. Liveness is the
+# worker_heartbeat row, surfaced by the portal's /api/health as `worker_stale`.)
+[[restart]]
+  policy = "always"

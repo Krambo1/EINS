@@ -13,15 +13,17 @@ import {
   SLUG_PATTERN,
   VIDEO_KEY_PREFIX,
   deviceFromUserAgent,
+  isLikelyScanner,
   extensionOf,
   isVideoExtension,
-  normalizeNotionId,
+  normalizeObsidianRef,
   publicVideoUrl,
   type VideoEventInput,
 } from "@/lib/outreach-video";
 import { viewerHash } from "@/lib/outreach-video-hash";
 import { getStorage } from "@/server/storage";
 import { normalizeContentType } from "@/server/uploads";
+import { isUuid } from "@/lib/ids";
 
 /**
  * Outreach videos on eins.ag/v/<slug> (migration 0073).
@@ -37,7 +39,6 @@ import { normalizeContentType } from "@/server/uploads";
  */
 
 const newSlug = customAlphabet(SLUG_ALPHABET, SLUG_LENGTH);
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Signed playback URLs outlive a long viewing session by a wide margin. */
 const PLAYBACK_URL_TTL_SECONDS = 6 * 60 * 60;
@@ -105,7 +106,7 @@ export const CreateVideoInput = z.object({
   title: z.string().trim().max(200).optional().nullable(),
   message: z.string().trim().max(1000).optional().nullable(),
   recipientEmail: z.string().trim().email().max(320).optional().nullable().or(z.literal("")),
-  notionPage: z.string().trim().max(500).optional().nullable(),
+  obsidianRef: z.string().trim().max(500).optional().nullable(),
   durationSeconds: z.number().int().positive().max(24 * 3600).optional().nullable(),
 });
 
@@ -142,6 +143,22 @@ export async function createOutreachVideo(
   if (!isVideoKey(d.videoKey)) return { ok: false, error: "bad_key" };
   if (d.posterKey && !isPosterKey(d.posterKey)) return { ok: false, error: "bad_key" };
 
+  // G-23: a retried or double-submitted finalize returns the row that
+  // already exists for this upload instead of a second page with a new slug.
+  const already = await sqlClient<{ id: string; slug: string }[]>`
+    SELECT id, slug FROM outreach_videos WHERE storage_key = ${d.videoKey} LIMIT 1
+  `;
+  if (already[0]) {
+    return {
+      ok: true,
+      data: {
+        id: already[0].id,
+        slug: already[0].slug,
+        url: publicVideoUrl(env.VIDEO_PUBLIC_ORIGIN, already[0].slug),
+      },
+    };
+  }
+
   const storage = getStorage();
   const head = await storage.head(d.videoKey);
   if (!head || head.size <= 0) return { ok: false, error: "not_uploaded" };
@@ -158,12 +175,12 @@ export async function createOutreachVideo(
     try {
       const rows = await sqlClient<{ id: string }[]>`
         INSERT INTO outreach_videos (
-          slug, praxis_name, title, message, recipient_email, notion_page_id,
+          slug, praxis_name, title, message, recipient_email, obsidian_ref,
           storage_key, poster_key, content_type, size_bytes, duration_seconds,
           created_by_email
         ) VALUES (
           ${slug}, ${d.praxisName}, ${d.title || null}, ${d.message || null},
-          ${d.recipientEmail || null}, ${normalizeNotionId(d.notionPage)},
+          ${d.recipientEmail || null}, ${normalizeObsidianRef(d.obsidianRef)},
           ${d.videoKey}, ${posterKey}, ${contentType}, ${head.size},
           ${d.durationSeconds ?? null}, ${createdByEmail}
         )
@@ -188,12 +205,43 @@ function contentTypeForExtension(ext: string): string {
 }
 
 export async function setOutreachVideoArchived(id: string, archived: boolean): Promise<void> {
-  if (!UUID_PATTERN.test(id)) return;
+  if (!isUuid(id)) return;
   await sqlClient`
     UPDATE outreach_videos
     SET archived_at = CASE WHEN ${archived} THEN now() ELSE NULL END
     WHERE id = ${id}
   `;
+}
+
+/**
+ * G-22: delete an archived video for good: row, events (cascade) and the
+ * stored video and poster objects. Only archived videos, so a live link can
+ * never vanish in one click. Returns the storage keys that could not be
+ * removed (empty on success), or null when nothing was deleted.
+ */
+export async function deleteOutreachVideo(
+  id: string
+): Promise<{ slug: string; failedKeys: string[] } | null> {
+  if (!isUuid(id)) return null;
+  const rows = await sqlClient<{ slug: string; storage_key: string; poster_key: string | null }[]>`
+    DELETE FROM outreach_videos
+    WHERE id = ${id} AND archived_at IS NOT NULL
+    RETURNING slug, storage_key, poster_key
+  `;
+  const row = rows[0];
+  if (!row) return null;
+  const storage = getStorage();
+  const failedKeys: string[] = [];
+  for (const key of [row.storage_key, row.poster_key]) {
+    if (!key) continue;
+    try {
+      await storage.remove(key);
+    } catch (err) {
+      console.error("[outreach-videos] remove failed:", err);
+      failedKeys.push(key);
+    }
+  }
+  return { slug: row.slug, failedKeys };
 }
 
 // ---------------------------------------------------------------------------
@@ -208,7 +256,7 @@ export interface OutreachVideoStats {
   title: string | null;
   message: string | null;
   recipientEmail: string | null;
-  notionPageId: string | null;
+  obsidianRef: string | null;
   durationSeconds: number | null;
   sizeBytes: number;
   createdAt: Date;
@@ -235,7 +283,7 @@ interface StatsRow {
   title: string | null;
   message: string | null;
   recipient_email: string | null;
-  notion_page_id: string | null;
+  obsidian_ref: string | null;
   duration_seconds: number | null;
   size_bytes: number;
   created_at: Date;
@@ -259,7 +307,7 @@ function toStats(r: StatsRow): OutreachVideoStats {
     title: r.title,
     message: r.message,
     recipientEmail: r.recipient_email,
-    notionPageId: r.notion_page_id,
+    obsidianRef: r.obsidian_ref,
     durationSeconds: r.duration_seconds,
     sizeBytes: Number(r.size_bytes),
     createdAt: r.created_at,
@@ -284,7 +332,7 @@ export async function listOutreachVideos(opts: {
   slug?: string;
   id?: string;
 } = {}): Promise<OutreachVideoStats[]> {
-  if (opts.id && !UUID_PATTERN.test(opts.id)) return [];
+  if (opts.id && !isUuid(opts.id)) return [];
   if (opts.slug && !SLUG_PATTERN.test(opts.slug)) return [];
   const rows = await sqlClient<StatsRow[]>`
     WITH s AS (
@@ -316,7 +364,7 @@ export async function listOutreachVideos(opts: {
     )
     SELECT
       v.id, v.slug, v.praxis_name, v.title, v.message, v.recipient_email,
-      v.notion_page_id, v.duration_seconds, v.size_bytes::float8 AS size_bytes,
+      v.obsidian_ref, v.duration_seconds, v.size_bytes::float8 AS size_bytes,
       v.created_at, v.archived_at,
       coalesce(a.opens, 0) AS opens,
       coalesce(a.viewers, 0) AS viewers,
@@ -352,7 +400,7 @@ export interface OutreachVideoSession {
 
 /** Every page load of one video, newest first, internal ones included (flagged). */
 export async function listOutreachVideoSessions(videoId: string): Promise<OutreachVideoSession[]> {
-  if (!UUID_PATTERN.test(videoId)) return [];
+  if (!isUuid(videoId)) return [];
   const rows = await sqlClient<
     {
       session_id: string;
@@ -457,6 +505,12 @@ export async function getPublicVideo(
     };
   }
   const storage = getStorage();
+  // G-22: a missing object would give the recipient an empty player; answer
+  // like an unknown slug instead.
+  if (!(await storage.head(v.storage_key))) {
+    console.error(`[outreach-videos] object missing for slug ${v.slug}`);
+    return null;
+  }
   const [videoUrl, posterUrl] = await Promise.all([
     storage.urlFor(v.storage_key, { expiresInSeconds: PLAYBACK_URL_TTL_SECONDS }),
     v.poster_key
@@ -492,7 +546,7 @@ export async function recordVideoEvent(
     INSERT INTO outreach_video_events
       (video_id, kind, percent, session_id, viewer_hash, internal, device)
     SELECT id, ${event.k}, ${event.p ?? 0}, ${event.s}, ${hash},
-           ${event.i ?? false}, ${deviceFromUserAgent(meta.userAgent)}
+           ${(event.i ?? false) || isLikelyScanner(meta.userAgent)}, ${deviceFromUserAgent(meta.userAgent)}
     FROM outreach_videos
     WHERE slug = ${slug} AND archived_at IS NULL
     ON CONFLICT (video_id, session_id, kind, percent) DO NOTHING

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import BetterSqlite3 from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SqliteDriver } from "./drivers/sqlite.js";
 import { _setStateDbForTesting, pollOnce } from "./framework.js";
 import type { CanonicalEventBase } from "./types.js";
@@ -133,6 +133,16 @@ afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
 });
 
+// The seeded rows are dated May/June 2026; the default 90-day first-poll horizon
+// and the future-cursor clamp are both relative to "now", so pin the clock.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-06-10T12:00:00Z"));
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("integration: Pixelmedics SQLite end-to-end", () => {
   it("emits a full AppointmentCreated event from the seeded SQLite file", async () => {
     const vendor = await loadVendorConfigFile(PIXEL_YAML);
@@ -159,7 +169,7 @@ describe("integration: Pixelmedics SQLite end-to-end", () => {
     const ev = collected[0];
     expect(ev.kind).toBe("AppointmentCreated");
     expect(ev.bridgeSource).toBe("pixelmedics");
-    expect(ev.pvsExternalEventId).toBe("pixelmedics:appointment:200");
+    expect(ev.pvsExternalEventId).toMatch(/^pixelmedics:appointment:200:[0-9a-f]{12}$/);
     expect(ev.pvsAppointmentId).toBe("200");
     expect(ev.pvsPatientId).toBe("10");
     expect(ev.treatmentCode).toBe("BOT-1");

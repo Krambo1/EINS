@@ -119,7 +119,24 @@ function ensureSchema(conn: Database.Database): void {
   if (!cols.some((c) => c.name === "sent_at")) {
     conn.exec(`ALTER TABLE outbox ADD COLUMN sent_at INTEGER`);
   }
+  // failed_at: epoch-ms a row was dead-lettered. The 30-day prune keys off THIS
+  // (COALESCE with created_at for rows that predate the column): a row that sat
+  // pending for weeks and is dead-lettered today must keep its full recovery
+  // window instead of being deleted at the next vacuum.
+  if (!cols.some((c) => c.name === "failed_at")) {
+    conn.exec(`ALTER TABLE outbox ADD COLUMN failed_at INTEGER`);
+  }
+  // Partial indexes over the pending slice only, so the heartbeat's backlog
+  // aggregates are index-only reads instead of a scan over every pending row.
+  conn.exec(PENDING_INDEX_DDL);
 }
+
+const PENDING_INDEX_DDL = `
+  CREATE INDEX IF NOT EXISTS outbox_pending_age_idx
+    ON outbox (created_at) WHERE status = 'pending';
+  CREATE INDEX IF NOT EXISTS outbox_retrying_idx
+    ON outbox (id) WHERE status = 'pending' AND attempt_count > 0;
+`;
 
 function db(): Database.Database {
   if (!dbCached) {
@@ -505,16 +522,57 @@ export function enqueue(payload: string, contentHash: string): void {
   }
 }
 
+/**
+ * Enqueue every event of one source file in ONE transaction.
+ *
+ * - Atomic: either all rows are durable or none is. The GDT watcher deletes
+ *   the source file only after this returns, so a crash between "some rows
+ *   written" and "file deleted" cannot lose the rest of the file.
+ * - One fsync instead of one per row: a 3,000-row Honorar CSV took ~7 s of
+ *   event-loop stall with per-row enqueue() and ~11 ms in one transaction.
+ * - Honest counts: duplicates (same pvsExternalEventId already queued) are
+ *   reported separately instead of being counted as emitted.
+ */
+export function enqueueMany(
+  items: ReadonlyArray<{ payload: string; contentHash: string }>
+): { inserted: number; duplicates: number } {
+  if (items.length === 0) return { inserted: 0, duplicates: 0 };
+  const conn = db();
+  const stmt = conn.prepare(
+    `INSERT OR IGNORE INTO outbox (payload, content_hash, status, next_attempt_at, created_at)
+     VALUES (?, ?, 'pending', ?, ?)`
+  );
+  const run = conn.transaction(() => {
+    const now = Date.now();
+    let inserted = 0;
+    for (const it of items) {
+      inserted += stmt.run(it.payload, it.contentHash, now, now).changes;
+    }
+    return inserted;
+  });
+  const inserted = run() as number;
+  return { inserted, duplicates: items.length - inserted };
+}
+
+/**
+ * A next_attempt_at further out than this can only come from a wall clock that
+ * was set too far ahead and then corrected (the longest legitimate backoff is
+ * 1 h + 20 % jitter). Such a row is due now: otherwise it stays invisible until
+ * the wrong date has caught up.
+ */
+const MAX_PLAUSIBLE_BACKOFF_MS = 2 * 60 * 60 * 1000;
+
 export function dueRows(limit = 50): OutboxRow[] {
+  const now = Date.now();
   const rows = db()
     .prepare(
       `SELECT id, payload, content_hash, attempt_count
        FROM outbox
-       WHERE status = 'pending' AND next_attempt_at <= ?
-       ORDER BY next_attempt_at ASC
+       WHERE status = 'pending' AND (next_attempt_at <= ? OR next_attempt_at > ?)
+       ORDER BY next_attempt_at ASC, id ASC
        LIMIT ?`
     )
-    .all(Date.now(), limit) as Array<{
+    .all(now, now + MAX_PLAUSIBLE_BACKOFF_MS, limit) as Array<{
     id: number;
     payload: string;
     content_hash: string;
@@ -537,9 +595,32 @@ export function markSent(id: number): void {
 export function markFailedPermanent(id: number, reason: string): void {
   db()
     .prepare(
-      `UPDATE outbox SET status = 'failed', last_error = ? WHERE id = ?`
+      `UPDATE outbox SET status = 'failed', last_error = ?, failed_at = ? WHERE id = ?`
     )
-    .run(reason, id);
+    .run(reason, Date.now(), id);
+}
+
+/**
+ * Move dead-lettered rows back to pending, IN PLACE. UNIQUE(content_hash) makes
+ * a re-enqueue impossible (INSERT OR IGNORE swallows it), so the only way to
+ * give a dead-lettered event another chance, after the cause (a bad deploy, a
+ * portal misroute, version skew) is fixed, is to flip the row itself. The
+ * payload is untouched, so the portal still dedups by the same event id.
+ *
+ * `reason` limits the requeue to rows whose last_error contains that text
+ * (for example an error code such as "invalid_envelope"). Returns the number
+ * of rows moved.
+ */
+export function requeueFailed(opts: { reason?: string } = {}): number {
+  const now = Date.now();
+  const reason = opts.reason?.trim();
+  const base = `UPDATE outbox
+       SET status = 'pending', attempt_count = 0, next_attempt_at = ?, failed_at = NULL
+     WHERE status = 'failed'`;
+  const res = reason
+    ? db().prepare(`${base} AND instr(COALESCE(last_error, ''), ?) > 0`).run(now, reason)
+    : db().prepare(base).run(now);
+  return res.changes;
 }
 
 /**
@@ -568,6 +649,8 @@ export function recordRetry(
   reason: string,
   rand: () => number = Math.random
 ): void {
+  // The flush loop passes ONE rand source per cycle, so rows that fail together
+  // get the same jitter and keep their relative order (ties break by id).
   const row = db()
     .prepare(`SELECT attempt_count FROM outbox WHERE id = ?`)
     .get(id) as { attempt_count?: number } | undefined;
@@ -635,6 +718,13 @@ export function vacuumOld(daysSent = 7): void {
  * portal blip does not register as stuck.
  */
 const STALE_PENDING_THRESHOLD_MS = 60 * 60 * 1000;
+/**
+ * The pending / retrying / stale counts in the heartbeat are capped here, so each
+ * stays a short index read (a full count of 500k pending rows through the
+ * SQLCipher layer costs ~60 ms, per heartbeat, while the queue is deepest). A
+ * value equal to the cap means "at least this many".
+ */
+export const SUMMARY_COUNT_CAP = 100_000;
 
 /**
  * P2-2: aggregate snapshot of the outbox's "things are broken" surface.
@@ -704,25 +794,47 @@ export function getFailureSummary(): FailureSummary {
     )
     .all() as Array<{ reason: string | null; n: number }>;
   // H10 / M-A2: pending backlog + the "already retrying" subset + oldest pending
-  // age + the count stuck longer than the stale threshold.
+  // age + the count stuck longer than the stale threshold. Every aggregate is
+  // served by a partial index over the pending slice (outbox_pending_age_idx,
+  // outbox_retrying_idx), so the heartbeat never scans the whole queue: the old
+  // single-pass query blocked the event loop for ~1.8 s at 500k rows, once a
+  // minute, in the middle of the outage that built the queue.
   const staleCutoff = Date.now() - STALE_PENDING_THRESHOLD_MS;
-  const pending = db()
+  const conn = db();
+  const pendingN = conn
     .prepare(
-      `SELECT
-         COUNT(*) AS n,
-         SUM(CASE WHEN attempt_count > 0 THEN 1 ELSE 0 END) AS retrying,
-         SUM(CASE WHEN created_at < ? THEN 1 ELSE 0 END) AS stale,
-         MIN(created_at) AS oldest
-       FROM outbox WHERE status = 'pending'`
+      `SELECT COUNT(*) AS n FROM (
+         SELECT 1 FROM outbox INDEXED BY outbox_pending_age_idx
+          WHERE status = 'pending' LIMIT ?
+       )`
     )
-    .get(staleCutoff) as
-    | {
-        n?: number;
-        retrying?: number | null;
-        stale?: number | null;
-        oldest?: number | null;
-      }
-    | undefined;
+    .get(SUMMARY_COUNT_CAP) as { n?: number } | undefined;
+  const retryingN = conn
+    .prepare(
+      `SELECT COUNT(*) AS n FROM (
+         SELECT 1 FROM outbox INDEXED BY outbox_retrying_idx
+          WHERE status = 'pending' AND attempt_count > 0 LIMIT ?
+       )`
+    )
+    .get(SUMMARY_COUNT_CAP) as { n?: number } | undefined;
+  const oldestRow = conn
+    .prepare(`SELECT MIN(created_at) AS oldest FROM outbox INDEXED BY outbox_pending_age_idx
+          WHERE status = 'pending'`)
+    .get() as { oldest?: number | null } | undefined;
+  const staleN = conn
+    .prepare(
+      `SELECT COUNT(*) AS n FROM (
+         SELECT 1 FROM outbox INDEXED BY outbox_pending_age_idx
+          WHERE status = 'pending' AND created_at < ? LIMIT ?
+       )`
+    )
+    .get(staleCutoff, SUMMARY_COUNT_CAP) as { n?: number } | undefined;
+  const pending = {
+    n: pendingN?.n,
+    retrying: retryingN?.n,
+    stale: staleN?.n,
+    oldest: oldestRow?.oldest ?? null,
+  };
   return {
     failedCount: Number(counts?.n ?? 0),
     oldestFailedAt: counts?.oldest ?? null,
@@ -735,6 +847,33 @@ export function getFailureSummary(): FailureSummary {
     oldestPendingAt: pending?.oldest ?? null,
     stalePendingCount: Number(pending?.stale ?? 0),
   };
+}
+
+/**
+ * B5: why the pending backlog is not draining. The top `last_error` values among
+ * pending rows that already failed at least once, so the heartbeat can tell the
+ * portal "link_not_ready" or "http 502" instead of leaving the operator to guess
+ * "firewall". Bounded twice: only the newest 2000 retrying rows are looked at
+ * (the partial index serves them), and each reason is clipped to 200 characters.
+ */
+export function getPendingReasons(
+  limit = 5
+): Array<{ reason: string; count: number }> {
+  const rows = db()
+    .prepare(
+      `SELECT reason, COUNT(*) AS n FROM (
+         SELECT substr(last_error, 1, 200) AS reason
+           FROM outbox INDEXED BY outbox_retrying_idx
+          WHERE status = 'pending' AND attempt_count > 0 AND last_error IS NOT NULL
+          ORDER BY id DESC
+          LIMIT 2000
+       )
+       GROUP BY reason
+       ORDER BY n DESC, reason ASC
+       LIMIT ?`
+    )
+    .all(Math.max(1, Math.min(limit, 20))) as Array<{ reason: string; n: number }>;
+  return rows.map((r) => ({ reason: r.reason, count: Number(r.n) }));
 }
 
 /**
@@ -765,14 +904,14 @@ export function pruneFailedOlderThan(days: number): PruneSummary {
   const aggregate = db()
     .prepare(
       `SELECT COUNT(*) AS n, MIN(created_at) AS oldest, MAX(created_at) AS newest
-         FROM outbox WHERE status = 'failed' AND created_at < ?`
+         FROM outbox WHERE status = 'failed' AND COALESCE(failed_at, created_at) < ?`
     )
     .get(cutoff) as { n?: number; oldest?: number | null; newest?: number | null } | undefined;
 
   const grouped = db()
     .prepare(
       `SELECT last_error AS reason, COUNT(*) AS n
-         FROM outbox WHERE status = 'failed' AND created_at < ?
+         FROM outbox WHERE status = 'failed' AND COALESCE(failed_at, created_at) < ?
          GROUP BY last_error
          ORDER BY n DESC
          LIMIT 10`
@@ -780,7 +919,9 @@ export function pruneFailedOlderThan(days: number): PruneSummary {
     .all(cutoff) as Array<{ reason: string | null; n: number }>;
 
   db()
-    .prepare(`DELETE FROM outbox WHERE status = 'failed' AND created_at < ?`)
+    .prepare(
+      `DELETE FROM outbox WHERE status = 'failed' AND COALESCE(failed_at, created_at) < ?`
+    )
     .run(cutoff);
 
   return {

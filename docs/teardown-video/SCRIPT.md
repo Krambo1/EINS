@@ -5,18 +5,31 @@ Status: Sektionen werden einzeln freigegeben (siehe BRIEF.md). Nur Freigegebenes
 
 ---
 
-## 1. Intro / Hook  ✅ freigegeben 2026-06-22
+## 1. Intro / Hook  ✅ freigegeben 2026-06-22 · gekürzt 2026-09-09
 
 *(Bildschirm zeigt ruhig die Google-Trefferseite zu „[Behandlungsschwerpunkt] [Stadt]" oder die Praxis-Startseite. Noch nichts anklicken, ruhig sprechen.)*
 
-Herr Dr. [Nachname], schön, dass Sie sich das Video gewünscht haben. Ich mache es kurz für sie, ich weiß nämlich, wie stressig der Praxisalltag manchmal sein kann.
+Herr Dr. [Nachname], schön, dass Sie sich das Video gewünscht haben. Ich mache es kurz, der Praxisalltag ist voll genug.
 
-Mein Name ist Karam von EINS. Wir bei EINS arbeiten ausschließlich mit Praxen für ästhetische Medizin, und ich habe mir in den letzten Tagen Ihren Online Auftritt einmal so angesehen, wie ihn eine Patientin sieht, die Sie noch nicht kennt.
+Mein Name ist Karam von EINS. Wir arbeiten nur mit Praxen für ästhetische Medizin. Ich habe mir Ihren Online-Auftritt so angesehen, wie ihn eine Patientin sieht, die Sie noch nicht kennt.
 
-Vorweg das Wichtigste, weil es der ganze Rahmen für alles ist, was gleich kommt: Fachlich sind Sie längst da. [optionaler echter Bezug, z. B.: „Ihre [Behandlungsschwerpunkt / Personalisierung aus der E-Mail] spricht für sich."] Was ich gleich zeige, ist nichts Medizinisches. Es geht darum, dass online weniger von Ihnen ankommt, als in Ihrer Praxis tatsächlich steckt.
+Fachlich sind Sie längst da. [optionaler echter Bezug, z. B.: „Ihre [Behandlungsschwerpunkt / Personalisierung aus der E-Mail] spricht für sich."] Es geht darum, dass online weniger von Ihnen ankommt, als in Ihrer Praxis steckt.
 
-In den nächsten Minuten machen wir genau das, was ich Ihnen in der E-Mail geschrieben habe. Erstens gehe ich Ihren Online-Auftritt durch: Google, Ihre Website, Instagram, Ihre Bewertungen, so wie eine Patientin das am Handy durchklickt. Zweitens stelle ich Sie kurz neben eine Praxis aus Ihrer Umgebung, mit der Ihre Patientin Sie ohnehin vergleicht. Drittens schaue ich auf Ihre Anzeigen.
-
-Und am Schluss lege ich noch etwas drauf, das nicht in der E-Mail stand: die zwei, drei Stellen, an denen Ihnen gerade konkret Patientinnen von hoher Qualität verloren gehen, und was ich an Ihrer Stelle zuerst ändern würde. Das können Sie auch ganz ohne mich umsetzen.
+Gleich sehen wir Ihren Auftritt, dann eine Praxis aus Ihrer Umgebung daneben, dann Ihre Anzeigen. Am Ende sage ich Ihnen, was ich zuerst ändern würde.
 
 Fangen wir an.
+
+<!--
+  Gekürzt am 2026-09-09 von ~200 auf ~103 gesprochene Wörter (Entscheidung
+  Karam, `online-praxis-auftritt/references/ENTSCHEIDUNGEN-20260909.md` Nr. 1).
+  Grund: ~200 Wörter sind bei deutschem Erklärtempo 80-85 Sekunden, bevor der
+  erste Befund fällt. Je kürzer, desto früher liegt das eigene Google-Profil
+  der Praxis auf dem Schirm.
+  Erhalten geblieben: der persönliche Aufhänger, "Fachlich sind Sie längst da",
+  der optionale echte Bezug, der Rahmen-Satz ("online kommt weniger an, als in
+  Ihrer Praxis steckt"), die drei Dinge (jetzt in einem Satz), "Fangen wir an."
+  Die alte Fassung steht Wort für Wort in
+  `online-praxis-auftritt/references/intro-vorschlag.md`.
+  Wortbudget der Sektion in audit-config.json (`copy.sektionen[0].budget`)
+  wurde im selben Zug von 200 auf 100 gesetzt.
+-->

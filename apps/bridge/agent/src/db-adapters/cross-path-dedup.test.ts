@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadVendorConfigFile } from "./vendor-config.js";
 import { normalizeRow } from "./normalizer.js";
+import { berlinWallClockMs } from "./time-utils.js";
 import type { StreamConfig, VendorConfig } from "./types.js";
 
 /**
@@ -49,6 +50,14 @@ const FIXTURE = {
   recallAt: "2026-09-01T08:00:00.000Z",
 };
 
+/** The Date a node driver returns for a zone-less TIMESTAMP that Tomedo wrote at
+ *  Berlin wall-clock time for the real instant `iso` (process TZ is pinned to
+ *  UTC, so the Date's UTC fields ARE the Berlin wall clock). The DB-read path
+ *  converts it back to the real instant, which is what the REST path emits. */
+function wall(iso: string): Date {
+  return new Date(berlinWallClockMs(Date.parse(iso)));
+}
+
 function streamFor(vendor: VendorConfig, kind: string): StreamConfig {
   const s = vendor.streams.find((st) => st.kind === kind);
   if (!s) throw new Error(`tomedo.yaml missing stream ${kind}`);
@@ -78,13 +87,16 @@ describe("tomedo cross-path dedup: REST and DB-read produce identical tuples", (
         geburtsdatum: null,
         geschlecht: null,
         bemerkung: null,
-        modified_at: new Date(FIXTURE.modifiedAt),
+        modified_at: wall(FIXTURE.modifiedAt),
       },
       ctx("PatientUpserted")
     );
     expect(patient?.bridgeSource).toBe("tomedo");
-    expect(patient?.pvsExternalEventId).toBe(
-      `tomedo:patient:P1:${FIXTURE.modifiedAt}`
+    // Review finding 4: DB-read ids carry a 12-hex version suffix of the
+    // payload so a corrected row is not swallowed by the dedup. The BASE
+    // (before the suffix) is still the REST identity contract.
+    expect(patient?.pvsExternalEventId).toMatch(
+      new RegExp(`^tomedo:patient:P1:${FIXTURE.modifiedAt.replace(/[.]/g, "[.]")}:[0-9a-f]{12}$`)
     );
     expect(patient?.occurredAt).toBe(FIXTURE.modifiedAt);
 
@@ -92,17 +104,17 @@ describe("tomedo cross-path dedup: REST and DB-read produce identical tuples", (
       {
         id: "A1",
         patient_id: "P1",
-        termin_zeit: new Date(FIXTURE.scheduledAt),
+        termin_zeit: wall(FIXTURE.scheduledAt),
         behandlung_code: null,
         behandlung_name: null,
         raum_id: null,
         raum_name: null,
         kommentar: null,
-        modified_at: new Date(FIXTURE.modifiedAt),
+        modified_at: wall(FIXTURE.modifiedAt),
       },
       ctx("AppointmentCreated")
     );
-    expect(appt?.pvsExternalEventId).toBe("tomedo:appointment:A1");
+    expect(appt?.pvsExternalEventId).toMatch(/^tomedo:appointment:A1:[0-9a-f]{12}$/);
     expect(appt?.occurredAt).toBe(FIXTURE.scheduledAt);
 
     const enc = normalizeRow(
@@ -110,15 +122,15 @@ describe("tomedo cross-path dedup: REST and DB-read produce identical tuples", (
         id: "E1",
         patient_id: "P1",
         termin_id: "A1",
-        behandlung_zeit: new Date(FIXTURE.completedAt),
+        behandlung_zeit: wall(FIXTURE.completedAt),
         behandlung_code: null,
         behandlung_name: null,
         behandler_name: null,
-        modified_at: new Date(FIXTURE.modifiedAt),
+        modified_at: wall(FIXTURE.modifiedAt),
       },
       ctx("EncounterCompleted")
     );
-    expect(enc?.pvsExternalEventId).toBe("tomedo:encounter:E1");
+    expect(enc?.pvsExternalEventId).toMatch(/^tomedo:encounter:E1:[0-9a-f]{12}$/);
     expect(enc?.occurredAt).toBe(FIXTURE.completedAt);
 
     const invoice = normalizeRow(
@@ -128,27 +140,27 @@ describe("tomedo cross-path dedup: REST and DB-read produce identical tuples", (
         termin_id: "A1",
         behandlung_id: "E1",
         betrag: 125,
-        bezahlt_am: new Date(FIXTURE.paidAt),
+        bezahlt_am: wall(FIXTURE.paidAt),
         status: "bezahlt",
-        modified_at: new Date(FIXTURE.modifiedAt),
+        modified_at: wall(FIXTURE.modifiedAt),
       },
       ctx("InvoicePaid")
     );
-    expect(invoice?.pvsExternalEventId).toBe("tomedo:invoice:R1");
+    expect(invoice?.pvsExternalEventId).toMatch(/^tomedo:invoice:R1:[0-9a-f]{12}$/);
     expect(invoice?.occurredAt).toBe(FIXTURE.paidAt);
 
     const recall = normalizeRow(
       {
         id: "RC1",
         patient_id: "P1",
-        recall_zeit: new Date(FIXTURE.recallAt),
+        recall_zeit: wall(FIXTURE.recallAt),
         behandlung_code: null,
         behandlung_name: null,
-        modified_at: new Date(FIXTURE.modifiedAt),
+        modified_at: wall(FIXTURE.modifiedAt),
       },
       ctx("RecallScheduled")
     );
-    expect(recall?.pvsExternalEventId).toBe("tomedo:recall:RC1");
+    expect(recall?.pvsExternalEventId).toMatch(/^tomedo:recall:RC1:[0-9a-f]{12}$/);
     // occurredAt is the scheduling moment (modified_at), matching the REST path;
     // a regression to recall_zeit would flip this to FIXTURE.recallAt.
     expect(recall?.occurredAt).toBe(FIXTURE.modifiedAt);

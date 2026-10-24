@@ -5,7 +5,7 @@
  * here is byte-for-byte what lands in the Dokumente list.
  *
  * Usage (PowerShell — see CLAUDE.md gotchas):
- *   pnpm --filter portal pdf:leitfaden            # writes ./leitfaden.pdf
+ *   pnpm --filter portal pdf:leitfaden            # writes ./storage/leitfaden.pdf (gitignored)
  *   pnpm --filter portal pdf:leitfaden out.pdf    # custom path
  */
 
@@ -14,7 +14,7 @@ import { dirname, resolve } from "node:path";
 import { generateLeitfadenPdf } from "../src/server/reports/leitfaden-pdf";
 
 async function main() {
-  const out = resolve(process.cwd(), process.argv[2] ?? "leitfaden.pdf");
+  const out = resolve(process.cwd(), process.argv[2] ?? "storage/leitfaden.pdf");
   const buf = await generateLeitfadenPdf();
   await mkdir(dirname(out), { recursive: true });
   await writeFile(out, buf);

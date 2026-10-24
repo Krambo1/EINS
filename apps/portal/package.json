@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": {
-    "node": "20.x"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "node scripts/dev.js",
@@ -13,19 +13,16 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
     "analyze": "ANALYZE=true next build",
-    "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "db:seed": "tsx src/db/seed.ts",
-    "db:studio": "drizzle-kit studio",
     "worker": "tsx src/worker/index.ts",
-    "admin:create": "tsx src/scripts/create-admin.ts",
     "setup:intake": "tsx src/scripts/setup-intake.ts",
     "pdf:leitfaden": "tsx scripts/generate-leitfaden-pdf.ts",
     "pdf:checkliste": "tsx scripts/generate-checkliste-pdf.ts",
     "pvs:reconcile": "tsx scripts/pvs-reconcile.ts",
-    "pvs:seed-staging": "tsx scripts/pvs-seed-staging.ts"
+    "pvs:seed-staging": "tsx scripts/pvs-seed-staging.ts",
+    "backfill:first-touch": "tsx scripts/backfill-first-touch.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1060.0",
@@ -61,7 +58,6 @@
     "nanoid": "^5.0.9",
     "next": "^15.0.3",
     "nodemailer": "^6.9.16",
-    "otpauth": "^9.3.5",
     "pg": "^8.13.1",
     "pg-boss": "^10.4.2",
     "postgres": "^3.4.5",

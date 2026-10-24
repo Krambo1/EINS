@@ -15,17 +15,31 @@ import {
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
+  ExplainerPopover,
 } from "@eins/ui";
 import { requireSession } from "@/auth/guards";
 import { db, schema } from "@/db/client";
 import { writeAudit } from "@/server/audit";
+import { responseRuleStartForClinic } from "@/server/guarantee-clock";
 import { getRequestWithActivities, markRequestViewed } from "@/server/queries/requests";
 import { listFollowupsForRequest } from "@/server/queries/followups";
 import { leadTokenForRequestId } from "@/server/pvs-token";
 import { can } from "@/lib/roles";
 import { PvsTokenCard } from "./_pvs-token-card";
-import { LeadCockpit } from "./_lead-cockpit";
+import { LeadCockpit, MobileActionBar } from "./_lead-cockpit";
+import { AI_SCORE_EXPLANATION, aiCategoryWord, aiScoreText } from "../_lib/ai-score";
+import {
+  DEADLINE_RUNNING_HINT,
+  LATE_HINT,
+  NOT_ANSWERED_HINT,
+  OVERDUE_HINT,
+} from "../_lib/response-hints";
 import { Followups } from "./_followups";
+import { statusChangeLine } from "./_status-change";
+import { RevokeAdsConsentButton } from "./_revoke-ads-consent";
+import { quizAnswerLines } from "../_lib/quiz-answers";
+import { germanAiReasoning } from "../_lib/ai-reasoning";
+import { quizFromSignals } from "@/server/queries/requests";
 import {
   siblingRequests,
   patientLifetimeRevenue,
@@ -33,11 +47,18 @@ import {
 import {
   SOURCE_LABELS,
   ACTIVITY_KIND_LABELS,
-  AI_CATEGORY_LABELS,
+  SLA_HOURS,
   type ActivityKind,
   type RequestStatus,
 } from "@/lib/constants";
 import { withBrandLogos } from "@/app/_components/Brand";
+import {
+  RESPONSE_STATE_LABELS,
+  isPraxisResponseFlag,
+  responseInfo,
+} from "@/lib/response-time";
+import { formatBerlinDateTime } from "@/lib/werkstunden";
+import { statusImpliesContact } from "../_lib/row-timing";
 import {
   formatDate,
   formatDateTime,
@@ -47,18 +68,14 @@ import {
   ArrowLeft,
   Mail,
   Phone,
-  PhoneCall,
   MessageSquare,
   CheckCircle2,
   Clock,
-  Timer,
-  CalendarClock,
-  Sparkles,
+  AlertTriangle,
 } from "lucide-react";
+import { isUuid } from "@/lib/ids";
 
 export const metadata = { title: "Anfrage" };
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export default async function AnfrageDetailPage({
   params,
@@ -70,11 +87,57 @@ export default async function AnfrageDetailPage({
 
   // Cheap pre-flight so a malformed id surfaces a clean 404 instead of a
   // PG "invalid input syntax for type uuid" 500.
-  if (!UUID_RE.test(id)) notFound();
+  if (!isUuid(id)) notFound();
+
+  const canWork = can(session.role, "requests.update");
+  // Protokoll and technical raw data are owner-only (`audit.view`, C-27).
+  const canAudit = can(session.role, "audit.view");
+
+  // D-6: everything that only needs the id or the clinic starts together
+  // with the main query instead of after it. All of these are clinic-scoped
+  // (RLS or an explicit clinic_id filter), so a foreign id leaks nothing.
+  const sidePromise = Promise.all([
+    siblingRequests(session.clinicId, session.userId, id),
+    canAudit
+      ? db
+          .select({
+            id: schema.auditLog.id,
+            action: schema.auditLog.action,
+            actorEmail: schema.auditLog.actorEmail,
+            diff: schema.auditLog.diff,
+            createdAt: schema.auditLog.createdAt,
+          })
+          .from(schema.auditLog)
+          .where(
+            and(
+              eq(schema.auditLog.clinicId, session.clinicId),
+              eq(schema.auditLog.entityKind, "request"),
+              eq(schema.auditLog.entityId, id)
+            )
+          )
+          .orderBy(desc(schema.auditLog.createdAt))
+          .limit(20)
+      : Promise.resolve([]),
+    db
+      .select({
+        vendor: schema.pvsLink.pvsVendor,
+        status: schema.pvsLink.status,
+      })
+      .from(schema.pvsLink)
+      .where(eq(schema.pvsLink.clinicId, session.clinicId))
+      .limit(1)
+      .then((rows) => rows[0] ?? null),
+    listFollowupsForRequest(session.clinicId, session.userId, id),
+    // K-3: rule start of this Praxis (signing date) for the response badge.
+    responseRuleStartForClinic(session.clinicId),
+  ]);
+  // Not awaited on the 404 path; keep a failure there from becoming an
+  // unhandled rejection. The real await below still sees the error.
+  sidePromise.catch(() => {});
 
   const data = await getRequestWithActivities(session.clinicId, session.userId, id);
   if (!data) notFound();
-  const { request, activities, treatmentName, locationName } = data;
+  const { request, activities, treatmentName, locationName, firstAttemptAt } = data;
 
   // Durable PHI-read access trace (DSGVO Art. 30/32) — record who opened which
   // patient record (pentest L2). Deferred so it never blocks the render;
@@ -87,52 +150,25 @@ export default async function AnfrageDetailPage({
       entityKind: "request",
       entityId: id,
       requestMeta: {},
+      impersonatedByAdminId: session.impersonatedByAdminId,
     })
   );
 
   // Clear the sidebar "neu" badge the first time anyone opens this lead.
   // markRequestViewed is idempotent (no-op once firstViewedAt is set) and
-  // best-effort. The (portal) layout is dynamic, so the badge re-counts
-  // automatically on the next navigation — no revalidate needed.
+  // best-effort; it runs after the response so the write no longer blocks
+  // the render (D-6). The badge cache has a short TTL as the safety net.
   if (request.status === "neu" && request.firstViewedAt === null) {
-    await markRequestViewed(session.clinicId, session.userId, id);
+    after(() => markRequestViewed(session.clinicId, session.userId, id));
   }
 
-  const canWork = can(session.role, "requests.update");
-
-  const [siblings, patientLtv, auditTrail, pvsLinkRow, followups] = await Promise.all([
-    siblingRequests(session.clinicId, session.userId, id),
+  const [[siblings, auditTrail, pvsLinkRow, followups, responseRuleStart], patientLtv] = await Promise.all([
+    sidePromise,
     request.patientId
       ? patientLifetimeRevenue(session.clinicId, session.userId, request.patientId)
       : Promise.resolve(null),
-    db
-      .select({
-        id: schema.auditLog.id,
-        action: schema.auditLog.action,
-        actorEmail: schema.auditLog.actorEmail,
-        diff: schema.auditLog.diff,
-        createdAt: schema.auditLog.createdAt,
-      })
-      .from(schema.auditLog)
-      .where(
-        and(
-          eq(schema.auditLog.entityId, id),
-          eq(schema.auditLog.entityKind, "request")
-        )
-      )
-      .orderBy(desc(schema.auditLog.createdAt))
-      .limit(20),
-    db
-      .select({
-        vendor: schema.pvsLink.pvsVendor,
-        status: schema.pvsLink.status,
-      })
-      .from(schema.pvsLink)
-      .where(eq(schema.pvsLink.clinicId, session.clinicId))
-      .limit(1)
-      .then((rows) => rows[0] ?? null),
-    listFollowupsForRequest(session.clinicId, session.userId, id),
   ]);
+  const quizAnswers = quizAnswerLines(quizFromSignals(request.aiSignals));
 
   // Accountability counters for the proof summary. Cheap — reuse the
   // already-loaded `activities` array for the call count, and the
@@ -154,7 +190,24 @@ export default async function AnfrageDetailPage({
     request.pvsAppointmentId === null;
   const pvsLeadToken = showPvsToken ? leadTokenForRequestId(id) : null;
 
+  // 48-Werkstunden rule (Kanon 6a). Separate from the internal 3-hour SLA
+  // above: this one has contractual consequences for the Praxis.
+  const response = responseInfo(
+    {
+      createdAt: request.createdAt,
+      firstAttemptAt,
+      status: request.status,
+      ruleStart: responseRuleStart,
+    },
+    new Date()
+  );
+
+  // Termin vereinbart or later without a logged attempt: the person was
+  // reached anyway, so no deadline warnings (same rule as the list, rowTiming).
+  const contactImplied = statusImpliesContact(request.status) && !firstAttemptAt;
+
   const slaBreached =
+    !contactImplied &&
     !request.firstContactedAt &&
     request.slaRespondBy &&
     request.slaRespondBy.getTime() < Date.now();
@@ -165,121 +218,79 @@ export default async function AnfrageDetailPage({
       ? (request.aiSignals as Record<string, unknown>)
       : null;
 
-  const scoreTone =
-    request.aiCategory === "hot"
-      ? "bg-accent/15 text-accent ring-accent/20"
-      : request.aiCategory === "warm"
-      ? "bg-tone-warn/15 text-tone-warn ring-tone-warn/20"
-      : "bg-bg-secondary text-fg-secondary ring-border";
+  // KI-Bewertung, short (DS3): "74/100"; the bands are explained in the popover.
+  const scoreText =
+    request.aiScore != null
+      ? aiScoreText(request.aiScore)
+      : aiCategoryWord(request.aiCategory);
+  const responseFlagged = isPraxisResponseFlag(response.state);
+  const responseHint =
+    response.state === "nicht_beantwortet"
+      ? NOT_ANSWERED_HINT
+      : response.state === "zu_spaet"
+      ? LATE_HINT
+      : DEADLINE_RUNNING_HINT;
 
   return (
-    <div className="space-y-4">
-      <Button
-        asChild
-        variant="outline"
-        size="lg"
-        className="group gap-2 border-border bg-bg-secondary px-4 font-semibold text-fg-primary shadow-sm hover:bg-bg-secondary hover:text-fg-primary"
+    // Bottom padding below `md` keeps the fixed action bar off the last card.
+    <div className="space-y-4 pb-24 md:pb-0">
+      <Link
+        href="/anfragen"
+        className="group inline-flex items-center gap-1.5 text-sm font-medium text-fg-secondary hover:text-fg-primary"
       >
-        <Link href="/anfragen">
-          <ArrowLeft className="h-5 w-5 transition-transform group-hover:-translate-x-0.5" />
-          Zurück zur Anfragen-Übersicht
-        </Link>
-      </Button>
+        <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" aria-hidden />
+        Alle Anfragen
+      </Link>
 
-      {/* Lead header — compact */}
+      {/* Kopf: wer, wie erreichbar, bis wann. Eine Karte statt mehrerer. */}
       <Card className="p-5 md:p-6">
-        <div className="space-y-4">
-          {/* Title row: name + badges | dates + score chip */}
-          <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
-            <div className="min-w-0 flex-1">
-              <h1 className="text-2xl font-semibold leading-tight md:text-3xl">
-                {request.contactName ?? "Unbekannt"}
-              </h1>
-              <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                <StatusPill status={request.status} />
-                {request.aiCategory && (
-                  <Badge
-                    tone={
-                      request.aiCategory === "hot"
-                        ? "accent"
-                        : request.aiCategory === "warm"
-                        ? "warn"
-                        : "neutral"
-                    }
-                  >
-                    {AI_CATEGORY_LABELS[request.aiCategory as keyof typeof AI_CATEGORY_LABELS]}
-                  </Badge>
-                )}
-                <Badge tone="neutral">
-                  {withBrandLogos(SOURCE_LABELS[request.source as keyof typeof SOURCE_LABELS] ?? request.source)}
-                </Badge>
-                {treatmentName && <Badge tone="accent">{treatmentName}</Badge>}
-                {locationName && <Badge tone="neutral">{locationName}</Badge>}
-              </div>
+        <div className="space-y-5">
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold leading-tight md:text-3xl">
+              {request.contactName ?? "Unbekannt"}
+            </h1>
+            {/* Same order as the Anfragen list: status, then the plain facts. */}
+            <div className="mt-2 flex flex-wrap items-center gap-x-1.5 text-sm text-fg-secondary">
+              <StatusPill status={request.status} />
+              {request.statusSource === "pvs" && <span>· Status aus der PVS</span>}
             </div>
-
-            <div className="flex shrink-0 flex-col items-end gap-1.5 text-right text-xs text-fg-secondary">
-              {request.aiScore != null && (
-                <div
-                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm font-semibold ring-1 ${scoreTone}`}
-                >
-                  <Sparkles className="h-3.5 w-3.5" />
-                  <span className="tabular-nums">
-                    {request.aiScore}
-                    <span className="font-normal opacity-60">/100</span>
-                  </span>
-                </div>
-              )}
-              <div className="tabular-nums">Eingegangen: {formatDateTime(request.createdAt)}</div>
-              {request.slaRespondBy && (
-                <div className={`tabular-nums ${slaBreached ? "text-tone-bad" : ""}`}>
-                  Frist: {formatDateTime(request.slaRespondBy)}
-                  {slaBreached && " (überschritten)"}
-                </div>
-              )}
-              {request.firstContactedAt && (
-                <div className="tabular-nums text-tone-good">
-                  Erstkontakt: {formatDateTime(request.firstContactedAt)}
-                </div>
-              )}
+            <div className="mt-1 text-sm text-fg-secondary">
+              {treatmentName && <>{treatmentName} · </>}
+              {withBrandLogos(SOURCE_LABELS[request.source as keyof typeof SOURCE_LABELS] ?? request.source)}
+              {locationName && <> · {locationName}</>}
             </div>
           </div>
 
-          {/* Contact strip with inline quick actions */}
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border border-border bg-bg-secondary px-4 py-2.5">
-            {request.contactEmail ? (
-              <a
-                href={`mailto:${request.contactEmail}`}
-                className="inline-flex min-w-0 items-center gap-1.5 text-sm text-fg-primary hover:text-accent"
-              >
-                <Mail className="h-4 w-4 shrink-0 text-fg-secondary" />
-                <span className="truncate">{request.contactEmail}</span>
-              </a>
+          {/* Kontakt: Nummer und Adresse als Text, genau ein "Anrufen".
+              Unter `md` liegt "Anrufen" in der festen Leiste unten. */}
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-y border-border py-3">
+            {request.contactPhone ? (
+              <span className="inline-flex items-center gap-1.5 text-base font-medium text-fg-primary">
+                <Phone className="h-4 w-4 shrink-0" aria-hidden />
+                <span className="tabular-nums">{request.contactPhone}</span>
+              </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 text-sm text-fg-tertiary">
-                <Mail className="h-4 w-4" /> –
+              <span className="inline-flex items-center gap-1.5 text-base text-fg-secondary">
+                <Phone className="h-4 w-4" aria-hidden /> Keine Telefonnummer
               </span>
             )}
-            {request.contactPhone ? (
-              <a
-                href={`tel:${request.contactPhone}`}
-                className="inline-flex items-center gap-1.5 text-sm text-fg-primary hover:text-accent"
-              >
-                <Phone className="h-4 w-4 shrink-0 text-fg-secondary" />
-                <span className="tabular-nums">{request.contactPhone}</span>
-              </a>
+            {request.contactEmail ? (
+              <span className="inline-flex min-w-0 items-center gap-1.5 text-base text-fg-primary">
+                <Mail className="h-4 w-4 shrink-0" aria-hidden />
+                <span className="truncate">{request.contactEmail}</span>
+              </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 text-sm text-fg-tertiary">
-                <Phone className="h-4 w-4" /> –
+              <span className="inline-flex items-center gap-1.5 text-base text-fg-secondary">
+                <Mail className="h-4 w-4" aria-hidden /> Keine E-Mail-Adresse
               </span>
             )}
             {request.treatmentWish && (
-              <span className="inline-flex min-w-0 items-center gap-1.5 text-sm text-fg-primary">
-                <Sparkles className="h-4 w-4 shrink-0 text-fg-secondary" />
-                <span className="truncate">{request.treatmentWish}</span>
+              <span className="min-w-0 text-base text-fg-primary">
+                <span className="font-medium">Wunsch:</span>{" "}
+                <span className="break-words">{request.treatmentWish}</span>
               </span>
             )}
-            <div className="ml-auto flex flex-wrap items-center gap-2">
+            <div className="hidden flex-wrap items-center gap-2 md:ml-auto md:flex">
               {request.contactPhone && (
                 <Button asChild size="sm">
                   <a href={`tel:${request.contactPhone}`}>
@@ -297,186 +308,258 @@ export default async function AnfrageDetailPage({
                 </Button>
               )}
             </div>
+            {/* Phones: the bar carries Anrufen, so only E-Mail stays here. */}
+            {request.contactPhone && request.contactEmail && (
+              <Button asChild size="sm" variant="outline" className="md:hidden">
+                <a href={`mailto:${request.contactEmail}`}>
+                  <Mail className="h-4 w-4" />
+                  E-Mail schreiben
+                </a>
+              </Button>
+            )}
           </div>
 
-          {/* Message + AI reasoning side-by-side on wider screens */}
-          {(request.message || request.aiReasoning) && (
-            <div className="grid gap-3 md:grid-cols-2">
+          {/* Fristen: Entscheidungswerte, darum kräftig und in Worten. */}
+          <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
+            <TimeFact label="Eingegangen" value={formatDateTime(request.createdAt)} />
+            {request.firstContactedAt && (
+              <TimeFact
+                label="Erstkontakt"
+                value={formatDateTime(request.firstContactedAt)}
+              />
+            )}
+            {request.slaRespondBy && (
+              <TimeFact
+                label={`Rückruf-Ziel (${SLA_HOURS} Stunden)`}
+                value={formatDateTime(request.slaRespondBy)}
+                status={slaBreached ? "Überfällig" : null}
+                statusTone="bad"
+                hintTerm="Rückruf-Ziel"
+                hint={OVERDUE_HINT}
+              />
+            )}
+            {response.deadline && response.state !== "ausgenommen" && !contactImplied && (
+              <TimeFact
+                label="48-Werkstunden-Frist"
+                value={formatBerlinDateTime(response.deadline)}
+                status={RESPONSE_STATE_LABELS[response.state]}
+                statusTone={
+                  responseFlagged ? "bad" : response.state === "rechtzeitig" ? "good" : "default"
+                }
+                hintTerm={responseFlagged ? RESPONSE_STATE_LABELS[response.state] : "48 Werkstunden"}
+                hint={responseHint}
+              />
+            )}
+          </dl>
+
+          {/* Antworten aus dem Zielseiten-Quiz (C-26): der Gesprächseinstieg
+              für den Rückruf, vorher nur im JSON der Rohdaten. */}
+          {quizAnswers.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              {quizAnswers.map((a) => (
+                <Badge key={a.label} tone="neutral" className="text-sm">
+                  {a.label}: {a.value}
+                </Badge>
+              ))}
+            </div>
+          )}
+
+          {/* Nachricht und KI-Bewertung nebeneinander auf breiten Schirmen */}
+          {(request.message || request.aiReasoning || scoreText) && (
+            <div className="grid gap-4 md:grid-cols-2">
               {request.message && (
                 <div>
-                  <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
+                  <div className="text-sm font-medium text-fg-primary">
                     Nachricht der Anfrage
                   </div>
-                  <p className="mt-1.5 whitespace-pre-wrap rounded-lg bg-bg-secondary p-3 text-sm leading-relaxed text-fg-primary">
+                  <blockquote className="mt-1.5 whitespace-pre-wrap rounded-lg border-l-2 border-accent bg-bg-secondary px-3 py-2 text-base leading-relaxed text-fg-primary">
                     {request.message}
-                  </p>
+                  </blockquote>
                 </div>
               )}
 
-              {request.aiReasoning && (
+              {(scoreText || request.aiReasoning) && (
                 <div>
-                  <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
-                    KI-Einschätzung
+                  <div className="flex items-center gap-1 text-sm font-medium text-fg-primary">
+                    KI-Bewertung
+                    <ExplainerPopover term="KI-Bewertung" ariaLabel="Erklärung zur KI-Bewertung">
+                      {AI_SCORE_EXPLANATION}
+                    </ExplainerPopover>
                   </div>
-                  <p className="mt-1.5 rounded-lg bg-bg-secondary p-3 text-sm italic leading-relaxed text-fg-primary">
-                    {request.aiReasoning}
-                  </p>
+                  {scoreText && (
+                    <p className="mt-1 text-lg font-semibold tabular-nums text-fg-primary">
+                      {scoreText}
+                    </p>
+                  )}
+                  {request.aiReasoning && (
+                    <p className="mt-1 text-sm leading-relaxed text-fg-primary">
+                      {germanAiReasoning(request.aiReasoning)}
+                    </p>
+                  )}
                   {request.aiPromptVersion === "rules-v3-llm-notes" && (
-                    <p className="mt-1 text-[11px] text-fg-tertiary">
+                    <p className="mt-1 text-sm text-fg-secondary">
                       Notizen-Bewertung KI-generiert · finale Qualifizierung durch das Praxis-Team
                     </p>
                   )}
-                  {aiSignals && (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {Object.entries(aiSignals)
-                        // Skip nested objects (e.g. `quiz` is the raw form
-                        // payload that *produced* the other signals, not a
-                        // signal itself — rendering it as a chip yielded
-                        // "quiz: [object Object]").
-                        .filter(([, v]) => typeof v !== "object" || v === null)
-                        .map(([k, v]) => (
-                          <SignalBadge key={k} signal={k} value={v} />
-                        ))}
-                    </div>
+                  {aiSignals && signalLine(aiSignals) && (
+                    <p className="mt-2 text-sm text-fg-secondary">{signalLine(aiSignals)}</p>
                   )}
                 </div>
               )}
             </div>
           )}
+
+          {/* Consent to report to Meta/Google (migration 0077). Without an
+              active consent the purchase workers never report this person. */}
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-fg-primary">
+            <span>
+              Einwilligung Meta/Google:{" "}
+              {request.adsConsentRevokedAt
+                ? `widerrufen am ${formatDate(request.adsConsentRevokedAt)}`
+                : request.adsConsentAt
+                ? `erteilt am ${formatDate(request.adsConsentAt)}`
+                : "nicht erteilt"}
+            </span>
+            {canWork && request.adsConsentAt && !request.adsConsentRevokedAt && (
+              <RevokeAdsConsentButton requestId={request.id} />
+            )}
+          </div>
         </div>
       </Card>
 
-      {/* Lead-Cockpit — Reaktions-Proof (alle Rollen) + Arbeitsfläche. Die
+      {/* Telefon ohne Bearbeitungsrecht: nur "Anrufen" in der Leiste unten.
+          Mit Recht rendert das Cockpit die Leiste samt "Protokollieren". */}
+      {!canWork && (
+        <MobileActionBar
+          contactPhone={request.contactPhone}
+          contactEmail={request.contactEmail}
+        />
+      )}
+
+      {/* Lead-Cockpit: Reaktions-Nachweis + Arbeitsfläche. Die
           Vor-Buchungs-Phase ist portal-nativ; sobald die Anfrage an einen
           PVS-Termin gekoppelt ist, sperrt die Status-Steuerung (PVS gewinnt;
           siehe _lead-cockpit.tsx + actions.ts). Anrufe, Notizen und
-          Wiedervorlagen bleiben immer erlaubt. */}
+          Wiedervorlagen bleiben immer erlaubt. Der Status steht oben im Kopf. */}
       {canWork && (
         <Card className="p-5 md:p-6">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 sm:grid-cols-3">
             <ProofStat
-              icon={<Timer className="h-4 w-4" />}
               label="Reaktionszeit"
               value={reactionMs != null ? formatDuration(reactionMs) : "Noch kein Kontakt"}
-              tone={reactionMs == null && slaBreached ? "bad" : "default"}
             />
             <ProofStat
-              icon={<PhoneCall className="h-4 w-4" />}
               label="Anrufversuche"
               value={callCount === 0 ? "Noch keine" : String(callCount)}
             />
             <ProofStat
-              icon={<CheckCircle2 className="h-4 w-4" />}
-              label="Status"
-              value={
-                <span className="inline-flex flex-wrap items-center gap-1.5">
-                  <StatusPill status={request.status} />
-                  {request.statusSource === "pvs" && (
-                    <Badge tone="neutral">Quelle: PVS</Badge>
-                  )}
-                </span>
-              }
-            />
-            <ProofStat
-              icon={<CalendarClock className="h-4 w-4" />}
               label="Nächste Wiedervorlage"
               value={nextFollowup ? formatDateTime(nextFollowup.dueAt) : "Keine"}
             />
           </div>
 
           <div className="mt-4 border-t border-border pt-4">
+            <p className="mb-3 text-sm text-fg-primary">
+              Jeder protokollierte Anruf, jede vermerkte E-Mail oder
+              WhatsApp-Nachricht und der Status „Kontaktiert“, „Nicht
+              erreicht“ oder „Termin vereinbart“ zählen als Kontaktversuch.
+            </p>
             <LeadCockpit
               requestId={request.id}
               currentStatus={request.status}
               pvsControlled={pvsControlled}
+              contactPhone={request.contactPhone}
+              contactEmail={request.contactEmail}
             />
           </div>
         </Card>
       )}
 
+      {/* Wiedervorlagen vor dem Verlauf: sie sind der nächste Schritt. Die
+          Karte steht immer da, auch leer, damit man die Funktion kennt. */}
+      {canWork && <Followups requestId={request.id} followups={followups} />}
+
       {pvsLeadToken && (
         <PvsTokenCard token={pvsLeadToken} pvsVendor={pvsLinkRow?.vendor ?? null} />
       )}
 
-      {/* Verlauf — Aktivitäts-Protokoll. Anrufe, Notizen und Status-Wechsel
+      {/* Verlauf: Aktivitäts-Protokoll. Anrufe, Notizen und Status-Wechsel
           der Vor-Buchungs-Phase werden hier portal-nativ erfasst; PVS-Events
           (Termin, Behandlung, no-show) laufen weiterhin automatisch ein. */}
-      <div className="grid gap-4">
-        <div>
-          <Card className="p-5 md:p-6">
-            <CardHeader className="mb-3">
-              <CardTitle className="text-base">Verlauf</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-0">
-              {activities.length === 0 ? (
-                <p className="py-4 text-sm text-fg-secondary">
-                  Noch kein Verlauf. Protokollieren Sie den ersten Anruf oder
-                  hinterlassen Sie eine Notiz.
-                </p>
-              ) : (
-                <ul className="divide-y divide-border">
-                  {activities.map((a, idx) => {
-                    const prev = activities[idx + 1];
-                    const gapMs = prev
-                      ? a.createdAt.getTime() - prev.createdAt.getTime()
-                      : null;
-                    return (
-                      <li key={a.id} className="py-3">
-                        <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-fg-secondary">
-                          <ActivityIcon kind={a.kind as ActivityKind} />
-                          <span>
-                            {ACTIVITY_KIND_LABELS[a.kind as ActivityKind] ?? a.kind}
+      <Card className="p-5 md:p-6">
+        <CardHeader className="mb-3">
+          <CardTitle>Verlauf</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-0">
+          {activities.length === 0 ? (
+            <p className="text-sm text-fg-primary">
+              Noch kein Verlauf. Protokollieren Sie den ersten Anruf oder
+              hinterlassen Sie eine Notiz.
+            </p>
+          ) : (
+            <ul className="divide-y divide-border">
+              {activities.map((a, idx) => {
+                const prev = activities[idx + 1];
+                const gapMs = prev
+                  ? a.createdAt.getTime() - prev.createdAt.getTime()
+                  : null;
+                const statusLine =
+                  a.kind === "status_change" ? statusChangeLine(a.meta) : null;
+                return (
+                  <li key={a.id} className="py-3">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg-primary">
+                      <ActivityIcon kind={a.kind as ActivityKind} />
+                      <span className="font-medium">
+                        {ACTIVITY_KIND_LABELS[a.kind as ActivityKind] ?? a.kind}
+                      </span>
+                      <span aria-hidden>·</span>
+                      <span className="tabular-nums">{formatDateTime(a.createdAt)}</span>
+                      {(a.actorName || a.actorEmail) && (
+                        <>
+                          <span aria-hidden>·</span>
+                          <span className="inline-flex items-center gap-1.5 text-fg-secondary">
+                            <Avatar
+                              src={a.actorAvatarUrl ?? null}
+                              name={a.actorName ?? a.actorEmail ?? "?"}
+                              size="xs"
+                            />
+                            {a.actorName ?? a.actorEmail}
                           </span>
-                          <span>·</span>
-                          <Clock className="h-3 w-3" />
-                          <span>{formatDateTime(a.createdAt)}</span>
-                          {(a.actorName || a.actorEmail) && (
-                            <>
-                              <span>·</span>
-                              <span className="inline-flex items-center gap-1.5 normal-case tracking-normal text-fg-tertiary">
-                                <Avatar
-                                  src={a.actorAvatarUrl ?? null}
-                                  name={a.actorName ?? a.actorEmail ?? "?"}
-                                  size="xs"
-                                />
-                                {a.actorName ?? a.actorEmail}
-                              </span>
-                            </>
-                          )}
-                          {gapMs != null && gapMs > 0 && (
-                            <span className="ml-auto text-fg-tertiary normal-case tracking-normal">
-                              +{formatDuration(gapMs)} nach vorigem Eintrag
-                            </span>
-                          )}
-                        </div>
-                        {a.body && (
-                          <p className="mt-1 whitespace-pre-wrap text-base text-fg-primary">
-                            {a.body}
-                          </p>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        {canWork && <Followups requestId={request.id} followups={followups} />}
-      </div>
+                        </>
+                      )}
+                      {gapMs != null && gapMs > 0 && (
+                        <span className="text-fg-secondary md:ml-auto">
+                          +{formatDuration(gapMs)} nach vorigem Eintrag
+                        </span>
+                      )}
+                    </div>
+                    {statusLine && (
+                      <p className="mt-1 text-base text-fg-primary">{statusLine}</p>
+                    )}
+                    {a.body && (
+                      <p className="mt-1 whitespace-pre-wrap text-base text-fg-primary">
+                        {a.kind === "ai_rescore" ? germanAiReasoning(a.body) : a.body}
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CardContent>
+      </Card>
 
           {/* Sibling requests + Patient LTV */}
           {(siblings.length > 0 || patientLtv != null) && (
             <Card className="p-5 md:p-6">
               <CardHeader className="mb-3">
-                <CardTitle className="text-base">Patienten-Historie</CardTitle>
+                <CardTitle>Patienten-Historie</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
                 {patientLtv != null && (
                   <div>
-                    <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
-                      Lifetime-Wert dieses Patienten
+                    <div className="text-sm font-medium text-fg-primary">
+                      Gesamtumsatz dieses Patienten
                     </div>
                     <div className="mt-1 font-display text-2xl font-semibold tabular-nums">
                       {formatMoney(patientLtv, session.currency)}
@@ -485,32 +568,33 @@ export default async function AnfrageDetailPage({
                 )}
                 {siblings.length > 0 && (
                   <div>
-                    <div className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-secondary">
+                    <div className="mb-2 text-sm font-medium text-fg-primary">
                       Andere Anfragen dieses Patienten
                     </div>
+                    {/* Fixed columns: status, date and amount line up row by row. */}
                     <ul className="divide-y divide-border">
                       {siblings.map((s) => (
                         <li
                           key={s.id}
-                          className="flex items-center justify-between py-2 text-sm"
+                          className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-0.5 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_10rem_6rem_6.5rem]"
                         >
                           <Link
                             href={`/anfragen/${s.id}`}
-                            className="font-medium text-fg-primary hover:text-accent"
+                            className="truncate font-medium text-fg-primary hover:text-accent"
                           >
                             {s.treatmentWish ?? "Anfrage"}
                           </Link>
-                          <div className="flex items-center gap-3 text-xs">
+                          <span className="justify-self-end sm:justify-self-start">
                             <StatusPill status={s.status as RequestStatus} />
-                            <span className="text-fg-tertiary tabular-nums">
-                              {formatDate(s.createdAt)}
-                            </span>
-                            {s.convertedRevenueEur != null && (
-                              <span className="text-tone-good tabular-nums">
-                                {formatMoney(s.convertedRevenueEur, session.currency)}
-                              </span>
-                            )}
-                          </div>
+                          </span>
+                          <span className="tabular-nums text-fg-secondary sm:text-right">
+                            {formatDate(s.createdAt)}
+                          </span>
+                          <span className="text-right font-medium tabular-nums text-fg-primary">
+                            {s.convertedRevenueEur != null
+                              ? formatMoney(s.convertedRevenueEur, session.currency)
+                              : null}
+                          </span>
                         </li>
                       ))}
                     </ul>
@@ -540,14 +624,18 @@ export default async function AnfrageDetailPage({
                   />
                   <DataField
                     label="DSGVO-Zustimmung"
-                    value={formatDateTime(request.dsgvoConsentAt)}
+                    value={
+                      request.dsgvoConsentAt
+                        ? formatDateTime(request.dsgvoConsentAt)
+                        : "Keine (Anruf, Buchung oder Eintrag am Empfang)"
+                    }
                   />
                   <DataField
-                    label="DSGVO IP"
-                    value={request.dsgvoConsentIp ?? null}
+                    label="DSGVO IP (gekürzt)"
+                    value={maskIp(request.dsgvoConsentIp)}
                   />
                   <DataField
-                    label="AI-Prompt"
+                    label="KI-Version"
                     value={request.aiPromptVersion}
                   />
                   <DataField label="Patient-ID" value={request.patientId ?? null} />
@@ -564,11 +652,12 @@ export default async function AnfrageDetailPage({
                   </AccordionContent>
                 </AccordionItem>
               )}
-            {!!request.rawPayload &&
+            {canAudit &&
+              !!request.rawPayload &&
               typeof request.rawPayload === "object" &&
               Object.keys(request.rawPayload as Record<string, unknown>).length > 0 && (
                 <AccordionItem value="raw">
-                  <AccordionTrigger>Rohdaten</AccordionTrigger>
+                  <AccordionTrigger>Übermittelte Formulardaten</AccordionTrigger>
                   <AccordionContent>
                     <pre className="overflow-x-auto rounded-md border border-border bg-bg-secondary p-4 text-xs">
                       {JSON.stringify(request.rawPayload, null, 2)}
@@ -578,13 +667,13 @@ export default async function AnfrageDetailPage({
               )}
             {auditTrail.length > 0 && (
               <AccordionItem value="audit">
-                <AccordionTrigger>Audit-Trail</AccordionTrigger>
+                <AccordionTrigger>Protokoll</AccordionTrigger>
                 <AccordionContent>
                   <ul className="divide-y divide-border text-sm">
                     {auditTrail.map((a) => (
                       <li key={a.id} className="py-2">
-                        <div className="flex items-center justify-between text-xs text-fg-secondary">
-                          <span className="font-medium uppercase tracking-wide">
+                        <div className="flex items-center justify-between text-sm text-fg-secondary">
+                          <span className="font-medium text-fg-primary">
                             {a.action}
                           </span>
                           <span className="tabular-nums">
@@ -592,7 +681,7 @@ export default async function AnfrageDetailPage({
                           </span>
                         </div>
                         <div className="text-fg-primary">
-                          {a.actorEmail ?? "—"}
+                          {a.actorEmail ?? "–"}
                         </div>
                         {!!a.diff && (
                           <pre className="mt-1 overflow-x-auto rounded bg-bg-secondary p-2 text-xs">
@@ -610,30 +699,57 @@ export default async function AnfrageDetailPage({
   );
 }
 
-function ProofStat({
-  icon,
+/**
+ * A time that drives a decision (DS3 item 3): label, the time in weight,
+ * and the state in words (never colour alone), with an optional (i).
+ */
+function TimeFact({
   label,
   value,
-  tone = "default",
+  status = null,
+  statusTone = "default",
+  hint,
+  hintTerm,
 }: {
-  icon: React.ReactNode;
   label: string;
-  value: React.ReactNode;
-  tone?: "default" | "bad";
+  value: string;
+  status?: string | null;
+  statusTone?: "default" | "good" | "bad";
+  hint?: string;
+  hintTerm?: string;
 }) {
+  // Same pattern as the timing line in the lists: icon first, dark text.
+  const Icon = statusTone === "bad" ? AlertTriangle : statusTone === "good" ? CheckCircle2 : Clock;
+  const iconClass =
+    statusTone === "bad" ? "text-tone-bad" : statusTone === "good" ? "text-tone-good" : "text-fg-secondary";
+  return (
+    <div className="min-w-0">
+      <dt className="flex items-center text-sm font-medium text-fg-primary">
+        {label}
+        {hint && (
+          <ExplainerPopover term={hintTerm ?? label} ariaLabel={`Erklärung zu ${hintTerm ?? label}`}>
+            {hint}
+          </ExplainerPopover>
+        )}
+      </dt>
+      <dd className="mt-0.5 text-base font-semibold tabular-nums text-fg-primary">{value}</dd>
+      {status && (
+        <dd className="flex items-start gap-1.5 text-sm font-medium text-fg-primary">
+          <Icon aria-hidden className={`mt-[3px] h-3.5 w-3.5 shrink-0 ${iconClass}`} />
+          {status}
+        </dd>
+      )}
+    </div>
+  );
+}
+
+/** Label over value, the same anatomy as TimeFact. Urgency lives in the
+ *  Rückruf-Ziel line above, so the value stays in the normal text colour. */
+function ProofStat({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
-      <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-fg-secondary">
-        {icon}
-        {label}
-      </div>
-      <div
-        className={`mt-1 text-base font-semibold ${
-          tone === "bad" ? "text-tone-bad" : "text-fg-primary"
-        }`}
-      >
-        {value}
-      </div>
+      <div className="text-sm font-medium text-fg-primary">{label}</div>
+      <div className="mt-0.5 text-base font-semibold tabular-nums text-fg-primary">{value}</div>
     </div>
   );
 }
@@ -649,10 +765,10 @@ function DataField({
   icon?: React.ReactNode;
   href?: string;
 }) {
-  const content = value ?? <span className="text-fg-tertiary">–</span>;
+  const content = value ?? <span className="text-fg-secondary">–</span>;
   return (
     <div>
-      <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
+      <div className="text-sm font-medium text-fg-primary">
         {label}
       </div>
       <div className="mt-1 flex items-center gap-2 text-base text-fg-primary">
@@ -685,29 +801,20 @@ function ActivityIcon({ kind }: { kind: ActivityKind }) {
   }
 }
 
-function SignalBadge({ signal, value }: { signal: string; value: unknown }) {
-  const label = SIGNAL_LABELS[signal] ?? signal;
-  let display: string = "";
-  let tone: "good" | "warn" | "neutral" = "neutral";
-  if (typeof value === "boolean") {
-    display = value ? "Ja" : "Nein";
-    tone = value ? "good" : "neutral";
-  } else if (typeof value === "number") {
-    display = value.toString();
-    tone = value > 0 ? "good" : "neutral";
-  } else if (value == null) {
-    display = "—";
-  } else {
-    display = String(value);
-  }
-  return (
-    <Badge tone={tone}>
-      <span className="inline-flex items-center gap-1">
-        <Sparkles className="h-3 w-3" />
-        {label}: {display}
-      </span>
-    </Badge>
-  );
+/**
+ * The scorer's inputs as one grey line ("Kontaktdaten vollständig: Ja ·
+ * Textlänge: 69"). Plain facts, so no coloured dots. Nested objects (the raw
+ * `quiz` payload that produced the other signals) and empty values are left out.
+ */
+function signalLine(signals: Record<string, unknown>): string | null {
+  const parts = Object.entries(signals)
+    .filter(([, v]) => v != null && typeof v !== "object")
+    .map(([k, v]) => {
+      const label = SIGNAL_LABELS[k] ?? k;
+      const display = typeof v === "boolean" ? (v ? "Ja" : "Nein") : String(v);
+      return `${label}: ${display}`;
+    });
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 const SIGNAL_LABELS: Record<string, string> = {
@@ -727,17 +834,32 @@ function KvTable({ kv }: { kv: Record<string, unknown> }) {
       <tbody className="divide-y divide-border">
         {entries.map(([k, v]) => (
           <tr key={k}>
-            <td className="px-3 py-1.5 text-xs uppercase tracking-wide text-fg-secondary">
+            <td className="px-3 py-1.5 text-sm font-medium text-fg-primary">
               {k}
             </td>
             <td className="px-3 py-1.5 tabular-nums text-fg-primary">
-              {v == null ? "—" : String(v)}
+              {v == null ? "–" : String(v)}
             </td>
           </tr>
         ))}
       </tbody>
     </table>
   );
+}
+
+/**
+ * Shortened consent IP (C-27): last IPv4 octet zeroed, IPv6 cut to the
+ * first three groups. Enough to show that consent came from a real request,
+ * not enough to identify the device.
+ */
+function maskIp(ip: string | null | undefined): string | null {
+  if (!ip) return null;
+  const v4 = /^(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}$/.exec(ip.trim());
+  if (v4) return `${v4[1]}.0`;
+  if (ip.includes(":")) {
+    return `${ip.split(":").slice(0, 3).join(":")}::`;
+  }
+  return null;
 }
 
 function formatDuration(ms: number): string {

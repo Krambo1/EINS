@@ -1,14 +1,25 @@
-import { readFile, writeFile, mkdir, rename, unlink } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { readFile, mkdir } from "node:fs/promises";
+import { join, posix, win32 } from "node:path";
 import { homedir } from "node:os";
 import type { CsvMapping } from "./csv-mapper.js";
+import { atomicWriteFile } from "./atomic-write.js";
+import { envGet } from "./win-context.js";
 
 /**
  * Local config persistence for the agent.
  *
- * Windows: %APPDATA%\EINS-Agent\config.json + secret in DPAPI
+ * Windows: %ProgramData%\EINS-Agent\config.json + secrets in DPAPI (machine
+ *          scope; see secure-store.ts). Machine-wide on purpose: the agent runs
+ *          as a LocalSystem scheduled task with nobody logged in, and a
+ *          per-user %APPDATA% would resolve to the (empty) systemprofile there.
+ *          The directory is locked down to SYSTEM + Administrators by
+ *          data-dir.ts. The legacy per-user location (%APPDATA%\EINS-Agent) is
+ *          migrated once by data-dir-migration.ts.
  * macOS:   ~/Library/Application Support/EINS-Agent/config.json + secret in Keychain
  * Linux:   ~/.config/eins-agent/config.json + secret in plaintext (with warning)
+ *
+ * EINS_AGENT_DATA_DIR overrides the location on every platform (development,
+ * tests, unusual deployments). An override is never ACL-hardened by the agent.
  */
 
 /**
@@ -46,30 +57,129 @@ export interface AgentConfig {
    * config.json.
    */
   dbAdapters?: DbAdapterEnrollment[];
+  /**
+   * GDT receiver (Empfaenger) id this agent announces to the PVS in the GDT
+   * files it writes/expects. 1-8 characters of [A-Za-z0-9_]; defaults to
+   * "EINS" when absent. Read it through `effectiveGdtReceiverId(cfg)`, never
+   * directly. Set at enrollment with `--gdt-receiver-id <id>`.
+   */
+  gdtReceiverId?: string;
   // PVS HMAC secret is read from secure-store, never persisted in this JSON.
 }
 
-export function configDir(): string {
-  switch (process.platform) {
-    case "win32":
-      return join(
-        process.env.APPDATA ??
-          join(homedir(), "AppData", "Roaming"),
-        "EINS-Agent"
-      );
+// ---------- GDT receiver id ------------------------------------------------
+
+export const DEFAULT_GDT_RECEIVER_ID = "EINS";
+const GDT_RECEIVER_ID_RE = /^[A-Za-z0-9_]{1,8}$/;
+
+/** True when `id` is a legal GDT receiver id (1-8 chars of [A-Za-z0-9_]). */
+export function isValidGdtReceiverId(id: unknown): id is string {
+  return typeof id === "string" && GDT_RECEIVER_ID_RE.test(id);
+}
+
+/**
+ * The receiver id to use: the configured one, or "EINS" when none is set.
+ * A value that is present but illegal is an operator error in a hand-edited
+ * config and fails loudly (ConfigError) instead of silently falling back to
+ * the default and talking to the PVS under the wrong identity.
+ */
+export function effectiveGdtReceiverId(
+  cfg: Pick<AgentConfig, "gdtReceiverId">
+): string {
+  const id = cfg.gdtReceiverId;
+  if (id === undefined || id === null) return DEFAULT_GDT_RECEIVER_ID;
+  if (!isValidGdtReceiverId(id)) {
+    throw new ConfigError(
+      `config gdtReceiverId '${String(id)}' is invalid: expected 1-8 characters of ` +
+        `[A-Za-z0-9_]. Fix gdtReceiverId in ${configPath()} (or remove it to use ` +
+        `the default '${DEFAULT_GDT_RECEIVER_ID}').`
+    );
+  }
+  return id;
+}
+
+// ---------- data directory --------------------------------------------------
+
+interface DataDirContext {
+  platform: NodeJS.Platform;
+  env: Record<string, string | undefined>;
+  home: string;
+}
+
+function currentContext(): DataDirContext {
+  return { platform: process.platform, env: process.env, home: homedir() };
+}
+
+/**
+ * Pure data-dir resolution (injectable platform / env / home for tests).
+ *
+ *   EINS_AGENT_DATA_DIR            -> that path, any platform
+ *   win32                          -> %ProgramData%\EINS-Agent
+ *                                     (fallback <SystemDrive>\ProgramData)
+ *   darwin / linux                 -> unchanged from before
+ *
+ * win32 / posix path flavours are chosen explicitly so the result does not
+ * depend on the OS the code happens to run on.
+ */
+export function resolveDataDir(ctx: DataDirContext = currentContext()): string {
+  const override = envGet(ctx.env, "EINS_AGENT_DATA_DIR")?.trim();
+  if (override) return override;
+  switch (ctx.platform) {
+    case "win32": {
+      const configured = envGet(ctx.env, "ProgramData")?.trim();
+      const base =
+        configured && win32.isAbsolute(configured)
+          ? configured
+          : win32.join(
+              envGet(ctx.env, "SystemDrive")?.trim() || "C:",
+              "ProgramData"
+            );
+      return win32.join(base, "EINS-Agent");
+    }
     case "darwin":
-      return join(
-        homedir(),
+      return posix.join(
+        ctx.home,
         "Library",
         "Application Support",
         "EINS-Agent"
       );
     default:
-      return join(
-        process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"),
+      return posix.join(
+        envGet(ctx.env, "XDG_CONFIG_HOME") ?? posix.join(ctx.home, ".config"),
         "eins-agent"
       );
   }
+}
+
+/**
+ * The per-user directory older agent versions used on Windows
+ * (%APPDATA%\EINS-Agent of the CURRENT user). null on every other platform,
+ * where nothing moved. Only data-dir-migration.ts looks at it.
+ */
+export function legacyUserDataDir(
+  ctx: DataDirContext = currentContext()
+): string | null {
+  if (ctx.platform !== "win32") return null;
+  const appData = envGet(ctx.env, "APPDATA")?.trim();
+  return win32.join(
+    appData || win32.join(ctx.home, "AppData", "Roaming"),
+    "EINS-Agent"
+  );
+}
+
+/**
+ * True when the data dir was chosen by EINS_AGENT_DATA_DIR rather than the
+ * platform default. data-dir.ts never ACL-hardens an override.
+ */
+export function dataDirIsOverridden(
+  ctx: DataDirContext = currentContext()
+): boolean {
+  return !!envGet(ctx.env, "EINS_AGENT_DATA_DIR")?.trim();
+}
+
+/** Machine-wide data directory (see resolveDataDir). */
+export function configDir(): string {
+  return resolveDataDir();
 }
 
 export function configPath(): string {
@@ -113,9 +223,18 @@ export async function loadConfig(): Promise<AgentConfig | null> {
   try {
     raw = await readFile(path, "utf8");
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return null;
+    // On Windows the data dir is restricted to SYSTEM + Administrators, so a
+    // permission error from an ordinary user's prompt is expected, not corruption.
+    const restricted =
+      code === "EACCES" || code === "EPERM"
+        ? ` The data directory is restricted to SYSTEM and Administrators: run this command ` +
+          `from an elevated (Administrator) prompt. / Das Datenverzeichnis ist auf SYSTEM und ` +
+          `Administratoren beschränkt: den Befehl in einer Eingabeaufforderung "Als Administrator ausführen" starten.`
+        : "";
     throw new ConfigError(
-      `config at ${path} could not be read: ${(err as Error).message}. ` +
+      `config at ${path} could not be read: ${(err as Error).message}.${restricted} ` +
         `Fix permissions or restore the file (a backup may exist at ${path}.bak). ` +
         `Do NOT re-run --enroll: the enrollment token is one-time and already used.`
     );
@@ -125,8 +244,9 @@ export async function loadConfig(): Promise<AgentConfig | null> {
   // it. charCodeAt avoids embedding a literal BOM in this source file.
   const cleaned =
     raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+  let parsed: AgentConfig;
   try {
-    return JSON.parse(cleaned) as AgentConfig;
+    parsed = JSON.parse(cleaned) as AgentConfig;
   } catch (err) {
     throw new ConfigError(
       `config at ${path} is not valid JSON: ${(err as Error).message}. ` +
@@ -134,6 +254,12 @@ export async function loadConfig(): Promise<AgentConfig | null> {
         `Do NOT re-run --enroll: the enrollment token is one-time and already used.`
     );
   }
+  // Fail loudly at load time on a hand-edited, illegal receiver id rather than
+  // on first use deep inside the watcher.
+  if (parsed && typeof parsed === "object" && "gdtReceiverId" in parsed) {
+    effectiveGdtReceiverId(parsed);
+  }
+  return parsed;
 }
 
 /**
@@ -148,33 +274,47 @@ export async function saveConfig(cfg: AgentConfig): Promise<void> {
   const dir = configDir();
   await mkdir(dir, { recursive: true });
   const target = configPath();
-  const tmp = join(dir, `config.json.tmp-${process.pid}`);
   const body = JSON.stringify(cfg, null, 2);
-  await writeFile(tmp, body, "utf8");
 
   // Best-effort backup of the previous config so a bad save (or a later
   // hand-edit) has a known-good restore point. Absent on first enrollment.
   try {
     const prev = await readFile(target, "utf8");
-    await writeFile(`${target}.bak`, prev, "utf8");
+    await atomicWriteFile(`${target}.bak`, prev);
   } catch {
     // No previous config (first save) or unreadable: nothing to back up.
   }
 
-  try {
-    await rename(tmp, target);
-  } catch {
-    // Windows can refuse a rename-over-existing if the target is briefly
-    // locked; fall back to unlink + rename. On failure here the temp file is
-    // left behind for forensics rather than clobbering a possibly-good target.
-    await unlink(target).catch(() => {});
-    await rename(tmp, target);
-  }
+  // fsync + rename with retry, and no unlink-then-rename fallback: that
+  // fallback opened a window where a crash lost both the old and the new file.
+  await atomicWriteFile(target, body);
 }
 
 /**
- * Load a CsvMapping from a path supplied on the CLI. Returns null on any
- * read or parse error so the caller can fall back to auto-detection.
+ * Raised by loadCsvMappingFileStrict when a mapping file given on the CLI is
+ * unreadable, not JSON, or not a recognisable mapping. The message names the
+ * file and the exact problem so the operator can fix it; it never carries
+ * file content beyond the JSON parser's own position hint.
+ */
+export class MappingFileError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MappingFileError";
+  }
+}
+
+const CSV_STREAMS = [
+  "patients",
+  "appointments",
+  "encounters",
+  "recalls",
+  "invoices",
+];
+
+/**
+ * Parse + lightly validate the TEXT of a mapping file. Strips a leading UTF-8
+ * BOM (Notepad writes one) and throws MappingFileError with a specific reason
+ * on invalid JSON or an unusable shape. `path` is only used in messages.
  *
  * Light validation: stream must be one of the five known names and
  * `columns.pvsPatientId` must be present (every stream requires it). The
@@ -182,25 +322,72 @@ export async function saveConfig(cfg: AgentConfig): Promise<void> {
  * here we keep the agent thin and rely on per-row validation in
  * mapCsvRow to reject malformed entries.
  */
+export function parseCsvMappingText(raw: string, path: string): CsvMapping {
+  // charCodeAt avoids embedding a literal BOM in this source file.
+  const cleaned = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch (err) {
+    throw new MappingFileError(
+      `mapping file ${path} is not valid JSON: ${(err as Error).message}. ` +
+        `Fix the file (check commas and quotes) and run the command again. ` +
+        `No fallback to auto-detection is used.`
+    );
+  }
+  const obj = parsed as {
+    stream?: unknown;
+    columns?: { pvsPatientId?: unknown } | null;
+  } | null;
+  if (
+    !obj ||
+    typeof obj !== "object" ||
+    typeof obj.stream !== "string" ||
+    !CSV_STREAMS.includes(obj.stream)
+  ) {
+    throw new MappingFileError(
+      `mapping file ${path} has no valid "stream" (expected one of: ` +
+        `${CSV_STREAMS.join(", ")}).`
+    );
+  }
+  if (!obj.columns || typeof obj.columns.pvsPatientId !== "string") {
+    throw new MappingFileError(
+      `mapping file ${path} is missing "columns.pvsPatientId" (required for every stream).`
+    );
+  }
+  return parsed as CsvMapping;
+}
+
+/**
+ * Load a CsvMapping from a path supplied on the CLI and FAIL LOUDLY: throws
+ * MappingFileError on a read error, a JSON typo or an unusable shape. Used by
+ * `--enroll --honorar-mapping` and `--configure-honorar`, where silently
+ * falling back to auto-detect would ingest invoices under the wrong mapping.
+ */
+export async function loadCsvMappingFileStrict(
+  path: string
+): Promise<CsvMapping> {
+  let raw: string;
+  try {
+    raw = await readFile(path, "utf8");
+  } catch (err) {
+    throw new MappingFileError(
+      `mapping file ${path} could not be read: ${(err as Error).message}`
+    );
+  }
+  return parseCsvMappingText(raw, path);
+}
+
+/**
+ * Lenient variant kept for callers that want a null on any problem. A UTF-8
+ * BOM is stripped like in the strict loader. Prefer loadCsvMappingFileStrict
+ * on any CLI path: this one cannot tell the caller WHY the file was rejected.
+ */
 export async function loadCsvMappingFile(
   path: string
 ): Promise<CsvMapping | null> {
   try {
-    const raw = await readFile(path, "utf8");
-    const parsed = JSON.parse(raw);
-    if (
-      parsed &&
-      typeof parsed === "object" &&
-      typeof parsed.stream === "string" &&
-      ["patients", "appointments", "encounters", "recalls", "invoices"].includes(
-        parsed.stream
-      ) &&
-      parsed.columns &&
-      typeof parsed.columns.pvsPatientId === "string"
-    ) {
-      return parsed as CsvMapping;
-    }
-    return null;
+    return await loadCsvMappingFileStrict(path);
   } catch {
     return null;
   }

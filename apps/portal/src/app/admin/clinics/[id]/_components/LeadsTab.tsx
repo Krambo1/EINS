@@ -85,7 +85,7 @@ export function LeadsTab({
                   {AI_CATEGORY_LABELS[c]}
                 </option>
               ))}
-              <option value="unscored">Ungescort</option>
+              <option value="unscored">Ohne Bewertung</option>
             </select>
             <div className="flex flex-col gap-2">
               <label className="flex items-center gap-2 text-xs text-fg-secondary">
@@ -95,7 +95,7 @@ export function LeadsTab({
                   value="1"
                   defaultChecked={filters.slaBreachedOnly}
                 />
-                SLA verletzt
+                Internes Antwortziel überschritten
               </label>
               <Button type="submit" size="sm">
                 Filtern
@@ -116,7 +116,7 @@ export function LeadsTab({
               </Badge>
             ))}
             {filters.slaBreachedOnly && (
-              <Badge tone="bad">SLA verletzt</Badge>
+              <Badge tone="bad">Internes Antwortziel überschritten</Badge>
             )}
             {filters.search && (
               <Badge tone="neutral">Suche: {filters.search}</Badge>

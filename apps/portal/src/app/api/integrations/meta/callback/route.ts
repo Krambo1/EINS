@@ -6,7 +6,12 @@ import { env, hasMeta } from "@/lib/env";
 import { encryptString } from "@/lib/crypto";
 import { verifyState, readStateCookie, clearStateCookie } from "@/server/oauth";
 import { writeAudit } from "@/server/audit";
-import { discoverAndStoreMetaPage } from "@/server/meta-pages";
+import {
+  META_PAGE_ERRORS,
+  discoverAndStoreMetaPage,
+  metaPageErrorText,
+} from "@/server/meta-pages";
+import { describeErrorForLog } from "@/lib/error-log";
 
 /**
  * Meta OAuth callback. Exchanges `code` for a long-lived access token and
@@ -100,26 +105,32 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Discover + persist the user's first Facebook Page so the leadgen
-    // webhook can route inbound events to this clinic. Failure here is
-    // non-fatal — the user can hit "Reconnect" from the integrations page,
-    // or admin can patch via SQL. We just record the error on the row.
+    // Discover + persist the Facebook Page (J-1 rules, see chooseMetaPage)
+    // so the leadgen webhook can route inbound events to this clinic.
+    // Failure here is non-fatal: the connection above stays stored and the
+    // error is recorded on the row. E6: with several pages and none bound
+    // yet the owner picks the page on /einstellungen/integrationen/meta-seite,
+    // which re-uses the user token stored above (nothing goes in the URL).
+    // E6b: binding also subscribes the app to the page's leadgen field; a
+    // failed subscription keeps the binding and leaves a German hint in
+    // last_sync_error (inside bindMetaPage), recorded here for the audit.
     let pageName: string | null = null;
+    let leadgenSubscribed: boolean | null = null;
+    let pageSelectionRequired = false;
     try {
-      const page = await discoverAndStoreMetaPage(
+      const bound = await discoverAndStoreMetaPage(
         session.clinicId,
         long.access_token
       );
-      pageName = page?.name ?? null;
+      pageName = bound?.page.name ?? null;
+      leadgenSubscribed = bound?.leadgenSubscribed ?? null;
     } catch (err) {
-      console.warn("[oauth/meta] page discovery failed:", err);
+      pageSelectionRequired =
+        err instanceof Error && err.message === META_PAGE_ERRORS.multiplePages;
+      console.warn("[oauth/meta] page discovery failed:", JSON.stringify(describeErrorForLog(err)));
       await db
         .update(schema.platformCredentials)
-        .set({
-          lastSyncError: `page_discovery_failed: ${
-            err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200)
-          }`,
-        })
+        .set({ lastSyncError: metaPageErrorText(err) })
         .where(
           and(
             eq(schema.platformCredentials.clinicId, session.clinicId),
@@ -135,9 +146,14 @@ export async function GET(request: NextRequest) {
       actorEmail: session.email,
       action: "oauth_connect",
       entityKind: "platform_credential",
-      diff: { platform: "meta", pageName },
+      diff: { platform: "meta", pageName, pageSelectionRequired, leadgenSubscribed },
     });
 
+    if (pageSelectionRequired) {
+      return NextResponse.redirect(
+        new URL("/einstellungen/integrationen/meta-seite", env.APP_ORIGIN)
+      );
+    }
     return NextResponse.redirect(
       new URL("/einstellungen?connected=meta#integrationen", env.APP_ORIGIN)
     );

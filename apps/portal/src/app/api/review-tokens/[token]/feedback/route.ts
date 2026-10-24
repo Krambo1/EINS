@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { trustedIpFromHeaders } from "@/lib/client-ip";
+import { reviewRateLimitIp } from "@/lib/review-relay-ip";
 import { rateLimit } from "@/server/rate-limit";
 import { writeAudit } from "@/server/audit";
 import {
@@ -37,11 +37,8 @@ export async function POST(
     );
   }
 
-  const ip =
-    trustedIpFromHeaders(
-      request.headers.get("x-forwarded-for"),
-      request.headers.get("x-real-ip")
-    ) ?? "anon";
+  // J-8: patient IP signed by clinic-landing, else the caller's IP.
+  const ip = reviewRateLimitIp(request, token);
   // Tighter limit: feedback is the only write that creates a persistent
   // row visible to clinic staff. 10/min is enough to retry an actual
   // submit a couple of times without enabling spam.

@@ -1,8 +1,11 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   hashEmail,
   hashName,
   hashPhone,
+  hashPhoneForGoogle,
+  phoneToE164Digits,
   rebuildFbcFromFbclid,
 } from "./meta-capi";
 
@@ -49,6 +52,38 @@ describe("hashPhone", () => {
   it("retains all digits including leading country code", () => {
     // Without the leading 49, the hash MUST differ.
     expect(hashPhone("+49 30 12345678")).not.toBe(hashPhone("3012345678"));
+  });
+});
+
+describe("pass 2 · national numbers get the country code before hashing", () => {
+  const sha = (v: string) => createHash("sha256").update(v, "utf8").digest("hex");
+
+  it("a German number typed with 0 or 0049 hashes like its +49 form", () => {
+    // Patients type 0171 ...; Meta and Google match on the international
+    // number, so the old digits-only hash of 0171... never matched anyone.
+    expect(phoneToE164Digits("0171 2345678")).toBe("491712345678");
+    expect(phoneToE164Digits("0049 171 2345678")).toBe("491712345678");
+    // "+49 (0)171 ..." carries the trunk 0 in brackets; it is not dialled.
+    expect(phoneToE164Digits("+49 (0)171 2345678")).toBe("491712345678");
+    expect(hashPhone("0171 2345678")).toBe(hashPhone("+49 171 2345678"));
+  });
+
+  it("verifier: a trunk 0 typed after the country code is dropped; junk is not hashed", () => {
+    expect(phoneToE164Digits("+49 0171 2345678")).toBe("491712345678");
+    expect(phoneToE164Digits("0043 0664 1234567")).toBe("436641234567");
+    // Fewer than 6 digits: no hash at all instead of the hash of the raw digits.
+    expect(hashPhone("12345")).toBeUndefined();
+    expect(hashPhone("n/a")).toBeUndefined();
+  });
+
+  it("Google gets the E.164 form with the plus sign", () => {
+    expect(hashPhoneForGoogle("0171 2345678")).toBe(sha("+491712345678"));
+    expect(hashPhoneForGoogle("+43 664 1234567")).toBe(sha("+436641234567"));
+  });
+
+  it("nothing usable stays empty", () => {
+    expect(phoneToE164Digits("  ")).toBeNull();
+    expect(phoneToE164Digits("keine")).toBeNull();
   });
 });
 

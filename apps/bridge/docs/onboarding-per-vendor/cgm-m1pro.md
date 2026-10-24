@@ -51,14 +51,16 @@ Datenbank-Zeile steht entweder "Oracle" oder "SQL Server".
 
 ## Installation (Oracle-Variante)
 
+Befehle in einer PowerShell als Administrator, im Agent-Ordner (mit `eins-agent.cmd`; es gibt keinen Installer, siehe `medatixx.md`, Abschnitt Installation). Token besser per `echo <token> | .\eins-agent.cmd --enroll --token-stdin --clinic <praxis-uuid>` uebergeben. Nach `--enable-db-adapter` mit `.\eins-agent.cmd --probe-db-adapter <vendor>` das Schema pruefen (Exit 0 = alles gefunden). `--install-service` legt die geplante Aufgabe `EINS-Agent` an (SYSTEM, startet beim Hochfahren); als der Windows-Benutzer ausfuehren, der die Einrichtung gemacht hat.
+
 ```powershell
-.\eins-agent-win.exe --enroll <token> --clinic <praxis-uuid>
-.\eins-agent-win.exe --enable-db-adapter cgm-m1pro-oracle-db `
+.\eins-agent.cmd --enroll <token> --clinic <praxis-uuid>
+.\eins-agent.cmd --enable-db-adapter cgm-m1pro-oracle-db `
   --db-host 127.0.0.1 `
   --db-port 1521 `
   --db-database M1PRO `
   --db-username eins_readonly
-.\eins-agent-win.exe --install-service
+.\eins-agent.cmd --install-service
 ```
 
 `--db-database` ist der Oracle-**Service-Name** (per Easy Connect). Bei
@@ -92,16 +94,16 @@ Thick-Mode-Variante mit Instant Client als Sidecar.
 ## Installation
 
 ```powershell
-.\eins-agent-win.exe --enroll <token> --clinic <praxis-uuid>
-.\eins-agent-win.exe --enable-db-adapter cgm-m1pro-db `
+.\eins-agent.cmd --enroll <token> --clinic <praxis-uuid>
+.\eins-agent.cmd --enable-db-adapter cgm-m1pro-db `
   --db-host 127.0.0.1 `
   --db-port 1433 `
   --db-database M1PRO `
   --db-username eins_readonly
-.\eins-agent-win.exe --install-service
+.\eins-agent.cmd --install-service
 ```
 
-Passwort interaktiv eingeben; Windows Credential Vault.
+Passwort interaktiv eingeben; Windows DPAPI (Datenordner `%ProgramData%\EINS-Agent`).
 
 ## Sanity-Check
 

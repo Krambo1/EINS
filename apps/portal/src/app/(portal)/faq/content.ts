@@ -43,7 +43,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "was-ist-portal",
         q: "Was ist das EINS-Portal?",
-        a: "Das Portal ist Ihre zentrale Übersicht für die Zusammenarbeit mit EINS. Sie sehen hier alle Patientenanfragen aus Ihren Anzeigen, Ihre Kennzahlen, Ihre Videos und Medien, Ihre Bewertungen, Ihre Dokumente und den Vertriebsleitfaden für Ihr Team. Alles an einem Ort, jederzeit erreichbar.",
+        a: "Das Portal ist Ihre zentrale Übersicht für die Zusammenarbeit mit EINS. Sie sehen hier alle Patientenanfragen mit ihrer Herkunft, Ihre Kennzahlen, Ihre Beiträge und Medien, Ihre Bewertungen, Ihre Dokumente und den Vertriebsleitfaden für Ihr Team. Alles an einem Ort, jederzeit erreichbar.",
         keywords: ["dashboard", "überblick", "was kann das", "zweck", "wofür"],
       },
       {
@@ -79,7 +79,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "bereiche-ueberblick",
         q: "Welche Bereiche gibt es im Portal?",
-        a: "In der Seitenleiste finden Sie: Übersicht (Ihre Kennzahlen), Fortschritt (Ihr Onboarding), Anfragen (Patientenanfragen), Werbebudget (Ihre laufenden Anzeigen), Bewertungen (Reputation und Patientenfeedback), Medien (Ihre Videos), Dokumente (Verträge und Material), Leitfaden (Ihr Vertriebs-Playbook), Feedback (Ihre Wünsche an uns) und Einstellungen.",
+        a: "In der Seitenleiste finden Sie: Übersicht (Ihre Kennzahlen), Fortschritt (Ihr Onboarding), Anfragen (Patientenanfragen), Werbebudget (Ihre Anzeigen, sobald welche laufen), Bewertungen (Reputation und Patientenfeedback), Medien (Ihre Beiträge), Dokumente (Verträge und Material), Leitfaden (Ihr Vertriebs-Playbook), Feedback (Ihre Wünsche an uns) und Einstellungen.",
         keywords: ["navigation", "tabs", "menü", "seitenleiste", "module"],
       },
       {
@@ -97,20 +97,26 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "was-ist-anfrage",
         q: "Was ist eine Anfrage?",
-        a: "Eine Anfrage ist eine interessierte Patientin oder ein interessierter Patient, die oder der über eine Ihrer Anzeigen auf Sie aufmerksam geworden ist und sich gemeldet hat, per Formular oder per Anruf. Jede Anfrage ist eine konkrete Chance auf einen Beratungstermin.",
+        a: "Eine Anfrage ist eine interessierte Patientin oder ein interessierter Patient, die oder der über einen Ihrer Beiträge oder eine Ihrer Anzeigen auf Sie aufmerksam geworden ist und sich gemeldet hat, per Formular, per Anruf oder über den Buchungslink. Jede Anfrage ist eine konkrete Chance auf einen Beratungstermin.",
         keywords: ["lead", "interessent", "patient", "anfrage", "kontaktanfrage"],
       },
       {
         id: "woher-anfragen",
         q: "Woher kommen die Anfragen?",
-        a: "Die Anfragen entstehen aus Ihren bezahlten Anzeigen bei Meta (Instagram und Facebook) und Google. Wer auf eine Anzeige klickt, landet auf einer Zielseite und hinterlässt dort seine Daten oder ruft direkt an. Diese Kontakte sammeln sich in Ihrer Anfragen-Inbox.",
-        keywords: ["herkunft", "quelle", "meta", "google", "instagram", "anzeigen", "zielseite"],
+        a: "Die Anfragen entstehen zuerst aus Ihren Beiträgen auf den Kanälen Ihrer Praxis. Sobald Anzeigen hinter den wirkenden Beiträgen laufen, kommen Anfragen aus Ihren bezahlten Anzeigen bei Meta (Instagram und Facebook) und Google dazu. Wer auf einen Beitrag oder eine Anzeige reagiert, landet auf einer Zielseite, zum Beispiel über den Profil-Link, und hinterlässt dort seine Daten, ruft an oder bucht einen Termin. Jede Anfrage steht mit ihrer Herkunft in Ihrer Anfragen-Inbox.",
+        keywords: ["herkunft", "quelle", "meta", "google", "instagram", "anzeigen", "beiträge", "organisch", "profil-link", "zielseite"],
       },
       {
         id: "reaktionszeit",
         q: "Wie schnell sollte ich auf eine neue Anfrage reagieren?",
-        a: "So schnell wie möglich. Je früher Sie sich melden, desto höher ist die Chance, dass aus der Anfrage ein Termin wird. Konkrete Zielwerte und bewährte Gesprächsabläufe finden Sie im Vertriebsleitfaden.",
+        a: "So schnell wie möglich, unser Ziel ist ein Rückruf innerhalb von 2 Stunden. Je früher Sie sich melden, desto höher ist die Chance, dass aus der Anfrage ein Termin wird. Bitte versuchen Sie, jede Anfrage innerhalb von 48 Werkstunden zu kontaktieren (Montag bis Freitag, 9 bis 18 Uhr). Das ist keine Bedingung der Garantie, die Folgen eines Verzugs erklärt die nächste Frage. Konkrete Zielwerte und bewährte Gesprächsabläufe finden Sie im Vertriebsleitfaden.",
         keywords: ["sla", "geschwindigkeit", "zurückrufen", "schnell", "antwortzeit", "reaktion"],
+      },
+      {
+        id: "frist-48-werkstunden",
+        q: "Was passiert, wenn wir eine Anfrage nicht innerhalb von 48 Werkstunden kontaktieren?",
+        a: "Die 48 Werkstunden sind keine Bedingung der Garantie. Werkstunden sind Montag bis Freitag, 9 bis 18 Uhr, ohne gesetzliche Feiertage am Sitz Ihrer Praxis. Das Portal rechnet zu Ihren Gunsten und lässt jeden Tag aus, der in einem Bundesland gesetzlicher Feiertag ist. Die Frist beginnt mit dem Eingang der Anfrage im Portal, bei Eingang außerhalb der Werkstunden mit der nächsten Werkstunde.\n\nAls Kontaktversuch zählt, dass Ihre Praxis die Person anruft oder ihr schreibt und das im Portal vermerkt: mit \"Anruf protokollieren\" (jedes Ergebnis zählt, auch \"Nicht erreicht\") oder mit dem Status \"Kontaktiert\", \"Nicht erreicht\" oder \"Termin vereinbart\". Ein Gespräch muss nicht zustande kommen. \"Spam\" oder \"Verloren\" zählt nicht.\n\nSchaffen Sie es nicht, hat das drei Folgen:\n1. Sie können bei dieser Anfrage nicht mehr einwenden, die Person sei nicht echt oder nicht erreichbar gewesen.\n2. Die Anfrage steht in Ihrer Auswertung gesondert als \"von der Praxis nicht beantwortet\" oder, bei einem späteren Kontaktversuch, als \"von der Praxis zu spät beantwortet\".\n3. Liegen gleichzeitig drei oder mehr solcher Anfragen offen, warnen wir Sie per E-Mail. Sind am Ende des nächsten Werktags immer noch drei oder mehr offen, dürfen wir die bezahlten Anzeigen pausieren. Sobald Sie die Anfragen kontaktiert haben, schalten wir sie sofort wieder ein. Ihre organischen Beiträge laufen weiter.\n\nMehr passiert nicht: Die Garantie bleibt, und es gibt deswegen keine Gebühr, keine Vertragsstrafe, keinen Schadensersatz, keine Kündigung und keine Verlängerung der 90 Tage. Die genauen Regeln stehen im Garantie-Anhang unter Dokumente.",
+        keywords: ["48 werkstunden", "frist", "kontaktversuch", "nicht beantwortet", "zu spät beantwortet", "anzeigen pausieren", "antwortzeit", "rückruf", "anruf protokollieren", "garantie"],
       },
       {
         id: "anfrage-status",
@@ -133,13 +139,13 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "anfrage-manuell",
         q: "Kann ich eine Anfrage auch selbst anlegen?",
-        a: "Ja. Wenn sich jemand auf einem anderen Weg meldet, etwa direkt in der Praxis oder über einen Empfehlungskontakt, können Sie die Anfrage von Hand anlegen, damit sie mit allen anderen an einem Ort steht.",
-        keywords: ["manuell anlegen", "selbst erfassen", "neue anfrage", "hinzufügen"],
+        a: "Ja. Ruft jemand in der Praxis an oder kommt vorbei, tippen Sie unter Anfragen auf „Anfrage anlegen“. Sie tragen den Namen, Telefon oder E-Mail, die Behandlung und ein, wie die Person zu Ihnen kam, zum Beispiel Anruf in der Praxis, Empfehlung oder Instagram. Hat dieselbe Person in den letzten 30 Tagen schon angefragt, legt das Portal keine zweite Anfrage an, sondern ergänzt die bestehende. Von Hand angelegte Anfragen sind als manueller Eintrag gekennzeichnet und zählen nie für die Garantie „Keine Anfrage, keine Rechnung“. Die erste Rechnung löst nur eine Anfrage über einen EINS-Messweg aus: das Formular auf Ihrer Zielseite, ein Anruf auf Ihrer EINS-Tracking-Nummer oder eine Buchung über den EINS-Buchungslink.",
+        keywords: ["manuell anlegen", "selbst erfassen", "neue anfrage", "hinzufügen", "anfrage anlegen", "empfang", "anruf in der praxis"],
       },
       {
         id: "anfrage-zuordnen",
         q: "Wie ordne ich eine Anfrage einem Teammitglied zu?",
-        a: "In der Anfragen-Inbox können Sie eine Anfrage einer Person aus Ihrem Team zuweisen, einzeln oder mehrere auf einmal. So ist klar, wer sich um welche Anfrage kümmert.",
+        a: "Eine feste Zuweisung an einzelne Personen gibt es im Portal noch nicht. Alle im Team sehen dieselben Anfragen. Am Status jeder Anfrage sehen Sie, ob sich schon jemand gekümmert hat.",
         keywords: ["zuweisen", "zuordnen", "team", "verantwortlich", "bulk"],
       },
       {
@@ -210,26 +216,32 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
     items: [
       {
         id: "wo-laufen-anzeigen",
-        q: "Wo laufen meine Anzeigen?",
-        a: "Ihre Anzeigen laufen dort, wo Ihre Wunschpatienten sind: bei Meta, also auf Instagram und Facebook, sowie bei Google. Welche Kanäle für Ihre Praxis am besten funktionieren, stimmen wir gemeinsam ab.",
-        keywords: ["meta", "google", "instagram", "facebook", "anzeigen", "kanäle", "ads"],
+        q: "Wo laufen meine Beiträge und Anzeigen?",
+        a: "Ihre Beiträge erscheinen zuerst organisch auf den Kanälen Ihrer Praxis, zum Beispiel bei Instagram und Facebook. Sobald sichtbar ist, welche Beiträge Anfragen bringen, setzen wir bezahlte Anzeigen bei Meta, also auf Instagram und Facebook, sowie bei Google genau dahinter. Welche Kanäle für Ihre Praxis am besten funktionieren, stimmen wir gemeinsam ab.",
+        keywords: ["meta", "google", "instagram", "facebook", "anzeigen", "beiträge", "organisch", "kanäle", "ads"],
+      },
+      {
+        id: "brauche-ich-werbebudget",
+        q: "Brauche ich Werbebudget?",
+        a: "Zu Beginn brauchen Sie kein Werbebudget. Wir starten organisch. Sobald wir sehen, welche Beiträge Anfragen bringen, schlagen wir vor, wie viel Werbebudget dahinter gehört. Das Budget zahlen Sie direkt an Meta und Google. So geben Sie kein Geld für Vermutungen aus.",
+        keywords: ["werbebudget", "budget", "pflicht", "klein anfangen", "organisch", "kosten", "anzeigen"],
       },
       {
         id: "werbebudget-bereich",
         q: "Was sehe ich unter Werbebudget?",
-        a: "Unter Werbebudget sehen Sie Ihre aktuell laufenden Kampagnen und das jeweils eingesetzte Budget. So ist transparent, wofür Ihr Werbebudget eingesetzt wird.",
+        a: "Unter Werbebudget sehen Sie Ihre aktuell laufenden Kampagnen und das jeweils eingesetzte Budget, sobald Anzeigen laufen. So ist transparent, wofür Ihr Werbebudget eingesetzt wird.",
         keywords: ["werbebudget", "budget", "kampagnen", "adspend", "ausgaben"],
       },
       {
         id: "wer-verwaltet-anzeigen",
-        q: "Wer kümmert sich um die Anzeigen?",
-        a: "Das übernimmt EINS für Sie: Konzeption, Erstellung, Schaltung und laufende Optimierung der Anzeigen. Sie müssen sich nicht um die Technik kümmern und behalten im Portal trotzdem den vollen Überblick.",
-        keywords: ["wer macht", "verwaltung", "betreuung", "optimierung", "agentur"],
+        q: "Wer kümmert sich um die Beiträge und Anzeigen?",
+        a: "Das übernimmt EINS für Sie: Erstellung und Veröffentlichung der Beiträge sowie Konzeption, Schaltung und laufende Optimierung der Anzeigen. Die Betreuung der Anzeigen ist im Preis enthalten. Sie geben die Beiträge frei, müssen sich nicht um die Technik kümmern und behalten im Portal trotzdem den vollen Überblick.",
+        keywords: ["wer macht", "verwaltung", "betreuung", "optimierung", "agentur", "beiträge"],
       },
       {
         id: "werbekonto-verbinden",
         q: "Wie verbinde ich mein Werbekonto?",
-        a: "Unter Einstellungen, Werbekonten verbinden Sie Ihr Meta- und Google-Konto mit wenigen Klicks. Dadurch können wir die Anzeigen in Ihrem Namen schalten und die Zahlen sauber in Ihre Übersicht spielen. Diesen Schritt nimmt in der Regel die Inhaberin oder der Inhaber vor.",
+        a: "Unter Einstellungen, Werbekonten verbinden Sie Ihr Meta- und Google-Konto mit wenigen Klicks. Dadurch können wir Anzeigen in Ihrem Namen schalten und die Zahlen sauber in Ihre Übersicht spielen. Diesen Schritt nimmt in der Regel die Inhaberin oder der Inhaber vor.",
         keywords: ["werbekonto", "verbinden", "meta", "google ads", "oauth", "verknüpfen"],
       },
       {
@@ -290,19 +302,43 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
   },
   {
     id: "medien",
-    label: "Medien und Videos",
+    label: "Medien und Beiträge",
     items: [
       {
         id: "medien-bereich",
         q: "Was finde ich unter Medien?",
-        a: "Unter Medien finden Sie die für Ihre Praxis produzierten Videos, Animationen und Grafiken. Diese werden in Ihren Anzeigen eingesetzt und stehen Ihnen dort zum Ansehen und Herunterladen bereit.",
-        keywords: ["medien", "videos", "animationen", "grafiken", "assets", "content"],
+        a: "Unter Medien finden Sie die für Ihre Praxis erstellten Beiträge: Videos mit Ihrem KI-Klon, Erklär-Animationen und Bildmaterial. Sie sind HWG-geprüft, als KI-generiert gekennzeichnet und werden erst nach Ihrer Freigabe veröffentlicht. Hier stehen sie Ihnen zum Ansehen und Herunterladen bereit.",
+        keywords: ["medien", "videos", "beiträge", "animationen", "grafiken", "bildmaterial", "ki", "klon", "assets"],
+      },
+      {
+        id: "ki-beitraege",
+        q: "Sind die Videos KI?",
+        a: "Ja. Die Videos entstehen mit einem KI-Klon von Ihnen und sind als KI-generiert gekennzeichnet, wie es das Gesetz verlangt. Jeder Beitrag geht erst nach Ihrer Freigabe raus.\n\nSie müssen nie vor die Kamera: Sie nehmen einmal wenige Minuten Video und Stimme mit dem Handy auf, daraus entsteht Ihr Klon. Wir zeigen keine KI-erzeugten Patientinnen, keine KI-erzeugten Behandlungsergebnisse und keine Vorher-Nachher-Darstellungen.",
+        keywords: ["ki", "künstliche intelligenz", "klon", "kamera", "kennzeichnung", "ai act", "vorher nachher"],
+      },
+      {
+        id: "klon-gesicht-stimme",
+        q: "Was passiert mit meinem Gesicht und meiner Stimme?",
+        a: "Ihr KI-Klon gehört Ihnen. Wir nutzen Ihr Gesicht und Ihre Stimme nur für Ihre Praxis, nie für eigene Werbung ohne Ihre gesonderte schriftliche Einwilligung, und löschen das Klon-Modell spätestens 30 Tage nach Vertragsende. Widerrufen Sie Ihre Einwilligung, stoppen wir sofort alle Beiträge mit Ihrem Klon und löschen das Modell.",
+        keywords: ["klon", "gesicht", "stimme", "einwilligung", "widerruf", "löschung", "datenschutz"],
+      },
+      {
+        id: "beitraege-freigeben",
+        q: "Wie gebe ich Beiträge frei?",
+        a: "Wir schicken Ihnen die Beiträge einmal pro Woche gesammelt. Sie sehen sie an und sagen ja oder nein, oder Sie nennen konkret, was geändert werden soll. Das ist in wenigen Minuten erledigt.\n\nKein Beitrag geht ohne Ihre Freigabe raus, eine automatische Freigabe gibt es nicht. Bitte melden Sie sich innerhalb von 2 Werktagen. Jeder Tag Verzug verlängert die 90 Tage bis zur ersten qualifizierten Anfrage über EINS um einen Tag.",
+        keywords: ["freigabe", "freigeben", "beiträge", "wöchentlich", "ansehen", "ja oder nein", "verzug"],
       },
       {
         id: "medien-nutzen",
-        q: "Darf ich die Videos auch für meine eigenen Kanäle nutzen?",
-        a: "In der Regel ja, etwa für Ihre Website oder Ihre eigenen Profile. Die genauen Nutzungsrechte sind in Ihrem Vertrag geregelt, den Sie unter Dokumente finden. Bei Unsicherheit sprechen Sie uns gerne an.",
+        q: "Darf ich die Beiträge auch für meine eigenen Kanäle nutzen?",
+        a: "Ja. Sobald die erste Rechnung bezahlt ist, dürfen Sie alles, was für Ihre Praxis entstanden ist, dauerhaft nutzen und bearbeiten, zum Beispiel auf Ihrer Website, in Ihren eigenen Profilen, in Anzeigen oder in Print. Das gilt auch nach einer Kündigung und mit einer anderen Agentur. Die Einzelheiten stehen in Ihrem Vertrag unter Dokumente.",
         keywords: ["nutzungsrechte", "verwenden", "eigene kanäle", "website", "social media", "rechte"],
+      },
+      {
+        id: "material-nach-kuendigung",
+        q: "Wem gehört das Material, wenn ich kündige?",
+        a: "Ihnen. Sobald die erste Rechnung bezahlt ist, dürfen Sie alles, was für Ihre Praxis entstanden ist, dauerhaft nutzen und bearbeiten, auch nach einer Kündigung und mit einer anderen Agentur. Nicht dabei sind allgemeine Vorlagen, Prompts und Werkzeuge von EINS, die Software (Portal, CRM, KI-Scoring, Zielseiten-Technik) und Werbekonten. Die Daten Ihrer Anfragen bekommen Sie bei Vertragsende als Export.\n\nEndet die Zusammenarbeit, weil in 90 Tagen keine erste qualifizierte Anfrage über EINS in Ihrem Portal lag: Bereits veröffentlichte Beiträge dürfen auf Ihren Kanälen stehen bleiben. Weitere Nutzungsrechte entstehen nicht.",
+        keywords: ["material gehört ihnen", "kündigung", "nutzungsrechte", "eigentum", "andere agentur", "export", "vertragsende", "beiträge"],
       },
       {
         id: "medien-herunterladen",
@@ -312,9 +348,9 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       },
       {
         id: "neue-medien-haeufigkeit",
-        q: "Wie oft bekomme ich neue Medien?",
-        a: "Zu Beginn der Zusammenarbeit produzieren wir die Medien für Ihren Start. Weitere Produktionen stimmen wir individuell mit Ihnen ab, je nachdem, was für Ihre Praxis sinnvoll ist.",
-        keywords: ["wie oft", "neue videos", "produktion", "häufigkeit", "monatlich"],
+        q: "Wie oft bekomme ich neue Beiträge?",
+        a: "Wir erstellen laufend neue Beiträge und schicken sie Ihnen einmal pro Woche gesammelt zur Freigabe. Eine feste Stückzahl pro Monat gibt es nicht. Dafür sehen Sie im Portal jeden Monat, welche Beiträge und Anzeigen liefen, welche gestoppt wurden, wie viele Anfragen kamen und wie viele Behandlungen daraus wurden.",
+        keywords: ["wie oft", "neue videos", "neue beiträge", "häufigkeit", "monatlich", "stückzahl"],
       },
       {
         id: "medien-formate",
@@ -379,14 +415,14 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "was-ist-pruefung",
         q: "Was ist die Leitfaden-Prüfung?",
-        a: "Die Prüfung ist ein kurzes Quiz mit Fragen aus dem Leitfaden. Damit stellen Sie sicher, dass Ihr Team die wichtigsten Inhalte wirklich verinnerlicht hat. Sie können sie beliebig oft wiederholen.",
+        a: "Die Prüfung ist ein kurzes Quiz mit Fragen aus dem Leitfaden und eine Schulung für Ihr Praxisteam. Damit stellen Sie sicher, dass Ihr Team die wichtigsten Inhalte wirklich verinnerlicht hat. Sie können sie beliebig oft wiederholen.",
         keywords: ["prüfung", "quiz", "test", "schulung", "wiederholen"],
       },
       {
         id: "wer-pruefung-bestehen",
-        q: "Wer muss die Prüfung bestehen?",
-        a: "Mindestens eine Person pro Praxis sollte die Prüfung bestehen. Das gehört zu Ihrer Mitwirkung, damit Anfragen bestmöglich in Termine umgewandelt werden.",
-        keywords: ["wer muss", "bestehen", "pflicht", "mindestens", "mitwirkung"],
+        q: "Wer sollte die Prüfung bestehen?",
+        a: "Wir empfehlen, dass mindestens eine Person pro Praxis die Prüfung besteht, am besten aus dem Empfang. Das ist eine Empfehlung und keine Bedingung. Sie hilft Ihrem Team, Anfragen bestmöglich in Termine umzuwandeln.",
+        keywords: ["wer muss", "bestehen", "empfehlung", "mindestens", "schulung", "empfang"],
       },
       {
         id: "pruefung-umfang",
@@ -396,9 +432,9 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       },
       {
         id: "pruefung-garantie",
-        q: "Was hat die Prüfung mit der Garantie zu tun?",
-        a: "Die EINS-Garantie setzt voraus, dass Ihre Praxis aktiv mitwirkt. Dazu gehört, dass mindestens eine Person die Leitfaden-Prüfung besteht. Die genauen Bedingungen stehen in Ihrem Vertrag unter Dokumente.",
-        keywords: ["garantie", "bedingung", "mitwirkung", "voraussetzung", "vertrag"],
+        q: "Ist die Prüfung eine Bedingung der Garantie?",
+        a: "Nein. Sie zahlen nichts, bis die erste qualifizierte Anfrage über EINS in Ihrem Portal liegt, und kommt in 90 Tagen keine, endet die Zusammenarbeit ohne Kosten. Ob Ihr Team die Prüfung besteht, ändert daran nichts. Sie ist eine Schulung, die wir Ihnen für Ihr Praxisteam empfehlen.",
+        keywords: ["garantie", "bedingung", "voraussetzung", "pflicht", "vertrag", "schulung"],
       },
     ],
   },
@@ -415,14 +451,14 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "meilensteine-bedeutung",
         q: "Was bedeuten die einzelnen Meilensteine?",
-        a: "Jeder Meilenstein steht für einen Schritt auf dem Weg zu laufenden Anzeigen und ersten Anfragen, zum Beispiel Werbekonten verbinden, Medien produzieren und Kampagnen starten. Erledigte Schritte werden als abgeschlossen markiert.",
+        a: "Jeder Meilenstein steht für einen Schritt auf dem Weg zu Ihren ersten Beiträgen und ersten Anfragen, zum Beispiel Zugänge einrichten, Klon-Aufnahme und Einwilligung, erste Beiträge freigeben und später Anzeigen hinter die wirkenden Beiträge setzen. Erledigte Schritte werden als abgeschlossen markiert.",
         keywords: ["meilensteine", "schritte", "bedeutung", "phasen", "aufgaben"],
       },
       {
         id: "onboarding-dauer",
         q: "Wie lange dauert das Onboarding?",
-        a: "Das hängt davon ab, wie schnell die nötigen Schritte auf Ihrer Seite erledigt sind, etwa das Verbinden der Werbekonten und das Bereitstellen erster Inhalte. Den aktuellen Stand sehen Sie jederzeit im Bereich Fortschritt.",
-        keywords: ["dauer", "wie lange", "zeit", "start", "bis anzeigen laufen"],
+        a: "Das hängt davon ab, wie schnell die nötigen Schritte auf Ihrer Seite erledigt sind: Klon-Aufnahme, Einwilligung und Zugänge innerhalb von 3 Werktagen nach Unterschrift, danach die Freigabe der ersten Beiträge. Klon und Zielseite stehen in Woche 1 bis 2, ab Woche 2 gehen die ersten Beiträge live. Den aktuellen Stand sehen Sie jederzeit im Bereich Fortschritt.",
+        keywords: ["dauer", "wie lange", "zeit", "start", "bis beiträge live sind", "klon-aufnahme"],
       },
     ],
   },
@@ -499,7 +535,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "daten-bei-kuendigung",
         q: "Was passiert mit meinen Daten, wenn die Zusammenarbeit endet?",
-        a: "Der Umgang mit Ihren Daten nach Ende der Zusammenarbeit ist in der Auftragsverarbeitungsvereinbarung geregelt. Bei konkreten Fragen dazu sprechen Sie uns gerne an.",
+        a: "Der Umgang mit Ihren Daten nach Ende der Zusammenarbeit ist in der Auftragsverarbeitungsvereinbarung geregelt. Die Daten Ihrer Anfragen bekommen Sie bei Vertragsende als Export. Bei konkreten Fragen dazu sprechen Sie uns gerne an.",
         keywords: ["kündigung", "ende", "löschung", "daten zurück", "vertragsende"],
       },
     ],
@@ -553,14 +589,14 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "was-ist-hwg",
         q: "Was ist das HWG und betrifft es mich?",
-        a: "HWG steht für Heilmittelwerbegesetz. Es regelt, wie für medizinische Behandlungen geworben werden darf. Für Praxen für ästhetische Medizin ist es besonders relevant. Bei der Werbung achten wir konsequent auf die Einhaltung.",
+        a: "HWG steht für Heilmittelwerbegesetz. Es regelt, wie für medizinische Behandlungen geworben werden darf. Für Praxen für ästhetische Medizin ist es besonders relevant. Bei jedem Beitrag und jeder Anzeige achten wir konsequent auf die Einhaltung, organisch wie bezahlt.",
         keywords: ["hwg", "heilmittelwerbegesetz", "recht", "werberecht", "compliance"],
       },
       {
         id: "anzeigen-hwg-konform",
-        q: "Sind meine Anzeigen HWG-konform?",
-        a: "Ja, die von uns erstellten Anzeigen werden so gestaltet, dass sie den Vorgaben des HWG entsprechen. Konformität ist für uns kein Zusatz, sondern Voraussetzung jeder Kampagne.",
-        keywords: ["anzeigen", "konform", "erlaubt", "werbung", "rechtssicher"],
+        q: "Sind meine Beiträge und Anzeigen HWG-konform?",
+        a: "Ja, die von uns erstellten Beiträge und Anzeigen werden so gestaltet, dass sie den Vorgaben des HWG entsprechen, organisch wie bezahlt. Konformität ist für uns kein Zusatz, sondern Voraussetzung jedes Beitrags und jeder Kampagne.",
+        keywords: ["anzeigen", "beiträge", "konform", "erlaubt", "werbung", "rechtssicher"],
       },
       {
         id: "was-am-telefon-sagen",
@@ -583,26 +619,44 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "was-ist-garantie",
         q: "Was ist die EINS-Garantie?",
-        a: "EINS gibt Ihnen eine Leistungsgarantie für die Zusammenarbeit. Voraussetzung ist Ihre Mitwirkung, zum Beispiel schnelles Reagieren auf Anfragen und die bestandene Leitfaden-Prüfung. Die genauen Bedingungen stehen in Ihrem Vertrag.",
-        keywords: ["garantie", "leistungsgarantie", "versprechen", "sicherheit", "bedingungen"],
+        a: "Keine Anfrage, keine Rechnung. Sie zahlen nichts, bis die erste qualifizierte Anfrage über EINS in Ihrem Portal liegt. Kommt in 90 Tagen keine, endet die Zusammenarbeit, und Sie haben nichts bezahlt.\n\nDie 90 Tage laufen ab dem Tag Ihrer Unterschrift, bis die erste qualifizierte Anfrage über EINS in Ihrem Portal liegt. Die verbindlichen Einzelheiten stehen im EINS-Garantie-Anhang Ihres Vertrags unter Dokumente.",
+        keywords: ["garantie", "keine anfrage keine rechnung", "versprechen", "sicherheit", "bedingungen", "90 tage"],
       },
       {
         id: "garantie-bedingungen",
-        q: "Welche Bedingungen muss ich für die Garantie erfüllen?",
-        a: "Im Kern geht es um Ihre Mitwirkung: Anfragen zügig bearbeiten, den Leitfaden anwenden und die Prüfung bestehen sowie die nötigen Zugänge bereitstellen. Die verbindlichen Details finden Sie in Ihrem Vertrag unter Dokumente.",
-        keywords: ["bedingungen", "voraussetzung", "mitwirkung", "erfüllen", "garantie"],
+        q: "Was muss ich dafür beitragen?",
+        a: "Die 90 Tage bis zur ersten qualifizierten Anfrage über EINS laufen ab Unterschrift. Dafür brauchen wir von Ihnen:\n1. Innerhalb von 3 Werktagen nach Unterschrift: die Klon-Aufnahme (wenige Minuten Video und Stimme am Handy, nach unserer Anleitung), die unterschriebene Einwilligung für KI-Abbild und Stimme und die Zugänge (Instagram, Facebook, Meta Business, Domain für die Zielseite).\n2. Innerhalb von 2 Werktagen: Beiträge freigeben oder konkret ändern. Wir schicken sie einmal pro Woche gesammelt, das ist in wenigen Minuten erledigt: ansehen, ja oder nein.\n3. Dauerhaft: den Profil-Link zur Zielseite und die Tracking-Nummer nicht entfernen.\n\nJeder Tag, an dem Sie mit einem dieser Punkte in Verzug sind, verlängert die Frist von 90 Tagen bis zur ersten qualifizierten Anfrage über EINS um einen Tag. Wir teilen Ihnen jeden Verzug per E-Mail mit. Ein Verzug verlängert die Frist nur, wenn wir ihn Ihnen mitgeteilt haben.\n\nAntwortzeit: Bitte versuchen Sie, jede Anfrage innerhalb von 48 Werkstunden zu kontaktieren. Das ist keine Bedingung der Garantie. Schaffen Sie es nicht, hat das drei Folgen: Sie können bei dieser Anfrage nicht mehr einwenden, die Person sei nicht echt oder nicht erreichbar gewesen. Die Anfrage steht in Ihrer Auswertung als \"von der Praxis nicht beantwortet\". Und liegen drei oder mehr solcher Anfragen offen, dürfen wir nach einer Warnung die bezahlten Anzeigen pausieren, bis Sie die Anfragen kontaktiert haben.\n\nKeine Bedingung, aber unsere Empfehlung: Nehmen Sie mit Ihrem Praxisteam an der Schulung teil.",
+        keywords: ["bedingungen", "voraussetzung", "mitwirkung", "beitragen", "verzug", "frist", "garantie"],
+      },
+      {
+        id: "qualifizierte-anfrage",
+        q: "Was ist eine qualifizierte Anfrage, und welche zählt für die erste Rechnung?",
+        a: "Qualifiziert heißt: Eine echte Person fragt über einen EINS-Messweg nach einer Behandlung aus dem Leistungsspektrum Ihrer Praxis und hinterlässt erreichbare Kontaktdaten (Telefon oder E-Mail).\n\nFür die erste Rechnung zählen nur Anfragen, die EINS selbst misst: das Formular auf einer EINS-Zielseite (auch über den Profil-Link oder einen Link, den EINS in einer Direktnachricht verschickt), ein Anruf auf der EINS-Tracking-Nummer und eine Buchung über den EINS-Buchungslink. Selbstauskünfte wie „Wie sind Sie auf uns aufmerksam geworden?“ dürfen in Ihrer Auswertung stehen, lösen die Rechnung aber nicht aus.\n\nNicht zählen: offensichtlicher Spam oder automatisierte Eingaben, dieselbe Person ein zweites Mal innerhalb von 30 Tagen sowie Bewerbungen und Verkaufs- oder Werbeangebote an Ihre Praxis. Der KI-Score entscheidet nie, ob eine Anfrage zählt.",
+        keywords: ["qualifiziert", "messweg", "tracking-nummer", "formular", "buchung", "zählt", "spam", "erste rechnung"],
       },
       {
         id: "garantie-finden",
-        q: "Wo finde ich die genauen Garantie-Bedingungen?",
-        a: "Die verbindlichen Garantie-Bedingungen sind Teil Ihres Vertrags. Diesen finden Sie unter Dokumente. Bei Fragen dazu sind wir jederzeit für Sie da.",
-        keywords: ["garantie finden", "bedingungen", "vertrag", "dokumente", "nachlesen"],
+        q: "Wo finde ich die genauen Bedingungen?",
+        a: "Die verbindlichen Bedingungen dazu, wann Ihre erste qualifizierte Anfrage über EINS zählt und wie die 90 Tage laufen, stehen im EINS-Garantie-Anhang. Er ist Teil Ihres Vertrags, den Sie unter Dokumente finden. Bei Fragen dazu sind wir jederzeit für Sie da.",
+        keywords: ["garantie finden", "bedingungen", "vertrag", "dokumente", "nachlesen", "anhang"],
       },
       {
         id: "abrechnung",
         q: "Wie funktioniert die Abrechnung?",
-        a: "Die Konditionen Ihrer Zusammenarbeit sind in Ihrem Vertrag festgehalten, den Sie unter Dokumente einsehen können. Bei Fragen zur Abrechnung wenden Sie sich gerne direkt an uns.",
-        keywords: ["abrechnung", "kosten", "preis", "rechnung", "konditionen", "zahlung"],
+        a: "1.900 € netto im Monat. Ein Paket, keine Einrichtungsgebühr, monatlich kündbar. Die erste Rechnung kommt erst, wenn die erste qualifizierte Anfrage über EINS in Ihrem Portal liegt, nicht erst mit der ersten gebuchten Beratung. Am Tag der ersten qualifizierten Anfrage über EINS beginnt Ihr erster bezahlter Leistungsmonat. Kommt in 90 Tagen keine, endet die Zusammenarbeit, und Sie haben nichts bezahlt. Werbebudget für Anzeigen zahlen Sie separat direkt an Meta und Google. Die verbindlichen Konditionen stehen in Ihrem Vertrag unter Dokumente.",
+        keywords: ["abrechnung", "kosten", "preis", "rechnung", "erste rechnung", "konditionen", "zahlung"],
+      },
+      {
+        id: "beenden-vor-erster-rechnung",
+        q: "Kann ich nach der Unterschrift noch zurück?",
+        a: "Ja. Bis zur ersten Rechnung können Sie jederzeit per E-Mail beenden, ohne Begründung und ohne Kosten. Die erste Rechnung kommt erst, wenn die erste qualifizierte Anfrage über EINS in Ihrem Portal liegt. Kommt in 90 Tagen keine, endet die Zusammenarbeit, und Sie haben nichts bezahlt.",
+        keywords: ["beenden", "kündigen", "rücktritt", "zurücktreten", "widerruf", "storno", "aussteigen", "erste rechnung"],
+      },
+      {
+        id: "nach-90-tagen-ohne-anfrage",
+        q: "Was passiert, wenn in 90 Tagen keine Anfrage kommt?",
+        a: "Dann endet die Zusammenarbeit automatisch, und Sie schulden nichts. Das gilt, wenn nach Ablauf der 90 Tage, plus eventueller Verzugstage, keine erste qualifizierte Anfrage über EINS in Ihrem Portal liegt. Bereits veröffentlichte Beiträge dürfen auf Ihren Kanälen stehen bleiben.",
+        keywords: ["90 tage", "keine anfrage", "ende", "kostenlos", "zusammenarbeit endet", "verzugstage"],
       },
     ],
   },

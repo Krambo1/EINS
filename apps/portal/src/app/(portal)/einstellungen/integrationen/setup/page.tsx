@@ -15,7 +15,6 @@ import {
   Server,
   Webhook,
   Workflow,
-  Cog,
   Building2,
 } from "lucide-react";
 
@@ -46,7 +45,7 @@ const OPTIONS: VendorOption[] = [
     vendorKey: "csv_upload",
     title: "CSV-Upload",
     short:
-      "Funktioniert mit jeder PVS. Exportieren Sie Patienten/Termine/Behandlungen/Rechnungen aus Ihrer PVS und laden Sie sie hoch — Mapping geschieht im Wizard.",
+      "Funktioniert mit jeder Praxis-Software. Eine CSV-Datei ist eine einfache Tabelle, die fast jede Praxis-Software ausgeben kann. Sie exportieren Patienten, Termine, Behandlungen oder Rechnungen und laden die Datei hier hoch; ein Assistent führt Sie durch die Zuordnung.",
     badge: "V1",
     recommended: true,
     href: "/einstellungen/integrationen/setup/csv",
@@ -54,9 +53,9 @@ const OPTIONS: VendorOption[] = [
   },
   {
     vendorKey: "gdt_agent",
-    title: "GDT-Agent (on-prem)",
+    title: "GDT-Agent (auf Ihrem Praxisrechner)",
     short:
-      "Für lokal installierte PVS (CGM, pixelmedic, x.concept etc.): kleiner Windows-/Mac-Hintergrunddienst liest GDT-Dateien aus Ihrem Praxis-Netzwerk und sendet sie verschlüsselt ans Portal.",
+      "Für Praxis-Software, die auf Ihren eigenen Rechnern läuft (CGM, pixelmedic, x.concept usw.). GDT ist ein Standard-Dateiformat, über das Praxis-Software Daten austauscht. Ein kleines Programm auf einem Praxisrechner liest diese Dateien und sendet sie verschlüsselt ans Portal.",
     badge: "V1",
     href: "/einstellungen/integrationen/setup/gdt-agent",
     icon: Server,
@@ -65,7 +64,7 @@ const OPTIONS: VendorOption[] = [
     vendorKey: "tomedo",
     title: "Tomedo",
     short:
-      "Native Cloud-API von Zollsoft. Verbinden in 3 Minuten via OAuth — keine Installation, kein Akkreditierungsantrag nötig.",
+      "Direkte Verbindung zu Tomedo (Zollsoft) über das Internet. Sie melden sich einmal bei Tomedo an und erlauben den Zugriff, ohne Installation.",
     badge: "V1.5",
     href: "/einstellungen/integrationen/setup/tomedo",
     icon: Webhook,
@@ -74,7 +73,7 @@ const OPTIONS: VendorOption[] = [
     vendorKey: "red",
     title: "RED interchange",
     short:
-      "Native FHIR-Schnittstelle. Praxis generiert in RED Client-Credentials, fügt sie hier ein — danach läuft sync automatisch.",
+      "Direkte Verbindung über die Standard-Schnittstelle von RED (FHIR). Sie erzeugen in RED Zugangsdaten, fügen sie hier ein, danach laufen die Daten automatisch.",
     badge: "V1.5",
     href: "/einstellungen/integrationen/setup/red",
     icon: Webhook,
@@ -83,7 +82,7 @@ const OPTIONS: VendorOption[] = [
     vendorKey: "medatixx",
     title: "medatixx, psyx, x.isynet (via GDT)",
     short:
-      "Für medatixx und psyx: wir nutzen den medatixx-internen GDT-Export. Unser Agent läuft auf dem Praxis-PC und überträgt Patienten und Behandlungen automatisch ans Portal.",
+      "Für medatixx und psyx: Wir nutzen die GDT-Ausgabe von medatixx. Ein kleines Programm von EINS läuft auf einem Praxisrechner und überträgt Patienten und Behandlungen automatisch ans Portal.",
     badge: "V1",
     href: "/einstellungen/integrationen/setup/medatixx",
     icon: Building2,
@@ -92,7 +91,7 @@ const OPTIONS: VendorOption[] = [
     vendorKey: "n8n_custom",
     title: "n8n Workflow",
     short:
-      "Für jede andere PVS-Software: importieren Sie unser n8n-Template, passen Sie den Trigger an Ihre PVS an, fertig.",
+      "Für jede andere Praxis-Software. n8n ist ein Werkzeug für Automatisierungen, das meist Ihre IT einrichtet: Sie übernimmt unsere Vorlage und passt den Auslöser an Ihre Praxis-Software an.",
     badge: "V1",
     href: "/einstellungen/integrationen/setup/n8n",
     icon: Workflow,
@@ -108,16 +107,17 @@ export default async function IntegrationenSetupPage() {
         <div className="mb-2 flex items-center gap-2 text-sm">
           <Link
             href="/einstellungen/integrationen"
-            className="text-muted-foreground hover:underline"
+            className="inline-flex min-h-11 items-center font-medium text-fg-primary hover:underline"
           >
             ← Zurück zur Übersicht
           </Link>
         </div>
         <h1 className="text-2xl font-semibold">PVS-Anbieter wählen</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Wählen Sie, wie Sie Ihre Patienten-Verwaltungs-Software mit dem Portal
-          verbinden möchten. Bei Unsicherheit empfehlen wir CSV-Upload zum sofortigen
-          Start — Sie können später auf eine native Integration wechseln.
+        <p className="mt-1 text-base text-fg-primary">
+          Wählen Sie, wie Ihr Praxisverwaltungssystem (PVS, die Software für
+          Termine, Patienten und Rechnungen) mit dem Portal verbunden wird.
+          Im Zweifel starten Sie mit dem CSV-Upload. Sie können später auf eine
+          direkte Verbindung wechseln.
         </p>
       </header>
 
@@ -130,17 +130,12 @@ export default async function IntegrationenSetupPage() {
                   <opt.icon className="h-5 w-5" />
                   {opt.title}
                 </CardTitle>
-                <div className="flex gap-1">
+                <div className="flex flex-wrap justify-end gap-1">
                   {opt.recommended && (
-                    <Badge tone="good" className="text-[10px]">
-                      Empfohlen
-                    </Badge>
+                    <Badge tone="good">Empfohlen</Badge>
                   )}
-                  <Badge
-                    tone={opt.badge === "V1" ? "accent" : "neutral"}
-                    className="text-[10px]"
-                  >
-                    {opt.badge}
+                  <Badge tone={opt.badge === "V1" ? "good" : "neutral"}>
+                    {opt.badge === "V1" ? "Sofort nutzbar" : "In Vorbereitung"}
                   </Badge>
                 </div>
               </div>

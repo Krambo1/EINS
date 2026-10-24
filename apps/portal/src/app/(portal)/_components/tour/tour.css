@@ -33,9 +33,9 @@
 }
 
 .eins-tour-progress {
-  font-size: 0.75rem;
+  font-size: 0.875rem;
   font-weight: 500;
-  color: var(--fg-secondary);
+  color: var(--fg-primary);
   margin-bottom: 0.5rem;
 }
 

@@ -28,9 +28,11 @@
 //     "Could not locate the bindings file".
 //   • oracledb is N-API (node-addon-api), so its `.node` is keyed by
 //     platform+arch only and is ABI-stable across Node majors.
-// CI builds the shipped bundle under the pinned ship-Node; this script
-// asserts the binding is present and aborts the build if it is not, so a
-// bundle that cannot open the outbox can never ship silently.
+// This script (1) refuses to run at all unless the build Node major equals
+// SHIP_NODE_MAJOR (below), (2) asserts the binding is present and actually
+// loads under that Node, and (3) stamps build-info.json so the agent can
+// detect a mismatched node.exe at startup. A bundle that cannot open the
+// outbox can therefore never ship silently.
 
 import { spawnSync } from "node:child_process";
 import {
@@ -50,6 +52,30 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const agentRoot = join(here, "..");
 const bundleDir = join(agentRoot, "bundle");
+
+// The Node MAJOR the installer ships next to this bundle (the node.exe that
+// eins-agent.cmd and the scheduled task run). Change it ONLY together with the
+// runtime the installer actually ships: the SQLCipher addon is built for this
+// major (see "ABI invariant" above) and loads under no other.
+const SHIP_NODE_MAJOR = 20;
+
+const buildNodeMajor = Number.parseInt(process.versions.node.split(".")[0], 10);
+if (buildNodeMajor !== SHIP_NODE_MAJOR) {
+  process.stderr.write(
+    [
+      "",
+      `bundle: FATAL build Node is v${process.versions.node} (major ${buildNodeMajor}), but the installer ships Node ${SHIP_NODE_MAJOR}.`,
+      "        better-sqlite3-multiple-ciphers is a V8-ABI addon: a bundle built here would carry a binding",
+      `        (node-v${process.versions.modules}) that the shipped Node ${SHIP_NODE_MAJOR} cannot load, and the agent`,
+      '        would die on a practice PC with "Could not locate the bindings file".',
+      `        Re-run this build under Node ${SHIP_NODE_MAJOR} (for example "nvm use ${SHIP_NODE_MAJOR}" or "fnm use ${SHIP_NODE_MAJOR}"),`,
+      "        or, if the shipped runtime really changed, update SHIP_NODE_MAJOR in scripts/bundle.mjs together with it.",
+      "",
+      "",
+    ].join("\n")
+  );
+  process.exit(1);
+}
 
 const pkg = JSON.parse(
   readFileSync(join(agentRoot, "package.json"), "utf8")
@@ -145,6 +171,78 @@ if (!cipherBinding) {
 }
 process.stdout.write(
   `bundle: SQLCipher binding present (${cipherBinding.replace(bundleDir, ".")})\n`
+);
+
+// A present .node file is not a loadable one (wrong ABI, missing VC++ runtime
+// dependency, blocked download). Load it for real, under the Node that built
+// the bundle, and open an encrypted in-memory database. The program is a fixed
+// literal; no input is interpolated.
+const smokeProgram = [
+  "const D = require('better-sqlite3-multiple-ciphers');",
+  "const db = new D(':memory:');",
+  "db.pragma(\"cipher='sqlcipher'\");",
+  "db.pragma(\"key='bundle-smoke-test'\");",
+  "db.exec('create table t(x)');",
+  "db.close();",
+  "process.stdout.write('ok');",
+].join(" ");
+const smoke = spawnSync(process.execPath, ["-e", smokeProgram], {
+  cwd: bundleDir,
+  encoding: "utf8",
+});
+if (smoke.status !== 0 || smoke.stdout !== "ok") {
+  throw new Error(
+    `bundle: FATAL the SQLCipher binding exists but does not load under Node ${process.version}: ` +
+      ((smoke.stderr || smoke.stdout || "").trim() || "no output")
+  );
+}
+process.stdout.write(
+  "bundle: SQLCipher binding loads and opens an encrypted database\n"
+);
+
+// Pass 2: import EVERY runtime dependency under the ship Node. undici 8.x
+// (engines node >= 22.19) installed fine and only failed when the agent
+// started on a Praxis PC. A dependency that cannot load under the Node we
+// ship must fail the build, not the practice. Names come from our own
+// manifest, passed as argv (never interpolated into the program text).
+const importProgram =
+  "const names = process.argv.slice(1);" +
+  "(async () => { for (const n of names) { try { await import(n); } catch (e) {" +
+  " process.stderr.write(n + ': ' + (e && e.message ? e.message : String(e)) + '\\n'); process.exit(1); } }" +
+  " process.stdout.write('ok'); })();";
+const importSmoke = spawnSync(
+  process.execPath,
+  ["-e", importProgram, ...Object.keys(pinned)],
+  { cwd: bundleDir, encoding: "utf8" }
+);
+if (importSmoke.status !== 0 || importSmoke.stdout !== "ok") {
+  throw new Error(
+    `bundle: FATAL a runtime dependency does not load under Node ${process.version}: ` +
+      ((importSmoke.stderr || importSmoke.stdout || "").trim() || "no output")
+  );
+}
+process.stdout.write(
+  `bundle: all ${Object.keys(pinned).length} runtime dependencies import under Node ${process.version}\n`
+);
+
+// Stamp read by the agent at startup (src/runtime-check.ts): a node.exe that
+// does not match this is reported as one clear line instead of a bindings error.
+writeFileSync(
+  join(bundleDir, "build-info.json"),
+  JSON.stringify(
+    {
+      agentVersion: pkg.version,
+      nodeVersion: process.versions.node,
+      nodeMajor: buildNodeMajor,
+      abi: process.versions.modules,
+      platform: process.platform,
+      arch: process.arch,
+      builtAt: new Date().toISOString(),
+    },
+    null,
+    2
+  ) + "\n",
+  "utf8"
 );
 
 // Slim the bundle: oracledb ships prebuilt binaries for all 5 platforms;

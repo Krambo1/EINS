@@ -20,7 +20,7 @@ interface Props {
 }
 
 /**
- * Werbeleistung — spend vs. revenue trend over the card's own time window, with
+ * Werbeleistung: spend vs. revenue trend over the card's own time window, with
  * the platform-budget split rendered as the shared segmented share bar (the
  * same visual the clinic uses). Both sit directly on the card surface: no inner
  * boxes, no derived sub-metric tiles.
@@ -31,7 +31,7 @@ export function PerformanceSection({ daily, mix, range }: Props) {
 
   const segments = mix.map((m) => ({
     key: m.platform,
-    label: SOURCE_LABELS[m.platform as RequestSource] ?? m.platform.toUpperCase(),
+    label: SOURCE_LABELS[m.platform as RequestSource] ?? m.platform,
     value: m.spendEur,
     tone: PLATFORM_TONE[m.platform] ?? "neutral",
   }));
@@ -45,7 +45,7 @@ export function PerformanceSection({ daily, mix, range }: Props) {
         boxShadow: "var(--shadow-card)",
       }}
     >
-      <CardHeader className="flex-row items-start justify-between gap-4 space-y-0">
+      <CardHeader className="flex-row flex-wrap items-start justify-between gap-4 space-y-0">
         <div className="flex flex-col gap-1">
           <CardTitle className="!text-xl !font-medium md:!text-2xl">
             Werbeleistung
@@ -88,7 +88,7 @@ export function PerformanceSection({ daily, mix, range }: Props) {
           ariaLabel="Werbebudget und Werbeumsatz im Zeitraum"
         />
         <div className="space-y-2">
-          <div className="flex items-center justify-between text-xs text-fg-secondary">
+          <div className="flex items-center justify-between text-sm font-medium text-fg-primary">
             <span>Werbebudget je Plattform</span>
             <span className="tabular-nums">{formatEuro(mixTotal)}</span>
           </div>
@@ -99,7 +99,7 @@ export function PerformanceSection({ daily, mix, range }: Props) {
             valueLabel="Budget"
           />
           {segments.length === 0 ? (
-            <p className="text-xs text-fg-secondary">
+            <p className="text-sm text-fg-primary">
               Noch keine Plattform-Daten.
             </p>
           ) : (

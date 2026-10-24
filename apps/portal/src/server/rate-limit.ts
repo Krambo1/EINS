@@ -88,3 +88,51 @@ export async function rateLimit(
     return { ok: true, remaining: limit, resetInSeconds: windowSeconds };
   }
 }
+
+/**
+ * Read a bucket WITHOUT consuming a unit. Used for "count failures only"
+ * buckets (B-5): peek before an expensive check (Argon2), and call
+ * `rateLimit()` only when the attempt failed. `ok` means one more attempt is
+ * still allowed (count < limit). Same fail-closed/open policy as rateLimit.
+ */
+export async function peekRateLimit(
+  scope: string,
+  identifier: string,
+  opts: { limit: number; windowSeconds: number }
+): Promise<RateLimitResult> {
+  const key = `rl:${scope}:${identifier}`;
+  const { limit, windowSeconds } = opts;
+  try {
+    const window = sql`(${windowSeconds}::int * interval '1 second')`;
+    const result = await db.execute(sql`
+      SELECT
+        count,
+        GREATEST(0, CEIL(EXTRACT(EPOCH FROM (window_start + ${window} - now()))))::int AS reset_in
+      FROM rate_limits
+      WHERE key = ${key}
+        AND window_start > now() - ${window}
+    `);
+    const row = (result as unknown as Array<{ count: number; reset_in: number }>)[0];
+    if (!row) return { ok: true, remaining: limit, resetInSeconds: windowSeconds };
+    const count = Number(row.count);
+    const resetInSeconds = Number(row.reset_in);
+    return {
+      ok: count < limit,
+      remaining: Math.max(0, limit - count),
+      resetInSeconds: resetInSeconds > 0 ? resetInSeconds : windowSeconds,
+    };
+  } catch (err) {
+    if (process.env.NODE_ENV === "production") {
+      console.error(
+        "[rate-limit] postgres error on peek — failing CLOSED:",
+        (err as Error).message
+      );
+      return { ok: false, remaining: 0, resetInSeconds: windowSeconds };
+    }
+    console.error(
+      "[rate-limit] postgres error on peek — failing open (dev only):",
+      (err as Error).message
+    );
+    return { ok: true, remaining: limit, resetInSeconds: windowSeconds };
+  }
+}

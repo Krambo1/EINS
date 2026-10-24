@@ -2,8 +2,9 @@ import { NextResponse, after, type NextRequest } from "next/server";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { env, hasMeta } from "@/lib/env";
 import { writeAudit } from "@/server/audit";
-import { persistLead } from "@/server/leads";
-import { findCredentialByMetaPageId } from "@/server/meta-pages";
+import { persistLead, ClinicArchivedError, buildMetaConsents } from "@/server/leads";
+import { META_PAGE_ERRORS, findCredentialByMetaPageId } from "@/server/meta-pages";
+import { notifyOps } from "@/server/ops-alerts";
 import { rateLimit } from "@/server/rate-limit";
 
 /**
@@ -67,6 +68,11 @@ interface GraphLead {
   form_id?: string;
   field_data?: FieldData[];
 }
+
+export const runtime = "nodejs";
+// Graph fetch (8 s) per lead plus persistLead; the AI score and the
+// "Neue Anfrage" mail run in after() inside the same budget (K-5).
+export const maxDuration = 60;
 
 // ---------------------------------------------------------------
 // GET — webhook verification (Meta hits this on subscribe).
@@ -132,10 +138,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true }, { status: 200 });
   }
 
-  // Process each entry. We respond 200 as long as we touched the payload —
-  // per-entry failures are logged and Meta will not retry the whole batch.
-  // (Returning non-2xx triggers retries of the entire batch, which would
-  // duplicate the successful ones.)
+  // Process each entry. If ANY lead could not be stored for a reason a retry
+  // can fix (DB error, Graph 5xx, expired/revoked page token, rate limit),
+  // answer 500 so Meta redelivers the batch. Redelivery is safe: the unique
+  // index (clinic_id, meta_lead_id) turns already-stored leads into
+  // "deduped", and the new-request email is claimed once per row (C-9).
   const results: Array<{ leadgenId: string; status: string }> = [];
   for (const entry of payload.entry ?? []) {
     const pageId = entry.id;
@@ -149,13 +156,34 @@ export async function POST(request: NextRequest) {
       } catch (err) {
         console.error(
           `[meta-leadgen] ingest failed page=${pageId} leadgen=${leadgenId}:`,
-          err
+          err instanceof Error ? err.message : err
         );
         results.push({ leadgenId, status: "error" });
+        // Page bound to several Praxen (J-1): the lead is NOT stored (500,
+        // Meta redelivers) until someone fixes the binding. Tell ops.
+        if (err instanceof Error && err.message === META_PAGE_ERRORS.ambiguousBinding) {
+          await notifyOps({
+            clinicId: null,
+            kind: `meta_page_ambiguous:${pageId}`,
+            severity: "high",
+            title: "Meta-Anfrage nicht zugeordnet: Seite an mehreren Praxen",
+            body:
+              `Die Facebook-Seite ${pageId} ist mit mehr als einer Praxis verbunden. ` +
+              "Eingehende Anfragen dieser Seite werden nicht gespeichert, bis nur noch eine Praxis mit ihr verbunden ist. " +
+              "Meta liefert sie danach erneut aus.",
+          });
+        }
       }
     }
   }
 
+  const retry = results.some((r) => r.status === "error" || r.status === "rate_limited");
+  if (retry) {
+    return NextResponse.json(
+      { ok: false, processed: results.length, results },
+      { status: 500 }
+    );
+  }
   return NextResponse.json({ ok: true, processed: results.length, results }, {
     status: 200,
   });
@@ -168,7 +196,9 @@ export async function POST(request: NextRequest) {
 async function ingestOne(
   pageId: string,
   value: LeadgenChange["value"]
-): Promise<"inserted" | "deduped" | "unbound_page" | "missing_lead" | "rate_limited"> {
+): Promise<
+  "inserted" | "deduped" | "unbound_page" | "clinic_archived" | "missing_lead" | "rate_limited"
+> {
   const cred = await findCredentialByMetaPageId(pageId);
   if (!cred) {
     // Webhook from a Page no clinic owns — happens when a Praxis disconnects
@@ -181,7 +211,7 @@ async function ingestOne(
   // Bound the paid Graph egress: a replayed/duplicated webhook (no timestamp in
   // the X-Hub scheme) must not drive unbounded fetchLeadFromGraph calls
   // (pentest M7 / BR-04-meta). 100/min per clinic is far above any real lead
-  // rate; we ack 200 so Meta does not retry the whole batch.
+  // rate; when it trips, the batch gets a 500 so Meta redelivers later.
   const rl = await rateLimit("meta-leadgen", cred.clinicId, {
     limit: 100,
     windowSeconds: 60,
@@ -195,33 +225,51 @@ async function ingestOne(
   if (!lead) return "missing_lead";
 
   const fields = mapFieldData(lead.field_data ?? []);
-  const result = await persistLead(cred.clinicId, {
-    source: "meta",
-    sourceCampaignId: lead.campaign_id ?? value.adgroup_id ?? null,
-    sourceAdId: lead.ad_id ?? value.ad_id ?? null,
-    utm: null,
-    contactName: fields.fullName,
-    contactEmail: fields.email,
-    contactPhone: fields.phone,
-    treatmentWish: fields.treatmentWish,
-    budgetIndication: null,
-    message: fields.message,
-    dsgvoConsent: true, // Meta forms require explicit DSGVO acknowledgement.
-    dsgvoConsentIp: null,
-    rawPayload: {
-      meta: {
-        leadgenId: lead.id,
-        pageId,
-        adId: lead.ad_id ?? value.ad_id ?? null,
-        adsetId: lead.adset_id ?? null,
-        campaignId: lead.campaign_id ?? null,
-        formId: lead.form_id ?? value.form_id ?? null,
-        createdTime: lead.created_time ?? null,
-        fieldData: lead.field_data ?? [],
+  let result: Awaited<ReturnType<typeof persistLead>>;
+  try {
+    result = await persistLead(cred.clinicId, {
+      source: "meta",
+      sourceCampaignId: lead.campaign_id ?? value.adgroup_id ?? null,
+      sourceAdId: lead.ad_id ?? value.ad_id ?? null,
+      utm: null,
+      contactName: fields.fullName,
+      contactEmail: fields.email,
+      contactPhone: fields.phone,
+      treatmentWish: fields.treatmentWish,
+      budgetIndication: null,
+      message: fields.message,
+      dsgvoConsent: true, // Meta forms require explicit DSGVO acknowledgement.
+      dsgvoConsentIp: null,
+      rawPayload: {
+        meta: {
+          leadgenId: lead.id,
+          pageId,
+          adId: lead.ad_id ?? value.ad_id ?? null,
+          adsetId: lead.adset_id ?? null,
+          campaignId: lead.campaign_id ?? null,
+          formId: lead.form_id ?? value.form_id ?? null,
+          createdTime: lead.created_time ?? null,
+          fieldData: lead.field_data ?? [],
+        },
       },
-    },
-    metaLeadId: lead.id,
-  });
+      metaLeadId: lead.id,
+      // Consent record (L-6): Meta's own form text, identified by form id;
+      // consent time = when the person submitted the form on Meta.
+      consentAt: metaCreatedAt(lead.created_time ?? null, value.created_time),
+      consents: buildMetaConsents({
+        at: metaCreatedAt(lead.created_time ?? null, value.created_time) ?? new Date(),
+        formId: lead.form_id ?? value.form_id ?? null,
+      }),
+    });
+  } catch (err) {
+    if (err instanceof ClinicArchivedError) {
+      // Contract ended; a retry would not help. Ack and log so the Meta
+      // subscription can be removed.
+      console.warn(`[meta-leadgen] clinic archived clinic=${cred.clinicId} page=${pageId}`);
+      return "clinic_archived";
+    }
+    throw err;
+  }
 
   // Audit each ingestion so the per-clinic admin can confirm the path is
   // live (and so we can investigate any "Meta said they sent X" disputes).
@@ -238,7 +286,19 @@ async function ingestOne(
     })
   );
 
-  return result.status;
+  // Meta never asks persistLead for the same-contact merge, so "same_contact"
+  // cannot occur here; it would still be a dedupe.
+  return result.status === "inserted" ? "inserted" : "deduped";
+}
+
+/** Graph `created_time` (ISO with +0000) or webhook `created_time` (unix s). */
+function metaCreatedAt(iso: string | null, unix: number | undefined): Date | null {
+  if (iso) {
+    const d = new Date(iso.replace(/([+-]\d{2})(\d{2})$/, "$1:$2"));
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  if (typeof unix === "number" && Number.isFinite(unix)) return new Date(unix * 1000);
+  return null;
 }
 
 async function fetchLeadFromGraph(
@@ -252,15 +312,35 @@ async function fetchLeadFromGraph(
     "fields",
     "id,created_time,ad_id,adset_id,campaign_id,form_id,field_data"
   );
-  url.searchParams.set("access_token", pageAccessToken);
-  const res = await fetch(url, { cache: "no-store" });
+  // Token in the header, never in the URL (URLs end up in logs and traces).
+  const res = await fetch(url, {
+    cache: "no-store",
+    headers: { Authorization: `Bearer ${pageAccessToken}` },
+    signal: AbortSignal.timeout(8_000),
+  });
   if (!res.ok) {
-    if (res.status === 404 || res.status === 400) {
-      // Lead expired (Meta only keeps unread leads ~90 days) or deleted.
-      // No retry would help. Acknowledge.
-      return null;
+    // Only "this lead does not exist (any more)" is acknowledged: HTTP 404,
+    // or Graph error 100 / subcode 33 (Meta keeps leads ~90 days). Anything
+    // else, above all code 190 (expired or revoked page token), throws so
+    // the batch gets a 500 and Meta redelivers once the token is fixed (C-9).
+    let code: number | null = null;
+    let subcode: number | null = null;
+    try {
+      const body = (await res.json()) as {
+        error?: { code?: number; error_subcode?: number };
+      };
+      code = body.error?.code ?? null;
+      subcode = body.error?.error_subcode ?? null;
+    } catch {
+      // Non-JSON error body: treat as retryable.
     }
-    throw new Error(`graph /${leadgenId} http ${res.status}`);
+    if (res.status === 404 || (code === 100 && subcode === 33)) return null;
+    if (code === 190) {
+      console.error(
+        `[meta-leadgen] page access token rejected (code 190) leadgen=${leadgenId}; reconnect Meta for this Praxis`
+      );
+    }
+    throw new Error(`graph /${leadgenId} http ${res.status} code ${code ?? "?"}`);
   }
   return (await res.json()) as GraphLead;
 }

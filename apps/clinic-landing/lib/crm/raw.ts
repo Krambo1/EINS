@@ -1,5 +1,6 @@
 import { normalizedLead, type CRMAdapter } from "./adapter";
 import { isAllowedWebhookUrl } from "./webhook-guard";
+import { webhookHeaders } from "./signing";
 import type { QuizSubmissionPayload, CRMAdapterResult } from "../types";
 
 /**
@@ -14,10 +15,12 @@ export const rawAdapter: CRMAdapter = {
       return { ok: false, message: "webhook_url_blocked" };
     }
     try {
+      // L-16: X-EINS-Signature over the exact body (see ./signing.ts).
+      const body = JSON.stringify(normalizedLead(payload));
       const res = await fetch(webhookUrl, {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(normalizedLead(payload)),
+        headers: webhookHeaders(payload.clinicSlug, body),
+        body,
         signal: AbortSignal.timeout(5000),
       });
       return { ok: res.ok, message: res.ok ? undefined : `Webhook responded ${res.status}` };

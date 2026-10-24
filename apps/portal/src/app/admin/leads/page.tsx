@@ -24,6 +24,7 @@ import {
   AdminUrlMultiSelect,
   AdminUrlToggle,
 } from "../_components/AdminFilters";
+import { isUuid } from "@/lib/ids";
 
 export const metadata = { title: "Anfragen · Admin" };
 
@@ -51,7 +52,8 @@ export default async function AdminLeadsPage({ searchParams }: PageProps) {
   const page = Math.max(1, Number(params.page ?? 1) || 1);
 
   const filters: AdminLeadFilters = {
-    clinicIds: asArray(params.clinicId).filter(Boolean),
+    // Only well-formed ids reach Postgres (a typo would be a 22P02 / 500).
+    clinicIds: asArray(params.clinicId).filter((v) => isUuid(v)),
     status: asArray(params.status).filter((s) =>
       (REQUEST_STATUSES as readonly string[]).includes(s)
     ) as RequestStatus[],
@@ -109,14 +111,14 @@ export default async function AdminLeadsPage({ searchParams }: PageProps) {
           sublabel="im aktuellen Filter"
         />
         <MetricTile
-          label="Im Trichter"
+          label="Mit Termin"
           value={formatNumber(result.aggregates.inFunnel)}
           sublabel="Termin vereinbart oder weiter"
         />
         <MetricTile
           label="Gewonnen"
           value={formatNumber(result.aggregates.won)}
-          sublabel="Cases"
+          sublabel="Abschlüsse"
           tone="accent"
         />
         <MetricTile
@@ -167,13 +169,13 @@ export default async function AdminLeadsPage({ searchParams }: PageProps) {
                   value: c,
                   label: AI_CATEGORY_LABELS[c],
                 })),
-                { value: "unscored", label: "Ungescort" },
+                { value: "unscored", label: "Ohne Bewertung" },
               ]}
             />
             <AdminUrlToggle
               param="slaBreachedOnly"
               checked={!!filters.slaBreachedOnly}
-              label="SLA verletzt"
+              label="Internes Antwortziel überschritten"
             />
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-fg-secondary">
@@ -195,7 +197,7 @@ export default async function AdminLeadsPage({ searchParams }: PageProps) {
                 Quelle: {s}
               </Badge>
             ))}
-            {filters.slaBreachedOnly && <Badge tone="bad">SLA verletzt</Badge>}
+            {filters.slaBreachedOnly && <Badge tone="bad">Internes Antwortziel überschritten</Badge>}
             {filters.search && (
               <Badge tone="neutral">Suche: {filters.search}</Badge>
             )}

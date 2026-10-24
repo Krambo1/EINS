@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 import { ConsentProvider } from "@/components/consent/consent-context";
 import { CookieConsent } from "@/components/consent/cookie-consent";
+import { AttributionScript } from "@/components/tracking/attribution-script";
 import {
   getClinic,
   isHiddenClinicSlug,
@@ -39,6 +40,8 @@ export default function ClinicLayout({ children, params }: LayoutProps) {
 
   return (
     <ConsentProvider>
+      {/* First in the body: strips utm_* from the address before any pixel. */}
+      <AttributionScript />
       {fontFaceCss && (
         <style
           // eslint-disable-next-line react/no-danger

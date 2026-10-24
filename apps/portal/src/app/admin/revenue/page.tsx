@@ -49,7 +49,7 @@ export default async function AdminRevenuePage({ searchParams }: PageProps) {
     // Pull double the window so we can split into current + prior period for
     // the Vorperiode comparison line.
     spendRevenueSeries(days * 2),
-    clinicLeaderboard({ periodDays: days }),
+    clinicLeaderboard({ periodDays: days, realOnly: true }),
   ]);
 
   const priorHalf = series.slice(0, days);
@@ -110,7 +110,7 @@ export default async function AdminRevenuePage({ searchParams }: PageProps) {
     {
       key: "roas",
       align: "right",
-      header: "ROAS",
+      header: "Werbeertrag",
       render: (c) => (
         <span className="tabular-nums">{c.roas == null ? "–" : `${c.roas.toFixed(2)}×`}</span>
       ),
@@ -127,8 +127,8 @@ export default async function AdminRevenuePage({ searchParams }: PageProps) {
       key: "cases",
       align: "right",
       secondary: true,
-      detailLabel: "Cases gewonnen",
-      header: "Cases",
+      detailLabel: "Abschlüsse",
+      header: "Abschlüsse",
       render: (c) => formatNumber(c.casesWon),
     },
   ];
@@ -141,7 +141,7 @@ export default async function AdminRevenuePage({ searchParams }: PageProps) {
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
+        <span className="text-sm font-medium text-fg-primary">
           Zeitraum
         </span>
         {Object.entries(PERIODS).map(([k, d]) => (
@@ -168,7 +168,7 @@ export default async function AdminRevenuePage({ searchParams }: PageProps) {
           tone="accent"
         />
         <MetricTile
-          label="Ø ROAS"
+          label="Ø Werbeertrag"
           value={overview.avgRoas == null ? "–" : `${overview.avgRoas.toFixed(2)}×`}
           delta={overview.deltas.roas}
           hint="Umsatz je Euro Werbebudget"

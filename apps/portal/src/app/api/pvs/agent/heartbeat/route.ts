@@ -1,18 +1,23 @@
 import { NextResponse, after, type NextRequest } from "next/server";
 import { z } from "zod";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { rateLimit } from "@/server/rate-limit";
 import { writeAudit } from "@/server/audit";
 import { verifyClinicSignature } from "@/server/clinic-signature";
 import { db, schema } from "@/db/client";
 import {
+  AGENT_HEALTH_ALERT_KIND,
+  HEARTBEAT_STALE_MS,
+  deriveUploadReason,
   evaluateHeartbeatHealth,
   healthSignature,
   reconcileAgentHealthAlerts,
   HEARTBEAT_SCOPE_KEYS,
   type AdapterStatusSnapshot,
   type AgentHeartbeatHealth,
+  type UploadDiagnostics,
 } from "@/server/pvs-agent-health";
+import { resolveManifest } from "@/server/pvs-vendor-config";
 
 /**
  * PVS Bridge: GDT-Agent heartbeat ingest (P2-2).
@@ -26,10 +31,17 @@ import {
  * Security mirrors /api/pvs/events:
  *   1. Per-IP rate limit first (cheap rejection).
  *   2. JSON envelope parse + Zod schema check.
- *   3. Per-clinic rate limit (heartbeats are tight — 5/min/clinic is
- *      plenty for the 1/min producer cadence; anything higher is misbehaving).
- *   4. HMAC-SHA256 over the raw body against the per-clinic 'pvs' secret.
+ *   3. HMAC-SHA256 over the raw body against the per-clinic 'pvs' secret.
+ *   4. Per-clinic rate limit AFTER the signature check (heartbeats are tight:
+ *      5/min/clinic is plenty for the 1/min producer cadence). It sits behind
+ *      the signature on purpose: a limit spent before authentication lets
+ *      anyone who knows a clinicId starve that clinic's real heartbeats.
  *   5. Symmetric "invalid_request" failure so probes can't enumerate clinics.
+ *
+ * Liveness uses the PORTAL's receive time, never the agent's `sentAt`: an agent
+ * clock N days ahead would otherwise hide a dead agent for N days, and one
+ * behind would raise a permanent false heartbeat_stale. `sentAt` is kept only
+ * to measure clock skew (agent timestamps also feed event times).
  */
 
 /**
@@ -135,6 +147,22 @@ const preserveOnGarbage = <T extends z.ZodTypeAny>(inner: T) =>
  * would go from partially blind to fully dark at the exact moment something
  * broke. So: clamp and truncate, never reject.
  */
+/** A flat counters record (file-watcher details): clamped, never rejecting. */
+const detailRecord = z
+  .record(
+    z.string(),
+    z
+      .union([z.string().transform((s) => s.slice(0, 300)), z.number(), z.null()])
+      .catch(null)
+  )
+  .transform((o) =>
+    Object.fromEntries(
+      Object.entries(o)
+        .slice(0, 40)
+        .map(([k, v]) => [k.slice(0, 60), v])
+    )
+  );
+
 const HeartbeatSchema = z.object({
   clinicId: z.string().uuid(),
   agentVersion: textField(50),
@@ -225,6 +253,76 @@ const HeartbeatSchema = z.object({
       )
       .transform((a) => a.slice(0, 200))
   ),
+
+  /**
+   * 0093 (WP-C B5): why uploads are (not) flowing. Counters and reason codes
+   * only. All preserveOnGarbage: a build or payload that cannot report them
+   * leaves the stored diagnostics alone.
+   */
+  uploadState: preserveOnGarbage(
+    z.object({
+      authPaused: z.boolean().catch(false),
+      lastBatchError: textField(500).nullable().catch(null),
+      lastBatchErrorAt: epochField.nullable().catch(null),
+      consecutiveTransientFailures: countField,
+      lastSuccessAt: epochField.nullable().catch(null),
+    })
+  ),
+  pendingReasons: preserveOnGarbage(
+    z
+      .array(z.object({ reason: textField(200), count: countField }))
+      .transform((a) => a.slice(0, 20))
+  ),
+  fileWatchers: preserveOnGarbage(
+    z.object({
+      gdt: detailRecord.nullable().catch(null),
+      csv: detailRecord.nullable().catch(null),
+    })
+  ),
+
+  /**
+   * 0071: which vendor configs the machine actually has in force, and anything
+   * it refused.
+   *
+   * This is the half of remote config delivery that makes it operable. The
+   * portal knows what it PUBLISHED; only the agent knows what it RUNS, and the
+   * two diverge whenever a bundle fails verification, needs a newer agent, or
+   * got rolled back on the machine after halting a stream. Same
+   * preserveOnGarbage discipline as the health fields: an agent that cannot
+   * report it leaves the stored value alone rather than blanking it.
+   */
+  vendorConfigs: preserveOnGarbage(
+    z
+      .array(
+        z.object({
+          vendor: textField(64, "unbekannt"),
+          version: countField,
+          sha256: textField(64),
+          appliedAt: z.number().int().nonnegative().catch(0),
+          source: textField(20, "remote"),
+        })
+      )
+      .transform((a) => a.slice(0, 20))
+  ),
+  configSyncError: preserveOnGarbage(
+    z
+      .string()
+      .transform((s) => s.slice(0, 1_000))
+      .nullable()
+  ),
+  configRollbacks: preserveOnGarbage(
+    z
+      .array(
+        z.object({
+          vendor: textField(64, "unbekannt"),
+          rejectedVersion: countField,
+          revertedTo: z.number().int().nonnegative().nullable().catch(null),
+          reason: textField(500),
+          at: z.number().int().nonnegative().catch(0),
+        })
+      )
+      .transform((a) => a.slice(0, 10))
+  ),
 });
 
 export async function POST(request: NextRequest) {
@@ -281,8 +379,22 @@ export async function POST(request: NextRequest) {
   }
   const event = parseResult.data;
 
-  // Per-clinic budget: the producer cadence is 1/min; 5/min gives
-  // headroom for cold-start fast retries without enabling abuse.
+  const sigOk = await verifyClinicSignature(event.clinicId, raw, sig, "pvs");
+  if (!sigOk) {
+    after(() =>
+      writeAudit({
+        clinicId: event.clinicId,
+        action: "pvs_agent_heartbeat_reject",
+        entityKind: "pvs_agent_status",
+        diff: { reason: "bad_signature" },
+        requestMeta,
+      })
+    );
+    return genericFail();
+  }
+
+  // Per-clinic budget, spent only by authenticated requests: the producer
+  // cadence is 1/min; 5/min gives headroom for cold-start fast retries.
   const rl = await rateLimit("pvs-agent-hb", event.clinicId, {
     limit: 5,
     windowSeconds: 60,
@@ -300,21 +412,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const sigOk = await verifyClinicSignature(event.clinicId, raw, sig, "pvs");
-  if (!sigOk) {
-    after(() =>
-      writeAudit({
-        clinicId: event.clinicId,
-        action: "pvs_agent_heartbeat_reject",
-        entityKind: "pvs_agent_status",
-        diff: { reason: "bad_signature" },
-        requestMeta,
-      })
-    );
-    return genericFail();
-  }
-
   try {
+    const receivedAt = new Date();
+    // Agent clock minus portal clock. Clamped into a Postgres integer.
+    const clockSkewSeconds = Math.max(
+      -2_000_000_000,
+      Math.min(
+        2_000_000_000,
+        Math.round((event.sentAt - receivedAt.getTime()) / 1000)
+      )
+    );
     const oldestFailedAt = event.oldestFailedAt
       ? new Date(event.oldestFailedAt)
       : null;
@@ -330,6 +437,11 @@ export async function POST(request: NextRequest) {
         missingFolders: schema.pvsAgentStatus.missingFolders,
         dbAdaptersFailed: schema.pvsAgentStatus.dbAdaptersFailed,
         adapterStatuses: schema.pvsAgentStatus.adapterStatuses,
+        lastHeartbeatAt: schema.pvsAgentStatus.lastHeartbeatAt,
+        firstHeartbeatAt: schema.pvsAgentStatus.firstHeartbeatAt,
+        clockSkewSeconds: schema.pvsAgentStatus.clockSkewSeconds,
+        failedEvents: schema.pvsAgentStatus.failedEvents,
+        uploadDiagnostics: schema.pvsAgentStatus.uploadDiagnostics,
       })
       .from(schema.pvsAgentStatus)
       .where(eq(schema.pvsAgentStatus.clinicId, event.clinicId))
@@ -341,7 +453,27 @@ export async function POST(request: NextRequest) {
       dbAdaptersFailed: prior?.dbAdaptersFailed ?? null,
       adapterStatuses:
         (prior?.adapterStatuses as AdapterStatusSnapshot[] | undefined) ?? [],
+      clockSkewSeconds: prior?.clockSkewSeconds ?? null,
     };
+    // 0093: merge the diagnostics. A part this heartbeat cannot report keeps
+    // its stored value; the row is rewritten only when something was reported.
+    const priorDiag = (prior?.uploadDiagnostics ?? null) as
+      | (UploadDiagnostics & { fileWatchers?: unknown })
+      | null;
+    const diagReported =
+      event.uploadState !== undefined ||
+      event.pendingReasons !== undefined ||
+      event.fileWatchers !== undefined;
+    const nextDiag = {
+      uploadState: event.uploadState ?? priorDiag?.uploadState ?? null,
+      pendingReasons: event.pendingReasons ?? priorDiag?.pendingReasons ?? null,
+      fileWatchers: event.fileWatchers ?? priorDiag?.fileWatchers ?? null,
+    };
+    // priorHealth carries the reason that was STORED, so the signature compare
+    // sees a reason change.
+    priorHealth.uploadReason = deriveUploadReason(priorDiag);
+    // A stored row always has failed_events (NOT NULL); a brand-new clinic starts at 0.
+    const priorFailed = prior ? (prior.failedEvents ?? event.failedCount) : 0;
     // Absent field == "this agent build cannot report it", NOT "all clear".
     const nextHealth: AgentHeartbeatHealth = {
       stalePendingEvents:
@@ -352,6 +484,17 @@ export async function POST(request: NextRequest) {
           ? event.dbAdaptersFailed
           : priorHealth.dbAdaptersFailed,
       adapterStatuses: event.adapterStatuses ?? priorHealth.adapterStatuses,
+      clockSkewSeconds,
+      uploadReason: diagReported
+        ? deriveUploadReason(nextDiag)
+        : priorHealth.uploadReason,
+      deadLetter: {
+        count: event.failedCount,
+        priorCount: priorFailed,
+        reasons: event.recentReasons
+          .slice(0, 3)
+          .map((x) => x.reason.slice(0, 120)),
+      },
     };
 
     const healthValues = {
@@ -387,6 +530,30 @@ export async function POST(request: NextRequest) {
             >,
           }
         : {}),
+      ...(diagReported
+        ? {
+            uploadDiagnostics: nextDiag as unknown as Record<string, unknown>,
+          }
+        : {}),
+      ...(event.vendorConfigs !== undefined
+        ? {
+            vendorConfigs: event.vendorConfigs as unknown as Record<
+              string,
+              unknown
+            >,
+          }
+        : {}),
+      ...(event.configSyncError !== undefined
+        ? { configSyncError: event.configSyncError }
+        : {}),
+      ...(event.configRollbacks !== undefined
+        ? {
+            configRollbacks: event.configRollbacks as unknown as Record<
+              string,
+              unknown
+            >,
+          }
+        : {}),
     };
 
     await db
@@ -394,7 +561,9 @@ export async function POST(request: NextRequest) {
       .values({
         clinicId: event.clinicId,
         agentVersion: event.agentVersion,
-        lastHeartbeatAt: new Date(event.sentAt),
+        lastHeartbeatAt: receivedAt,
+        firstHeartbeatAt: receivedAt,
+        clockSkewSeconds,
         failedEvents: event.failedCount,
         oldestFailedAt,
         lastFailureReason: event.lastFailureReason,
@@ -405,7 +574,10 @@ export async function POST(request: NextRequest) {
         target: schema.pvsAgentStatus.clinicId,
         set: {
           agentVersion: event.agentVersion,
-          lastHeartbeatAt: new Date(event.sentAt),
+          lastHeartbeatAt: receivedAt,
+          // Keep the original first beat; a seeded row (NULL) gets this one.
+          firstHeartbeatAt: sql`COALESCE(${schema.pvsAgentStatus.firstHeartbeatAt}, ${receivedAt.toISOString()}::timestamptz)`,
+          clockSkewSeconds,
           failedEvents: event.failedCount,
           oldestFailedAt,
           lastFailureReason: event.lastFailureReason,
@@ -415,25 +587,80 @@ export async function POST(request: NextRequest) {
         },
       });
 
-    // 0069: raise/resolve the heartbeat-derived health alerts, but only when
-    // the health picture actually changed. `after()` keeps the alert writes
-    // off the response path: a failed alert write must never fail a heartbeat.
-    if (
+    // 0069: raise/resolve the heartbeat-derived health alerts. `after()` keeps
+    // the alert writes off the response path: a failed alert write must never
+    // fail a heartbeat.
+    //
+    // Reconcile when the health picture changed, OR when an alert that should
+    // be open is missing. The second leg is the retry for a failed alert write:
+    // without it, one failed write at the moment the signature changed would
+    // mean the alert never appears (the signature never changes again). Healthy
+    // agents have no expected alerts, so the steady state still costs zero
+    // extra queries.
+    const conditions = evaluateHeartbeatHealth(nextHealth);
+    // dead_letter fires on a RISE of the failed count. The signature does not
+    // carry the count (it would churn), so a rise forces the reconcile itself.
+    const deadLetterRose = event.failedCount > priorFailed;
+    const signatureChanged =
       prior === undefined ||
-      healthSignature(priorHealth) !== healthSignature(nextHealth)
+      deadLetterRose ||
+      healthSignature(priorHealth) !== healthSignature(nextHealth);
+    let alertMissing = false;
+    if (!signatureChanged && conditions.length > 0) {
+      const expected = conditions.map(
+        (c) => `${AGENT_HEALTH_ALERT_KIND}:${c.key}`
+      );
+      try {
+        const open = await db
+          .select({ dedupeKey: schema.dashboardAlerts.dedupeKey })
+          .from(schema.dashboardAlerts)
+          .where(
+            and(
+              eq(schema.dashboardAlerts.clinicId, event.clinicId),
+              eq(schema.dashboardAlerts.kind, AGENT_HEALTH_ALERT_KIND),
+              inArray(schema.dashboardAlerts.dedupeKey, expected)
+            )
+          );
+        const present = new Set(open.map((r) => r.dedupeKey));
+        alertMissing = expected.some((k) => !present.has(k));
+      } catch (err) {
+        console.error(
+          `[pvs-agent-heartbeat] open-alert check failed (clinic=${event.clinicId}):`,
+          err
+        );
+      }
+    }
+
+    // A beat is proof of life: clear the liveness alerts it contradicts now
+    // instead of waiting for the next hourly scan.
+    const firstBeat = prior !== undefined && prior.firstHeartbeatAt === null;
+    const wasStale =
+      prior?.lastHeartbeatAt != null &&
+      receivedAt.getTime() - prior.lastHeartbeatAt.getTime() >
+        HEARTBEAT_STALE_MS;
+    const scope: string[] = [...HEARTBEAT_SCOPE_KEYS];
+    // dead_letter is outside HEARTBEAT_SCOPE_KEYS on purpose (it stays up while
+    // the count merely holds); it resolves only when the count is back to 0.
+    if (event.failedCount === 0 && priorFailed > 0) scope.push("dead_letter");
+    if (firstBeat) scope.push("heartbeat_never");
+    if (wasStale || firstBeat) scope.push("heartbeat_stale");
+
+    if (
+      signatureChanged ||
+      alertMissing ||
+      firstBeat ||
+      wasStale ||
+      (event.failedCount === 0 && priorFailed > 0)
     ) {
       after(() =>
-        reconcileAgentHealthAlerts(
-          event.clinicId,
-          evaluateHeartbeatHealth(nextHealth),
-          HEARTBEAT_SCOPE_KEYS
-        ).catch((err) =>
-          // Swallowed on purpose: a failed alert write must never turn a
-          // healthy heartbeat into an error the agent will retry forever.
-          console.error(
-            `[pvs-agent-heartbeat] alert reconcile failed (clinic=${event.clinicId}):`,
-            err
-          )
+        reconcileAgentHealthAlerts(event.clinicId, conditions, scope).catch(
+          (err) =>
+            // Swallowed on purpose: a failed alert write must never turn a
+            // healthy heartbeat into an error the agent will retry forever.
+            console.error(
+              `[pvs-agent-heartbeat] alert reconcile failed (clinic=${event.clinicId}):`,
+              err
+            )
         )
       );
     }
@@ -444,7 +671,7 @@ export async function POST(request: NextRequest) {
     // entirely when the agent didn't report any (older agent, or no adapters
     // enabled yet) so the common heartbeat stays a single write.
     if (event.enrolledVendors && event.enrolledVendors.length > 0) {
-      const seenAt = new Date(event.sentAt);
+      const seenAt = receivedAt;
       // Dedupe within the payload so the batch insert can't self-conflict on
       // its own (clinic_id, bridge_source) PK in one statement.
       const sources = Array.from(new Set(event.enrolledVendors));
@@ -492,7 +719,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ ok: true }, { status: 200 });
+    // 0071: the response carries the vendor-config manifest. Riding the
+    // heartbeat means a published config reaches a Praxis within a minute
+    // without the agent running a second polling loop that would fail
+    // separately (and invisibly) whenever the portal is unreachable.
+    //
+    // Resolution failure must not fail the heartbeat: the telemetry above is
+    // already committed, and an agent that retries a 500 forever would lose it.
+    // An empty manifest reads as "nothing to change", so the machine simply
+    // keeps its current configs until the next tick.
+    let configManifest: Awaited<ReturnType<typeof resolveManifest>> = [];
+    try {
+      configManifest = await resolveManifest(event.clinicId);
+    } catch (err) {
+      console.error(
+        `[pvs-agent-heartbeat] config manifest failed (clinic=${event.clinicId}):`,
+        err
+      );
+    }
+
+    return NextResponse.json({ ok: true, configManifest }, { status: 200 });
   } catch (err) {
     console.error("[pvs-agent-heartbeat] handler failed:", err);
     return NextResponse.json(

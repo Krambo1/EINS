@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import {
   ChevronDown,
@@ -20,6 +20,7 @@ import {
 } from "@eins/ui";
 import { ROLE_LABELS, type Role } from "@/lib/constants";
 import { can } from "@/lib/roles";
+import { clearSearchStorage } from "./search-storage";
 
 interface UserMenuProps {
   user: {
@@ -33,7 +34,7 @@ interface UserMenuProps {
 
 const TRIGGER_CLASSES = cn(
   "group inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-bg-primary py-1.5 pl-1.5 pr-2 text-left transition",
-  "hover:bg-bg-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-fg-primary/40",
+  "hover:bg-bg-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-fg-primary",
   "data-[state=open]:bg-bg-secondary"
 );
 
@@ -58,6 +59,7 @@ export function UserMenu({ user, impersonating }: UserMenuProps) {
   const [open, setOpen] = useState(false);
   const [endingImpersonation, startEnding] = useTransition();
   const [mounted, setMounted] = useState(false);
+  const logoutFormRef = useRef<HTMLFormElement>(null);
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -93,7 +95,7 @@ export function UserMenu({ user, impersonating }: UserMenuProps) {
       />
       <span className="hidden flex-col leading-tight md:flex">
         <span className="text-sm font-medium">{displayName}</span>
-        <span className="text-xs text-fg-secondary">
+        <span className="text-sm text-fg-secondary">
           {ROLE_LABELS[user.role]}
         </span>
       </span>
@@ -119,6 +121,7 @@ export function UserMenu({ user, impersonating }: UserMenuProps) {
   }
 
   return (
+    <>
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
         className={TRIGGER_CLASSES}
@@ -135,11 +138,11 @@ export function UserMenu({ user, impersonating }: UserMenuProps) {
               {displayName}
             </div>
             {user.fullName && (
-              <div className="truncate text-xs text-fg-secondary">
+              <div className="truncate text-sm text-fg-secondary">
                 {user.email}
               </div>
             )}
-            <div className="mt-1 inline-flex items-center rounded-md bg-bg-secondary px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-fg-secondary">
+            <div className="mt-1 inline-flex items-center rounded-md bg-bg-secondary px-1.5 py-0.5 text-sm font-medium text-fg-primary">
               {ROLE_LABELS[user.role]}
             </div>
           </div>
@@ -188,13 +191,24 @@ export function UserMenu({ user, impersonating }: UserMenuProps) {
 
         <DropdownMenuSeparator />
 
-        <DropdownMenuItem asChild>
-          <a href="/api/auth/logout" className="cursor-pointer">
-            <LogOut className="h-4 w-4 text-fg-secondary" aria-hidden />
-            <span>Abmelden</span>
-          </a>
+        <DropdownMenuItem
+          onSelect={(e) => {
+            e.preventDefault();
+            // L-1: palette history (patient names) does not outlive the login.
+            clearSearchStorage();
+            logoutFormRef.current?.requestSubmit();
+          }}
+          className="cursor-pointer"
+        >
+          <LogOut className="h-4 w-4 text-fg-secondary" aria-hidden />
+          <span>Abmelden</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+    {/* Logout is a POST (B-15), so a foreign link cannot log anyone out. The
+        form lives outside the portaled menu content, which unmounts on close;
+        the item keeps the menu open and submits it. */}
+    <form ref={logoutFormRef} method="post" action="/api/auth/logout" hidden />
+    </>
   );
 }

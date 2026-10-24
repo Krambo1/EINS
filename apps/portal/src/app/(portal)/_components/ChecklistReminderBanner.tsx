@@ -12,9 +12,9 @@ export function ChecklistReminderBanner({ remaining }: { remaining: number }) {
   return (
     <Link
       href="/onboarding/checkliste"
-      className="mb-6 flex items-center gap-3 rounded-xl border border-accent/40 bg-bg-secondary px-4 py-3 text-sm transition-colors hover:border-accent"
+      className="mb-6 flex items-center gap-3 rounded-xl border border-[var(--accent-glow)] bg-bg-secondary px-4 py-3 text-sm transition-colors hover:border-accent"
     >
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-accent/40 text-accent">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--accent-glow)] text-accent">
         <ClipboardCheck className="h-4 w-4" />
       </span>
       <span className="min-w-0 flex-1 text-fg-primary">
@@ -23,7 +23,7 @@ export function ChecklistReminderBanner({ remaining }: { remaining: number }) {
           Ihrer Start-Checkliste offen.
         </span>{" "}
         <span className="text-fg-secondary">
-          Damit wir Anzeigen, Zielseite und Videos fertig aufsetzen können.
+          Damit wir Ihren KI-Klon, Ihre Zielseite und Ihre ersten Beiträge fertig aufsetzen können.
         </span>
       </span>
       <ArrowRight className="h-4 w-4 shrink-0 text-fg-secondary" />

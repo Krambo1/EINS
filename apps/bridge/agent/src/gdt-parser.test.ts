@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import iconv from "iconv-lite";
-import { parseGdtFile, pickFirst, TornGdtFileError } from "./gdt-parser";
+import { parseGdtFile, pickFirst } from "./gdt-parser";
 
 /**
  * Parser fixture coverage. Real-world Praxis GDT files are CRLF-line-
@@ -71,15 +71,17 @@ describe("gdt-parser", () => {
     expect(a.contentHash).toBe(b.contentHash);
   });
 
-  it("rejects a file without a final line terminator as a torn write (C1)", async () => {
+  it("reports a missing final line terminator instead of throwing (watcher decides)", async () => {
     const complete = gdt([
-      ["8000", "8316"],
+      ["8000", "6301"],
       ["3000", "PAT-1"],
-      ["8420", "350,00"],
+      ["3101", "Mustermann"],
     ]);
-    // Simulate a paused write: cut the last 5 bytes (mid-amount, no CRLF).
-    const torn = complete.subarray(0, complete.length - 5);
-    await expect(parseGdtFile(torn)).rejects.toBeInstanceOf(TornGdtFileError);
+    const cut = complete.subarray(0, complete.length - 2); // drop final CR LF
+    const parsed = await parseGdtFile(cut);
+    expect(parsed.endsWithTerminator).toBe(false);
+    expect(pickFirst(parsed.records, "3101")).toBe("Mustermann");
+    expect((await parseGdtFile(complete)).endsWithTerminator).toBe(true);
   });
 
   it("segments a multi-Satz BDT batch at FK 8000 boundaries (C2)", async () => {
@@ -247,5 +249,101 @@ describe("gdt-parser: LLL length-prefix validation (L6)", () => {
     const r = await parseGdtFile(line);
     expect(r.suspectLineCount).toBe(0);
     expect(pickFirst(r.records, "3101")).toBe("Mueller");
+  });
+});
+
+/**
+ * Spec-grounded fixtures. GDT V2.1 (QMS, 5/01) section 2.6.2 prints this
+ * exact "Stammdaten übermitteln" file; FK 8100 declares 173 bytes, which is
+ * the real byte length of the Satz incl. every CR LF.
+ */
+const SPEC_6301_LINES = [
+  "01380006301",
+  "014810000173",
+  "0178315EKG_TYP1",
+  "0178316PRAX_EDV",
+  "014921802.10",
+  "014300002345",
+  "0193101Mustermann",
+  "0143102Franz",
+  "017310301101945",
+  "01031101",
+  "0123622178",
+  "0123623079",
+];
+
+describe("gdt-parser: GDT 2.1 spec example file", () => {
+  it("parses the spec's 6301 example and verifies FK 8100 against the real byte length", async () => {
+    const bytes = Buffer.from(SPEC_6301_LINES.map((l) => `${l}\r\n`).join(""), "latin1");
+    expect(bytes.length).toBe(173);
+    const parsed = await parseGdtFile(bytes);
+    expect(parsed.saetze).toHaveLength(1);
+    const s = parsed.saetze[0];
+    expect(s.satzart).toBe("6301");
+    expect(s.declaredLength).toBe(173);
+    expect(s.actualLength).toBe(173);
+    expect(s.lengthVerified).toBe(true);
+    expect(pickFirst(s.records, "8315")).toBe("EKG_TYP1");
+    expect(pickFirst(s.records, "3000")).toBe("02345");
+    expect(pickFirst(s.records, "3103")).toBe("01101945");
+    expect(parsed.suspectLineCount).toBe(0);
+  });
+
+  it("still verifies FK 8100 when the exporter omitted the final CR LF", async () => {
+    const text = SPEC_6301_LINES.map((l) => `${l}\r\n`).join("");
+    const parsed = await parseGdtFile(Buffer.from(text.slice(0, -2), "latin1"));
+    expect(parsed.endsWithTerminator).toBe(false);
+    // 171 actual bytes vs 173 declared: not verified, the watcher waits for
+    // stability before accepting it.
+    expect(parsed.saetze[0].lengthVerified).toBe(false);
+  });
+});
+
+describe("gdt-parser: character sets per FK 9206", () => {
+  function satzWithName(nameBytes: Buffer, decl?: string): Buffer {
+    const recs: Array<{ fk: string; valueBytes: Buffer }> = [
+      { fk: "8000", valueBytes: Buffer.from("6301") },
+    ];
+    if (decl) recs.push({ fk: "9206", valueBytes: Buffer.from(decl) });
+    recs.push(
+      { fk: "3000", valueBytes: Buffer.from("4711") },
+      { fk: "3101", valueBytes: nameBytes },
+      { fk: "3102", valueBytes: Buffer.from("Jürgen".replace("ü", "u")) }
+    );
+    return gdtBytes(recs);
+  }
+
+  it("decodes CP437 (the GDT standard charset, 9206=2)", async () => {
+    const parsed = await parseGdtFile(satzWithName(iconv.encode("Müller-Weiß", "cp437"), "2"));
+    expect(parsed.encoding).toBe("cp437");
+    expect(pickFirst(parsed.records, "3101")).toBe("Müller-Weiß");
+  });
+
+  it("decodes CP437 even when 9206 is absent", async () => {
+    const parsed = await parseGdtFile(satzWithName(iconv.encode("Jäger Öztürk", "cp437")));
+    expect(pickFirst(parsed.records, "3101")).toBe("Jäger Öztürk");
+  });
+
+  it("decodes 7-bit DIN 66003 (9206=1): M}ller -> Müller, Stra~e -> Straße", async () => {
+    const parsed = await parseGdtFile(satzWithName(Buffer.from("M}ller-Stra~e", "ascii"), "1"));
+    expect(parsed.encoding).toBe("din66003");
+    expect(pickFirst(parsed.records, "3101")).toBe("Müller-Straße");
+  });
+
+  it("decodes 9206=3 (ISO-8859-1/CP1252) content", async () => {
+    const parsed = await parseGdtFile(satzWithName(iconv.encode("Müller", "cp1252"), "3"));
+    expect(pickFirst(parsed.records, "3101")).toBe("Müller");
+  });
+
+  it("trusts the content over a wrong 9206 declaration (declares CP437, writes CP1252)", async () => {
+    const parsed = await parseGdtFile(satzWithName(iconv.encode("Müller-Weiß", "cp1252"), "2"));
+    expect(pickFirst(parsed.records, "3101")).toBe("Müller-Weiß");
+    expect(parsed.declaredEncoding).toBe("cp437");
+  });
+
+  it("decodes UTF-8 written by modern PVS", async () => {
+    const parsed = await parseGdtFile(satzWithName(Buffer.from("Müller-Weiß", "utf8")));
+    expect(parsed.encoding).toBe("utf8");
+    expect(pickFirst(parsed.records, "3101")).toBe("Müller-Weiß");
   });
 });

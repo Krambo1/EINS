@@ -1,14 +1,20 @@
 /**
- * Asset-Liefer-Checkliste — item catalog (Kunden-Onboarding Teil 2).
+ * Asset-Liefer-Checkliste - item catalog (Kunden-Onboarding Teil 2).
  *
- * Source of truth for the content: Notion "Asset-Liefer-Checkliste
- * (Kunden-Onboarding)" (37be7fc8), Blocks A-F, mirrored in
+ * Source of truth for the content: Obsidian note "Asset-Liefer-Checkliste
+ * (Kunden-Onboarding)" (10 EINS/Kunden/), Blocks A-F, mirrored in
  * docs/asset-checkliste/checkliste-v1.md. This file is the contract the DB
  * schema (checklist_items / checklist_files), the clinic page, the admin tab
  * and the PDF all build on.
  *
- * Item ids ("A1".."F4") are a STORAGE CONTRACT: they key the per-item rows and
- * the storage paths. Never renumber an existing item; only append.
+ * Item ids ("A1".."F6") are a STORAGE CONTRACT: they key the per-item rows and
+ * the storage paths. Never renumber an existing item; only append. Unknown ids
+ * in stored rows are ignored by the page, the admin tab and the actions, so an
+ * item can be retired by removing it here; a retired id is never reused.
+ * Retired: F1 (Patienten-Einwilligungen fuer den Produktionstag), retired on
+ * 2026-09-30 with the switch to the KI-Klon. Successor: F5.
+ * Retired: D5 (Vorher-Nachher-Material), retired on 2026-09-30: Vorher-Nachher
+ * is not used at all (KANON Abschnitt 8, § 3 und § 11 HWG). No successor.
  *
  * Lieferweg-Typen (see DeliveryType): how each item is delivered and what sets
  * its status to 'geliefert'. Two-stage everywhere: the clinic delivers, EINS
@@ -46,7 +52,7 @@ export type ItemRole = "inhaber" | "team";
 
 export type ChecklistStatus = "offen" | "geliefert" | "geprueft" | "entfaellt";
 
-/** Upload allowlist profile — drives the file picker `accept` and the
+/** Upload allowlist profile - drives the file picker `accept` and the
  *  server-side extension check. Keys map into UPLOAD_PROFILES. */
 export type UploadProfile = "logo" | "dokument" | "bild";
 
@@ -66,7 +72,7 @@ export interface AngabeField {
 }
 
 export interface ChecklistItem {
-  /** "A1".."F4" — storage contract, never renumber. */
+  /** "A1".."F6" - storage contract, never renumber, never reuse a retired id. */
   id: string;
   title: string;
   deliveryType: DeliveryType;
@@ -135,9 +141,9 @@ export const MAX_CHECKLIST_UPLOAD_BYTES = 25 * 1024 * 1024;
 export const CHECKLIST_BLOCKS: ChecklistBlock[] = [
   {
     key: "A",
-    title: "Blocker: Ohne diese Punkte startet nichts",
+    title: "Grundlagen zum Start: Ohne diese Punkte startet nichts",
     intro:
-      "Diese fünf Punkte brauchen wir, bevor die Leistung startet (Tag 0 bis 3). Sie zählen erst als erledigt, sobald wir sie geprüft haben.",
+      "Diese fünf Punkte brauchen wir, bevor die Leistung startet. Die Klon-Aufnahme und die Einwilligung brauchen wir innerhalb von 3 Werktagen nach Unterschrift. Sie zählen erst als erledigt, sobald wir sie geprüft haben.",
     items: [
       {
         id: "A1",
@@ -162,7 +168,7 @@ export const CHECKLIST_BLOCKS: ChecklistBlock[] = [
         anleitung:
           "Nennen Sie die Person, die im Alltag Entscheidungen für die Zusammenarbeit treffen darf (Freigaben, Rückfragen). Das kann der Inhaber selbst sein oder eine bevollmächtigte Person.",
         warum:
-          "Jede Rückfrage, die erst durch die Praxis wandern muss, kostet Kampagnen-Tage.",
+          "Jede Rückfrage, die erst durch die Praxis wandern muss, kostet Zeit.",
         fields: [
           { key: "name", label: "Name", type: "text" },
           { key: "funktion", label: "Funktion", type: "text" },
@@ -184,7 +190,7 @@ export const CHECKLIST_BLOCKS: ChecklistBlock[] = [
         blocker: true,
         role: "team",
         anleitung:
-          "Die ärztliche Leitung gibt medizinische Aussagen in Anzeigen und auf Zielseiten frei (Heilmittelwerbegesetz). Bitte nennen Sie die zuständige Ärztin oder den zuständigen Arzt.",
+          "Die ärztliche Leitung gibt medizinische Aussagen in Beiträgen, Anzeigen und auf Zielseiten frei (Heilmittelwerbegesetz). Bitte nennen Sie die zuständige Ärztin oder den zuständigen Arzt.",
         warum:
           "Werbliche Aussagen über Behandlungen dürfen nur mit fachlicher Freigabe live gehen.",
         fields: [
@@ -202,23 +208,30 @@ export const CHECKLIST_BLOCKS: ChecklistBlock[] = [
       },
       {
         id: "A4",
-        title: "Termin für das Onboarding-Meeting bestätigt",
+        title: "Termin für das Onboarding-Gespräch bestätigt",
         deliveryType: "status",
         required: true,
         blocker: true,
         role: "team",
         anleitung:
-          "Das Onboarding-Meeting dauert etwa 90 Minuten und findet per Video oder vor Ort statt. Den Termin stimmen Sie direkt mit Ihrem EINS-Ansprechpartner ab. Haken Sie diesen Punkt ab, sobald der Termin in beiden Kalendern steht.",
+          "Das Onboarding-Gespräch dauert etwa 90 Minuten und findet per Video statt. Den Termin stimmen Sie direkt mit Ihrem EINS-Ansprechpartner ab. Haken Sie diesen Punkt ab, sobald der Termin in beiden Kalendern steht.",
       },
       {
+        // The id A5 stays (storage contract); only label and help text changed
+        // on 2026-09-30 (was: Termin fuer den Produktionstag fixiert).
+        // TODO(karam): Uebergabeweg der Klon-Aufnahme festlegen (Portal-Upload,
+        // Link oder Uebergabe im Onboarding-Gespraech); haengt an der Wahl des
+        // KI-Werkzeugs. Bis dahin nennt der Text keinen Weg.
         id: "A5",
-        title: "Termin für den Produktionstag fixiert",
+        title: "Klon-Aufnahme und Einwilligung geliefert",
         deliveryType: "status",
         required: true,
         blocker: true,
         role: "team",
         anleitung:
-          "Der Produktionstag (Video und Fotos in Ihrer Praxis) dauert 4 bis 6 Stunden. Planen Sie einen Tag mit ruhigem Praxisbetrieb. Haken Sie ab, sobald der Termin fixiert ist.",
+          "Sie nehmen einmal wenige Minuten Video und Stimme mit dem Handy auf, nach der Anleitung von EINS. Daraus entsteht Ihr KI-Klon. Dazu gehört Ihre unterschriebene Einwilligung für KI-Abbild und Stimme, die Sie unter Punkt F5 hochladen. Haken Sie ab, sobald beides an EINS übergeben ist. Frist: 3 Werktage nach Unterschrift.",
+        warum:
+          "Ohne Klon-Aufnahme und Einwilligung startet die Leistung nicht.",
       },
     ],
   },
@@ -226,7 +239,7 @@ export const CHECKLIST_BLOCKS: ChecklistBlock[] = [
     key: "B",
     title: "Zugänge zu Werbekonten und Plattformen",
     intro:
-      "Alle Zugänge per Einladung oder Partnerfreigabe an EINS. Bitte niemals Passwörter per E-Mail oder Telefon weitergeben, wir fragen auch nie danach.",
+      "Alle Zugänge per Einladung oder Partnerfreigabe an EINS. Bitte niemals Passwörter per E-Mail oder Telefon weitergeben, wir fragen auch nie danach. Frist für Instagram, Facebook, Meta Business Manager und die Domain: 3 Werktage nach Unterschrift.",
     items: [
       {
         id: "B1",
@@ -243,7 +256,7 @@ export const CHECKLIST_BLOCKS: ChecklistBlock[] = [
 5. Geben Sie die EINS Business-Manager-ID ein: ${EINS_CONTACT.metaBmId}
 6. Haken Sie hier "Einladung verschickt" ab.
 
-Falls Ihre Praxis keinen Business Manager hat: Wählen Sie "Nicht vorhanden". Wir legen ihn im Onboarding-Meeting gemeinsam an, das dauert etwa 15 Minuten.`,
+Falls Ihre Praxis keinen Business Manager hat: Wählen Sie "Nicht vorhanden". Wir legen ihn im Onboarding-Gespräch gemeinsam an, das dauert etwa 15 Minuten.`,
       },
       {
         id: "B2",
@@ -264,10 +277,10 @@ Falls Ihre Praxis keinen Business Manager hat: Wählen Sie "Nicht vorhanden". Wi
         role: "team",
         allowNichtVorhanden: true,
         anleitung: `1. Weisen Sie EINS Ihr Werbekonto als Partner zu ("Konten" → "Werbekonten" → "Partner zuweisen", Zugriff "Werbekonto verwalten").
-2. Hinterlegen Sie ein Zahlungsmittel der Praxis (Kreditkarte oder Lastschrift) unter "Abrechnung und Zahlungen". Das Werbebudget läuft direkt über die Praxis, nicht über EINS.
+2. Hinterlegen Sie ein Zahlungsmittel der Praxis (Kreditkarte oder Lastschrift) unter "Abrechnung und Zahlungen". Das Werbebudget zahlen Sie direkt an Meta, nicht an EINS. Zu Beginn brauchen Sie kein Werbebudget, wir starten organisch.
 3. Haken Sie ab, wenn beides erledigt ist.
 
-Falls kein Werbekonto existiert: "Nicht vorhanden" wählen, wir legen es gemeinsam an.`,
+Falls kein Werbekonto existiert: "Nicht vorhanden" wählen, wir legen es gemeinsam an, sobald Anzeigen dazukommen.`,
       },
       {
         id: "B4",
@@ -368,7 +381,7 @@ Falls Ihre Praxis kein Google Ads-Konto hat: "Nicht vorhanden" wählen.`,
         blocker: false,
         role: "team",
         anleitung:
-          'Falls Patienten bei Ihnen online buchen können: Tragen Sie den Buchungslink ein. Wenn Anfragen direkt in Ihren Kalender laufen sollen, vermerken Sie "Integration gewünscht", den Rest klären wir im Onboarding-Meeting.',
+          'Falls Patienten bei Ihnen online buchen können: Tragen Sie den Buchungslink ein. Wenn Anfragen direkt in Ihren Kalender laufen sollen, vermerken Sie "Integration gewünscht", den Rest klären wir im Onboarding-Gespräch.',
         fields: [
           { key: "system", label: "System", type: "text" },
           { key: "buchungslink", label: "Buchungslink", type: "text" },
@@ -450,6 +463,8 @@ Falls Ihre Praxis kein Google Ads-Konto hat: "Nicht vorhanden" wählen.`,
   {
     key: "D",
     title: "Marke und Bildmaterial",
+    intro:
+      "Vorher-Nachher-Bilder laden Sie bitte nicht hoch: Wir zeigen keine Vorher-Nachher-Darstellungen, weder in Beiträgen noch in Anzeigen (§ 3 und § 11 HWG).",
     items: [
       {
         id: "D1",
@@ -462,7 +477,7 @@ Falls Ihre Praxis kein Google Ads-Konto hat: "Nicht vorhanden" wählen.`,
         anleitung:
           "Laden Sie Ihr Logo als SVG-, EPS- oder AI-Datei hoch. Falls Sie nur ein PNG haben: bitte in der höchsten verfügbaren Auflösung. Tipp: Die Vektordatei hat meist die Agentur, die Ihr Logo gestaltet hat; eine kurze E-Mail dorthin genügt in der Regel.",
         warum:
-          "Aus dem Logo bauen wir Anzeigen, Zielseiten und Video-Einblendungen; eine Vektordatei bleibt in jeder Größe scharf.",
+          "Aus dem Logo bauen wir Beiträge, Zielseiten und Anzeigen; eine Vektordatei bleibt in jeder Größe scharf.",
       },
       {
         id: "D2",
@@ -495,18 +510,7 @@ Falls Ihre Praxis kein Google Ads-Konto hat: "Nicht vorhanden" wählen.`,
         blocker: false,
         role: "team",
         anleitung:
-          "Videodateien sind für den direkten Upload meist zu groß. Laden Sie sie bei Google Drive, Dropbox oder WeTransfer hoch und tragen Sie hier den Freigabe-Link ein.",
-      },
-      {
-        id: "D5",
-        title: "Vorher-Nachher-Material",
-        deliveryType: "upload_oder_link",
-        uploadProfile: "bild",
-        required: false,
-        blocker: false,
-        role: "team",
-        anleitung:
-          "Nur Material, für das eine dokumentierte Einwilligung der Patientin oder des Patienten vorliegt. Die Einwilligungs-Vorlage stellt EINS (siehe Punkt F1). Ohne Einwilligung verwenden wir nichts, laden Sie es in dem Fall bitte auch nicht hoch.",
+          "Videodateien sind zum direkten Hochladen meist zu groß. Laden Sie sie bei Google Drive, Dropbox oder WeTransfer hoch und tragen Sie hier den Freigabe-Link ein.",
       },
       {
         id: "D6",
@@ -558,7 +562,7 @@ Falls Ihre Praxis kein Google Ads-Konto hat: "Nicht vorhanden" wählen.`,
         blocker: false,
         role: "team",
         anleitung:
-          "Tragen Sie alle Standorte ein, an denen behandelt wird. Das Einzugsgebiet bestimmt, wo Ihre Anzeigen ausgespielt werden.",
+          "Tragen Sie alle Standorte ein, an denen behandelt wird. Das Einzugsgebiet bestimmt, für welche Region wir Beiträge und Anzeigen ausrichten.",
         fields: [
           {
             key: "standorte",
@@ -630,7 +634,7 @@ Falls Ihre Praxis kein Google Ads-Konto hat: "Nicht vorhanden" wählen.`,
         blocker: false,
         role: "team",
         anleitung:
-          "Wie viele Erstberatungen pro Woche sind realistisch frei? Ehrliche Schätzung genügt; danach richten wir das Anzeigen-Tempo aus, damit keine Anfragen liegen bleiben.",
+          "Wie viele Erstberatungen pro Woche sind realistisch frei? Ehrliche Schätzung genügt; danach richten wir aus, wie viele Anfragen wir zu Ihnen leiten, damit keine Anfragen liegen bleiben.",
         fields: [
           {
             key: "kapazitaet",
@@ -670,17 +674,6 @@ Falls Ihre Praxis kein Google Ads-Konto hat: "Nicht vorhanden" wählen.`,
     title: "Rechtliches und Compliance",
     items: [
       {
-        id: "F1",
-        title: "Patienten-Einwilligungen (Foto/Video)",
-        deliveryType: "upload",
-        uploadProfile: "dokument",
-        required: true,
-        blocker: false,
-        role: "team",
-        anleitung:
-          "Jede Person, die am Produktionstag oder in Bestandsmaterial zu sehen ist, braucht eine unterschriebene Einwilligung (Recht am eigenen Bild und Datenschutz). Die Vorlage stellt EINS im Dokumente-Tab bereit; die Praxis holt die Unterschriften ein und lädt die unterschriebenen Einwilligungen hier hoch. Pflicht vor dem Produktionstag (Hauptvertrag § 5 Abs. 2 lit. g).",
-      },
-      {
         id: "F2",
         title: "Frühere HWG-Prüfungen oder Abmahnungen",
         deliveryType: "upload_oder_link",
@@ -690,7 +683,7 @@ Falls Ihre Praxis kein Google Ads-Konto hat: "Nicht vorhanden" wählen.`,
         role: "team",
         allowKeineVorhanden: true,
         anleitung:
-          'Gab es früher werberechtliche Prüfungen oder Abmahnungen (z. B. durch Kammer oder Wettbewerbszentrale)? Falls ja: kurze Info eintragen und, falls vorhanden, die Unterlagen hochladen. Falls nein: "Keine vorhanden" wählen. Beides ist für uns in Ordnung, wir müssen es nur wissen, bevor wir werben (Hauptvertrag § 5 Abs. 2 lit. e).',
+          'Gab es früher werberechtliche Prüfungen oder Abmahnungen (z. B. durch Kammer oder Wettbewerbszentrale)? Falls ja: kurze Info eintragen und, falls vorhanden, die Unterlagen hochladen. Falls nein: "Keine vorhanden" wählen. Beides ist für uns in Ordnung, wir müssen es nur wissen, bevor wir Beiträge veröffentlichen oder werben (Hauptvertrag § 5 Abs. 2 lit. e).',
         fields: [
           {
             key: "beschreibung",
@@ -735,12 +728,48 @@ Falls Ihre Praxis kein Google Ads-Konto hat: "Nicht vorhanden" wählen.`,
         anleitung:
           "EINS stellt geprüfte Datenschutz-Texte für das Anfrageformular Ihrer Zielseiten. Mit diesem Haken bestätigen Sie, dass diese Texte ungekürzt übernommen werden (Hauptvertrag § 5 Abs. 2 lit. h).",
       },
+      {
+        // Successor of the retired F1 (Patienten-Einwilligungen fuer den
+        // Produktionstag). New id on purpose: F1 rows/files keep their old
+        // meaning and are never reinterpreted.
+        id: "F5",
+        title: "Einwilligung KI-Abbild und Stimme",
+        deliveryType: "upload",
+        uploadProfile: "dokument",
+        required: true,
+        blocker: false,
+        role: "inhaber",
+        anleitung:
+          "Für Ihren KI-Klon nutzen wir Ihr Gesicht und Ihre Stimme. Dafür brauchen wir Ihre unterschriebene Einwilligung für KI-Abbild und Stimme. Die Vorlage stellt EINS bereit. Bitte unterschreiben Sie sie und laden Sie die unterschriebene Fassung hier als PDF oder Foto hoch. Vor Ihrer unterschriebenen Einwilligung bauen wir weder Ihr Gesicht noch Ihre Stimme nach. Widerrufen Sie die Einwilligung, stoppen wir sofort alle Beiträge mit Ihrem Klon und löschen das Klon-Modell (Hauptvertrag § 5 Abs. 2 lit. g).",
+        warum:
+          "Ihr KI-Klon gehört Ihnen. Wir nutzen Ihr Gesicht und Ihre Stimme nur für Ihre Praxis, nie für eigene Werbung ohne Ihre gesonderte schriftliche Einwilligung, und löschen das Klon-Modell spätestens 30 Tage nach Vertragsende.",
+      },
+      {
+        // Added 2026-09-30: consent of the persons visible or audible in the
+        // practice's existing material (D3/D4), before EINS uses it. Not a
+        // blocker, not required (the practice may hand over no material).
+        // TODO(karam): EINS template for these consents does not exist yet;
+        // the Anleitung deliberately does not promise one.
+        id: "F6",
+        title: "Einwilligungen für vorhandenes Material",
+        deliveryType: "upload_oder_link",
+        uploadProfile: "dokument",
+        required: false,
+        blocker: false,
+        role: "team",
+        recommended: true,
+        allowKeineVorhanden: true,
+        anleitung:
+          "Laden Sie hier die schriftlichen Einwilligungen aller Personen hoch, die in Ihrem vorhandenen Material (Punkt D3 und D4) zu sehen oder zu hören sind: Ihr Team sowie Patientinnen und Patienten, zum Beispiel in Patientenstimmen. Ohne Einwilligung nutzen wir kein Material, auf dem eine Person erkennbar ist. Mehrere Einwilligungen können Sie als ein PDF oder als Freigabe-Link liefern (Google Drive, Dropbox oder WeTransfer: Dateien dort hochladen, Link mit Leserechten erstellen, hier einfügen). Haben Sie kein solches Material oder geben uns keins, wählen Sie \"Keine vorhanden\".",
+        warum:
+          "Wer in Ihrem Material zu sehen oder zu hören ist, muss der Nutzung zugestimmt haben, bevor wir es verwenden. Das schützt die Personen und Ihre Praxis.",
+      },
     ],
   },
 ];
 
 // ---------------------------------------------------------------
-// Static closing note (Block G — laufende Mitwirkung). Information only,
+// Static closing note (Block G - laufende Mitwirkung). Information only,
 // nothing to check off.
 // ---------------------------------------------------------------
 
@@ -749,15 +778,27 @@ export const ABSCHLUSS_HINWEIS = {
   intro:
     "Diese Punkte sind keine Lieferung, sondern Ihre laufende Mitwirkung während der Zusammenarbeit:",
   points: [
-    "Bis zu 48 Werkstunden Zeit für die Kontaktaufnahme zu Interessenten, wo es nötig ist.",
-    "Das vereinbarte Werbebudget läuft ohne Unterbrechung weiter.",
-    "Freigaben (Anzeigen, Zielseiten, Videos) innerhalb von 10 Werktagen.",
-    "Eine benannte MFA für die Einweisung und die Quartals-Reviews.",
+    "Beiträge freigeben oder konkret ändern: innerhalb von 2 Werktagen. Wir schicken Ihnen die Beiträge einmal pro Woche gesammelt. Das ist in wenigen Minuten erledigt: ansehen, ja oder nein. Es gibt keine automatische Freigabe, denn kein Beitrag geht ohne Ihre Freigabe raus.",
+    "Den Profil-Link zur Zielseite und die Tracking-Nummer nicht entfernen. Darüber messen wir, welche Anfragen über EINS kommen.",
+    "Antwortzeit: Bitte versuchen Sie, jede Anfrage innerhalb von 48 Werkstunden zu kontaktieren. Das ist keine Bedingung der Garantie. Schaffen Sie es nicht, hat das drei Folgen: Sie können bei dieser Anfrage nicht mehr einwenden, die Person sei nicht echt oder nicht erreichbar gewesen. Die Anfrage steht in Ihrer Auswertung als \"von der Praxis nicht beantwortet\". Und liegen drei oder mehr solcher Anfragen offen, dürfen wir nach einer Warnung die bezahlten Anzeigen pausieren, bis Sie die Anfragen kontaktiert haben.",
+    "Empfehlung, keine Bedingung: ein benanntes Mitglied Ihres Praxisteams an der Schulung teilnehmen lassen.",
+    "Jeder Tag, an dem Sie mit einer Mitwirkung in Verzug sind (Lieferung aus dieser Checkliste, Freigabe von Beiträgen), verlängert die 90 Tage um einen Tag. Die Garantie: Sie zahlen nichts, bis die erste qualifizierte Anfrage über EINS in Ihrem Portal liegt. Kommt in 90 Tagen keine, endet die Zusammenarbeit, und Sie haben nichts bezahlt.",
   ],
 } as const;
 
+/** Block G, live part: the Praxis's own EINS tracking numbers and booking links. */
+export const MESSWEGE_HINWEIS = {
+  title: "Ihre Tracking-Nummer und Ihr Buchungslink",
+  intro:
+    "Über diese Nummern und Links messen wir, welche Anrufe und Buchungen über EINS kommen. Bitte entfernen Sie sie nicht.",
+  numbersLabel: "Tracking-Nummern",
+  linksLabel: "Buchungslinks",
+  empty:
+    "Ihre Tracking-Nummer und Ihr Buchungslink erscheinen hier, sobald EINS sie eingerichtet hat.",
+} as const;
+
 export const CHECKLISTE_INTRO =
-  "Damit wir Ihre Kampagnen, Zielseiten und Videos bauen können, brauchen wir einmalig ein paar Zugänge, Dateien und Angaben. Alles läuft über dieses Portal, kein Versand per E-Mail nötig. Sie sehen jederzeit, was schon geliefert und was von uns geprüft ist.";
+  "Damit wir Ihren KI-Klon, Ihre Beiträge und Ihre Zielseiten aufsetzen können, brauchen wir einmalig ein paar Zugänge, Dateien und Angaben. Alles läuft über dieses Portal, kein Versand per E-Mail nötig. Sie sehen jederzeit, was schon geliefert und was von uns geprüft ist.";
 
 // ---------------------------------------------------------------
 // Derived lookups + helpers
@@ -781,16 +822,6 @@ export const BLOCKER_CHECKLIST_IDS: string[] = ALL_CHECKLIST_ITEMS.filter(
 
 /** Answer map stored in checklist_items.answer. */
 export type ChecklistAnswer = Record<string, string | boolean>;
-
-/** Per-item runtime state, assembled from the DB rows for page + admin. */
-export interface ChecklistItemState {
-  status: ChecklistStatus;
-  answer: ChecklistAnswer;
-  files: ChecklistFileMeta[];
-  deliveredAt: Date | null;
-  verifiedAt: Date | null;
-  verifiedBy: string | null;
-}
 
 export interface ChecklistFileMeta {
   id: string;
@@ -829,6 +860,34 @@ export const CHECKLIST_FIELD_ERROR: Record<
   tel: "Bitte geben Sie eine gültige Telefonnummer ein.",
 };
 
+export const CHECKLIST_LINK_ERROR =
+  "Bitte fügen Sie den vollständigen Freigabe-Link ein, zum Beispiel https://drive.google.com/…";
+
+/**
+ * Normalise a pasted share link. People paste "drive.google.com/..." without a
+ * scheme: prefix https:// so the admin view gets an absolute link instead of a
+ * relative one. Only http(s) with a dotted host is accepted; null otherwise
+ * (javascript:, data:, file:, plain words).
+ */
+export function normalizeChecklistLink(raw: string): string | null {
+  const v = raw.trim();
+  if (!v || /\s/.test(v)) return null;
+  let withScheme: string;
+  if (/^https?:\/\//i.test(v)) withScheme = v;
+  else if (/^[a-z][a-z0-9+.-]*:(?!\d)/i.test(v) && !/^[^:/]*\.[^:/]*:\d/.test(v)) {
+    // Another scheme (javascript:, data:, file:, mailto:, ...).
+    return null;
+  } else withScheme = `https://${v.replace(/^\/+/, "")}`;
+  try {
+    const url = new URL(withScheme);
+    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    if (!url.hostname.includes(".")) return null;
+    return withScheme;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Validate every formatted contact field that carries a value. Empty fields
  * pass here (Pflicht-completeness is handled separately); only malformed input
@@ -848,6 +907,15 @@ export function validateChecklistFields(
     } else if (field.format === "tel" && !isValidChecklistPhone(value)) {
       errors[field.key] = CHECKLIST_FIELD_ERROR.tel;
     }
+  }
+  const link = answer.link;
+  if (
+    itemAcceptsLink(item.deliveryType) &&
+    typeof link === "string" &&
+    link.trim() !== "" &&
+    normalizeChecklistLink(link) === null
+  ) {
+    errors.link = CHECKLIST_LINK_ERROR;
   }
   return errors;
 }

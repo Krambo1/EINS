@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { loadForecastInputs } from "@/server/queries/forecast";
 import { runForecast, MIN_SAMPLE_WON } from "@/server/forecast/engine";
+import { berlinToday } from "./berlin-days";
 
 /**
  * Nightly per-praxis forecast snapshot worker.
@@ -18,7 +19,7 @@ import { runForecast, MIN_SAMPLE_WON } from "@/server/forecast/engine";
 
 export interface ForecastSnapshotJob {
   clinicId: string;
-  /** Optional override; defaults to today's date in UTC. */
+  /** Optional override; defaults to today (Berlin calendar day). */
   snapshotDate?: string;
 }
 
@@ -26,7 +27,8 @@ export async function processForecastSnapshot(
   job: ForecastSnapshotJob
 ): Promise<void> {
   const { clinicId } = job;
-  const snapshotDate = job.snapshotDate ?? new Date().toISOString().slice(0, 10);
+  // Berlin calendar day (E-27 family): the UI reads "today" in Berlin.
+  const snapshotDate = job.snapshotDate ?? berlinToday();
 
   const inputs = await loadForecastInputs(clinicId);
 

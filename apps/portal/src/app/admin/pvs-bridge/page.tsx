@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { sql } from "drizzle-orm";
 import { requireAdmin } from "@/auth/admin-guards";
-import { db, schema } from "@/db/client";
+import { db } from "@/db/client";
 import {
   Card,
   CardContent,
@@ -272,9 +272,16 @@ export default async function AdminPvsBridgePage() {
         title="PVS-Bridge"
         subtitle="Betriebszustand jeder PVS-Verbindung, pro Praxis. Nur Lesezugriff."
         actions={
-          <Button asChild variant="ghost">
-            <Link href="/admin/pvs-bridge/events">Event-Trace öffnen →</Link>
-          </Button>
+          <>
+            <Button asChild variant="ghost">
+              <Link href="/admin/pvs-bridge/konfigurationen">
+                Konfigurationen →
+              </Link>
+            </Button>
+            <Button asChild variant="ghost">
+              <Link href="/admin/pvs-bridge/events">Event-Trace öffnen →</Link>
+            </Button>
+          </>
         }
       />
 

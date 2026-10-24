@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { and, desc, eq, ilike, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import {
   Card,
   CardContent,
@@ -10,10 +10,11 @@ import {
 import { requireAdmin } from "@/auth/admin-guards";
 import { db, schema } from "@/db/client";
 import { formatDateTime } from "@/lib/formatting";
-import { auditOverview } from "@/server/queries/admin";
+import { auditOverview, escapeLike } from "@/server/queries/admin";
 import { AdminPageHeader } from "../_components/AdminPageHeader";
 import { AuditTabsNav } from "./_components/AuditTabsNav";
 import { AuditOverviewPanel } from "./_components/AuditOverview";
+import { isUuid } from "@/lib/ids";
 
 export const metadata = { title: "Audit-Log" };
 
@@ -36,6 +37,9 @@ interface PageProps {
 }
 
 const PAGE_SIZE = 100;
+/** Admin-only trails written WITHOUT clinic_id on purpose (the Praxis must not
+ *  see them); the clinic id sits in entity_id instead (G-16). */
+const CLINIC_IN_ENTITY_ID = ["guarantee_clock", "response_enforcement"];
 
 export default async function AdminAuditPage({ searchParams }: PageProps) {
   await requireAdmin();
@@ -71,11 +75,24 @@ async function AuditProtokoll({
   const offset = (page - 1) * PAGE_SIZE;
 
   const conditions: SQL[] = [];
-  if (searchParams.clinicId) {
-    conditions.push(eq(schema.auditLog.clinicId, searchParams.clinicId));
+  const clinicId =
+    searchParams.clinicId && isUuid(searchParams.clinicId)
+      ? searchParams.clinicId
+      : null;
+  if (clinicId) {
+    conditions.push(
+      or(
+        eq(schema.auditLog.clinicId, clinicId),
+        and(
+          isNull(schema.auditLog.clinicId),
+          eq(schema.auditLog.entityId, clinicId),
+          inArray(schema.auditLog.entityKind, CLINIC_IN_ENTITY_ID)
+        )
+      )!
+    );
   }
   if (searchParams.actor) {
-    conditions.push(ilike(schema.auditLog.actorEmail, `%${searchParams.actor}%`));
+    conditions.push(ilike(schema.auditLog.actorEmail, `%${escapeLike(searchParams.actor)}%`));
   }
   if (searchParams.action) {
     conditions.push(eq(schema.auditLog.action, searchParams.action));
@@ -85,7 +102,11 @@ async function AuditProtokoll({
   }
   const whereExpr = conditions.length > 0 ? and(...conditions) : undefined;
 
-  const [rows, [{ total }]] = await Promise.all([
+  const [clinicOptions, rows, [{ total }]] = await Promise.all([
+    db
+      .select({ id: schema.clinics.id, name: schema.clinics.displayName })
+      .from(schema.clinics)
+      .orderBy(asc(schema.clinics.displayName)),
     db
       .select({
         id: schema.auditLog.id,
@@ -98,11 +119,17 @@ async function AuditProtokoll({
         entityId: schema.auditLog.entityId,
         ipAddress: schema.auditLog.ipAddress,
         diff: schema.auditLog.diff,
+        impersonatedByAdminId: schema.auditLog.impersonatedByAdminId,
+        impersonatedByAdminEmail: schema.adminUsers.email,
       })
       .from(schema.auditLog)
       .leftJoin(
         schema.clinics,
         eq(schema.clinics.id, schema.auditLog.clinicId)
+      )
+      .leftJoin(
+        schema.adminUsers,
+        eq(schema.adminUsers.id, schema.auditLog.impersonatedByAdminId)
       )
       .where(whereExpr)
       .orderBy(desc(schema.auditLog.createdAt))
@@ -122,11 +149,19 @@ async function AuditProtokoll({
         <CardContent className="pt-6">
           <form className="grid gap-3 md:grid-cols-5" method="get">
             <input type="hidden" name="tab" value="protokoll" />
-            <Input
+            <select
               name="clinicId"
-              placeholder="Praxis-ID (UUID)"
-              defaultValue={searchParams.clinicId ?? ""}
-            />
+              aria-label="Praxis"
+              defaultValue={clinicId ?? ""}
+              className="rounded-md border border-border bg-bg-primary px-3 py-2 text-sm"
+            >
+              <option value="">Alle Praxen</option>
+              {clinicOptions.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
             <Input
               name="actor"
               placeholder="Akteur (E-Mail enthält)"
@@ -183,6 +218,13 @@ async function AuditProtokoll({
                   </td>
                   <td className="px-4 py-2 font-mono text-xs">
                     {r.actorEmail ?? "–"}
+                    {r.impersonatedByAdminId && (
+                      <div className="font-sans text-fg-secondary">
+                        durch Admin
+                        {r.impersonatedByAdminEmail ? ` ${r.impersonatedByAdminEmail}` : ""} in
+                        Kundenansicht
+                      </div>
+                    )}
                   </td>
                   <td className="px-4 py-2">
                     <Badge tone="neutral">{r.action}</Badge>

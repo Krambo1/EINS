@@ -12,24 +12,25 @@ import {
   hashPhone,
   sendMetaCapi,
 } from "@/lib/meta-capi";
-import { sendToPortal } from "@/lib/portal-intake";
+import { paidAdPlatformOfVisit } from "@/lib/paid-ad-platform";
+import { sendToPortal, type PortalRelayResult } from "@/lib/portal-intake";
 import type { QuizSubmissionPayload } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// The portal relay retries (3 x 6 s timeout + backoff) before giving up.
+export const maxDuration = 30;
 
 /**
  * Lead intake.
  *
  * 1. Validate payload server-side (zod)
- * 2. Compute idempotency hash; drop duplicates within the same UTC day
- * 3. POST to clinic webhook via configured adapter (HubSpot / GHL / raw)
- * 4. Mirror to Meta CAPI server-side, deduped via event_id
+ * 2. Compute idempotency hash; drop duplicates the portal already accepted
+ * 3. Relay to the EINS portal (system of record) with retries. If the portal
+ *    does not accept, answer 502 so the form shows an error with the Praxis
+ *    phone number. The patient never sees success for a lost inquiry.
+ * 4. Then, best-effort: CRM webhook, DOI email, Meta CAPI (deduped via event_id)
  * 5. Return { ok: true, eventId }
- *
- * IMPORTANT: webhook + CAPI are best-effort — we never block the patient on
- * a downstream slowdown. If both fail we still return ok=true and log the
- * error; the lead lives in our access log either way.
  */
 
 const submissionSchema = z.object({
@@ -46,6 +47,12 @@ const submissionSchema = z.object({
   email: z.string().email().max(120),
   phone: z.string().max(40).optional(),
   notes: z.string().max(1000).optional(),
+  // Optional self-report. Loose here on purpose: an unknown value is dropped
+  // in lib/portal-intake.ts, it never costs the inquiry.
+  selfReportedSource: z
+    .unknown()
+    .transform((v) => (typeof v === "string" && v.length <= 40 ? v : undefined))
+    .optional(),
   consents: z.object({
     privacy: z.literal(true, {
       errorMap: () => ({ message: "consents.privacy must be true" }),
@@ -55,6 +62,13 @@ const submissionSchema = z.object({
     }),
     marketing: z.boolean(),
     aiProcessing: z.boolean(),
+    /**
+     * Separate, optional consent to report the inquiry and a later treatment
+     * to Meta and Google (lib/ads-consent.ts). Optional with default false so
+     * older clients keep working and count as "no consent".
+     */
+    adsMeasurement: z.boolean().optional().default(false),
+    adsMeasurementVersion: z.string().max(40).optional(),
   }),
   marketingConfirmedAt: z.null().optional(),
   meta: z.object({
@@ -77,20 +91,39 @@ const submissionSchema = z.object({
 const SEEN_KEYS = new Map<string, number>();
 const DEDUP_WINDOW_MS = 1000 * 60 * 60 * 6; // 6 hours
 
-function rememberKey(key: string): boolean {
+/** True when this instance already delivered the same inquiry recently. */
+function seenRecently(key: string): boolean {
   const now = Date.now();
   for (const [k, ts] of SEEN_KEYS.entries()) {
     if (now - ts > DEDUP_WINDOW_MS) SEEN_KEYS.delete(k);
   }
-  if (SEEN_KEYS.has(key)) return false;
-  SEEN_KEYS.set(key, now);
-  return true;
+  return SEEN_KEYS.has(key);
+}
+
+/**
+ * Reserve the key only AFTER the portal accepted (or the clinic has no
+ * portal mirror). A failed relay must leave the patient free to resend.
+ */
+function rememberKey(key: string): void {
+  SEEN_KEYS.set(key, Date.now());
+}
+
+function originOf(url: string): string | undefined {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return undefined;
+  }
 }
 
 function clientIp(req: NextRequest): string {
+  // x-real-ip is set by Vercel and cannot be spoofed; the leftmost
+  // x-forwarded-for entry can. Fall back to XFF only without x-real-ip.
+  const real = req.headers.get("x-real-ip")?.trim();
+  if (real) return real;
   const xff = req.headers.get("x-forwarded-for");
   if (xff) return xff.split(",")[0].trim();
-  return req.headers.get("x-real-ip") ?? "";
+  return "";
 }
 
 /**
@@ -210,11 +243,38 @@ export async function POST(req: NextRequest) {
   }
 
   const dedupKey = idempotencyKey(payload.email, payload.treatmentSlug);
-  const fresh = rememberKey(dedupKey);
+  const fresh = !seenRecently(dedupKey);
+
+  const ua = payload.meta.ua ?? req.headers.get("user-agent") ?? "";
+
+  // Portal first: it is the system of record. Only when it accepted (or the
+  // clinic has no portal mirror) do the side effects below run, so a failed
+  // relay never sends a DOI mail or a Meta Lead for an inquiry the patient
+  // was told did not go through.
+  if (fresh) {
+    const relay = await sendToPortal(payload, clinic, treatment, process.env, {
+      clientIp: clientIp(req),
+      userAgent: ua,
+    }).catch(
+      (): PortalRelayResult => ({ status: "failed", reason: "exception", attempts: 0 }),
+    );
+    if (relay.status === "failed") {
+      // No patient data in the log line: clinic slug + reason only.
+      console.error(
+        `[lead] portal relay failed clinic=${clinic.slug} reason=${relay.reason} attempts=${relay.attempts}`,
+      );
+      return NextResponse.json(
+        {
+          error: `Ihre Anfrage konnte gerade nicht übermittelt werden. Bitte versuchen Sie es in einer Minute noch einmal oder rufen Sie uns an: ${clinic.contact.phoneDisplay}`,
+        },
+        { status: 502 },
+      );
+    }
+    rememberKey(dedupKey);
+  }
 
   const webhookUrl = webhookUrlForClinic(clinic.slug, clinic.connectors.webhookUrl);
   const ip = anonymizeIp(clientIp(req));
-  const ua = payload.meta.ua ?? req.headers.get("user-agent") ?? "";
 
   // Run webhook + CAPI + DOI email in parallel; collect outcomes.
   const tasks: Promise<unknown>[] = [];
@@ -253,29 +313,21 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Portal mirror — best-effort, like the CRM/CAPI tasks. The portal is the
-  // long-term system of record, but a portal outage must never block the
-  // patient. `sendToPortal` itself is a no-op when PORTAL_URL or the
-  // per-clinic secret env var is unset.
-  //
-  // We pass the (raw) client IP and user-agent so the portal can persist
-  // an anonymised IP + UA onto the requests row for the Meta CAPI
-  // Purchase / Google Ads OCI workers. The IP is anonymised inside
-  // `mapToIntake` before being written to JSON, so it never leaves this
-  // process unredacted.
-  if (fresh) {
-    tasks.push(
-      sendToPortal(payload, clinic, treatment, process.env, {
-        clientIp: clientIp(req),
-        userAgent: ua,
-      }).catch(() => undefined),
-    );
-  }
-
   const capiToken = envTokenForSlug(clinic.slug);
-  // Lead goes to Meta ONLY for the qualified branch — info-only requests
-  // would teach the pixel to optimize on low-intent traffic.
-  if (fresh && payload.branch === "qualified" && clinic.connectors.metaPixelId && capiToken) {
+  // Lead goes to Meta ONLY for the qualified branch (info-only requests
+  // would teach the pixel to optimize on low-intent traffic), ONLY with the
+  // person's separate ads consent, and ONLY when a paid Meta ad brought the
+  // visit (owner decision 2026-10-06; fbclid alone does not count).
+  const reportToMeta =
+    payload.consents.adsMeasurement === true &&
+    paidAdPlatformOfVisit(payload.meta.utm) === "meta";
+  if (
+    fresh &&
+    payload.branch === "qualified" &&
+    reportToMeta &&
+    clinic.connectors.metaPixelId &&
+    capiToken
+  ) {
     tasks.push(
       sendMetaCapi({
         pixelId: clinic.connectors.metaPixelId,
@@ -284,29 +336,25 @@ export async function POST(req: NextRequest) {
           {
             event_name: "Lead",
             event_id: payload.meta.eventId,
-            event_source_url: payload.meta.sourceUrl,
+            // Origin only: the page path names the treatment.
+            event_source_url: originOf(payload.meta.sourceUrl),
             user_data: {
               em: [hashEmail(payload.email)],
               ph: payload.phone ? [hashPhone(payload.phone)] : undefined,
               fn: payload.firstName ? [hashName(payload.firstName)] : undefined,
-              ct: payload.city ? [hashName(payload.city)] : undefined,
               fbc: payload.meta.fbc,
               fbp: payload.meta.fbp,
               client_user_agent: ua,
               client_ip_address: ip || undefined,
             },
-            custom_data: {
-              treatment_slug: payload.treatmentSlug,
-              clinic_slug: payload.clinicSlug,
-              branch: payload.branch,
-            },
+            // No custom_data: Meta learns only that a paid-ad visitor inquired.
           },
         ],
       }).catch(() => undefined),
     );
   }
 
-  // Don't await failures — lead is accepted regardless.
+  // Side effects are best-effort; the portal already holds the inquiry.
   await Promise.allSettled(tasks);
 
   return NextResponse.json(

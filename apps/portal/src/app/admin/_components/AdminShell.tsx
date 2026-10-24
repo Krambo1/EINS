@@ -20,12 +20,15 @@ import {
   ScrollText,
   Menu,
   Film,
+  Clapperboard,
+  Hourglass,
+  PhoneMissed,
 } from "lucide-react";
 import { TopProgressBar } from "@/app/(portal)/_components/TopProgressBar";
 import { GlobalSearch } from "@/app/(portal)/_components/GlobalSearch";
 import { ThemeToggle } from "@/app/_components/ThemeToggle";
 import { EinsLogo } from "@/app/_components/EinsLogo";
-import type { PendingOperations } from "@/server/queries/admin";
+import type { AdminAttention, PendingOperations } from "@/server/queries/admin";
 
 // Lazy-load the dialog so cmdk + the admin index + icons don't ship on every
 // admin route. Once loaded we keep it mounted so subsequent opens are instant.
@@ -39,7 +42,7 @@ interface NavItem {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   /** When set, render an open-count badge fed by `pendingCounts`. */
-  badge?: "operations";
+  badge?: "operations" | "garantie" | "rueckruf";
 }
 
 interface NavGroup {
@@ -53,6 +56,8 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/admin", label: "Übersicht", icon: LayoutDashboard },
       { href: "/admin/clinics", label: "Praxen", icon: Building2 },
+      { href: "/admin/garantie", label: "Garantie-Uhr", icon: Hourglass, badge: "garantie" },
+      { href: "/admin/rueckruf", label: "Rückruf-Lage", icon: PhoneMissed, badge: "rueckruf" },
     ],
   },
   {
@@ -61,12 +66,13 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/admin/leads", label: "Anfragen", icon: Inbox },
       { href: "/admin/leistung", label: "Leistung", icon: TrendingUp },
       { href: "/admin/videos", label: "Videos", icon: Film },
+      { href: "/admin/beitraege", label: "Beiträge", icon: Clapperboard },
     ],
   },
   {
     label: "Betrieb",
     items: [
-      { href: "/admin/operations", label: "Operations", icon: ListChecks, badge: "operations" },
+      { href: "/admin/operations", label: "Aufgaben", icon: ListChecks, badge: "operations" },
       { href: "/admin/support", label: "Kundenbetreuung", icon: ListChecks },
       { href: "/admin/integrations", label: "Integrationen", icon: Plug },
       { href: "/admin/pvs-bridge", label: "PVS-Bridge", icon: Database },
@@ -92,7 +98,7 @@ const NAV_GROUPS: NavGroup[] = [
 /** Group anchored to the bottom of the sidenav as a settings-style footer. */
 const BOTTOM_ANCHORED_GROUP = "System";
 
-/** Total open operations items — drives the Operations nav badge. */
+/** Total open operations items, drives the Operations nav badge. */
 function operationsBadgeTotal(p: PendingOperations): number {
   return (
     p.slaBreaches +
@@ -111,17 +117,19 @@ function badgeText(value: number, cap: number): string | null {
 interface AdminShellProps {
   email: string;
   pendingCounts: PendingOperations;
+  /** G-12: open Garantie and Rückruf items for the nav badges. */
+  attention?: AdminAttention | null;
   children: ReactNode;
 }
 
 /**
- * Admin chrome — the clinic-portal sidebar shell, copied for the admin boundary
+ * Admin chrome: the clinic-portal sidebar shell, copied for the admin boundary
  * and stripped of every clinic-session concern (no `clinic` prop, no role
  * filtering, no impersonation banner, no UserMenu). Keeps the sliding active
  * pill, mobile drawer (body-scroll-lock + Escape + edge-swipe) and top progress
  * bar. Auth stays entirely in `admin/layout.tsx`; this component only renders.
  */
-export function AdminShell({ email, pendingCounts, children }: AdminShellProps) {
+export function AdminShell({ email, pendingCounts, attention, children }: AdminShellProps) {
   const pathname = usePathname();
 
   const allHrefs = useMemo<string[]>(
@@ -150,7 +158,7 @@ export function AdminShell({ email, pendingCounts, children }: AdminShellProps) 
 
   // Global search palette. State lives here (not in <GlobalSearch>) so the
   // trigger can render twice (desktop rail + mobile drawer) without
-  // duplicating the dialog. `loaded` gates the dynamic import — once true
+  // duplicating the dialog. `loaded` gates the dynamic import, once true
   // the dialog stays mounted for instant re-opens.
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchLoaded, setSearchLoaded] = useState(false);
@@ -159,7 +167,7 @@ export function AdminShell({ email, pendingCounts, children }: AdminShellProps) 
     setSearchOpen(true);
   };
 
-  // Desktop sidenav sliding pill — track top/left/width/height of the active
+  // Desktop sidenav sliding pill, track top/left/width/height of the active
   // item so the pill follows font-load / route changes.
   const desktopItemRefs = useRef<Record<string, HTMLAnchorElement | null>>({});
   const [desktopPill, setDesktopPill] = useState<
@@ -316,6 +324,11 @@ export function AdminShell({ email, pendingCounts, children }: AdminShellProps) 
   }, [activeHref]);
 
   const operationsBadge = badgeText(operationsBadgeTotal(pendingCounts), 99);
+  const navBadges: Record<NonNullable<NavItem["badge"]>, string | null> = {
+    operations: operationsBadge,
+    garantie: badgeText(attention?.garantie ?? 0, 99),
+    rueckruf: badgeText(attention?.rueckruf ?? 0, 99),
+  };
   const showProgress = pendingHref !== null;
 
   const renderNav = (variant: "desktop" | "mobile") =>
@@ -327,7 +340,7 @@ export function AdminShell({ email, pendingCounts, children }: AdminShellProps) 
           group.label === BOTTOM_ANCHORED_GROUP && "mt-auto"
         )}
       >
-        <h3 className="px-3 pb-1 text-[0.7rem] font-medium text-fg-tertiary">
+        <h3 className="px-3 pb-1 text-sm font-medium text-fg-primary">
           {group.label}
         </h3>
         {group.items.map((item) => {
@@ -336,7 +349,7 @@ export function AdminShell({ email, pendingCounts, children }: AdminShellProps) 
             item.href === "/admin"
               ? pathname === "/admin"
               : pathname === item.href || pathname.startsWith(`${item.href}/`);
-          const badge = item.badge === "operations" ? operationsBadge : null;
+          const badge = item.badge ? navBadges[item.badge] : null;
 
           if (variant === "desktop") {
             return (

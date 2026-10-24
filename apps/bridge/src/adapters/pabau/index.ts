@@ -1,8 +1,15 @@
-import type { Adapter, AdapterPollResult } from "../Adapter.js";
+import type { Adapter } from "../Adapter.js";
 import type { PvsLinkRow } from "../../db/client.js";
-import type { CanonicalEvent } from "../../canonical/types.js";
-import { PabauClient } from "./client.js";
-import { pickMaxIso } from "../_shared/iso.js";
+import {
+  PabauClient,
+  type PabauPatient,
+  type PabauAppointment,
+  type PabauEncounter,
+  type PabauInvoice,
+  type PabauRecall,
+} from "./client.js";
+import { restSyncMethods } from "../_shared/rest-adapter.js";
+import type { StreamSource } from "../_shared/stream-sync.js";
 import {
   normalizePatient,
   normalizeAppointment,
@@ -18,13 +25,73 @@ import {
  * pvs_link row per Praxis, with the Pabau-issued token stored encrypted
  * via the existing platform_credentials path.
  *
- * Cursor: comma-separated max(modified_at) per resource, identical pattern
- * to the Tomedo adapter so the scheduler treats them interchangeably.
+ * Cursor: comma-separated ISO watermark per resource, identical pattern to the
+ * Tomedo adapter so the scheduler treats them interchangeably (overlap,
+ * clamping, paging caps and resume: _shared/stream-sync.ts).
  *
- * The five streams are paginated in chronological (Patient → Appointment →
- * Encounter → Invoice → Recall) order so the portal sees coherent state at
- * every checkpoint, matching the temporal causality of clinical events.
+ * Dedup ids are stable per row version (patient: id + modified_at; status
+ * change: id + status + modified_at; the rest: id), so the poll overlap re-posts
+ * byte-identical events that the portal dedups.
+ *
+ * The five streams run in chronological (Patient → Appointment → Encounter →
+ * Invoice → Recall) order so the portal sees coherent state at every
+ * checkpoint, matching the temporal causality of clinical events.
  */
+function sources(
+  link: PvsLinkRow,
+  signal: AbortSignal | undefined,
+  timezone: string
+): StreamSource[] {
+  const client = PabauClient.from(link, { signal });
+  const clinicId = link.clinicId;
+  const opts = { timezone };
+  const mod = (r: unknown) => (r as { modified_at?: string }).modified_at;
+  return [
+    {
+      name: "patients",
+      pages: (s, o) => client.pages("patients", s, o),
+      toEvents: (r) => [normalizePatient(clinicId, r as PabauPatient, opts)],
+      modifiedAt: mod,
+    },
+    {
+      name: "appointments",
+      pages: (s, o) => client.pages("appointments", s, o),
+      toEvents: (r) => normalizeAppointment(clinicId, r as PabauAppointment, opts),
+      modifiedAt: mod,
+    },
+    {
+      name: "encounters",
+      pages: (s, o) => client.pages("encounters", s, o),
+      toEvents: (r) => {
+        const e = normalizeEncounter(clinicId, r as PabauEncounter, opts);
+        return e ? [e] : [];
+      },
+      modifiedAt: mod,
+    },
+    {
+      name: "invoices",
+      pages: (s, o) => client.pages("invoices", s, o),
+      toEvents: (r) => {
+        const e = normalizeInvoice(clinicId, r as PabauInvoice, opts);
+        return e ? [e] : [];
+      },
+      modifiedAt: mod,
+    },
+    {
+      name: "recalls",
+      pages: (s, o) => client.pages("recalls", s, o),
+      toEvents: (r) => {
+        const e = normalizeRecall(clinicId, r as PabauRecall, opts);
+        return e ? [e] : [];
+      },
+      modifiedAt: (r) => {
+        const x = r as PabauRecall;
+        return x.modified_at || x.recall_at;
+      },
+    },
+  ];
+}
+
 export const pabauAdapter: Adapter = {
   vendor: "pabau",
 
@@ -38,130 +105,5 @@ export const pabauAdapter: Adapter = {
     }
   },
 
-  async *initialSync(
-    link: PvsLinkRow,
-    sinceIso: string
-  ): AsyncIterable<CanonicalEvent> {
-    const client = PabauClient.from(link);
-    for await (const p of client.streamPatients(sinceIso)) {
-      yield normalizePatient(link.clinicId, p);
-    }
-    for await (const a of client.streamAppointments(sinceIso)) {
-      for (const event of normalizeAppointment(link.clinicId, a)) {
-        yield event;
-      }
-    }
-    for await (const e of client.streamEncounters(sinceIso)) {
-      const event = normalizeEncounter(link.clinicId, e);
-      if (event) yield event;
-    }
-    for await (const i of client.streamInvoices(sinceIso)) {
-      const event = normalizeInvoice(link.clinicId, i);
-      if (event) yield event;
-    }
-    for await (const r of client.streamRecalls(sinceIso)) {
-      const event = normalizeRecall(link.clinicId, r);
-      if (event) yield event;
-    }
-  },
-
-  async poll(
-    link: PvsLinkRow,
-    cursor: string | null
-  ): Promise<AdapterPollResult> {
-    const client = PabauClient.from(link);
-    const cursors = parseCursor(cursor);
-    const events: CanonicalEvent[] = [];
-    const newCursors = { ...cursors };
-
-    for await (const p of client.streamPatients(cursors.patients)) {
-      events.push(normalizePatient(link.clinicId, p));
-      newCursors.patients = pickMaxIso(newCursors.patients, p.modified_at);
-    }
-    for await (const a of client.streamAppointments(cursors.appointments)) {
-      for (const event of normalizeAppointment(link.clinicId, a)) {
-        events.push(event);
-      }
-      newCursors.appointments = pickMaxIso(newCursors.appointments, a.modified_at);
-    }
-    for await (const e of client.streamEncounters(cursors.encounters)) {
-      const event = normalizeEncounter(link.clinicId, e);
-      if (event) events.push(event);
-      newCursors.encounters = pickMaxIso(newCursors.encounters, e.modified_at);
-    }
-    for await (const i of client.streamInvoices(cursors.invoices)) {
-      const event = normalizeInvoice(link.clinicId, i);
-      if (event) events.push(event);
-      newCursors.invoices = pickMaxIso(newCursors.invoices, i.modified_at);
-    }
-    for await (const r of client.streamRecalls(cursors.recalls)) {
-      const event = normalizeRecall(link.clinicId, r);
-      if (event) events.push(event);
-      newCursors.recalls = pickMaxIso(
-        newCursors.recalls,
-        r.modified_at ?? r.recall_at
-      );
-    }
-
-    return {
-      events,
-      nextCursor: serializeCursor(newCursors),
-      // Pabau's rate ceiling is comfortably above one tick/minute, so the
-      // empty-poll back-off matches Tomedo: 5 min when nothing changed,
-      // 60 s when there was work to do.
-      recommendedDelayMs: events.length === 0 ? 5 * 60_000 : 60_000,
-    };
-  },
-
-  seedCursor(syncStartIso: string): string {
-    // Initial-sync watermark handoff (C7); see tomedo/index.ts for the
-    // rationale.
-    return serializeCursor({
-      patients: syncStartIso,
-      appointments: syncStartIso,
-      encounters: syncStartIso,
-      invoices: syncStartIso,
-      recalls: syncStartIso,
-    });
-  },
+  ...restSyncMethods({ makeSources: sources }),
 };
-
-interface Cursors {
-  patients: string;
-  appointments: string;
-  encounters: string;
-  invoices: string;
-  recalls: string;
-}
-
-function parseCursor(input: string | null): Cursors {
-  const epoch = "1970-01-01T00:00:00.000Z";
-  if (!input) {
-    return {
-      patients: epoch,
-      appointments: epoch,
-      encounters: epoch,
-      invoices: epoch,
-      recalls: epoch,
-    };
-  }
-  const parts = input.split(",");
-  const get = (idx: number) => parts[idx] ?? epoch;
-  return {
-    patients: get(0),
-    appointments: get(1),
-    encounters: get(2),
-    invoices: get(3),
-    recalls: get(4),
-  };
-}
-
-function serializeCursor(c: Cursors): string {
-  return [
-    c.patients,
-    c.appointments,
-    c.encounters,
-    c.invoices,
-    c.recalls,
-  ].join(",");
-}

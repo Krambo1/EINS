@@ -1,57 +1,32 @@
+import { Fragment } from "react";
 import { EmptyState } from "@eins/ui";
 import { Activity, Clock, History, Milestone } from "lucide-react";
-import { formatDate } from "@/lib/formatting";
-import { TIMELINE_STATUS_LABELS } from "@/lib/constants";
+import { DISPLAY_TIME_ZONE, berlinDateString, formatDate } from "@/lib/formatting";
 import type { TimelineEntry } from "@/server/queries/timeline";
 import type { TimelineStatus } from "@/lib/constants";
+import {
+  currentJourneyWeek,
+  effectiveStatus,
+  journeyStart,
+} from "./journey-status";
+import { dateParts, isPhaseStep } from "./timeline-labels";
+
+/** Entry plus the status shown to the Praxis (calendar-derived for phases). */
+type ShownEntry = TimelineEntry & { shownStatus: TimelineStatus };
 
 const MONTH_FORMATTER = new Intl.DateTimeFormat("de-DE", {
   month: "long",
   year: "numeric",
+  timeZone: DISPLAY_TIME_ZONE,
 });
 
-const MS_PER_DAY = 1000 * 60 * 60 * 24;
-
-function daysBetween(date: Date, ref: Date): number {
-  const a = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
-  const b = Date.UTC(ref.getFullYear(), ref.getMonth(), ref.getDate());
-  return Math.round((a - b) / MS_PER_DAY);
-}
-
-function activeDurationLabel(date: Date, now: Date): string {
-  const d = daysBetween(now, date);
-  if (d <= 0) return "Heute gestartet";
-  if (d === 1) return "Seit gestern aktiv";
-  if (d < 14) return `Seit ${d} Tagen aktiv`;
-  if (d < 60) return `Seit ${Math.round(d / 7)} Wochen aktiv`;
-  return `Seit ${Math.round(d / 30)} Monaten aktiv`;
-}
-
-function upcomingDistanceLabel(date: Date, now: Date): string {
-  const d = daysBetween(date, now);
-  if (d <= 0) return "Heute geplant";
-  if (d === 1) return "Morgen";
-  if (d < 14) return `In ${d} Tagen`;
-  if (d < 60) return `In ${Math.round(d / 7)} Wochen`;
-  return `In ${Math.round(d / 30)} Monaten`;
-}
-
-function completedAgoLabel(date: Date, now: Date): string {
-  const d = daysBetween(now, date);
-  if (d <= 0) return "Heute erledigt";
-  if (d === 1) return "Gestern erledigt";
-  if (d < 14) return `Vor ${d} Tagen`;
-  if (d < 60) return `Vor ${Math.round(d / 7)} Wochen`;
-  return `Vor ${Math.round(d / 30)} Monaten`;
-}
-
-function groupByMonth(entries: TimelineEntry[]) {
-  const groups = new Map<string, { label: string; entries: TimelineEntry[] }>();
+function groupByMonth(entries: ShownEntry[]) {
+  const groups = new Map<string, { label: string; entries: ShownEntry[] }>();
   for (const e of entries) {
     const d = e.eventDate;
     // Completed entries are always dated; skip any date-less row defensively.
     if (!d) continue;
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const key = berlinDateString(d).slice(0, 7);
     if (!groups.has(key)) {
       groups.set(key, { label: MONTH_FORMATTER.format(d), entries: [] });
     }
@@ -62,111 +37,51 @@ function groupByMonth(entries: TimelineEntry[]) {
 
 function MetaRow({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg-secondary">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg-secondary md:text-base">
       {children}
     </div>
   );
 }
 
 function MetaDot() {
-  return (
-    <span aria-hidden className="text-fg-tertiary">
-      ·
-    </span>
-  );
-}
-
-type StatusVisual = {
-  label: string;
-  textClass: string;
-  dotClass: string;
-  pulse: boolean;
-};
-
-const STATUS_VISUALS: Record<TimelineStatus, StatusVisual> = {
-  laeuft: {
-    label: TIMELINE_STATUS_LABELS.laeuft,
-    textClass: "text-accent",
-    dotClass: "bg-accent",
-    pulse: true,
-  },
-  geplant: {
-    label: TIMELINE_STATUS_LABELS.geplant,
-    textClass: "text-tone-warn",
-    dotClass: "bg-tone-warn",
-    pulse: false,
-  },
-  abgeschlossen: {
-    label: TIMELINE_STATUS_LABELS.abgeschlossen,
-    textClass: "text-tone-good",
-    dotClass: "bg-tone-good",
-    pulse: false,
-  },
-};
-
-function relativeLabelFor(
-  status: TimelineStatus,
-  date: Date,
-  now: Date,
-): string {
-  if (status === "laeuft") return activeDurationLabel(date, now);
-  if (status === "geplant") return upcomingDistanceLabel(date, now);
-  return completedAgoLabel(date, now);
+  return <span aria-hidden>&middot;</span>;
 }
 
 function TimelineCard({
   entry,
   now,
 }: {
-  entry: TimelineEntry;
+  entry: ShownEntry;
   now: Date;
 }) {
-  // entry.status is a DB-inferred string; narrow it to the known TimelineStatus
-  // set so the visuals lookup and the relative-label switch are type-safe. An
-  // unexpected value falls back to "geplant" rather than throwing.
-  const status: TimelineStatus =
-    entry.status === "laeuft" || entry.status === "abgeschlossen"
-      ? entry.status
-      : "geplant";
-  const visual = STATUS_VISUALS[status];
+  // shownStatus is already narrowed to TimelineStatus (unknown values fall
+  // back to "geplant"); for relative phases it follows the calendar. The state
+  // itself is named by the section heading, so the card shows only the time.
+  const status = entry.shownStatus;
+  const parts = entry.eventDate
+    ? dateParts(status, entry.eventDate, now)
+    : entry.phaseLabel
+      ? [entry.phaseLabel]
+      : [];
   return (
-    <li className="rounded-xl border border-border bg-bg-primary p-6 transition-colors hover:border-border-hover md:p-7">
-      <MetaRow>
-        <span
-          className={`inline-flex items-center gap-1.5 font-medium ${visual.textClass}`}
-        >
-          <span className="relative inline-flex h-1.5 w-1.5">
-            {visual.pulse && (
-              <span
-                aria-hidden
-                className={`absolute inset-0 inline-flex h-full w-full animate-ping rounded-full opacity-60 ${visual.dotClass}`}
-              />
-            )}
-            <span
-              className={`relative inline-flex h-1.5 w-1.5 rounded-full ${visual.dotClass}`}
-            />
-          </span>
-          {visual.label}
-        </span>
-        {entry.eventDate ? (
-          <>
-            <MetaDot />
-            <span>{relativeLabelFor(status, entry.eventDate, now)}</span>
-            <MetaDot />
-            <span className="tabular-nums">{formatDate(entry.eventDate)}</span>
-          </>
-        ) : entry.phaseLabel ? (
-          <>
-            <MetaDot />
-            <span>{entry.phaseLabel}</span>
-          </>
-        ) : null}
-      </MetaRow>
-      <p className="mt-3 text-lg font-semibold leading-snug text-fg-primary md:text-xl">
+    <li
+      className="rounded-xl border border-border bg-bg-primary p-6 md:p-7"
+    >
+      {parts.length > 0 && (
+        <MetaRow>
+          {parts.map((part, i) => (
+            <Fragment key={part}>
+              {i > 0 && <MetaDot />}
+              <span className="tabular-nums">{part}</span>
+            </Fragment>
+          ))}
+        </MetaRow>
+      )}
+      <p className={`${parts.length > 0 ? "mt-3 " : ""}text-lg font-semibold leading-snug text-fg-primary md:text-xl`}>
         {entry.title}
       </p>
       {entry.description && (
-        <p className="mt-1.5 whitespace-pre-wrap text-sm leading-relaxed text-fg-secondary md:text-base">
+        <p className="mt-1.5 whitespace-pre-wrap text-base leading-relaxed text-fg-primary">
           {entry.description}
         </p>
       )}
@@ -178,21 +93,19 @@ function SectionHeader({
   id,
   title,
   count,
-  countLabel,
   icon,
   iconBgVar,
 }: {
   id: string;
   title: string;
   count: number;
-  countLabel?: string;
   icon: React.ReactNode;
   /** CSS variable for the solid swatch — matches the dashboard's
    *  MetricStatusBadge pattern (strong-colored circle, white symbol). */
   iconBgVar: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-3">
+    <div>
       <h2 id={id} className="opa-h3 flex items-center gap-3 text-fg-primary">
         <span
           aria-hidden
@@ -201,12 +114,10 @@ function SectionHeader({
         >
           {icon}
         </span>
-        {title}
+        <span>
+          {title} <span className="font-normal text-fg-secondary tabular-nums">{count}</span>
+        </span>
       </h2>
-      <span className="text-sm text-fg-tertiary tabular-nums">
-        {count}
-        {countLabel ? ` ${countLabel}` : ""}
-      </span>
     </div>
   );
 }
@@ -222,7 +133,7 @@ function SectionHeader({
  * phase steps follow.
  */
 function makeComparator(dir: 1 | -1) {
-  return (a: TimelineEntry, b: TimelineEntry): number => {
+  return (a: ShownEntry, b: ShownEntry): number => {
     const at = a.eventDate ? a.eventDate.getTime() : null;
     const bt = b.eventDate ? b.eventDate.getTime() : null;
     if (at !== null && bt !== null) return (at - bt) * dir;
@@ -234,18 +145,37 @@ function makeComparator(dir: 1 | -1) {
 export function TimelineList({ entries }: { entries: TimelineEntry[] }) {
   const now = new Date();
 
-  const active = entries
-    .filter((e) => e.status === "laeuft")
-    .slice()
+  // Relative phases ("Woche 1 bis 2") get their state from the calendar: the
+  // journey starts the day it was set up for this Praxis.
+  const start = journeyStart(entries);
+  const week = start ? currentJourneyWeek(start, now) : null;
+  const shown: ShownEntry[] = entries.map((e) => ({
+    ...e,
+    shownStatus: effectiveStatus(e, week),
+  }));
+
+  const active = shown
+    .filter((e) => e.shownStatus === "laeuft")
     .sort(makeComparator(-1));
-  const upcoming = entries
-    .filter((e) => e.status === "geplant")
-    .slice()
+  // Anything that is not running or done counts as upcoming, including a
+  // status value this page does not know yet (effectiveStatus maps it to
+  // "geplant"), so no admin entry ever silently disappears.
+  const upcoming = shown
+    .filter((e) => e.shownStatus === "geplant")
     .sort(makeComparator(1));
-  const completed = entries
-    .filter((e) => e.status === "abgeschlossen")
-    .slice()
+  const completed = shown
+    .filter((e) => e.shownStatus === "abgeschlossen")
     .sort(makeComparator(-1));
+  // Completed relative phases have no date, so they cannot sit in a month
+  // group; they are listed in plan order above the dated history.
+  const completedPhases = completed
+    .filter((e) => !e.eventDate)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+  const completedDated = completed.filter((e) => e.eventDate);
+  // The week box names a step of the plan, never a recommendation or a
+  // dated one-off entry.
+  const runningStep = active.find(isPhaseStep);
+  const nextStep = upcoming.find(isPhaseStep);
 
   if (entries.length === 0) {
     return (
@@ -259,6 +189,22 @@ export function TimelineList({ entries }: { entries: TimelineEntry[] }) {
 
   return (
     <div className="space-y-12">
+      {start && week != null && (
+        <div className="rounded-2xl border border-border bg-bg-secondary px-5 py-4 md:px-6">
+          <p className="text-lg font-semibold text-fg-primary md:text-xl">
+            Sie sind in Woche {week}.
+          </p>
+          <p className="mt-1 text-base text-fg-primary">
+            Gezählt ab Ihrem Start am {formatDate(start)}.{" "}
+            {runningStep
+              ? `Gerade läuft: ${runningStep.title}.`
+              : nextStep
+                ? `Als Nächstes: ${nextStep.title}.`
+                : ""}
+          </p>
+        </div>
+      )}
+
       {active.length > 0 && (
         <section aria-labelledby="aktuell-heading" className="space-y-4">
           <SectionHeader
@@ -282,7 +228,6 @@ export function TimelineList({ entries }: { entries: TimelineEntry[] }) {
             id="anstehend-heading"
             title="Als Nächstes"
             count={upcoming.length}
-            countLabel="geplant"
             icon={<Clock className="h-4 w-4" strokeWidth={2.5} />}
             iconBgVar="var(--tone-warn)"
           />
@@ -300,15 +245,21 @@ export function TimelineList({ entries }: { entries: TimelineEntry[] }) {
             id="verlauf-heading"
             title="Was bisher passiert ist"
             count={completed.length}
-            countLabel="erledigt"
             icon={<History className="h-4 w-4" strokeWidth={2.5} />}
             iconBgVar="var(--tone-good)"
           />
           <div className="space-y-6">
-            {groupByMonth(completed).map((g) => (
+            {completedPhases.length > 0 && (
+              <ul className="space-y-3">
+                {completedPhases.map((e) => (
+                  <TimelineCard key={e.id} entry={e} now={now} />
+                ))}
+              </ul>
+            )}
+            {groupByMonth(completedDated).map((g) => (
               <div key={g.label}>
                 <div className="mb-3 flex items-center gap-3">
-                  <h3 className="text-sm font-medium text-fg-secondary">
+                  <h3 className="text-sm font-medium text-fg-primary md:text-base">
                     {g.label}
                   </h3>
                   <div className="h-px flex-1 bg-border" />

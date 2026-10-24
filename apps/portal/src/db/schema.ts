@@ -25,7 +25,6 @@ import {
   index,
   uniqueIndex,
   customType,
-  pgEnum,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -131,6 +130,21 @@ export const clinics = pgTable("clinics", {
    * `GOOGLE_ADS_LOGIN_CUSTOMER_ID` env var when null.
    */
   googleAdsLoginCustomerId: text("google_ads_login_customer_id"),
+  // --- Wiederbehandlungs-Kalender (0078) ---
+  /** Master switch for the patient reminder email. Off by default; the
+   *  calendar itself is computed regardless. CHECK: requires attestation. */
+  retreatmentRemindersEnabled: boolean("retreatment_reminders_enabled")
+    .notNull()
+    .default(false),
+  /** Owner confirmed patients are told at intake that the Praxis may remind
+   *  them by email when a follow-up session is due (§ 7 Abs. 3 UWG). */
+  retreatmentConsentAttested: boolean("retreatment_consent_attested")
+    .notNull()
+    .default(false),
+  /** Online booking page the reminder links to (via the token redirect). */
+  retreatmentBookingUrl: text("retreatment_booking_url"),
+  /** Phone number printed in the reminder. One of URL or phone is required to send. */
+  retreatmentPhone: text("retreatment_phone"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -309,6 +323,18 @@ export const treatments = pgTable(
     displayOrder: integer("display_order").notNull().default(0),
     /** Loose freetext keywords (lowercase, comma-separated) used by the keyword classifier. */
     keywords: text("keywords"),
+    // --- Wiederbehandlungs-Kalender (0078) ---
+    /** 'auto' (PVS-computed interval) | 'fixed' (retreatmentIntervalMonths) | 'off'. */
+    retreatmentMode: text("retreatment_mode").notNull().default("auto"),
+    /** Praxis-set interval in months (1..36). Required when mode = 'fixed'. */
+    retreatmentIntervalMonths: integer("retreatment_interval_months"),
+    /** Median days between repeat sessions in this Praxis's PVS history. NULL = too little data. */
+    pvsRetreatmentIntervalDays: integer("pvs_retreatment_interval_days"),
+    /** Number of repeat gaps behind pvsRetreatmentIntervalDays. */
+    pvsRetreatmentSamples: integer("pvs_retreatment_samples").notNull().default(0),
+    /** Distinct patients behind those gaps. */
+    pvsRetreatmentPatients: integer("pvs_retreatment_patients").notNull().default(0),
+    pvsRetreatmentComputedAt: timestamp("pvs_retreatment_computed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -392,12 +418,20 @@ export const patients = pgTable(
       .defaultNow(),
     /** First-touch source channel of the very first request from this patient. */
     firstTouchSource: text("first_touch_source"),
+    /** Reporting channel of the first-touch Anfrage (lib/sources.ts reportingChannel, 0097). NULL = no Anfrage attached. */
+    firstTouchChannel: text("first_touch_channel"),
+    /** utm_content (post or ad) of the first-touch Anfrage (0097). */
+    firstTouchContentCode: text("first_touch_content_code"),
     lifetimeRevenueEur: numeric("lifetime_revenue_eur", {
       precision: 10,
       scale: 2,
     })
       .notNull()
       .default("0"),
+    /** Start time of the last completed pvs-status-derive run for this patient
+     *  (migration 0091). pvs-reconcile re-derives a patient whose newest event
+     *  was ingested after it (a lost derive job). */
+    pvsDerivedAt: timestamp("pvs_derived_at", { withTimezone: true }),
     requestCount: integer("request_count").notNull().default(0),
     wonCount: integer("won_count").notNull().default(0),
     /** External PMS patient ID, used for dedup in /api/patients/events. */
@@ -639,9 +673,8 @@ export const requests = pgTable(
      */
     firstViewedAt: timestamp("first_viewed_at", { withTimezone: true }),
     wonAt: timestamp("won_at", { withTimezone: true }),
-    dsgvoConsentAt: timestamp("dsgvo_consent_at", { withTimezone: true })
-      .notNull()
-      .defaultNow(),
+    /** NULL for calls, bookings and front-desk entries: no form consent (0102). */
+    dsgvoConsentAt: timestamp("dsgvo_consent_at", { withTimezone: true }).defaultNow(),
     dsgvoConsentIp: inet("dsgvo_consent_ip"),
     rawPayload: jsonb("raw_payload"),
     // --- PVS Bridge (0027_request_pvs_columns.sql) ---
@@ -697,8 +730,48 @@ export const requests = pgTable(
      * IPv6). DSGVO-compliant geo signal for CAPI; never the raw IP.
      */
     clickIpAnon: text("click_ip_anon"),
+    // --- Consent for reporting to Meta/Google (0077) ---
+    /**
+     * Server time the intake accepted the person's separate, optional consent
+     * to report the inquiry and a later treatment to Meta and Google. NULL =
+     * never given; such requests are never reported.
+     */
+    adsConsentAt: timestamp("ads_consent_at", { withTimezone: true }),
+    /** Version of the consent text the person saw (clinic-landing ADS_CONSENT_VERSION). */
+    adsConsentVersion: text("ads_consent_version"),
+    /** Set when the Praxis records a revocation. Stops any not-yet-sent report. */
+    adsConsentRevokedAt: timestamp("ads_consent_revoked_at", { withTimezone: true }),
+    /** Consent record (0088, L-6): basis, text versions and times. Shape in the migration. */
+    consents: jsonb("consents"),
+    // --- Organic attribution (0097) ---
+    /** messweg | plattform | selbstauskunft | praxis_eingabe | unbekannt (lib/sources.ts attributionConfidence). */
+    attributionConfidence: text("attribution_confidence").notNull().default("unbekannt"),
+    /** "Wie sind Sie auf uns aufmerksam geworden?" (closed list SELF_REPORTED_SOURCES). Auswertung only. */
+    selfReportedSource: text("self_reported_source"),
+    /** TikTok click id from the Zielseite. Attribution only, never reported to TikTok. */
+    ttclid: text("ttclid"),
+    // --- Messwege Anruf und Buchung (0098) ---
+    /** EINS tracking number the call came in on (source 'anruf'). */
+    trackingNumberId: uuid("tracking_number_id").references(
+      (): AnyPgColumn => trackingNumbers.id,
+      { onDelete: "set null" }
+    ),
+    /** EINS booking link the booking came through (source 'buchung'). */
+    bookingLinkId: uuid("booking_link_id").references(
+      (): AnyPgColumn => bookingLinks.id,
+      { onDelete: "set null" }
+    ),
+    /** Post the inquiry came from, resolved at intake from utm_content (0099). */
+    contentItemId: uuid("content_item_id").references(
+      (): AnyPgColumn => contentItems.id,
+      { onDelete: "set null" }
+    ),
   },
   (t) => ({
+    adsConsentRevokedCheck: check(
+      "requests_ads_consent_revoked_check",
+      sql`${t.adsConsentRevokedAt} IS NULL OR ${t.adsConsentAt} IS NOT NULL`
+    ),
     aiScoreCheck: check(
       "requests_ai_score_check",
       sql`${t.aiScore} IS NULL OR (${t.aiScore} BETWEEN 0 AND 100)`
@@ -715,6 +788,14 @@ export const requests = pgTable(
       "requests_status_source_check",
       sql`${t.statusSource} IN ('manual','pvs','csv')`
     ),
+    attributionConfidenceCheck: check(
+      "requests_attribution_confidence_check",
+      sql`${t.attributionConfidence} IN ('messweg','plattform','selbstauskunft','praxis_eingabe','unbekannt')`
+    ),
+    selfReportedSourceCheck: check(
+      "requests_self_reported_source_check",
+      sql`${t.selfReportedSource} IS NULL OR ${t.selfReportedSource} IN ('instagram','facebook','tiktok','google_suche','empfehlung','sonstiges','anruf_praxis')`
+    ),
     clinicIdx: index("requests_clinic_idx").on(t.clinicId),
     statusIdx: index("requests_status_idx").on(t.clinicId, t.status),
     slaIdx: index("requests_sla_idx").on(t.slaRespondBy),
@@ -723,6 +804,267 @@ export const requests = pgTable(
       t.clinicId,
       t.pvsAppointmentId
     ),
+  })
+);
+
+// ---------------------------------------------------------------
+// MESSWEGE ANRUF UND BUCHUNG (0098). Admin writes, Praxis reads the
+// numbers and links; messweg_events is the admin-only provider log.
+// ---------------------------------------------------------------
+export const trackingNumbers = pgTable(
+  "tracking_numbers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** E.164, e.g. +4922112345678. */
+    e164: text("e164").notNull(),
+    /** profil | zielseite | meta | google | sonstige */
+    channel: text("channel").notNull(),
+    provider: text("provider").notNull().default("matelso"),
+    label: text("label"),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
+  },
+  (t) => ({
+    clinicIdx: index("tracking_numbers_clinic_idx").on(t.clinicId),
+  })
+);
+
+export const bookingLinks = pgTable(
+  "booking_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull().default("calendly"),
+    url: text("url").notNull(),
+    /** Provider id of the link (Calendly event type URI). */
+    externalRef: text("external_ref").notNull(),
+    /** profil_link | dm | zielseite */
+    medium: text("medium").notNull(),
+    label: text("label"),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
+  },
+  (t) => ({
+    clinicIdx: index("booking_links_clinic_idx").on(t.clinicId),
+  })
+);
+
+export const messwegEvents = pgTable(
+  "messweg_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    provider: text("provider").notNull(),
+    externalId: text("external_id").notNull(),
+    /** anruf | buchung */
+    kind: text("kind").notNull(),
+    clinicId: uuid("clinic_id").references(() => clinics.id, { onDelete: "cascade" }),
+    requestId: uuid("request_id").references((): AnyPgColumn => requests.id, {
+      onDelete: "set null",
+    }),
+    /** in_arbeit (claimed, 0100) | angelegt | zusammengefasst | ohne_praxis | ignoriert */
+    outcome: text("outcome").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    meta: jsonb("meta").notNull().default({}),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    providerUniq: uniqueIndex("messweg_events_provider_uniq").on(t.provider, t.externalId),
+    clinicIdx: index("messweg_events_clinic_idx").on(t.clinicId, t.receivedAt),
+  })
+);
+
+// ---------------------------------------------------------------
+// BEITRÄGE (0099): posts, their publications and tagged links. Admin
+// writes, Praxis reads. Post code rules in lib/post-code.ts.
+// ---------------------------------------------------------------
+export const contentItems = pgTable(
+  "content_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** Opaque post code (utm_content), unique per Praxis. */
+    code: text("code").notNull(),
+    title: text("title").notNull(),
+    treatmentId: uuid("treatment_id").references((): AnyPgColumn => treatments.id, {
+      onDelete: "set null",
+    }),
+    /** reel | story | karussell | bild | video */
+    format: text("format").notNull(),
+    /** The owner's KI-Klon appears in the post (Inhaber approval, label). */
+    usesClone: boolean("uses_clone").notNull().default(false),
+    /** Other AI-made content in the post (label "KI-generiert"). */
+    aiContent: boolean("ai_content").notNull().default(true),
+    assetId: uuid("asset_id").references((): AnyPgColumn => assets.id, { onDelete: "set null" }),
+    caption: text("caption"),
+    hwgCheckId: uuid("hwg_check_id").references((): AnyPgColumn => hwgChecks.id, {
+      onDelete: "set null",
+    }),
+    /** entwurf | zur_freigabe | aenderung | freigegeben | geplant | live | gestoppt */
+    status: text("status").notNull().default("entwurf"),
+    stopReason: text("stop_reason"),
+    /** Gate (0101): HWG warnings of the linked check acknowledged by name. */
+    hwgWarningsAckBy: text("hwg_warnings_ack_by"),
+    hwgWarningsAckAt: timestamp("hwg_warnings_ack_at", { withTimezone: true }),
+    /** Gate: "keine Vorher-Nachher-Darstellung, keine KI-Patientin, kein KI-Behandlungsergebnis". */
+    noBeforeAfterConfirmedBy: text("no_before_after_confirmed_by"),
+    noBeforeAfterConfirmedAt: timestamp("no_before_after_confirmed_at", { withTimezone: true }),
+    /** "Zu stoppen" after a clone revocation: open task until status gestoppt. */
+    stopRequestedAt: timestamp("stop_requested_at", { withTimezone: true }),
+    stopRequestedReason: text("stop_requested_reason"),
+    /** Admin e-mail. */
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    clinicCodeUniq: uniqueIndex("content_items_clinic_code_uniq").on(t.clinicId, t.code),
+    clinicStatusIdx: index("content_items_clinic_status_idx").on(t.clinicId, t.status),
+  })
+);
+
+export const contentPublications = pgTable(
+  "content_publications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    contentItemId: uuid("content_item_id")
+      .notNull()
+      .references(() => contentItems.id, { onDelete: "cascade" }),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** instagram | facebook | tiktok */
+    platform: text("platform").notNull(),
+    platformMediaId: text("platform_media_id"),
+    permalink: text("permalink").notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }).notNull(),
+    stoppedAt: timestamp("stopped_at", { withTimezone: true }),
+    /** manuell | api */
+    publishedBy: text("published_by").notNull().default("manuell"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    itemIdx: index("content_publications_item_idx").on(t.contentItemId),
+    clinicIdx: index("content_publications_clinic_idx").on(t.clinicId, t.publishedAt),
+  })
+);
+
+export const contentLinks = pgTable(
+  "content_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    contentItemId: uuid("content_item_id")
+      .notNull()
+      .references(() => contentItems.id, { onDelete: "cascade" }),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** profil_link | dm | story_link | organisch */
+    medium: text("medium").notNull(),
+    url: text("url").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    itemMediumUniq: uniqueIndex("content_links_item_medium_uniq").on(t.contentItemId, t.medium),
+  })
+);
+
+// ---------------------------------------------------------------
+// FREIGABE (0101): weekly approval batches and one approval row per post.
+// First decision wins (D7: e-mail link and portal button). Rules in
+// lib/content-gate.ts; Praxis reads, EINS code writes.
+// ---------------------------------------------------------------
+export const contentApprovalBatches = pgTable(
+  "content_approval_batches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+    /** End of the 2nd Werktag after sending (lib/content-gate.ts approvalDueAt). */
+    dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+    sentBy: text("sent_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    clinicIdx: index("content_approval_batches_clinic_idx").on(t.clinicId, t.sentAt),
+  })
+);
+
+export const contentApprovals = pgTable(
+  "content_approvals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    batchId: uuid("batch_id")
+      .notNull()
+      .references(() => contentApprovalBatches.id, { onDelete: "cascade" }),
+    contentItemId: uuid("content_item_id")
+      .notNull()
+      .references(() => contentItems.id, { onDelete: "cascade" }),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** sha256 hex of the one-click link token; the token itself is never stored. */
+    tokenHash: text("token_hash").notNull(),
+    tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }).notNull(),
+    /** Clone post: only role inhaber may decide. */
+    inhaberOnly: boolean("inhaber_only").notNull().default(false),
+    /** null (open) | freigegeben | aenderung */
+    decision: text("decision"),
+    changeText: text("change_text"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decidedByUserId: uuid("decided_by_user_id").references((): AnyPgColumn => clinicUsers.id, {
+      onDelete: "set null",
+    }),
+    /** portal | link */
+    decidedVia: text("decided_via"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    tokenUniq: uniqueIndex("content_approvals_token_uniq").on(t.tokenHash),
+    batchItemUniq: uniqueIndex("content_approvals_batch_item_uniq").on(t.batchId, t.contentItemId),
+    itemIdx: index("content_approvals_item_idx").on(t.contentItemId, t.createdAt),
+  })
+);
+
+// ---------------------------------------------------------------
+// KI-KLON (0101): consent, training opt-out, model, revocation and
+// deletion of the Inhaber's clone. Admin only (no eins_app grant).
+// ---------------------------------------------------------------
+export const cloneRecords = pgTable(
+  "clone_records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    personName: text("person_name").notNull(),
+    tool: text("tool").notNull(),
+    consentSignedAt: timestamp("consent_signed_at", { withTimezone: true }),
+    consentDocumentKey: text("consent_document_key"),
+    trainingOptoutDocumentKey: text("training_optout_document_key"),
+    trainingOptoutConfirmedAt: timestamp("training_optout_confirmed_at", { withTimezone: true }),
+    modelCreatedAt: timestamp("model_created_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedNote: text("revoked_note"),
+    contractEndOn: date("contract_end_on"),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedNote: text("deleted_note"),
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    clinicIdx: index("clone_records_clinic_idx").on(t.clinicId),
   })
 );
 
@@ -756,7 +1098,7 @@ export const requestActivities = pgTable(
     ),
     kindCheck: check(
       "request_activities_kind_check",
-      sql`${t.kind} IN ('note','call','email','whatsapp','status_change','ai_rescore','assignment')`
+      sql`${t.kind} IN ('note','call','email','whatsapp','status_change','ai_rescore','assignment','messweg')`
     ),
   })
 );
@@ -1032,6 +1374,9 @@ export const auditLog = pgTable(
     ipAddress: inet("ip_address"),
     userAgent: text("user_agent"),
     diff: jsonb("diff"),
+    /** admin_users.id when written inside an admin impersonation session
+     *  (migration 0082). NULL = the Praxis user acted. */
+    impersonatedByAdminId: uuid("impersonated_by_admin_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1039,6 +1384,8 @@ export const auditLog = pgTable(
   (t) => ({
     clinicIdx: index("audit_log_clinic_idx").on(t.clinicId, t.createdAt),
     actionIdx: index("audit_log_action_idx").on(t.action),
+    // 0081: per-Anfrage Protokoll on /anfragen/[id].
+    entityIdx: index("audit_log_entity_idx").on(t.entityKind, t.entityId, t.createdAt.desc()),
   })
 );
 
@@ -1069,6 +1416,10 @@ export const platformCredentials = pgTable(
     metaPageId: text("meta_page_id"),
     /** Meta-only: page-scoped access token used to call /<leadgen_id>. */
     metaPageAccessTokenEnc: bytea("meta_page_access_token_enc"),
+    /** Intake only: the secret before the last rotation, still accepted by
+     *  signature checks until previousValidUntil (migration 0082). */
+    previousAccessTokenEnc: bytea("previous_access_token_enc"),
+    previousValidUntil: timestamp("previous_valid_until", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1126,6 +1477,11 @@ export const adsConversionOutbox = pgTable(
     responseBody: jsonb("response_body"),
     /** Wire-level dedup key sent to the platform (Meta event_id / Google order_id). */
     dedupKey: text("dedup_key").notNull(),
+    /** Invoice identity (migration 0080): one Purchase per (clinic, channel,
+     *  bridge_source, pvs_invoice_id) regardless of how many pvs_event_log rows
+     *  re-emit the invoice. NULL on legacy rows. */
+    bridgeSource: text("bridge_source"),
+    pvsInvoiceId: text("pvs_invoice_id"),
     /** Hashed user_data sent on the wire; persisted for DSGVO + support. */
     userDataSnapshot: jsonb("user_data_snapshot"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1182,6 +1538,8 @@ export {
   pvsReconcileAudit,
   pvsAgentStatus,
   pvsAgentFailureSummary,
+  pvsVendorConfig,
+  pvsVendorConfigTarget,
 } from "./schema-pvs";
 
 // ---------------------------------------------------------------
@@ -1394,8 +1752,9 @@ export const timelineDefaultSteps = pgTable(
 );
 
 // ---------------------------------------------------------------
-// LEITFADEN QUIZ ATTEMPTS — per-user proof of "Schulungs-Modul"
-// (EINS-Garantie Mitwirkungspflicht). Each row is one submission;
+// LEITFADEN QUIZ ATTEMPTS — per-user proof of the "Schulungs-Modul"
+// (training for the Praxis team, recommended but NOT a guarantee condition
+// since the 30.09.2026 guarantee "Keine Anfrage, keine Rechnung"). Each row is one submission;
 // `passed` rows count towards the per-user pass state used to drive
 // the sidebar badge and the /leitfaden CTA.
 // ---------------------------------------------------------------
@@ -1834,5 +2193,209 @@ export const rateLimits = pgTable(
   },
   (t) => ({
     windowIdx: index("rate_limits_window_idx").on(t.windowStart),
+  })
+);
+
+// ---------------------------------------------------------------
+// GUARANTEE CLOCK (0075) — "Keine Anfrage, keine Rechnung", admin only.
+// Facts only; deadline and status are derived in src/lib/guarantee-clock.ts.
+// No eins_app grant and RLS without policies: the Praxis cannot read these.
+// ---------------------------------------------------------------
+export const guaranteeClocks = pgTable(
+  "guarantee_clocks",
+  {
+    clinicId: uuid("clinic_id")
+      .primaryKey()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** Day of signing (ISO date). The 90 days run from here. */
+    signedOn: date("signed_on").notNull(),
+    qualifyingRequestId: uuid("qualifying_request_id").references(
+      (): AnyPgColumn => requests.id,
+      { onDelete: "set null" }
+    ),
+    /** Berlin calendar date the confirmed inquiry arrived. */
+    qualifyingInquiryOn: date("qualifying_inquiry_on"),
+    qualifyingConfirmedBy: text("qualifying_confirmed_by"),
+    qualifyingConfirmedAt: timestamp("qualifying_confirmed_at", { withTimezone: true }),
+    /** 'beendet_durch_praxis' | 'beendet_plattform_stoerung' */
+    manualEndState: text("manual_end_state"),
+    manualEndOn: date("manual_end_on"),
+    manualEndNote: text("manual_end_note"),
+    manualEndSetBy: text("manual_end_set_by"),
+    manualEndSetAt: timestamp("manual_end_set_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    manualEndCheck: check(
+      "guarantee_clocks_manual_end_check",
+      sql`${t.manualEndState} IS NULL OR ${t.manualEndState} IN ('beendet_durch_praxis','beendet_plattform_stoerung')`
+    ),
+  })
+);
+
+export const guaranteeDelays = pgTable(
+  "guarantee_delays",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** 'verzug' | 'plattform_stoerung' */
+    kind: text("kind").notNull().default("verzug"),
+    /** Inclusive range of counted days; toDate null = still open. */
+    fromDate: date("from_date").notNull(),
+    toDate: date("to_date"),
+    reason: text("reason").notNull(),
+    notifiedAt: timestamp("notified_at", { withTimezone: true }),
+    /** The late approval batch that caused this Verzug (0101), unique. */
+    approvalBatchId: uuid("approval_batch_id").references(
+      (): AnyPgColumn => contentApprovalBatches.id,
+      { onDelete: "set null" }
+    ),
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    kindCheck: check(
+      "guarantee_delays_kind_check",
+      sql`${t.kind} IN ('verzug','plattform_stoerung')`
+    ),
+    clinicIdx: index("guarantee_delays_clinic_idx").on(t.clinicId, t.fromDate),
+  })
+);
+
+export const guaranteeCandidateRejections = pgTable(
+  "guarantee_candidate_rejections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => requests.id, { onDelete: "cascade" }),
+    reason: text("reason").notNull(),
+    note: text("note"),
+    rejectedBy: text("rejected_by"),
+    rejectedAt: timestamp("rejected_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    requestIdx: uniqueIndex("guarantee_rejections_request_idx").on(t.requestId),
+    clinicIdx: index("guarantee_rejections_clinic_idx").on(t.clinicId),
+  })
+);
+
+// ---------------------------------------------------------------
+// RÜCKRUF-LAGE (0076) — Folge 3 of the 48-Werkstunden response rule, admin
+// only. Records warning, ads pause and resume that Karam does by hand. Counts
+// and deadlines are derived in src/lib/response-time.ts. Same privileges as
+// the guarantee tables: no eins_app grant, RLS without policies.
+// ---------------------------------------------------------------
+export const responseEnforcementEvents = pgTable(
+  "response_enforcement_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    /** 'warnung' | 'pause' | 'fortgesetzt' */
+    kind: text("kind").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Overdue inquiries without attempt at that moment (pause: resume condition). */
+    requestIds: uuid("request_ids").array().notNull().default(sql`'{}'`),
+    note: text("note"),
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    kindCheck: check(
+      "response_enforcement_kind_check",
+      sql`${t.kind} IN ('warnung','pause','fortgesetzt')`
+    ),
+    clinicIdx: index("response_enforcement_clinic_idx").on(t.clinicId, t.occurredAt),
+  })
+);
+
+// ---------------------------------------------------------------
+// WIEDERBEHANDLUNGS-KALENDER (0078) — one row per (patient, treatment,
+// session cycle) for EINS-attributed patients. Rebuilt daily from
+// pvs_event_log by worker/processors/retreatment-refresh.ts; the rebuild
+// never touches the reminder / token / click / dismissed columns.
+// Pure rules (cycles, intervals, due dates) live in src/lib/retreatment.ts.
+// ---------------------------------------------------------------
+export const retreatmentCycles = pgTable(
+  "retreatment_cycles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    patientId: uuid("patient_id")
+      .notNull()
+      .references(() => patients.id, { onDelete: "cascade" }),
+    treatmentId: uuid("treatment_id")
+      .notNull()
+      .references(() => treatments.id, { onDelete: "cascade" }),
+    /** The (latest) EINS request that makes this patient EINS-attributed. */
+    requestId: uuid("request_id").references((): AnyPgColumn => requests.id, {
+      onDelete: "set null",
+    }),
+    /** First session day of the cycle, Europe/Berlin calendar date. */
+    cycleOn: date("cycle_on").notNull(),
+    /** Netted invoices for this cycle, clinic currency. NULL = no invoice seen. */
+    cycleRevenueCents: bigint("cycle_revenue_cents", { mode: "number" }),
+    intervalDays: integer("interval_days").notNull(),
+    /** 'fixed' (Praxis setting) | 'pvs' (computed from PVS history). */
+    intervalSource: text("interval_source").notNull(),
+    dueOn: date("due_on").notNull(),
+    remindOn: date("remind_on").notNull(),
+    /** 'open' | 'booked' | 'returned' | 'dismissed' */
+    status: text("status").notNull().default("open"),
+    returnedOn: date("returned_on"),
+    returnedRevenueCents: bigint("returned_revenue_cents", { mode: "number" }),
+    bookedFor: date("booked_for"),
+    /** 'pending' | 'sent' | 'skipped' | 'not_needed' */
+    reminderStatus: text("reminder_status").notNull().default("pending"),
+    reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
+    reminderSkipReason: text("reminder_skip_reason"),
+    /** The exact address the reminder went to (unsubscribe suppresses this one). */
+    reminderEmail: text("reminder_email"),
+    /** Opaque 64-hex token for the patient-facing booking + unsubscribe links. */
+    token: text("token").notNull(),
+    bookingClickedAt: timestamp("booking_clicked_at", { withTimezone: true }),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+    dismissedBy: uuid("dismissed_by").references((): AnyPgColumn => clinicUsers.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    tokenUniq: unique("retreatment_cycles_token_uniq").on(t.token),
+    cycleUniq: unique("retreatment_cycles_cycle_uniq").on(
+      t.clinicId,
+      t.patientId,
+      t.treatmentId,
+      t.cycleOn
+    ),
+    statusCheck: check(
+      "retreatment_cycles_status_check",
+      sql`${t.status} IN ('open','booked','returned','dismissed')`
+    ),
+    reminderStatusCheck: check(
+      "retreatment_cycles_reminder_status_check",
+      sql`${t.reminderStatus} IN ('pending','sent','skipped','not_needed')`
+    ),
+    intervalSourceCheck: check(
+      "retreatment_cycles_interval_source_check",
+      sql`${t.intervalSource} IN ('fixed','pvs')`
+    ),
+    clinicDueIdx: index("retreatment_cycles_clinic_due_idx").on(t.clinicId, t.dueOn),
+    reminderDueIdx: index("retreatment_cycles_reminder_due_idx").on(
+      t.reminderStatus,
+      t.status,
+      t.remindOn
+    ),
   })
 );

@@ -11,7 +11,7 @@
  * component), the PDF generator (Node / tsx), the seed script, and tests can
  * all import it without pulling a client/server boundary in.
  *
- * HWG-konform, Sie-Form. Quellen sind im internen Notion-Plan gelistet; die
+ * HWG-konform, Sie-Form. Quellen sind im internen Plan im Obsidian-Vault gelistet; die
  * staff-facing Darstellung hält Zitate bewusst sparsam.
  */
 
@@ -38,7 +38,7 @@ export const PRINCIPLES: Principle[] = [
   {
     id: "anerkennen",
     icon: "HeartHandshake",
-    title: "Anerkennen, reframen, Termin anbieten",
+    title: "Anerkennen, anders einordnen, Termin anbieten",
     body: "Niemals dagegen argumentieren, nie drängen. Erst die Sorge ernst nehmen, dann den Rahmen wechseln, dann konkret einen Termin vorschlagen.",
     core: true,
   },
@@ -74,7 +74,7 @@ export const PRINCIPLES: Principle[] = [
     id: "stille",
     icon: "Clock",
     title: "Stille aushalten",
-    body: "Nach dem Termin-Angebot drei Sekunden schweigen. Wer nachschiebt, wirkt unsicher und gibt das Frame ab.",
+    body: "Nach dem Termin-Angebot drei Sekunden schweigen. Wer nachschiebt, wirkt unsicher und gibt die Gesprächsführung ab.",
     core: true,
   },
 ];
@@ -142,7 +142,7 @@ export const OPENING_SCRIPTS: OpeningScript[] = [
     title: "Patient nennt sofort eine Behandlung",
     patientLine: "Patient: „Ich habe Ihre Anzeige gesehen, ich interessiere mich für [Behandlung].“",
     quote: "Schön, dass Sie sich melden, Frau / Herr [Nachname]. Ich nehme mir gerne fünf Minuten für Sie, damit ich verstehe, worum es Ihnen geht und Ihnen den passenden Termin anbieten kann. Ist das in Ordnung?",
-    note: "Frame übernehmen, Zustimmung holen, Discovery ankündigen.",
+    note: "Gesprächsführung übernehmen, Zustimmung holen, die Bedarfsfragen ankündigen.",
     core: false,
   },
   {
@@ -673,7 +673,7 @@ export const HWG_TABLES: HwgTable[] = [
   },
   {
     id: "ss-5",
-    title: "5. Empfehlung, Testimonials",
+    title: "5. Empfehlung, Patientenstimmen",
     core: false,
     rows: [
       [
@@ -746,7 +746,7 @@ export interface CloseStep {
 export const CLOSE_STEPS: CloseStep[] = [
   {
     id: "close",
-    title: "Either-Or-Close (wortwörtlich)",
+    title: "Zwei Termine zur Wahl anbieten (wortwörtlich)",
     quote: "Ich nehme das so mit, dass Sie sich [Behandlung] anschauen möchten und ein Beratungsgespräch der nächste sinnvolle Schritt ist. Ich habe nächste Woche [Tag], [Datum], um [Uhrzeit] frei, oder am [Tag], [Datum], um [Uhrzeit]. Welcher Termin passt Ihnen besser?",
     core: true,
   },
@@ -754,7 +754,7 @@ export const CLOSE_STEPS: CloseStep[] = [
     id: "gebuehr",
     title: "Beratungsgebühr proaktiv kommunizieren",
     quote: "Unsere ärztliche Beratung dauert bis zu einer Stunde und kostet [50 €]. Diese Gebühr verrechnen wir vollständig auf die Behandlung, falls Sie sich für einen Eingriff entscheiden. Damit stellen wir sicher, dass die Beratung wirklich Zeit hat und nicht zwischen Tür und Angel passiert. Ist das in Ordnung für Sie?",
-    note: "Vorab-Erhebung der Beratungsgebühr (Kreditkarte, Vorkasse, SEPA-Mandat) ist die robusteste Methode, No-Shows in der Erstberatung zu reduzieren („skin in the game“).",
+    note: "Vorab-Erhebung der Beratungsgebühr (Kreditkarte, Vorkasse, SEPA-Mandat) ist die robusteste Methode, No-Shows in der Erstberatung zu reduzieren: Wer schon bezahlt hat, kommt auch.",
     core: true,
   },
   {
@@ -783,7 +783,7 @@ export const CLOSE_STEPS: CloseStep[] = [
     id: "whatsapp",
     title: "WhatsApp-Einwilligung optional einholen",
     quote: "Wir bieten an, Termin-Erinnerungen auch über WhatsApp zu schicken, das ist für viele Patienten praktischer. Möchten Sie das nutzen, oder bleiben wir bei E-Mail und SMS?",
-    note: "Nur über WhatsApp Business API mit zertifiziertem Anbieter (z.B. mateo, Superchat, Chatarmin), Pre-approved-Templates, AVV. Standard-WhatsApp und WhatsApp-Business-App sind in Praxen nicht DSGVO-konform.",
+    note: "Nur über WhatsApp Business API mit zertifiziertem Anbieter (z.B. mateo, Superchat, Chatarmin), von WhatsApp vorab freigegebene Vorlagen, AVV. Standard-WhatsApp und WhatsApp-Business-App sind in Praxen nicht DSGVO-konform.",
     core: false,
   },
   {
@@ -805,7 +805,7 @@ export const CLOSE_STEPS: CloseStep[] = [
 // 9. No-Show-Prävention: Cadence + Vorlagen (Cadence + 2 Templates core)
 // ---------------------------------------------------------------
 export const NO_SHOW_INTRO =
-  "Mehrkanal-Cadence reduziert No-Shows in deutschen Praxen messbar (Doctolib 30 bis 60 %, Universität Lübeck zitiert von LINK Mobility bis 82 %, Frontiers in Digital Health 2025 bei n=98.067 Terminen signifikant). Hauptgrund: 64 % vergessen den Termin schlicht.";
+  "Erinnerungen über mehrere Kanäle reduzieren No-Shows in deutschen Praxen messbar (Doctolib 30 bis 60 %, Universität Lübeck zitiert von LINK Mobility bis 82 %, Frontiers in Digital Health 2025 bei n=98.067 Terminen signifikant). Hauptgrund: 64 % vergessen den Termin schlicht.";
 
 export interface CadenceRow {
   time: string;
@@ -1037,7 +1037,7 @@ export const NO_SHOW_DONTS: DontWarning[] = [
   {
     id: "ns-don-2",
     title: "Stornogebühren proportional gestalten",
-    body: "Pauschale Stornogebühren bei ästhetischen Eingriffen sind nach AG München (Az. 213 C 27099/15) unwirksam. Stornogebühr darf den Behandlungspreis nicht überschreiten, Schadensminderungspflicht der Praxis beachten, kein 100 % am OP-Tag. AGB vor Auslieferung anwaltlich prüfen lassen.",
+    body: "Pauschale Stornogebühren bei ästhetischen Eingriffen sind nach AG München (Az. 213 C 27099/15) unwirksam. Stornogebühr darf den Behandlungspreis nicht überschreiten, Schadensminderungspflicht der Praxis beachten, kein 100 % am OP-Tag. Richten Sie die Stornoregel in Ihren AGB an diesen Grenzen aus.",
   },
 ];
 
@@ -1103,27 +1103,27 @@ export const RECHTSGRUNDLAGEN: string[] = [
 ];
 
 export const RECHTSGRUNDLAGEN_NOTE =
-  "Vor produktivem Einsatz dieses Leitfadens: anwaltliche Prüfung der Skripte und AGB-Passagen (Beratungsgebühr, Stornoregeln, AVV mit BSP). Landesärztekammer-Berufsordnungen variieren leicht von der MBO-Ä-Modellnorm.";
+  "Vor dem Einsatz dieses Leitfadens: Gleichen Sie die Skripte und AGB-Passagen (Beratungsgebühr, Stornoregeln, AVV mit BSP) mit Ihren eigenen Praxisunterlagen ab. Landesärztekammer-Berufsordnungen variieren leicht von der MBO-Ä-Modellnorm.";
 
 /** Printable one-page cheat-sheet for the reception desk (PDF + legacy page). */
-export const CHEAT_SHEET = `VERTRIEBSLEITFADEN, KURZFASSUNG FÜR DEN EMPFANGSTRESEN
+export const CHEAT_SHEET = `Vertriebsleitfaden, Kurzfassung für den Empfangstresen
 ─────────────────────────────────────────────────────────
 
-1. ERÖFFNUNG
+1. Eröffnung
    "[Praxisname], guten Tag, Sie sprechen mit [Name],
     was kann ich für Sie tun?"
 
-2. DISCOVERY (3 Pflicht-Fragen)
+2. Bedarf klären (3 Pflichtfragen)
    - Welche Behandlung schwebt Ihnen vor?
    - Wann wäre der Wunschzeitpunkt?
    - Wo wohnen Sie ungefähr?
 
-3. PREIS-FRAGE? Niemals Punktpreis am Telefon.
+3. Frage nach dem Preis? Niemals einen Endpreis am Telefon.
    "Den genauen Preis legt unser Arzt nach der
     individuellen Beratung fest. Bei [Behandlung] bewegen
     wir uns zwischen [von €] und [bis €]."
 
-4. NIEMALS SAGEN (HWG-relevant)
+4. Niemals sagen (HWG-relevant)
    - "Schmerzfrei" / "Sie spüren nichts"
    - "Sie werden so aussehen wie [Bild / Person]"
    - "Das hält genau X Monate / ein Leben lang"
@@ -1133,32 +1133,32 @@ export const CHEAT_SHEET = `VERTRIEBSLEITFADEN, KURZFASSUNG FÜR DEN EMPFANGSTRE
    - "Erstberatung kostenlos" (für invasive Eingriffe)
    - Keine Vorher-Nachher-Bilder per WhatsApp / E-Mail
 
-5. CLOSE (Either-Or)
+5. Termin festmachen (zwei Termine zur Wahl)
    "Ich habe [Datum 1] um [Uhrzeit] frei oder
     [Datum 2] um [Uhrzeit]. Welcher Termin passt besser?"
 
-6. BERATUNGSGEBÜHR PROAKTIV
+6. Beratungsgebühr von sich aus ansprechen
    "Die Beratung kostet [50 €] und wird auf eine
     eventuelle Behandlung verrechnet."
 
-7. DATENAUFNAHME (Pflichtfelder)
+7. Datenaufnahme (Pflichtfelder)
    Anrede + Name | Geb-Datum | Mobil | E-Mail | PLZ
    + Behandlungswunsch + bevorzugter Kanal
 
-8. DSGVO-SATZ
+8. DSGVO-Satz
    "Eine ausführliche Datenschutzinformation schicke ich
     Ihnen mit der Bestätigung per E-Mail."
 
-9. BEI MEDIZINISCHEN FRAGEN
+9. Bei medizinischen Fragen
    "Diese Frage gehört in die ärztliche Aufklärung im
     Beratungstermin."
 
-10. ROTE FLAGGEN (kein Termin)
+10. Rote Flaggen (kein Termin)
     - Unter 18 / nicht selbstbestimmt
     - Unrealistische Erwartungen ("wie [Promi]")
     - Fokussierung auf minimale "Makel"
     - Druck durch Dritte erkennbar
 
 ─────────────────────────────────────────────────────────
-KPI: Reaktion < 5 Min · Abschluss > 25 % · No-Show < 20 %
+Zielwerte: Reaktion < 5 Min. · Abschluss > 25 % · No-Show < 20 %
 Patient ernst nehmen, nicht weg-skripten.`;

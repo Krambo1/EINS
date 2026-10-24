@@ -16,7 +16,7 @@ import {
  *   GET  /api/videos?slug=<slug>     → one video, plus every page load (sessions)
  *   POST /api/videos                 → create the page for an uploaded video
  *        { videoKey, posterKey?, praxisName, title?, message?, recipientEmail?,
- *          notionPage?, durationSeconds? }   (keys from /api/videos/upload-target)
+ *          obsidianRef?, durationSeconds? }   (keys from /api/videos/upload-target)
  */
 
 function gate(request: NextRequest): NextResponse | null {

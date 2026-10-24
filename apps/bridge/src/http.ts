@@ -20,10 +20,12 @@ export function fetchWithTimeout(
   init: RequestInit = {},
   timeoutMs: number = FETCH_TIMEOUT_MS
 ): Promise<Response> {
+  // A caller-supplied signal (scheduler deadline / shutdown) is COMBINED with
+  // the per-request timeout, so cancelling the work aborts the in-flight fetch
+  // and a stuck connection still times out on its own.
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
   // Reference the global at call time so test doubles that replace
   // globalThis.fetch are still honored.
-  return fetch(input, {
-    ...init,
-    signal: init.signal ?? AbortSignal.timeout(timeoutMs),
-  });
+  return fetch(input, { ...init, signal });
 }

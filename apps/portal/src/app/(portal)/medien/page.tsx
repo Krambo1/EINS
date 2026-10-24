@@ -6,31 +6,35 @@ import {
   CardTitle,
   EmptyState,
   Badge,
-  Button,
 } from "@eins/ui";
 import { requirePermissionOrRedirect } from "@/auth/guards";
 import { listAssets, listAnimationsForClinic } from "@/server/queries/assets";
 import { getStorage } from "@/server/storage";
-import { formatDate, formatDateTime } from "@/lib/formatting";
-import { Film, Camera, Package, Clapperboard, Wand2 } from "lucide-react";
+import { formatDate } from "@/lib/formatting";
+import { Film, Camera, Package, Clapperboard } from "lucide-react";
 import {
   ANIMATION_STATE_LABELS,
   type AnimationState,
   type AssetKind,
 } from "@/lib/constants";
 import { can } from "@/lib/roles";
-import { requestAnimationCustomizationAction } from "./actions";
+import { RequestCustomizationForm } from "./RequestCustomizationForm";
+
+/** Assets per page; "Alle anzeigen" lifts the cap. */
+const ASSET_PAGE_SIZE = 60;
 
 export const metadata = { title: "Medien" };
 
 type Filter = AssetKind | "animationen";
-type Search = { kind?: string };
+type Search = { kind?: string; alle?: string };
 
+// Die Datenbank erlaubt weiterhin vier Arten (CHECK-Constraint). Neue Beiträge
+// sind Videos oder Bildmaterial, die beiden anderen Arten heißen neutral.
 const ASSET_KIND_LABELS: Record<AssetKind, string> = {
   video: "Videos",
-  foto: "Fotos",
-  rohmaterial: "Rohmaterial",
-  behind_scenes: "Behind the Scenes",
+  foto: "Bildmaterial",
+  rohmaterial: "Weiteres Material",
+  behind_scenes: "Weiteres Material",
 };
 
 const ASSET_KIND_ICONS: Record<AssetKind, React.ReactNode> = {
@@ -51,6 +55,9 @@ const ANIMATION_STATE_TONE: Record<
 };
 
 const ASSET_KINDS: AssetKind[] = ["video", "foto", "rohmaterial", "behind_scenes"];
+// Filter-Chips: nur die Arten, die neue Beiträge haben. Ältere Links auf die
+// anderen Arten funktionieren weiter (parseFilter).
+const FILTER_KINDS: AssetKind[] = ["video", "foto"];
 
 function parseFilter(raw: string | undefined): Filter | undefined {
   if (!raw) return undefined;
@@ -76,14 +83,21 @@ export default async function MedienPage({
   const assetKindFilter: AssetKind | undefined =
     filter && filter !== "animationen" ? filter : undefined;
 
-  const [assets, animations] = await Promise.all([
+  const showAllAssets = params.alle === "1";
+  const [assetRows, animations] = await Promise.all([
     showAssets
-      ? listAssets(session.clinicId, session.userId, { kind: assetKindFilter })
+      ? listAssets(session.clinicId, session.userId, {
+          kind: assetKindFilter,
+          limit: showAllAssets ? undefined : ASSET_PAGE_SIZE + 1,
+        })
       : Promise.resolve([]),
     showAnimations
       ? listAnimationsForClinic(session.clinicId, session.userId)
       : Promise.resolve([]),
   ]);
+
+  const hasMoreAssets = !showAllAssets && assetRows.length > ASSET_PAGE_SIZE;
+  const assets = hasMoreAssets ? assetRows.slice(0, ASSET_PAGE_SIZE) : assetRows;
 
   const storage = getStorage();
   const [assetCards, animationCards] = await Promise.all([
@@ -128,8 +142,17 @@ export default async function MedienPage({
       <header data-tour="medien-header">
         <h1 className="text-3xl font-semibold md:text-4xl">Medien.</h1>
         <p className="mt-2 text-base text-fg-primary md:text-lg">
-          Ihre Video- und Fotoproduktionen sowie Erklär-Animationen an einem
-          Ort.
+          Alle Videos, Animationen und Bilder für Ihre Praxis. Online geht nur, was Sie unter{" "}
+          <Link href="/beitraege" className="font-medium underline underline-offset-4">
+            Beiträge
+          </Link>{" "}
+          freigeben.
+        </p>
+        <p className="mt-2 text-sm text-fg-secondary">
+          Das Material gehört Ihnen: Sobald die erste Rechnung bezahlt ist,
+          dürfen Sie alles, was für Ihre Praxis entstanden ist, dauerhaft
+          nutzen und bearbeiten, auch nach einer Kündigung und mit einer anderen
+          Agentur.
         </p>
       </header>
 
@@ -138,7 +161,7 @@ export default async function MedienPage({
         <FilterChip href="/medien" active={filter === undefined}>
           Alle
         </FilterChip>
-        {ASSET_KINDS.map((k) => (
+        {FILTER_KINDS.map((k) => (
           <FilterChip
             key={k}
             href={`/medien?kind=${k}`}
@@ -165,12 +188,12 @@ export default async function MedienPage({
           title={
             filter === "animationen"
               ? "Noch keine Animationen verfügbar"
-              : "Noch keine Medien hochgeladen"
+              : "Noch keine Beiträge vorhanden"
           }
           description={
             filter === "animationen"
               ? "Wir bauen die Bibliothek gerade auf. Sobald Animationen bereitstehen, erscheinen sie hier."
-              : "Sobald wir Videos oder Fotos für Sie produzieren, erscheinen sie hier."
+              : "Sobald Ihre ersten Beiträge fertig sind, erscheinen sie hier. Veröffentlicht wird erst nach Ihrer Freigabe."
           }
         />
       )}
@@ -178,11 +201,11 @@ export default async function MedienPage({
       {showAssets && assetCards.length > 0 && (
         <section className="space-y-4">
           {showSectionHeaders && (
-            <h2 className="text-xl font-semibold">Aufnahmen</h2>
+            <h2 className="text-xl font-semibold">Videos und Bildmaterial</h2>
           )}
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
             {assetCards.map((a) => (
-              <Card key={a.id} className="overflow-hidden">
+              <Card key={a.id} className="flex flex-col overflow-hidden !p-0 md:!p-0">
                 <div className="relative aspect-video bg-bg-secondary">
                   {a.kind === "video" && a.muxPlaybackId ? (
                     <>
@@ -191,6 +214,8 @@ export default async function MedienPage({
                         <img
                           src={a.posterUrl}
                           alt=""
+                          loading="lazy"
+                          decoding="async"
                           className="h-full w-full object-cover"
                         />
                       )}
@@ -210,36 +235,45 @@ export default async function MedienPage({
                     <img
                       src={a.url}
                       alt={a.title}
+                      loading="lazy"
+                      decoding="async"
                       className="h-full w-full object-cover"
                     />
                   )}
                 </div>
 
-                <CardHeader className="pb-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <CardTitle className="line-clamp-2 text-lg">
+                <div className="flex flex-1 flex-col gap-3 p-5">
+                  <div>
+                    <h3 className="line-clamp-2 break-words text-lg font-semibold leading-snug">
                       {a.title}
-                    </CardTitle>
-                    <Badge tone="neutral">
-                      {ASSET_KIND_LABELS[a.kind as AssetKind] ?? a.kind}
-                    </Badge>
+                    </h3>
+                    <p className="mt-1 text-sm text-fg-secondary">
+                      {[
+                        ASSET_KIND_LABELS[a.kind as AssetKind] ?? a.kind,
+                        formatDate(a.createdAt),
+                        a.fileSizeBytes != null ? formatFileSize(a.fileSizeBytes) : null,
+                        a.supersedesId ? `Fassung ${a.version}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
                   </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
                   {a.description && (
-                    <p className="line-clamp-3 text-sm text-fg-primary">
-                      {a.description}
+                    <p className="line-clamp-2 text-sm text-fg-primary">{a.description}</p>
+                  )}
+                  {a.tags && a.tags.length > 0 && (
+                    <p className="text-sm text-fg-secondary">
+                      {a.tags.map((t) => `#${t}`).join(" ")}
                     </p>
                   )}
-                  <div className="flex items-center justify-between text-xs text-fg-secondary">
-                    <span>
-                      {a.shootDate
-                        ? `Dreh: ${formatDate(a.shootDate)}`
-                        : formatDate(a.createdAt)}
-                    </span>
-                    {a.version > 1 && <span>v{a.version}</span>}
-                  </div>
-                  <div className="flex gap-2">
+                  <div className="mt-auto flex gap-2 pt-2">
+                    <a
+                      href={a.url}
+                      download
+                      className="opa-btn-primary opa-focus-ring flex-1 rounded-md px-3 py-2 text-center text-sm font-medium"
+                    >
+                      Herunterladen
+                    </a>
                     <a
                       href={a.url}
                       target="_blank"
@@ -248,53 +282,24 @@ export default async function MedienPage({
                     >
                       Ansehen
                     </a>
-                    <a
-                      href={a.url}
-                      download
-                      className="opa-btn-primary opa-focus-ring flex-1 rounded-md px-3 py-2 text-center text-sm font-medium"
-                    >
-                      Herunterladen
-                    </a>
                   </div>
-                  {a.tags && a.tags.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {a.tags.map((t) => (
-                        <span
-                          key={t}
-                          className="rounded-full bg-bg-secondary px-2 py-0.5 text-xs text-fg-secondary"
-                        >
-                          #{t}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                  <dl className="grid grid-cols-2 gap-x-3 gap-y-1 border-t border-border pt-3 text-xs">
-                      <DtDdItem
-                        label="Hochgeladen"
-                        value={formatDate(a.createdAt)}
-                      />
-                      <DtDdItem
-                        label="Größe"
-                        value={
-                          a.fileSizeBytes != null
-                            ? formatFileSize(a.fileSizeBytes)
-                            : "—"
-                        }
-                      />
-                      <DtDdItem label="MIME" value={a.mimeType ?? "—"} />
-                      <DtDdItem
-                        label="Version"
-                        value={`v${a.version}${a.supersedesId ? " (Update)" : ""}`}
-                      />
-                      {a.muxPlaybackId && (
-                        <DtDdItem label="Mux ID" value={a.muxPlaybackId} />
-                      )}
-                    </dl>
-                </CardContent>
+                </div>
               </Card>
             ))}
           </div>
+          {hasMoreAssets && (
+            <div className="flex justify-center">
+              <Link
+                href={`/medien?${new URLSearchParams({
+                  ...(filter ? { kind: filter } : {}),
+                  alle: "1",
+                }).toString()}`}
+                className="rounded-md border border-border px-4 py-2 text-sm font-medium hover:bg-bg-secondary"
+              >
+                Ältere Beiträge anzeigen
+              </Link>
+            </div>
+          )}
         </section>
       )}
 
@@ -303,12 +308,15 @@ export default async function MedienPage({
           {showSectionHeaders && (
             <h2 className="text-xl font-semibold">Animationen</h2>
           )}
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
             {animationCards.map(({ library, instance, videoUrl, posterUrl }) => {
               const state = (instance?.status ?? "standard") as AnimationState;
+              const canRequest =
+                (state === "standard" || state === "ready") &&
+                can(session.role, "animations.request_customization");
               return (
-                <Card key={library.id} className="overflow-hidden">
-                  <div className="relative aspect-video bg-bg-secondary">
+                <Card key={library.id} className="flex flex-col overflow-hidden !p-0 md:!p-0">
+                  <div className="relative aspect-video bg-black">
                     <video
                       src={videoUrl}
                       poster={posterUrl ?? undefined}
@@ -317,107 +325,50 @@ export default async function MedienPage({
                       preload="metadata"
                     />
                   </div>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <CardTitle className="line-clamp-2 text-lg">
+                  <div className="flex flex-1 flex-col gap-3 p-5">
+                    <div>
+                      <h3 className="line-clamp-2 break-words text-lg font-semibold leading-snug">
                         {library.title}
-                      </CardTitle>
-                      <Badge tone={ANIMATION_STATE_TONE[state]}>
-                        {ANIMATION_STATE_LABELS[state]}
-                      </Badge>
+                      </h3>
+                      <p className="mt-1 text-sm text-fg-secondary">
+                        {["Animation", library.durationS ? `${library.durationS} Sekunden` : null]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
                     </div>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {library.treatmentTag && (
-                      <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
-                        {library.treatmentTag}
+                    {library.description && (
+                      <p className="line-clamp-2 text-sm text-fg-primary">{library.description}</p>
+                    )}
+                    {state !== "standard" && (
+                      <div className="space-y-1">
+                        <Badge tone={ANIMATION_STATE_TONE[state]}>
+                          {state === "ready" && instance?.deliveredAt
+                            ? `Angepasst am ${formatDate(instance.deliveredAt)}`
+                            : state === "requested" && instance?.requestedAt
+                              ? `Angefragt am ${formatDate(instance.requestedAt)}`
+                              : ANIMATION_STATE_LABELS[state]}
+                        </Badge>
+                        {(state === "requested" || state === "in_production") && (
+                          <p className="text-sm text-fg-secondary">
+                            Wir melden uns, sobald die Anpassung fertig ist.
+                          </p>
+                        )}
+                        {instance?.requestNote && (
+                          <p className="text-sm text-fg-primary">
+                            Ihr Wunsch: „{instance.requestNote}“
+                          </p>
+                        )}
                       </div>
                     )}
-                    {library.description && (
-                      <p className="line-clamp-3 text-sm text-fg-primary">
-                        {library.description}
-                      </p>
+                    {canRequest && (
+                      <details className="mt-auto pt-2">
+                        <summary className="inline-flex h-9 cursor-pointer list-none items-center rounded-md border border-border px-3 text-sm font-medium hover:bg-bg-secondary [&::-webkit-details-marker]:hidden">
+                          {state === "ready" ? "Weitere Anpassung anfordern" : "Anpassung anfordern"}
+                        </summary>
+                        <RequestCustomizationForm libraryId={library.id} label="Anfrage senden" />
+                      </details>
                     )}
-                    {state === "requested" && instance?.requestedAt && (
-                      <p className="text-sm text-fg-secondary">
-                        Angefordert am {formatDateTime(instance.requestedAt)}.
-                        Wir melden uns sobald die Anpassung fertig ist.
-                      </p>
-                    )}
-                    {state === "ready" && instance?.deliveredAt && (
-                      <p className="text-sm text-tone-good">
-                        Angepasste Version bereit seit{" "}
-                        {formatDateTime(instance.deliveredAt)}.
-                      </p>
-                    )}
-
-                    <dl className="grid grid-cols-2 gap-x-3 gap-y-1 border-t border-border pt-3 text-xs">
-                        <dt className="text-fg-secondary">Status</dt>
-                        <dd className="text-right font-medium text-fg-primary">
-                          {ANIMATION_STATE_LABELS[state]}
-                        </dd>
-                        <dt className="text-fg-secondary">Angefordert</dt>
-                        <dd className="text-right tabular-nums text-fg-primary">
-                          {instance?.requestedAt
-                            ? formatDateTime(instance.requestedAt)
-                            : "—"}
-                        </dd>
-                        <dt className="text-fg-secondary">Geliefert</dt>
-                        <dd className="text-right tabular-nums text-fg-primary">
-                          {instance?.deliveredAt
-                            ? formatDateTime(instance.deliveredAt)
-                            : "—"}
-                        </dd>
-                        <dt className="text-fg-secondary">Dauer</dt>
-                        <dd className="text-right tabular-nums text-fg-primary">
-                          {library.durationS ? `${library.durationS}s` : "—"}
-                        </dd>
-                        {instance?.requestNote && (
-                          <>
-                            <dt className="col-span-2 text-fg-secondary">
-                              Notiz zur Anpassung
-                            </dt>
-                            <dd className="col-span-2 text-fg-primary">
-                              {instance.requestNote}
-                            </dd>
-                          </>
-                        )}
-                      </dl>
-
-                    {(state === "standard" || state === "ready") &&
-                      can(session.role, "animations.request_customization") && (
-                        <form
-                          action={requestAnimationCustomizationAction}
-                          className="space-y-2 border-t border-border pt-3"
-                        >
-                          <input
-                            type="hidden"
-                            name="libraryId"
-                            value={library.id}
-                          />
-                          <label className="block text-xs font-medium text-fg-secondary">
-                            Anpassung anfordern (optional)
-                          </label>
-                          <textarea
-                            name="note"
-                            rows={2}
-                            placeholder="Was möchten Sie ändern? Logo, Farbe, Stimme …"
-                            className="w-full rounded-lg border border-border bg-bg-primary p-2 text-sm"
-                          />
-                          <Button
-                            type="submit"
-                            variant="outline"
-                            size="sm"
-                            className="w-full"
-                          >
-                            <Wand2 className="h-4 w-4" />
-                            {state === "ready"
-                              ? "Weitere Anpassung anfordern"
-                              : "Anpassung anfordern"}
-                          </Button>
-                        </form>
-                      )}
-                  </CardContent>
+                  </div>
                 </Card>
               );
             })}
@@ -464,22 +415,13 @@ function FilterChip({
       href={href}
       className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-sm transition ${
         active
-          ? "border-accent bg-accent/15 text-fg-primary"
-          : "border-border text-fg-secondary hover:bg-bg-secondary"
+          ? "border-fg-primary bg-fg-primary font-medium text-bg-primary"
+          : "border-border bg-bg-primary text-fg-secondary hover:bg-bg-secondary"
       }`}
     >
       {icon}
       {children}
     </Link>
-  );
-}
-
-function DtDdItem({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <>
-      <dt className="text-fg-secondary">{label}</dt>
-      <dd className="text-right tabular-nums text-fg-primary">{value}</dd>
-    </>
   );
 }
 

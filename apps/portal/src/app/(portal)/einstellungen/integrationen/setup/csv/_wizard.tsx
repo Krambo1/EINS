@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useState } from "react";
 import {
   Card,
   CardContent,
@@ -24,6 +24,7 @@ import {
   type UploadResult,
 } from "@/server/actions/pvs-csv-upload";
 import type { CsvMapping, CsvStream } from "@/server/pvs-csv-mapper";
+import { autoMatchHeader } from "@/server/pvs-csv-aliases";
 import { CheckCircle2, Loader2, UploadCloud, AlertTriangle } from "lucide-react";
 
 /**
@@ -52,7 +53,9 @@ interface MapState {
   columns: Record<string, string | undefined>;
   dateFormat: string;
   amountUnit: "cents" | "eur";
-  decimalSeparator: "." | ",";
+  decimalSeparator: "auto" | "." | ",";
+  allRowsPaidConfirmed: boolean;
+  detection: string;
   busy: boolean;
   error: string | null;
 }
@@ -64,6 +67,42 @@ interface ProgressState {
   processedRows: number;
   errorCount: number;
   errorSummary: unknown;
+  /** Still "processing" after 15 min: processing is paused or behind (B-21). */
+  stalled?: boolean;
+}
+
+/**
+ * German text for the error codes of the CSV upload actions (B-21). Raw
+ * codes or parser messages never reach the screen.
+ */
+function csvErrorMessage(code: string | undefined, fallback: string): string {
+  if (!code) return fallback;
+  if (code === "forbidden") {
+    return "Daten importieren kann nur die Inhaberin oder der Inhaber der Praxis.";
+  }
+  if (code === "no_file") return "Bitte eine CSV-Datei auswählen.";
+  if (code === "file_too_large") {
+    return "Die Datei ist größer als 4 MB. Bitte exportieren Sie einen kürzeren Zeitraum oder teilen Sie die Datei auf.";
+  }
+  if (code === "invalid_stream") return "Bitte wählen Sie, welche Daten die Datei enthält.";
+  if (code === "csv_empty") return "Die Datei enthält keine Datenzeilen.";
+  if (code === "invalid_upload_group" || code === "upload_not_found") {
+    return "Dieser Upload wurde nicht gefunden. Bitte laden Sie die Datei erneut hoch.";
+  }
+  if (code.startsWith("upload_already_")) return "Dieser Upload wird bereits verarbeitet.";
+  if (code === "stream_mismatch") {
+    return "Die Zuordnung passt nicht zur gewählten Datenart. Bitte laden Sie die Datei erneut hoch.";
+  }
+  if (code === "status_confirmation_required") {
+    return "Bitte wählen Sie eine Status-Spalte oder bestätigen Sie, dass alle Rechnungen bezahlt sind.";
+  }
+  if (code === "invalid_mapping") {
+    return "Die Spalten-Zuordnung ist unvollständig. Bitte prüfen Sie die Pflichtfelder.";
+  }
+  if (code.startsWith("csv_parse_error")) {
+    return "Die Datei konnte nicht gelesen werden. Bitte prüfen Sie, ob es ein CSV-Export aus Ihrer PVS ist.";
+  }
+  return fallback;
 }
 
 const REQUIRED_FIELDS: Record<CsvStream, string[]> = {
@@ -89,7 +128,7 @@ const OPTIONAL_FIELDS: Record<CsvStream, string[]> = {
     "treatmentLabel",
     "practitionerLabel",
   ],
-  invoices: ["pvsAppointmentId", "pvsEncounterId"],
+  invoices: ["statusColumn", "pvsAppointmentId", "pvsEncounterId"],
 };
 
 const FIELD_LABELS: Record<string, string> = {
@@ -109,11 +148,39 @@ const FIELD_LABELS: Record<string, string> = {
   treatmentLabel: "Behandlungs-Bezeichnung",
   locationCode: "Standort-Code",
   locationLabel: "Standort-Bezeichnung",
-  statusColumn: "Status-Spalte",
+  statusColumn: "Status-Spalte (bezahlt, offen, storniert)",
   practitionerLabel: "Behandler",
   completedAt: "Abgeschlossen-Zeitpunkt",
   amount: "Betrag",
   paidAt: "Bezahlt-Zeitpunkt",
+};
+
+// Shown inside the select triggers. Radix only fills <SelectValue> once the
+// items have mounted, so the trigger stayed empty on first paint; the explicit
+// text avoids that, and "Bitte wählen" covers an unset value.
+const STREAM_LABELS: Record<CsvStream, string> = {
+  patients: "Patienten (Stammdaten)",
+  appointments: "Termine (geplant, mit Status)",
+  encounters: "Behandlungen (abgeschlossen)",
+  invoices: "Rechnungen (bezahlt)",
+};
+
+const DATE_FORMAT_LABELS: Record<string, string> = {
+  "DD.MM.YYYY": "TT.MM.JJJJ (18.05.2026)",
+  "YYYY-MM-DD": "JJJJ-MM-TT (2026-05-18)",
+  ISO_DATETIME: "ISO 8601 (2026-05-18T14:30:00)",
+  "MM/DD/YYYY": "MM/DD/YYYY (05/18/2026)",
+};
+
+const AMOUNT_UNIT_LABELS: Record<"cents" | "eur", string> = {
+  eur: "Euro (1.234,56)",
+  cents: "Cent (123456)",
+};
+
+const DECIMAL_LABELS: Record<"auto" | "." | ",", string> = {
+  auto: "Automatisch erkennen",
+  ",": "Komma (1.234,56)",
+  ".": "Punkt (1,234.56)",
 };
 
 export function CsvUploadWizard() {
@@ -141,6 +208,7 @@ export function CsvUploadWizard() {
           processedRows: r.processedRows ?? 0,
           errorCount: r.errorCount ?? 0,
           errorSummary: r.errorSummary,
+          stalled: r.stalled ?? false,
         });
       }
     }, 2000);
@@ -163,7 +231,7 @@ export function CsvUploadWizard() {
       setPickState((s) => ({
         ...s,
         busy: false,
-        error: result.error ?? "Upload fehlgeschlagen.",
+        error: csvErrorMessage(result.error, "Upload fehlgeschlagen."),
       }));
       return;
     }
@@ -171,10 +239,8 @@ export function CsvUploadWizard() {
     const required = REQUIRED_FIELDS[pickState.stream];
     const optional = OPTIONAL_FIELDS[pickState.stream];
     for (const f of [...required, ...optional]) {
-      // Auto-detect: same-name header match (case-insensitive).
-      const found = result.headers?.find(
-        (h) => h.toLowerCase().replace(/[\s_-]/g, "") === f.toLowerCase()
-      );
+      // Auto-detect: field name or known German header alias.
+      const found = autoMatchHeader(f, result.headers ?? []);
       initialColumns[f] = found;
     }
     setMapState({
@@ -184,9 +250,11 @@ export function CsvUploadWizard() {
       previewRows: result.previewRows ?? [],
       totalRows: result.totalRows ?? 0,
       columns: initialColumns,
-      dateFormat: pickState.stream === "patients" ? "YYYY-MM-DD" : "ISO_DATETIME",
+      dateFormat: "DD.MM.YYYY",
       amountUnit: "eur",
-      decimalSeparator: ",",
+      decimalSeparator: "auto",
+      allRowsPaidConfirmed: false,
+      detection: describeDetection(result),
       busy: false,
       error: null,
     });
@@ -210,6 +278,20 @@ export function CsvUploadWizard() {
       return;
     }
 
+    if (
+      mapState.stream === "invoices" &&
+      !cols.statusColumn &&
+      !mapState.allRowsPaidConfirmed
+    ) {
+      setMapState({
+        ...mapState,
+        busy: false,
+        error:
+          "Bitte ordnen Sie eine Status-Spalte zu oder bestätigen Sie, dass alle Zeilen bezahlte Rechnungen sind.",
+      });
+      return;
+    }
+
     const mapping = {
       stream: mapState.stream,
       columns: Object.fromEntries(
@@ -220,6 +302,7 @@ export function CsvUploadWizard() {
         ? {
             amountUnit: mapState.amountUnit,
             decimalSeparator: mapState.decimalSeparator,
+            allRowsPaidConfirmed: mapState.allRowsPaidConfirmed,
           }
         : {}),
     } as CsvMapping;
@@ -228,11 +311,14 @@ export function CsvUploadWizard() {
       uploadId: mapState.uploadId,
       mapping,
     });
-    if (!r.ok) {
+    // "upload_already_*" (e.g. a second click, or another tab started it):
+    // the upload is already running or done, so show its progress instead
+    // of an error. The poll below picks up the real status.
+    if (!r.ok && !r.error?.startsWith("upload_already_")) {
       setMapState({
         ...mapState,
         busy: false,
-        error: r.error ?? "Mapping fehlgeschlagen.",
+        error: csvErrorMessage(r.error, "Zuordnung fehlgeschlagen."),
       });
       return;
     }
@@ -259,17 +345,17 @@ export function CsvUploadWizard() {
     <Card>
       <CardHeader>
         <CardTitle className="text-base">
-          {step === "pick" && "Schritt 1 / 3 — Datei wählen"}
-          {step === "map" && "Schritt 2 / 3 — Spalten zuordnen"}
-          {step === "progress" && "Schritt 3 / 3 — Verarbeitung"}
+          {step === "pick" && "Schritt 1 von 3: Datei wählen"}
+          {step === "map" && "Schritt 2 von 3: Spalten zuordnen"}
+          {step === "progress" && "Schritt 3 von 3: Verarbeitung"}
         </CardTitle>
         <CardDescription>
           {step === "pick" &&
-            "Pro Stream eine Datei. Bei mehreren Streams: nacheinander hochladen."}
+            "Pro Datenart eine Datei. Haben Sie mehrere, laden Sie sie nacheinander hoch."}
           {step === "map" &&
-            "Sagen Sie EINS, welche CSV-Spalte welchen Wert enthält. Wir versuchen auto-zuzuordnen, korrigieren Sie wenn nötig."}
+            "Sagen Sie EINS, welche Spalte Ihrer Datei welchen Wert enthält. Wir ordnen automatisch vor, korrigieren Sie bei Bedarf."}
           {step === "progress" &&
-            "EINS verarbeitet jede Zeile und leitet Termine, Statuse und Umsätze ab."}
+            "EINS verarbeitet jede Zeile und leitet Termine, Status und Umsätze ab."}
         </CardDescription>
       </CardHeader>
 
@@ -277,29 +363,24 @@ export function CsvUploadWizard() {
         {step === "pick" && (
           <form onSubmit={handleUpload} className="space-y-4">
             <div className="space-y-2">
-              <Label>Welche Daten enthält Ihre CSV?</Label>
+              <Label htmlFor="csv-stream">Welche Daten enthält Ihre CSV-Datei?</Label>
               <Select
                 value={pickState.stream}
                 onValueChange={(v) =>
                   setPickState((s) => ({ ...s, stream: v as CsvStream }))
                 }
               >
-                <SelectTrigger>
-                  <SelectValue />
+                <SelectTrigger id="csv-stream">
+                  <SelectValue placeholder="Bitte wählen">
+                    {STREAM_LABELS[pickState.stream] ?? "Bitte wählen"}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="patients">
-                    Patienten (Stammdaten, Demografie)
-                  </SelectItem>
-                  <SelectItem value="appointments">
-                    Termine (geplant + Status)
-                  </SelectItem>
-                  <SelectItem value="encounters">
-                    Behandlungen (abgeschlossen)
-                  </SelectItem>
-                  <SelectItem value="invoices">
-                    Rechnungen (bezahlt)
-                  </SelectItem>
+                  {(Object.keys(STREAM_LABELS) as CsvStream[]).map((k) => (
+                    <SelectItem key={k} value={k}>
+                      {STREAM_LABELS[k]}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -317,33 +398,45 @@ export function CsvUploadWizard() {
                   }))
                 }
               />
-              <p className="text-xs text-muted-foreground">
-                Max. 50 MB. UTF-8 oder UTF-8-BOM. Trennzeichen Komma oder
-                Semikolon — wird automatisch erkannt.
+              <p className="text-sm text-fg-secondary">
+                Eine CSV-Datei ist eine einfache Tabelle, die fast jede
+                Praxis-Software ausgeben kann. Höchstens 4 MB. Zeichensatz,
+                Trennzeichen sowie Titel- und Summenzeilen erkennen wir
+                automatisch.
               </p>
             </div>
 
             {pickState.error && (
-              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+              <div className="rounded-md border border-[var(--tone-bad-border)] bg-[var(--tone-bad-bg)] p-3 text-sm text-tone-bad">
                 <AlertTriangle className="mr-2 inline h-4 w-4" />
                 {pickState.error}
               </div>
             )}
 
-            <Button type="submit" disabled={pickState.busy || !pickState.file}>
+            <Button
+              type="submit"
+              className="h-auto min-h-11 whitespace-normal py-2 text-left"
+              disabled={pickState.busy || !pickState.file}
+            >
               {pickState.busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               <UploadCloud className="mr-2 h-4 w-4" />
-              Hochladen + Vorschau
+              Hochladen und Vorschau zeigen
             </Button>
           </form>
         )}
 
         {step === "map" && mapState && (
           <div className="space-y-6">
-            <div className="rounded-md border bg-muted/30 p-3 text-sm">
+            <div className="rounded-md border bg-bg-secondary p-3 text-sm">
               <strong>{mapState.totalRows.toLocaleString("de-DE")} Zeilen</strong> in
               der Datei. Vorschau zeigt die ersten 5.
             </div>
+
+            {mapState.detection && (
+              <div className="rounded-md border bg-bg-secondary p-3 text-sm text-fg-secondary">
+                {mapState.detection}
+              </div>
+            )}
 
             <div className="space-y-3">
               <Label className="text-sm font-medium">Spalten zuordnen</Label>
@@ -362,7 +455,7 @@ export function CsvUploadWizard() {
                   }
                 />
               ))}
-              <div className="border-t pt-3 text-xs uppercase tracking-wide text-muted-foreground">
+              <div className="border-t pt-3 text-sm font-medium text-fg-primary">
                 Optional
               </div>
               {OPTIONAL_FIELDS[mapState.stream].map((field) => (
@@ -392,16 +485,18 @@ export function CsvUploadWizard() {
                   }
                 >
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder="Bitte wählen">
+                      {DATE_FORMAT_LABELS[mapState.dateFormat] ?? "Bitte wählen"}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="DD.MM.YYYY">TT.MM.JJJJ (18.05.2026)</SelectItem>
+                    <SelectItem value="YYYY-MM-DD">JJJJ-MM-TT (2026-05-18)</SelectItem>
                     {mapState.stream !== "patients" && (
                       <SelectItem value="ISO_DATETIME">
                         ISO 8601 (2026-05-18T14:30:00)
                       </SelectItem>
                     )}
-                    <SelectItem value="YYYY-MM-DD">YYYY-MM-DD (2026-05-18)</SelectItem>
-                    <SelectItem value="DD.MM.YYYY">DD.MM.YYYY (18.05.2026)</SelectItem>
                     <SelectItem value="MM/DD/YYYY">MM/DD/YYYY (05/18/2026)</SelectItem>
                   </SelectContent>
                 </Select>
@@ -421,7 +516,9 @@ export function CsvUploadWizard() {
                       }
                     >
                       <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue placeholder="Bitte wählen">
+                          {AMOUNT_UNIT_LABELS[mapState.amountUnit] ?? "Bitte wählen"}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="eur">Euro (1.234,56)</SelectItem>
@@ -436,14 +533,17 @@ export function CsvUploadWizard() {
                       onValueChange={(v) =>
                         setMapState({
                           ...mapState,
-                          decimalSeparator: v as "." | ",",
+                          decimalSeparator: v as "auto" | "." | ",",
                         })
                       }
                     >
                       <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue placeholder="Bitte wählen">
+                          {DECIMAL_LABELS[mapState.decimalSeparator] ?? "Bitte wählen"}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="auto">Automatisch erkennen</SelectItem>
                         <SelectItem value=",">Komma (1.234,56)</SelectItem>
                         <SelectItem value=".">Punkt (1,234.56)</SelectItem>
                       </SelectContent>
@@ -453,10 +553,38 @@ export function CsvUploadWizard() {
               )}
             </div>
 
+            {mapState.stream === "invoices" && !mapState.columns.statusColumn && (
+              <div className="space-y-2 rounded-md border border-[var(--tone-bad-border)] bg-[var(--tone-bad-bg)] p-3 text-sm">
+                <div className="text-tone-bad">
+                  <AlertTriangle className="mr-2 inline h-4 w-4" />
+                  Ohne Status-Spalte wird jede Zeile als bezahlter Umsatz
+                  gezählt, auch offene oder stornierte Rechnungen. Das
+                  verfälscht Ihren Umsatz.
+                </div>
+                <label className="flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    className="mt-1"
+                    checked={mapState.allRowsPaidConfirmed}
+                    onChange={(e) =>
+                      setMapState({
+                        ...mapState,
+                        allRowsPaidConfirmed: e.target.checked,
+                      })
+                    }
+                  />
+                  <span>
+                    Ich bestätige, dass alle Zeilen dieser Datei bezahlte
+                    Rechnungen sind.
+                  </span>
+                </label>
+              </div>
+            )}
+
             {mapState.previewRows.length > 0 && (
               <div className="overflow-x-auto rounded-md border">
-                <table className="w-full text-xs">
-                  <thead className="bg-muted/30 text-left">
+                <table className="w-full text-sm">
+                  <thead className="bg-bg-secondary text-left">
                     <tr>
                       {mapState.headers.slice(0, 8).map((h) => (
                         <th key={h} className="px-2 py-1 font-medium">
@@ -477,7 +605,7 @@ export function CsvUploadWizard() {
                           </td>
                         ))}
                         {mapState.headers.length > 8 && (
-                          <td className="px-2 py-1 text-muted-foreground">…</td>
+                          <td className="px-2 py-1 text-fg-secondary">…</td>
                         )}
                       </tr>
                     ))}
@@ -487,13 +615,13 @@ export function CsvUploadWizard() {
             )}
 
             {mapState.error && (
-              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive">
+              <div className="rounded-md border border-[var(--tone-bad-border)] bg-[var(--tone-bad-bg)] p-3 text-sm text-tone-bad">
                 <AlertTriangle className="mr-2 inline h-4 w-4" />
                 {mapState.error}
               </div>
             )}
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <Button onClick={handleConfirmMapping} disabled={mapState.busy}>
                 {mapState.busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 Verarbeitung starten
@@ -517,7 +645,7 @@ export function CsvUploadWizard() {
               {progress.status === "completed" ? (
                 <CheckCircle2 className="h-6 w-6 text-green-600" />
               ) : progress.status === "failed" ? (
-                <AlertTriangle className="h-6 w-6 text-destructive" />
+                <AlertTriangle className="h-6 w-6 text-tone-bad" />
               ) : (
                 <Loader2 className="h-6 w-6 animate-spin" />
               )}
@@ -526,9 +654,16 @@ export function CsvUploadWizard() {
                   {progress.status === "completed" && "Fertig"}
                   {progress.status === "failed" && "Fehlgeschlagen"}
                   {progress.status === "processing" && "Wird verarbeitet…"}
-                  {progress.status === "pending" && "Wartet auf Worker…"}
+                  {progress.status === "processing" && progress.stalled && (
+                    <span className="block text-sm font-normal text-fg-secondary">
+                      Die Verarbeitung wurde unterbrochen. Ihre Datei ist
+                      gespeichert und wird spätestens am nächsten Morgen
+                      automatisch verarbeitet. Sie können die Seite schließen.
+                    </span>
+                  )}
+                  {progress.status === "pending" && "Wartet auf Verarbeitung…"}
                 </div>
-                <div className="text-sm text-muted-foreground">
+                <div className="text-sm text-fg-secondary">
                   {progress.processedRows.toLocaleString("de-DE")}{" "}
                   {progress.totalRows
                     ? `/ ${progress.totalRows.toLocaleString("de-DE")} `
@@ -537,7 +672,7 @@ export function CsvUploadWizard() {
                   {progress.errorCount > 0 && (
                     <>
                       {" · "}
-                      <span className="text-destructive">
+                      <span className="text-tone-bad">
                         {progress.errorCount} Fehler
                       </span>
                     </>
@@ -547,9 +682,9 @@ export function CsvUploadWizard() {
             </div>
 
             {progress.totalRows && progress.totalRows > 0 && (
-              <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div className="h-2 w-full overflow-hidden rounded-full bg-bg-secondary">
                 <div
-                  className="h-full bg-primary transition-all"
+                  className="h-full bg-accent transition-all"
                   style={{
                     width: `${Math.min(
                       100,
@@ -560,8 +695,24 @@ export function CsvUploadWizard() {
               </div>
             )}
 
+            {progress.status === "completed" && (
+              <CompletionSummary summary={progress.errorSummary} />
+            )}
+
+            {progress.status === "failed" && (
+              <div className="rounded-md border border-[var(--tone-bad-border)] bg-[var(--tone-bad-bg)] p-3 text-sm text-tone-bad">
+                {exhaustedMessage(progress.errorSummary) ?? (
+                  <>
+                    Es wurde nichts übernommen. Bitte korrigieren Sie die
+                    aufgeführten Zeilen oder die Zuordnung und laden Sie die
+                    Datei erneut hoch.
+                  </>
+                )}
+              </div>
+            )}
+
             {progress.status === "failed" && Boolean(progress.errorSummary) && (
-              <details className="rounded-md border bg-muted/30 p-3 text-xs">
+              <details className="rounded-md border bg-bg-secondary p-3 text-sm">
                 <summary className="cursor-pointer text-sm font-medium">
                   Fehler-Details anzeigen
                 </summary>
@@ -583,6 +734,63 @@ export function CsvUploadWizard() {
   );
 }
 
+/**
+ * Ingest gave up after its retry limit (errorSummary.reason
+ * "attempts_exhausted"): earlier partial runs may already have applied rows,
+ * so the server's own German message replaces "Es wurde nichts übernommen".
+ */
+function exhaustedMessage(summary: unknown): string | null {
+  if (!summary || typeof summary !== "object") return null;
+  const s = summary as { reason?: unknown; message?: unknown };
+  if (s.reason !== "attempts_exhausted") return null;
+  return typeof s.message === "string" && s.message.trim().length > 0
+    ? s.message
+    : null;
+}
+
+function describeDetection(r: UploadResult): string {
+  const delim =
+    r.delimiter === ";"
+      ? "Semikolon"
+      : r.delimiter === ","
+        ? "Komma"
+        : r.delimiter === "\t"
+          ? "Tabulator"
+          : r.delimiter === "|"
+            ? "senkrechter Strich"
+            : "unbekannt";
+  const parts = [`Trennzeichen: ${delim}`, `Zeichensatz: ${r.encoding ?? "unbekannt"}`];
+  if (r.skippedPreambleLines)
+    parts.push(`${r.skippedPreambleLines} Titelzeile(n) vor den Spaltenüberschriften übersprungen`);
+  if (r.skippedFooterLines)
+    parts.push(`${r.skippedFooterLines} Summen- oder Wiederholungszeile(n) ignoriert`);
+  return parts.join(" · ");
+}
+
+function CompletionSummary({ summary }: { summary: unknown }) {
+  const s = (summary ?? {}) as {
+    applied?: number;
+    alreadyViaPvs?: number;
+    skipped?: { unpaid?: number; storniert?: number; nettoNull?: number };
+  };
+  const lines: string[] = [];
+  if (typeof s.applied === "number") lines.push(`${s.applied} Datensätze übernommen`);
+  if (s.alreadyViaPvs)
+    lines.push(`${s.alreadyViaPvs} bereits über die PVS-Anbindung erfasst (nicht doppelt gezählt)`);
+  if (s.skipped?.unpaid) lines.push(`${s.skipped.unpaid} nicht bezahlte Zeilen übersprungen`);
+  if (s.skipped?.storniert) lines.push(`${s.skipped.storniert} stornierte Zeilen nicht als Umsatz gezählt`);
+  if (s.skipped?.nettoNull)
+    lines.push(`${s.skipped.nettoNull} Rechnungen mit Saldo 0 € als storniert übernommen (zählen nicht mehr als Umsatz)`);
+  if (lines.length === 0) return null;
+  return (
+    <ul className="list-disc space-y-1 pl-5 text-sm text-fg-secondary">
+      {lines.map((l) => (
+        <li key={l}>{l}</li>
+      ))}
+    </ul>
+  );
+}
+
 function FieldRow({
   field,
   required,
@@ -598,21 +806,21 @@ function FieldRow({
 }) {
   const label = FIELD_LABELS[field] ?? field;
   return (
-    <div className="grid grid-cols-12 items-center gap-2">
-      <div className="col-span-4 text-sm">
+    <div className="grid gap-1 sm:grid-cols-12 sm:items-center sm:gap-2">
+      <div className="text-sm font-medium text-fg-primary sm:col-span-4">
         {label}
-        {required && <Badge tone="warn" className="ml-2 text-[10px]">Pflicht</Badge>}
+        {required && <Badge tone="warn" className="ml-2">Pflicht</Badge>}
       </div>
-      <div className="col-span-8">
+      <div className="sm:col-span-8">
         <Select
           value={value ?? "__none__"}
           onValueChange={(v) => onChange(v === "__none__" ? undefined : v)}
         >
           <SelectTrigger>
-            <SelectValue placeholder="— nicht zuordnen —" />
+            <SelectValue placeholder="Nicht zuordnen" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="__none__">— nicht zuordnen —</SelectItem>
+            <SelectItem value="__none__">Nicht zuordnen</SelectItem>
             {headers.map((h) => (
               <SelectItem key={h} value={h}>
                 {h}

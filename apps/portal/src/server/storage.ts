@@ -8,10 +8,50 @@ import { env, hasR2 } from "@/lib/env";
  * are served by the `/api/files/[...path]` passthrough route. Useful in
  * dev and for the seed fixtures.
  *
- * R2 driver: returns a public R2 URL if R2_PUBLIC_BASE is set (bucket is
- * public-read), otherwise signs a short-lived GET URL via the S3 SDK.
+ * R2 driver: signs a short-lived GET URL via the S3 SDK. R2_PUBLIC_BASE is
+ * honoured ONLY for keys under PUBLIC_KEY_PREFIXES (avatars): documents,
+ * client uploads, checklist files, reports, CSV imports and backups are
+ * always presigned, even when a public base is configured (L-11). Point the
+ * public base at a bucket/domain that only serves `avatars/`.
  * The signed-URL path is lazy-imported so local setups don't pull @aws-sdk.
+ *
+ * R2 bucket CORS (required, not in code): browsers PUT straight to the
+ * presigned URL from the portal origin, which triggers a preflight. Without
+ * this rule on the bucket every upload fails with "Verbindung abgebrochen":
+ *   [{ "AllowedOrigins": ["https://portal.eins.ag", "https://admin.eins.ag"],
+ *      "AllowedMethods": ["PUT", "GET", "HEAD"],
+ *      "AllowedHeaders": ["content-type"],
+ *      "ExposeHeaders": ["ETag"],
+ *      "MaxAgeSeconds": 3600 }]
+ * Cloudflare dashboard: R2 > bucket > Settings > CORS policy. Verify with one
+ * real upload on portal.eins.ag before the first Praxis starts.
  */
+
+/**
+ * Key prefixes that may be served from R2_PUBLIC_BASE without a signature.
+ * Avatars only: they are rendered in tables on every page, carry no patient
+ * data, and their keys are per user. Everything else is presigned (L-11).
+ */
+export const PUBLIC_KEY_PREFIXES = ["avatars/"] as const;
+
+export function isPublicKey(key: string): boolean {
+  return !key.includes("..") && PUBLIC_KEY_PREFIXES.some((p) => key.startsWith(p));
+}
+
+/**
+ * A prefix for `removePrefix` must name a folder ("<clinicId>/",
+ * "pvs-csv-uploads/<clinicId>/"): non-empty segments, trailing slash, no
+ * "..". Guards against an empty or root prefix wiping the whole bucket.
+ */
+export function assertDeletablePrefix(prefix: string): void {
+  const ok =
+    prefix.endsWith("/") &&
+    !prefix.startsWith("/") &&
+    !prefix.includes("..") &&
+    prefix.split("/").slice(0, -1).every((seg) => seg.length > 0) &&
+    prefix.length >= 8;
+  if (!ok) throw new Error(`storage: unsafe prefix for removePrefix: ${JSON.stringify(prefix)}`);
+}
 
 export interface Storage {
   /** Public (or presigned) URL for reading a stored object. */
@@ -49,6 +89,13 @@ export interface Storage {
   head(key: string): Promise<{ size: number; contentType?: string } | null>;
   /** Delete an object. */
   remove(key: string): Promise<void>;
+  /**
+   * Delete every object whose key starts with `prefix` (a folder such as
+   * "<clinicId>/"), including objects that never got a DB row (aborted
+   * presigned uploads). Returns how many objects were deleted and how many
+   * could not be. Used by the DSGVO erasure (L-12 / J-5).
+   */
+  removePrefix(prefix: string): Promise<{ removed: number; failed: number }>;
   /**
    * Read the full object body. Used by background workers that need to
    * process the file (e.g. the PVS CSV-ingest worker). For very large
@@ -110,6 +157,23 @@ class LocalStorage implements Storage {
     }
   }
 
+  async removePrefix(prefix: string): Promise<{ removed: number; failed: number }> {
+    assertDeletablePrefix(prefix);
+    const { readdir, rm } = await import("node:fs/promises");
+    const { join, resolve } = await import("node:path");
+    const root = resolve(process.cwd(), "storage");
+    const dir = join(root, prefix);
+    let removed = 0;
+    try {
+      const entries = await readdir(dir, { recursive: true, withFileTypes: true });
+      removed = entries.filter((e) => e.isFile()).length;
+    } catch {
+      return { removed: 0, failed: 0 }; // folder does not exist
+    }
+    await rm(dir, { recursive: true, force: true });
+    return { removed, failed: 0 };
+  }
+
   async read(key: string): Promise<Buffer> {
     const { readFile } = await import("node:fs/promises");
     const { join, resolve } = await import("node:path");
@@ -120,7 +184,7 @@ class LocalStorage implements Storage {
 
 class R2Storage implements Storage {
   publicUrlFor(key: string): string | null {
-    if (env.R2_PUBLIC_BASE) {
+    if (env.R2_PUBLIC_BASE && isPublicKey(key)) {
       return `${env.R2_PUBLIC_BASE.replace(/\/$/, "")}/${key}`;
     }
     return null;
@@ -258,6 +322,53 @@ class R2Storage implements Storage {
     );
   }
 
+  async removePrefix(prefix: string): Promise<{ removed: number; failed: number }> {
+    assertDeletablePrefix(prefix);
+    const { S3Client, ListObjectsV2Command, DeleteObjectsCommand } = await import(
+      /* webpackIgnore: true */ "@aws-sdk/client-s3"
+    );
+    const client = new S3Client({
+      region: "auto",
+      endpoint: env.R2_ENDPOINT,
+      credentials: {
+        accessKeyId: env.R2_ACCESS_KEY_ID!,
+        secretAccessKey: env.R2_SECRET_ACCESS_KEY!,
+      },
+    });
+    let removed = 0;
+    let failed = 0;
+    let token: string | undefined;
+    // List one page (max 1000 keys), delete it in one DeleteObjects call,
+    // repeat. Deleting while listing is safe: the continuation token points
+    // past the page we just handled.
+    do {
+      const page = await client.send(
+        new ListObjectsV2Command({
+          Bucket: env.R2_BUCKET!,
+          Prefix: prefix,
+          MaxKeys: 1000,
+          ContinuationToken: token,
+        })
+      );
+      const keys = (page.Contents ?? [])
+        .map((o) => o.Key)
+        .filter((k): k is string => typeof k === "string" && k.startsWith(prefix));
+      if (keys.length > 0) {
+        const out = await client.send(
+          new DeleteObjectsCommand({
+            Bucket: env.R2_BUCKET!,
+            Delete: { Objects: keys.map((Key) => ({ Key })), Quiet: true },
+          })
+        );
+        const errors = out.Errors?.length ?? 0;
+        failed += errors;
+        removed += keys.length - errors;
+      }
+      token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    } while (token);
+    return { removed, failed };
+  }
+
   async read(key: string): Promise<Buffer> {
     const { S3Client, GetObjectCommand } = await import(
       /* webpackIgnore: true */ "@aws-sdk/client-s3"
@@ -291,4 +402,16 @@ export function getStorage(): Storage {
     singleton = hasR2() ? new R2Storage() : new LocalStorage();
   }
   return singleton;
+}
+
+/**
+ * Delete several objects, best effort. Every key is attempted even when one
+ * fails; returns the keys that could not be deleted so the caller can log or
+ * audit them (e.g. DSGVO deletion). Missing objects count as deleted.
+ */
+export async function deleteObjects(keys: string[]): Promise<string[]> {
+  const storage = getStorage();
+  const unique = [...new Set(keys.filter((k) => k.length > 0))];
+  const results = await Promise.allSettled(unique.map((k) => storage.remove(k)));
+  return unique.filter((_, i) => results[i]!.status === "rejected");
 }

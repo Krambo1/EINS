@@ -1,5 +1,6 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
+import { berlinDay } from "@/lib/dashboard-range";
 
 /**
  * Tenant-keyed wrapper around `unstable_cache` for clinic-scoped reads.
@@ -17,18 +18,24 @@ import { unstable_cache } from "next/cache";
  *   consulted. Cross-tenant cache reuse would be catastrophic.
  *
  * Date normalization:
- *   Date arguments are normalized to YYYY-MM-DD before keying so the
+ *   Date arguments are normalized to the Berlin day YYYY-MM-DD before keying so the
  *   cache hits across requests within the same calendar day. Pages
  *   today create `new Date()` per request (millisecond-precise) → without
  *   normalization the cache would miss every time.
  *
  * Invalidation:
- *   Each entry is tagged `kpi:<clinicId>`. The kpi-rebuild worker calls
- *   revalidateTag after a successful rebuild for that clinic so the
- *   cache flushes within seconds. The 600s TTL is the safety net if
- *   cross-process tag invalidation ever fails (worker runs in a separate
- *   Node process; revalidateTag's behaviour outside of a Next request
- *   context is best-effort).
+ *   The TTL is the real freshness guarantee. Each entry is tagged
+ *   `kpi:<clinicId>`, but `revalidateTag` only works inside a Next request
+ *   (route handler or server action). From the pg-boss worker (separate
+ *   Node process) and during a server-component render it throws and
+ *   `invalidateClinicKpiCache` only logs. So: dashboard reads use
+ *   SHORT_REVALIDATE_S (30 s) because their values are live; mutations in
+ *   server actions / route handlers (e.g. the daily cron route) may call
+ *   `invalidateClinicKpiCache` to make the next render fresh at once.
+ *
+ * Never cache a role-dependent result here: the key carries clinicId (and
+ * optionally userId), never the role, so the first caller's role would be
+ * served to everyone in the Praxis. Filter by role after the cached read.
  *
  * userId in the cache key:
  *   Omitted by default. The aggregations are clinic-scoped — different
@@ -60,8 +67,22 @@ interface CacheOpts {
   keyByUser?: boolean;
 }
 
+/** Berlin calendar day: the dashboard windows are whole Berlin days. */
 function dateOnly(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  return berlinDay(d);
+}
+
+/** JSON with sorted object keys, so `{a,b}` and `{b,a}` share one entry. */
+function stableStringify(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(stableStringify).join(",")}]`;
+  if (v && typeof v === "object" && !(v instanceof Date)) {
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${stableStringify(o[k])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(v) ?? "null";
 }
 
 /**
@@ -95,7 +116,7 @@ export function cacheClinicQuery<TArgs extends unknown[], TResult>(
       } else if (a == null) {
         keyParts.push("null");
       } else if (typeof a === "object") {
-        keyParts.push(JSON.stringify(a));
+        keyParts.push(stableStringify(a));
       } else {
         keyParts.push(String(a));
       }
@@ -113,9 +134,9 @@ export function cacheClinicQuery<TArgs extends unknown[], TResult>(
 }
 
 /**
- * Worker-side: invalidate all cached aggregation reads for a clinic.
- * Wrapped in try/catch because revalidateTag's cross-process behaviour
- * isn't a hard guarantee — the 600s TTL is the safety net.
+ * Invalidate all cached aggregation reads for a clinic. Effective only when
+ * called from a server action or route handler; elsewhere (worker process,
+ * render) Next throws and we fall back to the TTL (see header).
  *
  * Imported lazily to avoid pulling Next's request-context machinery into
  * tools that don't need it.

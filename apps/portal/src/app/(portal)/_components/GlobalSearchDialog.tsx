@@ -31,16 +31,18 @@ import type { Role } from "@/lib/constants";
 import { STATIC_INDEX } from "@/lib/search/staticIndex";
 import { scoreMatch } from "@/lib/search/match";
 import type { LeadSearchResult, SearchEntry, SearchKind } from "@/lib/search/types";
+import { clearLegacySearchStorage, searchStorageKeys } from "./search-storage";
 
 interface DialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   userRole: Role;
+  /** L-1: lists are stored per clinic and per login (e-mail). */
+  clinicId: string;
+  userEmail: string;
 }
 
-const RECENT_KEY = "eins-portal-search-recent";
 const RECENT_MAX = 5;
-const PINNED_KEY = "eins-portal-search-pinned";
 const PINNED_MAX = 10;
 
 interface StoredItem {
@@ -72,21 +74,23 @@ function writeStored(key: string, items: StoredItem[], max: number) {
   }
 }
 
-function readRecent(): RecentItem[] {
-  return readStored(RECENT_KEY, RECENT_MAX);
+type StorageKeys = ReturnType<typeof searchStorageKeys>;
+
+function readRecent(keys: StorageKeys): RecentItem[] {
+  return readStored(keys.recent, RECENT_MAX);
 }
 
-function pushRecent(item: RecentItem) {
-  const current = readRecent().filter((i) => i.id !== item.id);
-  writeStored(RECENT_KEY, [item, ...current], RECENT_MAX);
+function pushRecent(keys: StorageKeys, item: RecentItem) {
+  const current = readRecent(keys).filter((i) => i.id !== item.id);
+  writeStored(keys.recent, [item, ...current], RECENT_MAX);
 }
 
-function readPinned(): PinnedItem[] {
-  return readStored(PINNED_KEY, PINNED_MAX);
+function readPinned(keys: StorageKeys): PinnedItem[] {
+  return readStored(keys.pinned, PINNED_MAX);
 }
 
-function writePinned(items: PinnedItem[]) {
-  writeStored(PINNED_KEY, items, PINNED_MAX);
+function writePinned(keys: StorageKeys, items: PinnedItem[]) {
+  writeStored(keys.pinned, items, PINNED_MAX);
 }
 
 const GROUP_ORDER: { kind: Exclude<SearchKind, "lead">; label: string; icon: typeof Hash }[] = [
@@ -96,7 +100,14 @@ const GROUP_ORDER: { kind: Exclude<SearchKind, "lead">; label: string; icon: typ
   { kind: "leitfaden", label: "Leitfaden", icon: BookOpen },
 ];
 
-export function GlobalSearchDialog({ open, onOpenChange, userRole }: DialogProps) {
+export function GlobalSearchDialog({
+  open,
+  onOpenChange,
+  userRole,
+  clinicId,
+  userEmail,
+}: DialogProps) {
+  const keys = useMemo(() => searchStorageKeys(clinicId, userEmail), [clinicId, userEmail]);
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [leads, setLeads] = useState<LeadSearchResult[]>([]);
@@ -109,12 +120,13 @@ export function GlobalSearchDialog({ open, onOpenChange, userRole }: DialogProps
   // this is cheap and only runs on user-driven opens.)
   useEffect(() => {
     if (open) {
-      setRecent(readRecent());
-      setPinned(readPinned());
+      clearLegacySearchStorage();
+      setRecent(readRecent(keys));
+      setPinned(readPinned(keys));
       setQuery("");
       setLeads([]);
     }
-  }, [open]);
+  }, [open, keys]);
 
   const pinnedIds = useMemo(() => new Set(pinned.map((p) => p.id)), [pinned]);
 
@@ -159,10 +171,14 @@ export function GlobalSearchDialog({ open, onOpenChange, userRole }: DialogProps
     abortRef.current = ctl;
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(
-          `/api/search/leads?q=${encodeURIComponent(term)}`,
-          { signal: ctl.signal, credentials: "same-origin" }
-        );
+        // L-5: term in the body, never in the URL (access logs, history).
+        const res = await fetch("/api/search/leads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ q: term }),
+          signal: ctl.signal,
+          credentials: "same-origin",
+        });
         if (!res.ok) {
           if (myId === reqIdRef.current) {
             setLeads([]);
@@ -190,7 +206,7 @@ export function GlobalSearchDialog({ open, onOpenChange, userRole }: DialogProps
   }, [query, userRole]);
 
   const handleSelect = (item: StoredItem) => {
-    pushRecent(item);
+    pushRecent(keys, item);
     onOpenChange(false);
     router.push(item.href);
   };
@@ -201,7 +217,7 @@ export function GlobalSearchDialog({ open, onOpenChange, userRole }: DialogProps
       const next = exists
         ? current.filter((p) => p.id !== item.id)
         : [...current, item].slice(0, PINNED_MAX);
-      writePinned(next);
+      writePinned(keys, next);
       return next;
     });
   };
@@ -245,7 +261,7 @@ export function GlobalSearchDialog({ open, onOpenChange, userRole }: DialogProps
       const next = [...current];
       const [moved] = next.splice(fromIdx, 1);
       next.splice(toIdx, 0, moved);
-      writePinned(next);
+      writePinned(keys, next);
       return next;
     });
   };
@@ -294,7 +310,7 @@ export function GlobalSearchDialog({ open, onOpenChange, userRole }: DialogProps
         <Command.Input
           value={query}
           onValueChange={setQuery}
-          placeholder="Suchen — Navigation, Einstellungen, Leitfaden, Kennzahlen, Anfragen…"
+          placeholder="Suchen: Navigation, Einstellungen, Leitfaden, Kennzahlen, Anfragen…"
           className={cn(
             "flex h-12 w-full bg-transparent text-base text-fg-primary",
             "placeholder:text-fg-tertiary focus:outline-none"
@@ -501,7 +517,7 @@ export function GlobalSearchDialog({ open, onOpenChange, userRole }: DialogProps
         )}
       </Command.List>
 
-      <div className="flex items-center justify-between border-t border-border px-4 py-2 text-xs text-fg-tertiary">
+      <div className="flex items-center justify-between border-t border-border px-4 py-2 text-sm text-fg-secondary">
         <span>
           <kbd className="rounded border border-border bg-bg-secondary px-1 py-0.5 font-mono">↑↓</kbd>{" "}
           navigieren
@@ -527,7 +543,7 @@ function GroupHeading({
   label: string;
 }) {
   return (
-    <div className="flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-normal text-fg-tertiary">
+    <div className="flex items-center gap-1.5 px-2 py-1.5 text-sm font-medium text-fg-primary">
       <Icon className="h-3 w-3" />
       <span>{label}</span>
     </div>
@@ -600,7 +616,7 @@ function ResultItem({
       <div className="min-w-0 flex-1">
         <div className="truncate font-medium">{title}</div>
         {subtitle && (
-          <div className="truncate text-xs text-fg-secondary">{subtitle}</div>
+          <div className="truncate text-sm text-fg-secondary">{subtitle}</div>
         )}
       </div>
       {onTogglePin && (

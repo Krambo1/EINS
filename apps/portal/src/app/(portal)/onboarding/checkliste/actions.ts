@@ -19,6 +19,7 @@ import {
   UPLOAD_PROFILES,
   itemAcceptsLink,
   itemAcceptsUpload,
+  normalizeChecklistLink,
   validateChecklistFields,
   type ChecklistAnswer,
   type ChecklistItem,
@@ -102,7 +103,12 @@ function sanitizeAnswer(
   const fieldKeys = new Set((item.fields ?? []).map((f) => f.key));
   for (const [k, v] of Object.entries(raw ?? {})) {
     if (k === "link" && itemAcceptsLink(item.deliveryType)) {
-      if (typeof v === "string" && v.trim()) out.link = v.trim().slice(0, 2000);
+      if (typeof v === "string" && v.trim()) {
+        // Store the absolute form; an invalid link is kept raw so
+        // validateChecklistFields rejects it with a field error.
+        const raw = v.trim().slice(0, 2000);
+        out.link = normalizeChecklistLink(raw) ?? raw;
+      }
     } else if (k === "keineVorhanden" && item.allowKeineVorhanden) {
       if (v === true) out.keineVorhanden = true;
     } else if (fieldKeys.has(k)) {
@@ -110,6 +116,34 @@ function sanitizeAnswer(
     }
   }
   return out;
+}
+
+type ClinicTx = Parameters<Parameters<typeof withClinicContext>[2]>[0];
+
+/**
+ * Return the checklist row for (clinic, item), creating an empty 'offen' row
+ * first when none exists, and lock it for this transaction. Two parallel first
+ * saves (two tabs, Inhaber plus Assistenz) used to both see "no row" and both
+ * INSERT; the second hit the unique constraint and threw.
+ */
+async function lockChecklistRow(tx: ClinicTx, clinicId: string, itemId: string) {
+  await tx
+    .insert(schema.checklistItems)
+    .values({ clinicId, itemId, answer: {}, status: "offen" })
+    .onConflictDoNothing();
+  const [row] = await tx
+    .select()
+    .from(schema.checklistItems)
+    .where(
+      and(
+        eq(schema.checklistItems.clinicId, clinicId),
+        eq(schema.checklistItems.itemId, itemId)
+      )
+    )
+    .limit(1)
+    .for("update");
+  if (!row) throw new Error("checklist row missing after upsert");
+  return row;
 }
 
 // ---------------------------------------------------------------
@@ -154,16 +188,7 @@ export async function saveChecklistItem(
 
   let finalStatus: ChecklistStatus = "offen";
   await withClinicContext(session.clinicId, session.userId, async (tx) => {
-    const [existing] = await tx
-      .select()
-      .from(schema.checklistItems)
-      .where(
-        and(
-          eq(schema.checklistItems.clinicId, session.clinicId),
-          eq(schema.checklistItems.itemId, item.id)
-        )
-      )
-      .limit(1);
+    const existing = await lockChecklistRow(tx, session.clinicId, item.id);
 
     const [fc] = await tx
       .select({ n: sql<number>`count(*)::int` })
@@ -212,16 +237,10 @@ export async function saveChecklistItem(
       ...(clearVerified ? { verifiedAt: null, verifiedBy: null } : {}),
     };
 
-    if (existing) {
-      await tx
-        .update(schema.checklistItems)
-        .set(values)
-        .where(eq(schema.checklistItems.id, existing.id));
-    } else {
-      await tx
-        .insert(schema.checklistItems)
-        .values({ clinicId: session.clinicId, itemId: item.id, ...values });
-    }
+    await tx
+      .update(schema.checklistItems)
+      .set(values)
+      .where(eq(schema.checklistItems.id, existing.id));
     finalStatus = status;
   });
 
@@ -359,16 +378,7 @@ export async function finalizeChecklistFileAction(
       uploadedBy: session.userId,
     });
 
-    const [existing] = await tx
-      .select()
-      .from(schema.checklistItems)
-      .where(
-        and(
-          eq(schema.checklistItems.clinicId, session.clinicId),
-          eq(schema.checklistItems.itemId, item.id)
-        )
-      )
-      .limit(1);
+    const existing = await lockChecklistRow(tx, session.clinicId, item.id);
 
     const now = new Date();
     // A new file is a delivery; if EINS had verified, reset for re-check.
@@ -381,21 +391,10 @@ export async function finalizeChecklistFileAction(
       verifiedAt: null,
       verifiedBy: null,
     };
-    if (existing) {
-      await tx
-        .update(schema.checklistItems)
-        .set(base)
-        .where(eq(schema.checklistItems.id, existing.id));
-    } else {
-      await tx
-        .insert(schema.checklistItems)
-        .values({
-          clinicId: session.clinicId,
-          itemId: item.id,
-          answer: {},
-          ...base,
-        });
-    }
+    await tx
+      .update(schema.checklistItems)
+      .set(base)
+      .where(eq(schema.checklistItems.id, existing.id));
   });
 
   await writeAudit({

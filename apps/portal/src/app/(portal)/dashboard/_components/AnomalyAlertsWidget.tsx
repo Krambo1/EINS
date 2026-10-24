@@ -72,21 +72,10 @@ export async function AnomalyAlertsWidget({
 
 function EmptyAlertsState() {
   return (
-    <div className="flex items-start gap-3 rounded-lg bg-bg-tertiary px-4 py-3 text-sm">
-      <span
-        aria-hidden
-        className="mt-1 h-2 w-2 shrink-0 rounded-full bg-tone-good"
-      />
-      <div>
-        <p className="font-medium text-fg-primary">
-          Aktuell keine Auffälligkeiten.
-        </p>
-        <p className="text-fg-secondary">
-          Alle Kennzahlen liegen im erwarteten Bereich. Wir melden uns,
-          wenn etwas abweicht.
-        </p>
-      </div>
-    </div>
+    <p className="text-base text-fg-primary">
+      Aktuell keine Auffälligkeiten. Hier erscheinen Hinweise, sobald genug
+      Daten vorliegen und eine Kennzahl deutlich von den Vorwochen abweicht.
+    </p>
   );
 }
 
@@ -127,7 +116,7 @@ function AlertRow({
 
       {showSteps && (
         <div className="ml-[1.375rem] flex flex-col gap-1.5">
-          <p className="text-xs font-medium uppercase tracking-wide text-fg-tertiary">
+          <p className="text-sm font-medium text-fg-primary">
             Nächste Schritte
           </p>
           <ul className="flex flex-col gap-1 text-sm text-fg-primary">
@@ -143,10 +132,10 @@ function AlertRow({
               <li key={`ai-${idx}`} className="flex gap-2">
                 <span
                   aria-hidden
-                  className="mt-0.5 inline-flex h-4 shrink-0 items-center gap-1 rounded bg-accent/10 px-1.5 text-[10px] font-medium uppercase tracking-wide text-accent"
+                  className="inline-flex h-5 shrink-0 items-center gap-1 rounded border border-accent px-1.5 text-sm font-medium text-fg-primary"
                   title="Von KI ergänzt, weil der Fall ungewöhnlich ist"
                 >
-                  <Sparkles className="h-3 w-3" />
+                  <Sparkles className="h-3 w-3 text-accent" />
                   KI
                 </span>
                 <span>{step}</span>
@@ -156,12 +145,12 @@ function AlertRow({
         </div>
       )}
 
-      <div className="ml-[1.375rem] flex items-center gap-3 text-xs text-fg-tertiary">
+      <div className="ml-[1.375rem] flex items-center gap-3 text-sm text-fg-primary">
         <form action={snoozeAlertAction}>
           <input type="hidden" name="alertId" value={alert.id} />
           <button
             type="submit"
-            className="opa-focus-ring rounded px-1 py-0.5 hover:bg-bg-tertiary hover:text-fg-secondary"
+            className="opa-focus-ring rounded px-1 py-0.5 underline-offset-2 hover:bg-bg-tertiary hover:underline"
           >
             7 Tage später erinnern
           </button>
@@ -178,7 +167,7 @@ interface SeverityTone {
 function severityTone(severity: AlertSeverity): SeverityTone {
   switch (severity) {
     case "extreme":
-      return { dotClass: "bg-tone-bad ring-2 ring-tone-bad/25" };
+      return { dotClass: "bg-tone-bad ring-2 ring-[var(--tone-bad-border)]" };
     case "high":
       return { dotClass: "bg-tone-bad" };
     case "warn":
@@ -203,7 +192,7 @@ export function AnomalyAlertsSkeleton() {
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="flex items-center gap-3 text-sm text-fg-tertiary">
+        <div className="flex items-center gap-3 text-sm text-fg-secondary">
           <AlertTriangle className="h-4 w-4" aria-hidden />
           Lade Auffälligkeiten…
         </div>

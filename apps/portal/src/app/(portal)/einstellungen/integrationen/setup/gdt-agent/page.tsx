@@ -17,17 +17,19 @@ export default async function GdtAgentSetupPage() {
         <div className="mb-2 flex items-center gap-2 text-sm">
           <Link
             href="/einstellungen/integrationen/setup"
-            className="text-muted-foreground hover:underline"
+            className="inline-flex min-h-11 items-center font-medium text-fg-primary hover:underline"
           >
             ← Anbieter wählen
           </Link>
         </div>
         <h1 className="text-2xl font-semibold">GDT-Agent</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
+        <p className="mt-1 text-base text-fg-primary">
           Für lokal installierte Praxis-Software (CGM Albis, x.concept, pixelmedic,
-          DURIA und alle, die GDT/BDT exportieren können). Der EINS-Agent läuft als
-          Hintergrunddienst auf dem Praxis-PC, liest neue GDT-Dateien aus einem
-          überwachten Ordner und sendet sie verschlüsselt ans Portal.
+          DURIA und alle, die GDT/BDT ausgeben können). GDT ist ein
+          Standard-Dateiformat, über das Praxis-Software Daten austauscht. Der
+          EINS-Agent läuft als kleines Programm auf einem Praxisrechner, liest
+          neue GDT-Dateien aus einem Ordner und sendet sie verschlüsselt ans
+          Portal.
         </p>
       </header>
 
@@ -39,18 +41,18 @@ export default async function GdtAgentSetupPage() {
           <ol className="ml-4 list-decimal space-y-2 text-sm">
             <li>
               Sie generieren unten einen einmaligen <strong>Einrichtungs-Code</strong>{" "}
-              (24h gültig).
+              (24 Stunden gültig).
             </li>
             <li>
               In Ihrer Praxis: laden Sie den Installer (Windows MSI oder Mac DMG)
               herunter und starten ihn mit dem Code.
             </li>
             <li>
-              Der Agent verbindet sich, erhält ein eigenes Verschlüsselungs-Geheimnis,
-              und überwacht den GDT-Ordner Ihrer PVS.
+              Der Agent verbindet sich, erhält einen eigenen geheimen Schlüssel
+              und überwacht den GDT-Ordner Ihrer Praxis-Software.
             </li>
             <li>
-              Konfigurieren Sie in Ihrer PVS einen GDT-Partner mit dem Ziel-Ordner
+              Richten Sie in Ihrer Praxis-Software einen GDT-Partner mit dem Ziel-Ordner
               des Agents. Termine, Behandlungen und Rechnungen fließen automatisch
               ins Portal.
             </li>
@@ -60,10 +62,10 @@ export default async function GdtAgentSetupPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Einrichtungs-Code generieren</CardTitle>
+          <CardTitle className="text-base">Einrichtungs-Code erzeugen</CardTitle>
           <CardDescription>
-            Inhaber-Rolle erforderlich. Der Code wird nur einmal angezeigt — bei
-            Verlust einfach neuen generieren.
+            Inhaber-Rolle erforderlich. Der Code wird nur einmal angezeigt. Bei
+            Verlust einfach einen neuen erzeugen.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -85,7 +87,7 @@ export default async function GdtAgentSetupPage() {
                 >
                   <span>Gültig bis {formatRelative(e.expiresAt)}</span>
                   {e.expectedFingerprint && (
-                    <code className="text-xs text-muted-foreground">
+                    <code className="text-sm text-fg-secondary">
                       {e.expectedFingerprint}
                     </code>
                   )}

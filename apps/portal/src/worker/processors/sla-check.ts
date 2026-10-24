@@ -1,5 +1,5 @@
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
-import { db, schema } from "@/db/client";
+import { sql } from "drizzle-orm";
+import { db } from "@/db/client";
 
 /**
  * SLA breach scan. Runs every 15 minutes via cron.
@@ -22,68 +22,49 @@ export interface SlaCheckJob {
   clinicId?: string;
 }
 
+/** Only breaches from the last 7 days are announced (C-33): after a long
+ *  worker pause the first run must not flood the bell with old requests. */
+export const SLA_NOTIFY_WINDOW_DAYS = 7;
+
+/**
+ * One INSERT ... SELECT with NOT EXISTS (C-33, E-14): no full scan of every
+ * sla_breach notification of the platform, no N+1 per request, and the
+ * dedupe is per user, so it is idempotent for the worker and the cron alike.
+ * The 2-hour deadline itself stays (decided by Karam on 06.10., C-14).
+ */
 export async function processSlaCheck(job: SlaCheckJob = {}): Promise<void> {
-  const predicates = [
-    eq(schema.requests.status, "neu"),
-    isNull(schema.requests.firstContactedAt),
-    sql`${schema.requests.slaRespondBy} < now()`,
-  ];
-  if (job.clinicId) predicates.push(eq(schema.requests.clinicId, job.clinicId));
+  await runSlaCheck(job);
+}
 
-  const breached = await db
-    .select({
-      id: schema.requests.id,
-      clinicId: schema.requests.clinicId,
-      contactName: schema.requests.contactName,
-      slaRespondBy: schema.requests.slaRespondBy,
-    })
-    .from(schema.requests)
-    .where(and(...predicates));
-
-  if (breached.length === 0) return;
-
-  // Pre-load notified requestIds to stay idempotent.
-  const existing = await db
-    .select({ link: schema.notifications.link })
-    .from(schema.notifications)
-    .where(eq(schema.notifications.kind, "sla_breach"));
-  const notifiedIds = new Set(
-    existing
-      .map((e) => e.link?.split("/").pop())
-      .filter((v): v is string => Boolean(v))
-  );
-
-  for (const r of breached) {
-    if (notifiedIds.has(r.id)) continue;
-
-    // Fan out: all inhaber + frontdesk of this clinic (they own response).
-    const users = await db
-      .select({ id: schema.clinicUsers.id })
-      .from(schema.clinicUsers)
-      .where(
-        and(
-          eq(schema.clinicUsers.clinicId, r.clinicId),
-          isNull(schema.clinicUsers.archivedAt),
-          inArray(schema.clinicUsers.role, ["inhaber", "frontdesk"])
-        )
-      );
-    if (users.length === 0) continue;
-
-    const title = "Reaktionszeit überschritten";
-    const body = r.contactName
-      ? `Anfrage von ${r.contactName} wartet noch auf Antwort.`
-      : "Eine Anfrage wartet noch auf Antwort.";
-    const link = `/anfragen/${r.id}`;
-
-    await db.insert(schema.notifications).values(
-      users.map((u) => ({
-        userId: u.id,
-        clinicId: r.clinicId,
-        kind: "sla_breach",
-        title,
-        body,
-        link,
-      }))
-    );
-  }
+export async function runSlaCheck(job: SlaCheckJob = {}): Promise<number> {
+  const clinicFilter = job.clinicId ? sql`AND r.clinic_id = ${job.clinicId}` : sql``;
+  const rows = (await db.execute(sql`
+    INSERT INTO notifications (user_id, clinic_id, kind, title, body, link)
+    SELECT u.id,
+           r.clinic_id,
+           'sla_breach',
+           'Reaktionszeit überschritten',
+           CASE WHEN r.contact_name IS NOT NULL AND r.contact_name <> ''
+                THEN 'Anfrage von ' || r.contact_name || ' wartet noch auf Antwort.'
+                ELSE 'Eine Anfrage wartet noch auf Antwort.' END,
+           '/anfragen/' || r.id
+      FROM requests r
+      JOIN clinic_users u
+        ON u.clinic_id = r.clinic_id
+       AND u.archived_at IS NULL
+       AND u.role IN ('inhaber', 'frontdesk')
+     WHERE r.status = 'neu'
+       AND r.first_contacted_at IS NULL
+       AND r.sla_respond_by < now()
+       AND r.sla_respond_by > now() - (${SLA_NOTIFY_WINDOW_DAYS}::int * interval '1 day')
+       ${clinicFilter}
+       AND NOT EXISTS (
+             SELECT 1 FROM notifications n
+              WHERE n.user_id = u.id
+                AND n.kind = 'sla_breach'
+                AND n.link = '/anfragen/' || r.id
+           )
+    RETURNING id
+  `)) as unknown as unknown[];
+  return rows.length;
 }

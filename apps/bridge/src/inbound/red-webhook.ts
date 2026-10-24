@@ -16,11 +16,62 @@ import { redAdapter } from "../adapters/red/index.js";
  * per-clinic outboundSecret. A valid body-HMAC in `x-red-signature` is also
  * accepted (defense in depth). Previously only the HMAC path existed, so
  * every real delivery 401'd (H16).
+ *
+ * The route is public, so it does not help a caller probe it: an unknown
+ * linkId, a link of another vendor, a link without a secret and a wrong secret
+ * all answer with the same 401, and a per-IP token bucket sits in front of the
+ * DB lookup so unauthenticated traffic cannot turn into unbounded queries.
  */
+
+/** Burst a single client address may send before it is slowed down. Generous
+ *  on purpose: RED delivers from a few shared addresses for all its practices,
+ *  and a 429 only makes the vendor retry later. */
+const RATE_BURST = 120;
+/** Sustained requests per second per address once the burst is used up. */
+const RATE_PER_SEC = 2;
+/** Upper bound on tracked addresses (memory), idle ones are pruned first. */
+const RATE_MAX_KEYS = 5_000;
+
+const buckets = new Map<string, { tokens: number; at: number }>();
+
+/** Test-only. */
+export function _resetRedRateLimit(): void {
+  buckets.clear();
+}
+
+function allowRequest(key: string, now = Date.now()): boolean {
+  const b = buckets.get(key) ?? { tokens: RATE_BURST, at: now };
+  b.tokens = Math.min(RATE_BURST, b.tokens + ((now - b.at) / 1000) * RATE_PER_SEC);
+  b.at = now;
+  const allowed = b.tokens >= 1;
+  if (allowed) b.tokens -= 1;
+  buckets.delete(key); // re-insert: Map order doubles as least-recently-used order
+  buckets.set(key, b);
+  if (buckets.size > RATE_MAX_KEYS) {
+    const oldest = buckets.keys().next().value;
+    if (oldest !== undefined) buckets.delete(oldest);
+  }
+  return allowed;
+}
+
+/** Fly's proxy sets fly-client-ip (a caller cannot forge it); otherwise the socket peer. */
+function clientKey(req: FastifyRequest): string {
+  const h = req.headers["fly-client-ip"];
+  return (typeof h === "string" && h.trim() !== "" ? h.trim() : req.ip) || "unknown";
+}
+
+/** One answer for every way a request can fail authentication. */
+function unauthorized(reply: FastifyReply): void {
+  void reply.code(401).send({ error: "bad_signature" });
+}
+
 export async function redWebhook(
   req: FastifyRequest<{ Params: { linkId: string } }>,
   reply: FastifyReply
 ): Promise<void> {
+  if (!allowRequest(clientKey(req))) {
+    return void reply.code(429).header("retry-after", "1").send({ error: "rate_limited" });
+  }
   const linkId = req.params.linkId;
   const rawBody = (req.body as string) ?? "";
   const echoedSecret =
@@ -54,21 +105,24 @@ export async function redWebhook(
         connectionConfig: rows[0].connection_config,
       }
     : null;
-  if (!link || link.pvsVendor !== "red") {
-    return void reply.code(404).send({ error: "not_found" });
-  }
   const outboundSecret =
-    typeof link.connectionConfig?.outboundSecret === "string"
+    link && link.pvsVendor === "red" && typeof link.connectionConfig?.outboundSecret === "string"
       ? (link.connectionConfig.outboundSecret as string)
       : null;
-  if (!outboundSecret) {
-    return void reply.code(500).send({ error: "no_outbound_secret_configured" });
+  if (!link || link.pvsVendor !== "red" || !outboundSecret) {
+    // Same 401 as a bad secret, so the status code does not reveal which
+    // linkIds exist. (A RED link without a secret is an operator problem: log
+    // it here, not in the response.)
+    if (link?.pvsVendor === "red") {
+      console.warn(`[inbound] red link ${link.id} has no outbound secret configured`);
+    }
+    return unauthorized(reply);
   }
   const authorized =
     verifyEchoedSecret(echoedSecret, outboundSecret) ||
     verifySignature(rawBody, sigHeader, outboundSecret);
   if (!authorized) {
-    return void reply.code(401).send({ error: "bad_signature" });
+    return unauthorized(reply);
   }
 
   // Don't process deliveries for a link that is disabled, errored, or

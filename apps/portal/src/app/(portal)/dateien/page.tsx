@@ -1,11 +1,12 @@
 import { desc, eq } from "drizzle-orm";
-import { Badge, Card, CardContent, EmptyState } from "@eins/ui";
-import { CheckCheck, Clock, FileUp, Trash2 } from "lucide-react";
+import { Badge, Card, CardContent } from "@eins/ui";
+import { CheckCheck, Clock } from "lucide-react";
 import { requirePermissionOrRedirect } from "@/auth/guards";
 import { schema, withClinicContext } from "@/db/client";
 import { getStorage } from "@/server/storage";
-import { formatDateTime } from "@/lib/formatting";
+import { formatDateTime, formatBytes } from "@/lib/formatting";
 import { UploadForm } from "./UploadForm";
+import { ConfirmDeleteButton } from "./ConfirmDeleteButton";
 import { deleteClientUploadAction } from "./actions";
 
 export const metadata = { title: "Dateien an EINS" };
@@ -61,11 +62,9 @@ export default async function DateienPage() {
       <section className="space-y-4">
         <h2 className="text-xl font-semibold">Bereits gesendet</h2>
         {items.length === 0 ? (
-          <EmptyState
-            icon={<FileUp className="h-8 w-8" />}
-            title="Noch keine Dateien gesendet"
-            description="Alles, was Sie hier hochladen, erscheint in dieser Liste und beim EINS-Team."
-          />
+          <p className="text-base text-fg-secondary">
+            Noch keine Dateien gesendet. Alles, was Sie hier hochladen, erscheint in dieser Liste.
+          </p>
         ) : (
           <Card>
             <CardContent>
@@ -73,18 +72,18 @@ export default async function DateienPage() {
                 {items.map((f) => (
                   <li
                     key={f.id}
-                    className="flex flex-wrap items-center gap-x-3 gap-y-1 py-3 first:pt-0 last:pb-0"
+                    className="flex items-start gap-4 py-4 first:pt-0 last:pb-0"
                   >
                     <div className="min-w-0 flex-1">
                       <a
                         href={f.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="block truncate text-sm font-medium text-fg-primary hover:text-accent"
+                        className="block truncate text-base font-medium text-fg-primary hover:text-accent"
                       >
                         {f.originalFilename}
                       </a>
-                      <div className="mt-0.5 text-xs text-fg-secondary">
+                      <div className="mt-1 text-sm text-fg-secondary">
                         {formatBytes(f.sizeBytes)}
                         {" · "}
                         {formatDateTime(f.createdAt)}
@@ -93,31 +92,30 @@ export default async function DateienPage() {
                           : ""}
                       </div>
                       {f.note && (
-                        <p className="mt-1 line-clamp-2 text-xs text-fg-tertiary">
+                        <p className="mt-1 line-clamp-2 text-sm text-fg-secondary">
                           Notiz: {f.note}
                         </p>
                       )}
+                      <div className="mt-2">
+                        {f.seenAt ? (
+                          <Badge tone="good">
+                            <CheckCheck className="mr-1 h-3.5 w-3.5" />
+                            Von EINS gesehen
+                          </Badge>
+                        ) : (
+                          <Badge tone="accent">
+                            <Clock className="mr-1 h-3.5 w-3.5" />
+                            Übermittelt
+                          </Badge>
+                        )}
+                      </div>
                     </div>
-                    {f.seenAt ? (
-                      <Badge tone="good">
-                        <CheckCheck className="mr-1 h-3.5 w-3.5" />
-                        Von EINS gesehen
-                      </Badge>
-                    ) : (
-                      <Badge tone="accent">
-                        <Clock className="mr-1 h-3.5 w-3.5" />
-                        Übermittelt
-                      </Badge>
-                    )}
-                    <form action={deleteClientUploadAction}>
+                    <form
+                      action={deleteClientUploadAction}
+                      className="shrink-0 border-l border-border pl-4"
+                    >
                       <input type="hidden" name="id" value={f.id} />
-                      <button
-                        type="submit"
-                        className="text-fg-tertiary hover:text-tone-bad"
-                        aria-label={`${f.originalFilename} löschen`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      <ConfirmDeleteButton filename={f.originalFilename} />
                     </form>
                   </li>
                 ))}
@@ -128,12 +126,4 @@ export default async function DateienPage() {
       </section>
     </div>
   );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  if (bytes < 1024 * 1024 * 1024)
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }

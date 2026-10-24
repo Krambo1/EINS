@@ -1,38 +1,40 @@
 import "server-only";
-import { and, desc, eq, gt, isNotNull, isNull } from "drizzle-orm";
-import { withClinicContext, db, schema } from "@/db/client";
+import { and, desc, eq, gt, isNotNull, isNull, sql } from "drizzle-orm";
+import { withClinicContext, schema } from "@/db/client";
 import type { AssetKind } from "@/lib/constants";
 import { sectionBadgeThreshold } from "./navBadges";
 
 /**
- * Fetch clinic-visible assets. RLS already scopes by clinic_id; we also
- * filter by superseded version so only the latest of each lineage appears.
+ * Fetch clinic-visible assets, newest first. RLS already scopes by clinic_id.
+ * Only the latest version of each lineage appears: a row that a newer upload
+ * supersedes (`newer.supersedes_id = row.id`) is hidden, so the Praxis never
+ * publishes an outdated version by accident.
+ *
+ * `limit` caps the page (D-18); callers fetch limit + 1 to know whether more
+ * exist.
  */
 export async function listAssets(
   clinicId: string,
   userId: string,
-  options: { kind?: AssetKind } = {}
+  options: { kind?: AssetKind; limit?: number } = {}
 ) {
   return withClinicContext(clinicId, userId, async (tx) => {
-    const clauses = [eq(schema.assets.clinicId, clinicId)];
+    const clauses = [
+      eq(schema.assets.clinicId, clinicId),
+      sql`NOT EXISTS (
+        SELECT 1 FROM assets newer
+        WHERE newer.supersedes_id = ${schema.assets.id}
+          AND newer.clinic_id = ${clinicId}
+      )`,
+    ];
     if (options.kind) clauses.push(eq(schema.assets.kind, options.kind));
 
-    return await tx
+    const q = tx
       .select()
       .from(schema.assets)
       .where(and(...clauses))
       .orderBy(desc(schema.assets.createdAt));
-  });
-}
-
-export async function getAsset(clinicId: string, userId: string, id: string) {
-  return withClinicContext(clinicId, userId, async (tx) => {
-    const [row] = await tx
-      .select()
-      .from(schema.assets)
-      .where(eq(schema.assets.id, id))
-      .limit(1);
-    return row ?? null;
+    return options.limit ? await q.limit(options.limit) : await q;
   });
 }
 
@@ -109,14 +111,4 @@ export async function hasNewMedia(
     },
     "medien:has-new"
   );
-}
-
-/** Global animation library — no clinic_id, no RLS. Safe to read via superuser. */
-export async function getAnimationLibraryEntry(id: string) {
-  const [row] = await db
-    .select()
-    .from(schema.animationLibrary)
-    .where(eq(schema.animationLibrary.id, id))
-    .limit(1);
-  return row ?? null;
 }

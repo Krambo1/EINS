@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { trustedIpFromHeaders } from "@/lib/client-ip";
+import { reviewRateLimitIp } from "@/lib/review-relay-ip";
+import { isAllowedGoogleReviewUrl, isAllowedJamedaUrl } from "@/lib/review-url-allowlist";
 import { rateLimit } from "@/server/rate-limit";
 import {
   resolveReviewToken,
@@ -28,11 +29,8 @@ export async function GET(
     return notFound();
   }
 
-  const ip =
-    trustedIpFromHeaders(
-      request.headers.get("x-forwarded-for"),
-      request.headers.get("x-real-ip")
-    ) ?? "anon";
+  // J-8: patient IP signed by clinic-landing, else the caller's IP.
+  const ip = reviewRateLimitIp(request, token);
   const rl = await rateLimit("review-tokens-get", ip, {
     limit: 60,
     windowSeconds: 60,
@@ -51,14 +49,21 @@ export async function GET(
   // is reused by the public-click redirector (which calls this endpoint).
   // A configured "search.google.com/search?q=..." fallback is rejected —
   // patients hit a write-review prompt or they hit nothing.
-  const resolvedGoogleUrl = resolveGoogleReviewTarget({
+  const googleCandidate = resolveGoogleReviewTarget({
     googlePlaceId: recall.googlePlaceId,
     googleReviewUrl: recall.googleReviewUrl,
   });
+  // J-4: values saved before the save-time check must pass the same allowlist.
+  const resolvedGoogleUrl =
+    googleCandidate && isAllowedGoogleReviewUrl(googleCandidate) ? googleCandidate : null;
+  const jamedaUrl =
+    recall.jamedaReviewUrl && isAllowedJamedaUrl(recall.jamedaReviewUrl)
+      ? recall.jamedaReviewUrl
+      : null;
 
   const suggestedPlatform: "google" | "jameda" | null = resolvedGoogleUrl
     ? "google"
-    : recall.jamedaReviewUrl
+    : jamedaUrl
     ? "jameda"
     : null;
 
@@ -67,7 +72,7 @@ export async function GET(
       clinic: {
         displayName: recall.clinicName,
         googleReviewUrl: resolvedGoogleUrl,
-        jamedaReviewUrl: recall.jamedaReviewUrl,
+        jamedaReviewUrl: jamedaUrl,
         suggestedPlatform,
       },
       recall: {

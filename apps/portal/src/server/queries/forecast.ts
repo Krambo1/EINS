@@ -129,7 +129,8 @@ export async function loadForecastInputs(
   };
 }
 
-async function countWonAllTime(clinicId: string): Promise<number> {
+/** Won Anfragen ever (cheap gate: below MIN_SAMPLE_WON nothing else is read). */
+export async function countWonAllTime(clinicId: string): Promise<number> {
   const [row] = await db
     .select({
       n: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} = 'gewonnen')::int`,
@@ -146,6 +147,7 @@ async function queryOpenPipeline(clinicId: string): Promise<OpenPipelineRow[]> {
       treatmentId: schema.requests.treatmentId,
       status: schema.requests.status,
       source: schema.requests.source,
+      utm: schema.requests.utm,
       createdAt: schema.requests.createdAt,
       aiScore: schema.requests.aiScore,
     })
@@ -162,7 +164,7 @@ async function queryOpenPipeline(clinicId: string): Promise<OpenPipelineRow[]> {
     requestId: r.id,
     treatmentId: r.treatmentId,
     stage: r.status as ForecastStage,
-    source: canonicalSource(r.source),
+    source: canonicalSource(r.source, r.utm),
     daysInPipeline: Math.max(
       0,
       Math.floor((now - new Date(r.createdAt).getTime()) / 86_400_000)
@@ -174,7 +176,8 @@ async function queryOpenPipeline(clinicId: string): Promise<OpenPipelineRow[]> {
 /**
  * Per-stage close rate, derived empirically:
  *   for each historical request, find the deepest stage it passed
- *   through (via request_activities.kind='status_change' meta->>'to').
+ *   through (via request_activities.kind='status_change' meta->>'to',
+ *   or meta->>'derivedStatus' on older PVS rows that carry no 'to').
  *   Bucket on that deepest stage and compute won_count / total.
  *
  * For a 12-month window so the rates don't include stale pre-launch data;
@@ -196,13 +199,13 @@ async function queryStageCloseRates(clinicId: string): Promise<StageRateRow[]> {
             -- existiert seit Migration 0046 nicht mehr; bestehende
             -- status_change-Activities mit 'qualifiziert' werden hier
             -- ignoriert (wer dort hängengeblieben ist, fällt zurück auf 'neu').
-            SELECT a.meta->>'to'
+            SELECT COALESCE(a.meta->>'to', a.meta->>'derivedStatus')
             FROM request_activities a
             WHERE a.request_id = r.id
               AND a.kind = 'status_change'
-              AND a.meta->>'to' IN ('termin_vereinbart','beratung_erschienen','behandelt')
+              AND COALESCE(a.meta->>'to', a.meta->>'derivedStatus') IN ('termin_vereinbart','beratung_erschienen','behandelt')
             ORDER BY
-              CASE a.meta->>'to'
+              CASE COALESCE(a.meta->>'to', a.meta->>'derivedStatus')
                 WHEN 'termin_vereinbart' THEN 1
                 WHEN 'beratung_erschienen' THEN 2
                 WHEN 'behandelt' THEN 3
@@ -275,13 +278,13 @@ async function queryStageDurations(clinicId: string): Promise<StageDurationRow[]
         rw.id,
         rw.won_at,
         rw.created_at,
-        a.meta->>'to' AS stage,
+        COALESCE(a.meta->>'to', a.meta->>'derivedStatus') AS stage,
         MIN(a.created_at) AS entered_at
       FROM recent_wins rw
       JOIN request_activities a ON a.request_id = rw.id
       WHERE a.kind = 'status_change'
-        AND a.meta->>'to' IN ('termin_vereinbart','beratung_erschienen','behandelt','no_show')
-      GROUP BY rw.id, rw.won_at, rw.created_at, a.meta->>'to'
+        AND COALESCE(a.meta->>'to', a.meta->>'derivedStatus') IN ('termin_vereinbart','beratung_erschienen','behandelt','no_show')
+      GROUP BY rw.id, rw.won_at, rw.created_at, COALESCE(a.meta->>'to', a.meta->>'derivedStatus')
     )
     SELECT
       stage,
@@ -343,11 +346,15 @@ async function queryDsoSamples(clinicId: string): Promise<number[]> {
 async function queryTreatmentRevenue(
   clinicId: string
 ): Promise<TreatmentRevenueRow[]> {
+  // Median per treatment in SQL (percentile_cont(0.5) = mean of the two
+  // middle values, same as the old JS median) instead of loading every won
+  // row into the function.
   const rows = await db
     .select({
       treatmentId: schema.requests.treatmentId,
-      treatmentName: schema.treatments.name,
-      revenue: schema.requests.convertedRevenueEur,
+      treatmentName: sql<string | null>`min(${schema.treatments.name})`,
+      median: sql<number>`percentile_cont(0.5) WITHIN GROUP (ORDER BY ${schema.requests.convertedRevenueEur})::float8`,
+      sampleSize: sql<number>`count(*)::int`,
     })
     .from(schema.requests)
     .leftJoin(
@@ -362,32 +369,24 @@ async function queryTreatmentRevenue(
         isNotNull(schema.requests.convertedRevenueEur),
         gte(schema.requests.convertedRevenueEur, "0.01")
       )
-    );
+    )
+    .groupBy(schema.requests.treatmentId);
 
-  const grouped = new Map<string, { name: string; values: number[] }>();
-  for (const r of rows) {
-    if (!r.treatmentId) continue;
-    const v = Number(r.revenue);
-    if (!Number.isFinite(v) || v <= 0) continue;
-    const ex = grouped.get(r.treatmentId) ?? {
-      name: r.treatmentName ?? "Behandlung",
-      values: [],
-    };
-    ex.values.push(v);
-    grouped.set(r.treatmentId, ex);
-  }
-
-  return Array.from(grouped.entries()).map(([treatmentId, { name, values }]) => ({
-    treatmentId,
-    treatmentName: name,
-    median: median(values),
-    sampleSize: values.length,
-  }));
+  return rows
+    .filter((r) => r.treatmentId)
+    .map((r) => ({
+      treatmentId: r.treatmentId as string,
+      treatmentName: r.treatmentName ?? "Behandlung",
+      median: Number(r.median),
+      sampleSize: Number(r.sampleSize),
+    }));
 }
 
 async function queryClinicMedianRevenue(clinicId: string): Promise<number> {
-  const rows = await db
-    .select({ revenue: schema.requests.convertedRevenueEur })
+  const [row] = await db
+    .select({
+      median: sql<number | null>`percentile_cont(0.5) WITHIN GROUP (ORDER BY ${schema.requests.convertedRevenueEur})::float8`,
+    })
     .from(schema.requests)
     .where(
       and(
@@ -397,8 +396,7 @@ async function queryClinicMedianRevenue(clinicId: string): Promise<number> {
         gte(schema.requests.convertedRevenueEur, "0.01")
       )
     );
-  const values = rows.map((r) => Number(r.revenue)).filter((v) => v > 0);
-  return median(values);
+  return row?.median != null ? Number(row.median) : 0;
 }
 
 // ---------------------------------------------------------------
@@ -455,102 +453,9 @@ export async function getLatestSnapshot(
   );
 }
 
-/**
- * Trailing-N predicted vs realized track record. For each of the last N
- * weeks, compare the booked-p50 we *predicted* for that week against the
- * actual won-deal revenue that landed in it. Used by the "Self-Calibration"
- * sub-chart to defend the 90%-Vorhersage promise honestly.
- *
- * Note: requires snapshots to have been written historically. New clinics
- * show an empty calibration chart for the first 12 weeks; that's expected.
- */
-export interface CalibrationRow {
-  weekStart: string;
-  predictedEur: number;
-  actualEur: number;
-}
-
-export async function getCalibrationHistory(
-  clinicId: string,
-  userId: string,
-  weeks = 12
-): Promise<CalibrationRow[]> {
-  return withClinicContext(
-    clinicId,
-    userId,
-    async (tx) => {
-      const rows = await tx.execute(sql`
-        WITH weeks AS (
-          SELECT date_trunc('week', now() - (n || ' weeks')::interval)::date AS week_start
-          FROM generate_series(1, ${weeks}) AS g(n)
-        ),
-        snapshot_predictions AS (
-          -- For each week, take the snapshot written ~7 days before the
-          -- week started (the "last predicted before it happened"). Pull
-          -- the p50 booked value out of weekly_buckets jsonb.
-          SELECT
-            w.week_start,
-            (
-              SELECT (b->'booked'->>'p50')::numeric
-              FROM forecast_snapshots fs,
-                   jsonb_array_elements(fs.weekly_buckets) AS b
-              WHERE fs.clinic_id = ${clinicId}
-                AND fs.snapshot_date <= w.week_start - interval '6 days'
-                AND fs.snapshot_date >= w.week_start - interval '8 days'
-                AND (b->>'weekStart')::date = w.week_start
-              ORDER BY fs.snapshot_date DESC
-              LIMIT 1
-            ) AS predicted
-          FROM weeks w
-        ),
-        actuals AS (
-          SELECT
-            date_trunc('week', won_at)::date AS week_start,
-            COALESCE(SUM(converted_revenue_eur), 0) AS actual
-          FROM requests
-          WHERE clinic_id = ${clinicId}
-            AND status = 'gewonnen'
-            AND won_at >= now() - interval '13 weeks'
-          GROUP BY 1
-        )
-        SELECT
-          to_char(w.week_start, 'YYYY-MM-DD') AS week_start,
-          COALESCE(sp.predicted, 0)::float AS predicted_eur,
-          COALESCE(a.actual, 0)::float AS actual_eur
-        FROM weeks w
-        LEFT JOIN snapshot_predictions sp ON sp.week_start = w.week_start
-        LEFT JOIN actuals a ON a.week_start = w.week_start
-        ORDER BY w.week_start ASC
-      `);
-
-      return (
-        rows as unknown as Array<{
-          week_start: string;
-          predicted_eur: number;
-          actual_eur: number;
-        }>
-      ).map((r) => ({
-        weekStart: r.week_start,
-        predictedEur: Number(r.predicted_eur),
-        actualEur: Number(r.actual_eur),
-      }));
-    },
-    "forecast:calibration"
-  );
-}
-
 // ---------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------
 function isForecastStage(s: string): s is ForecastStage {
   return (FORECAST_OPEN_STAGES as readonly string[]).includes(s);
-}
-
-function median(values: number[]): number {
-  if (values.length === 0) return 0;
-  const sorted = [...values].sort((a, b) => a - b);
-  const mid = Math.floor(sorted.length / 2);
-  return sorted.length % 2 === 0
-    ? (sorted[mid - 1] + sorted[mid]) / 2
-    : sorted[mid];
 }

@@ -1,6 +1,6 @@
 import "server-only";
-import { and, count, desc, eq, gte, sql } from "drizzle-orm";
-import { db, schema, withClinicContext } from "@/db/client";
+import { and, count, desc, eq } from "drizzle-orm";
+import { schema, withClinicContext } from "@/db/client";
 import type { PatientFeedbackStatus } from "@/lib/constants";
 
 /**
@@ -179,75 +179,4 @@ export async function getPatientFeedback(
     },
     "patient-feedback:detail"
   );
-}
-
-/**
- * Patientenfeedback-tile metrics for the dashboard. Last `windowDays` of recall sends,
- * click-through, public clicks, and OPEN private feedback count.
- *
- * Queries run on the superuser connection (no RLS) but always WHERE clinic.
- */
-export async function patientFeedbackDashboardMetrics(
-  clinicId: string,
-  windowDays = 30
-): Promise<{
-  requestsSent: number;
-  ratingClicks: number;
-  publicClicks: number;
-  openPrivate: number;
-  windowDays: number;
-}> {
-  const cutoff = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
-
-  const [sentRow] = await db
-    .select({ c: count() })
-    .from(schema.reviewEmailSchedule)
-    .where(
-      and(
-        eq(schema.reviewEmailSchedule.clinicId, clinicId),
-        eq(schema.reviewEmailSchedule.kind, "review_request"),
-        gte(schema.reviewEmailSchedule.sentAt, cutoff)
-      )
-    );
-  const [ratingRow] = await db
-    .select({ c: count() })
-    .from(schema.reviewEmailSchedule)
-    .where(
-      and(
-        eq(schema.reviewEmailSchedule.clinicId, clinicId),
-        eq(schema.reviewEmailSchedule.kind, "review_request"),
-        gte(schema.reviewEmailSchedule.ratingClickedAt, cutoff)
-      )
-    );
-  const [publicRow] = await db
-    .select({ c: count() })
-    .from(schema.reviewEmailSchedule)
-    .where(
-      and(
-        eq(schema.reviewEmailSchedule.clinicId, clinicId),
-        eq(schema.reviewEmailSchedule.kind, "review_request"),
-        gte(schema.reviewEmailSchedule.publicClickedAt, cutoff)
-      )
-    );
-  // Open count is for *actionable* items — private feedback awaiting
-  // triage. Public-redirect rows live in the same table for unified
-  // visibility but they're informational, not a to-do.
-  const [openRow] = await db
-    .select({ c: count() })
-    .from(schema.patientFeedback)
-    .where(
-      and(
-        eq(schema.patientFeedback.clinicId, clinicId),
-        eq(schema.patientFeedback.source, "private"),
-        sql`${schema.patientFeedback.status} IN ('neu','gesehen')`
-      )
-    );
-
-  return {
-    requestsSent: Number(sentRow?.c ?? 0),
-    ratingClicks: Number(ratingRow?.c ?? 0),
-    publicClicks: Number(publicRow?.c ?? 0),
-    openPrivate: Number(openRow?.c ?? 0),
-    windowDays,
-  };
 }

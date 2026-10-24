@@ -1,4 +1,18 @@
-import { EnvHttpProxyAgent, fetch as undiciFetch, setGlobalDispatcher } from "undici";
+/**
+ * Pass 2: the npm `undici` package is loaded LAZILY, only when a proxy env var
+ * is set. A static import ran at module load for every agent mode, so a
+ * dependency whose `engines` the shipped Node does not satisfy (undici 8.x
+ * needs Node >= 22.19, the bundle ships Node 20) killed the agent before it
+ * could log anything. Now a broken undici can only disable proxy support, and
+ * says so loudly; the direct connection keeps working.
+ */
+type UndiciModule = typeof import("undici");
+let loadUndici: () => Promise<UndiciModule> = () => import("undici");
+
+/** Test-only: replace the undici loader (simulate an import failure). */
+export function _setUndiciLoaderForTests(loader: (() => Promise<UndiciModule>) | null): void {
+  loadUndici = loader ?? (() => import("undici"));
+}
 
 /**
  * H12: proxy + enterprise-TLS support for the agent's outbound HTTPS.
@@ -68,15 +82,28 @@ function activeProxyEnv(): { name: string; value: string } | null {
  * EnvHttpProxyAgent reads HTTP_PROXY / HTTPS_PROXY / NO_PROXY itself, so we
  * only decide WHETHER to install it and log WHAT we saw.
  */
-export function configureGlobalDispatcher(
-  log: (msg: string) => void = (m) => console.log(m)
-): boolean {
+export async function configureGlobalDispatcher(
+  log: (msg: string) => void = (m) => console.log(m),
+  logError: (msg: string) => void = (m) => console.error(m)
+): Promise<boolean> {
   const proxy = activeProxyEnv();
   if (!proxy) return false;
-  setGlobalDispatcher(new EnvHttpProxyAgent());
+  let undici: UndiciModule;
+  try {
+    undici = await loadUndici();
+  } catch (err) {
+    logError(
+      `[agent] FEHLER: Proxy ${proxy.name} ist gesetzt, aber das Proxy-Modul (undici) laedt unter ` +
+        `Node ${process.versions.node} nicht: ${err instanceof Error ? err.message : String(err)}. ` +
+        `Der Agent versucht die direkte Verbindung. / proxy env set but undici failed to load; ` +
+        `falling back to a direct connection.`
+    );
+    return false;
+  }
+  undici.setGlobalDispatcher(new undici.EnvHttpProxyAgent());
   // The dispatcher above lives in the npm undici registry, which the built-in
   // fetch never consults: switch agentFetch to undici's fetch so it applies.
-  agentFetch = undiciFetch as unknown as typeof globalThis.fetch;
+  agentFetch = undici.fetch as unknown as typeof globalThis.fetch;
   const noProxy = process.env.NO_PROXY ?? process.env.no_proxy;
   log(
     `[agent] outbound HTTPS routed through proxy from ${proxy.name}=${proxy.value}` +

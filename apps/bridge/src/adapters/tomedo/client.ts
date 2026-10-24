@@ -1,5 +1,15 @@
 import type { PvsLinkRow } from "../../db/client.js";
 import { fetchWithTimeout } from "../../http.js";
+import {
+  MAX_RETRIES,
+  abortableSleep,
+  parseRetryAfter,
+  truncateText as truncate,
+  VendorHttpError,
+  walkPages,
+  type Page,
+  type PageOptions,
+} from "../_shared/paging.js";
 
 /**
  * Tomedo REST client wrapper.
@@ -19,20 +29,24 @@ import { fetchWithTimeout } from "../../http.js";
  */
 
 const PAGE_SIZE = 500;
-/** Upper bound on a single 429 back-off. A bogus Retry-After (an HTTP-date
- *  far in the future, or a huge delta) must not park the sequential scheduler
- *  for hours. */
-const MAX_RETRY_AFTER_MS = 5 * 60_000;
-/** Per-page cap on consecutive 429 retries. Without it a server that answers
- *  429 forever (or a Retry-After that never clears) blocks the whole scheduler
- *  on one link. On the cap we throw; recordFailure then backs the link off. */
-const MAX_RETRIES = 5;
 
 interface TomedoConfig {
   endpoint: string;
   clientId: string;
   clientSecret: string;
+  /** Aborts every in-flight request and back-off sleep (scheduler deadline). */
+  signal?: AbortSignal;
 }
+
+export type TomedoStream = "patients" | "appointments" | "encounters" | "invoices" | "recalls";
+
+const STREAM_PATHS: Record<TomedoStream, string> = {
+  patients: "/patients",
+  appointments: "/appointments",
+  encounters: "/encounters",
+  invoices: "/invoices",
+  recalls: "/recalls",
+};
 
 interface RawRecord {
   modifiedAt: string;
@@ -45,7 +59,7 @@ export class TomedoClient {
 
   constructor(private readonly cfg: TomedoConfig) {}
 
-  static from(link: PvsLinkRow): TomedoClient {
+  static from(link: PvsLinkRow, opts: { signal?: AbortSignal } = {}): TomedoClient {
     const cfg = link.connectionConfig as {
       tomedoEndpoint?: string;
       tomedoClientId?: string;
@@ -58,6 +72,7 @@ export class TomedoClient {
       endpoint: cfg.tomedoEndpoint,
       clientId: cfg.tomedoClientId,
       clientSecret: cfg.tomedoClientSecret,
+      signal: opts.signal,
     });
   }
 
@@ -66,6 +81,7 @@ export class TomedoClient {
     const url = `${this.cfg.endpoint.replace(/\/$/, "")}/meta/health`;
     const res = await fetchWithTimeout(url, {
       headers: { authorization: `Bearer ${this.accessToken}` },
+      signal: this.cfg.signal,
     });
     if (!res.ok) throw new Error(`tomedo health ${res.status}`);
   }
@@ -86,6 +102,7 @@ export class TomedoClient {
         client_id: this.cfg.clientId,
         client_secret: this.cfg.clientSecret,
       }),
+      signal: this.cfg.signal,
     });
     if (!res.ok) {
       throw new Error(`tomedo oauth ${res.status}: ${await res.text()}`);
@@ -100,105 +117,103 @@ export class TomedoClient {
 
   // ----- paginated GET helpers --------------------------------------
 
-  private async *paginate(
+  private paginate(
     path: string,
-    modifiedSince: string
-  ): AsyncIterable<RawRecord> {
-    let offset = 0;
+    modifiedSince: string,
+    opts: PageOptions = {}
+  ): AsyncIterable<Page<RawRecord>> {
     let retries = 0;
-    for (;;) {
-      await this.ensureToken();
-      const url =
-        `${this.cfg.endpoint.replace(/\/$/, "")}${path}` +
-        `?modifiedSince=${encodeURIComponent(modifiedSince)}` +
-        `&limit=${PAGE_SIZE}&offset=${offset}`;
-      const res = await fetchWithTimeout(url, {
-        headers: { authorization: `Bearer ${this.accessToken}` },
-      });
-      if (res.status === 429) {
-        // Retry-After is either delta-seconds or an HTTP-date; Number() on a
-        // date is NaN → sleep(NaN) → hot loop. Parse both, clamp, and cap the
-        // retry count so a stuck rate limit can't block the scheduler.
-        if (retries >= MAX_RETRIES) {
-          throw new Error(
-            `tomedo GET ${path} rate-limited: exceeded ${MAX_RETRIES} retries`
-          );
-        }
-        retries += 1;
-        await sleep(parseRetryAfter(res.headers.get("retry-after")));
-        continue;
-      }
-      retries = 0;
-      if (!res.ok) {
-        throw new Error(`tomedo GET ${path} ${res.status}: ${await res.text()}`);
-      }
-      const data = (await res.json()) as { items?: RawRecord[]; total?: number };
-      // A 200 whose body lacks the `items` array is an error envelope (auth
-      // notice, deprecation, changed shape), NOT a healthy empty page. Treating
-      // it as `[]` would silently and permanently mark the stream drained. Fail
-      // loudly instead so recordFailure backs the link off and it is visible.
-      if (!Array.isArray(data.items)) {
-        throw new Error(
-          `tomedo GET ${path} ${res.status}: response envelope missing 'items' array: ${truncate(
-            JSON.stringify(data)
-          )}`
-        );
-      }
-      const items = data.items;
-      for (const item of items) yield item;
+    return walkPages<RawRecord>({
+      label: `tomedo GET ${path}`,
+      startAt: opts.startAt ?? 0,
+      maxPages: opts.maxPages ?? Number.POSITIVE_INFINITY,
+      signal: opts.signal ?? this.cfg.signal,
       // H17: terminate on an EMPTY page, not on a short one. A server that
-      // clamps limit=500 to 100 returns a "short" full-of-rows page; the old
-      // `< PAGE_SIZE` check treated that as the end and silently dropped
-      // everything after page 1. Advance the offset by the number of rows we
-      // actually received (not by the requested PAGE_SIZE) so a clamp cannot
-      // skip a window of rows, and keep paging until a truly empty page.
-      // The result set can mutate between requests (offset paging shifts rows
-      // across page boundaries); the poll overlap plus portal-side dedup
-      // absorb that window.
-      if (items.length === 0) return;
-      offset += items.length;
+      // clamps limit=500 to 100 returns a "short" full-of-rows page. Advance the
+      // offset by the number of rows we actually received (not by the requested
+      // PAGE_SIZE) so a clamp cannot skip a window of rows. The result set can
+      // mutate between requests (offset paging shifts rows across page
+      // boundaries); the poll overlap plus portal-side dedup absorb that window.
+      advance: (at, rows) => at + rows.length,
+      fetchPage: async (offset) => {
+        for (;;) {
+          await this.ensureToken();
+          const url =
+            `${this.cfg.endpoint.replace(/\/$/, "")}${path}` +
+            `?modifiedSince=${encodeURIComponent(modifiedSince)}` +
+            `&limit=${PAGE_SIZE}&offset=${offset}`;
+          const res = await fetchWithTimeout(url, {
+            headers: { authorization: `Bearer ${this.accessToken}` },
+            signal: this.cfg.signal,
+          });
+          if (res.status === 429) {
+            // Retry-After is either delta-seconds or an HTTP-date: parse both,
+            // clamp, and cap the retry count so a stuck rate limit can not pin a
+            // worker.
+            if (retries >= MAX_RETRIES) {
+              throw new Error(
+                `tomedo GET ${path} rate-limited: exceeded ${MAX_RETRIES} retries`
+              );
+            }
+            retries += 1;
+            await abortableSleep(parseRetryAfter(res.headers.get("retry-after")), this.cfg.signal);
+            continue;
+          }
+          retries = 0;
+          if (!res.ok) {
+            throw new VendorHttpError(
+              `tomedo GET ${path} ${res.status}: ${await res.text()}`,
+              res.status
+            );
+          }
+          const data = (await res.json()) as { items?: RawRecord[]; total?: number };
+          // A 200 whose body lacks the `items` array is an error envelope (auth
+          // notice, deprecation, changed shape), NOT a healthy empty page.
+          // Treating it as `[]` would silently and permanently mark the stream
+          // drained. Fail loudly so recordFailure backs the link off.
+          if (!Array.isArray(data.items)) {
+            throw new Error(
+              `tomedo GET ${path} ${res.status}: response envelope missing 'items' array: ${truncate(
+                JSON.stringify(data)
+              )}`
+            );
+          }
+          return data.items;
+        }
+      },
+    });
+  }
+
+  /** Pages of one stream (bounded, abortable, resumable by offset). */
+  pages(
+    stream: TomedoStream,
+    modifiedSince: string,
+    opts: PageOptions = {}
+  ): AsyncIterable<Page<RawRecord>> {
+    return this.paginate(STREAM_PATHS[stream], modifiedSince, opts);
+  }
+
+  private async *flatten(stream: TomedoStream, modifiedSince: string): AsyncIterable<RawRecord> {
+    for await (const page of this.pages(stream, modifiedSince, {
+      maxPages: Number.POSITIVE_INFINITY,
+    })) {
+      for (const row of page.rows) yield row;
     }
   }
 
   streamPatients(modifiedSince: string): AsyncIterable<RawRecord> {
-    return this.paginate("/patients", modifiedSince);
+    return this.flatten("patients", modifiedSince);
   }
   streamAppointments(modifiedSince: string): AsyncIterable<RawRecord> {
-    return this.paginate("/appointments", modifiedSince);
+    return this.flatten("appointments", modifiedSince);
   }
   streamEncounters(modifiedSince: string): AsyncIterable<RawRecord> {
-    return this.paginate("/encounters", modifiedSince);
+    return this.flatten("encounters", modifiedSince);
   }
   streamInvoices(modifiedSince: string): AsyncIterable<RawRecord> {
-    return this.paginate("/invoices", modifiedSince);
+    return this.flatten("invoices", modifiedSince);
   }
   streamRecalls(modifiedSince: string): AsyncIterable<RawRecord> {
-    return this.paginate("/recalls", modifiedSince);
+    return this.flatten("recalls", modifiedSince);
   }
-}
-
-/** Tomedo's Retry-After is delta-seconds per HTTP spec, but a proxy may emit
- *  an HTTP-date. Accept either, clamp to MAX_RETRY_AFTER_MS, and never return
- *  NaN/0 (which would spin the retry loop). */
-function parseRetryAfter(raw: string | null): number {
-  if (!raw) return 5_000;
-  const asInt = Number.parseInt(raw, 10);
-  if (Number.isFinite(asInt) && asInt > 0) {
-    return Math.min(asInt * 1000, MAX_RETRY_AFTER_MS);
-  }
-  const asDate = Date.parse(raw);
-  if (Number.isFinite(asDate)) {
-    const delta = asDate - Date.now();
-    return delta > 0 ? Math.min(delta, MAX_RETRY_AFTER_MS) : 5_000;
-  }
-  return 5_000;
-}
-
-/** Cap a string for safe inclusion in an error/log line. */
-function truncate(s: string, max = 200): string {
-  return s.length > max ? `${s.slice(0, max)}...` : s;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
 }

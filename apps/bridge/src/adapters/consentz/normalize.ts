@@ -11,8 +11,15 @@ import type {
 import {
   parseSignedAmountToCents,
   guardAmountCents,
+  firstRef,
+  isPaidRow,
+  vendorCurrency,
 } from "../amount.js";
-import { isoUtc } from "../_shared/iso.js";
+import {
+  isoUtc,
+  DEFAULT_TIMEZONE,
+  type NormalizeOptions,
+} from "../_shared/iso.js";
 import type {
   ConsentzClient_Patient,
   ConsentzAppointment,
@@ -31,12 +38,14 @@ import type {
 
 export function normalizePatient(
   clinicId: string,
-  p: ConsentzClient_Patient
+  p: ConsentzClient_Patient,
+  opts: NormalizeOptions = {}
 ): PatientUpsertedEvent {
+  const tz = opts.timezone ?? DEFAULT_TIMEZONE;
   const id = String(p.id);
   // isoUtc so the id + occurredAt are byte-stable regardless of the offset /
   // precision Consentz returns; the portal dedups on (id, occurred_at).
-  const updatedAt = isoUtc(p.updated_at);
+  const updatedAt = isoUtc(p.updated_at, tz);
   const fullName =
     [p.first_name, p.last_name].filter(Boolean).join(" ").trim() || undefined;
   const phone = p.mobile ?? p.phone ?? undefined;
@@ -58,12 +67,14 @@ export function normalizePatient(
 
 export function normalizeAppointment(
   clinicId: string,
-  a: ConsentzAppointment
+  a: ConsentzAppointment,
+  opts: NormalizeOptions = {}
 ): CanonicalEvent[] {
+  const tz = opts.timezone ?? DEFAULT_TIMEZONE;
   const id = String(a.id);
   const clientId = String(a.client_id);
   if (!id || !clientId || !a.scheduled_at) return [];
-  const scheduledAt = isoUtc(a.scheduled_at);
+  const scheduledAt = isoUtc(a.scheduled_at, tz);
 
   // H4 note: AppointmentCreated.occurredAt stays scheduled_at. The Consentz
   // appointment payload carries no creation timestamp (only scheduled_at and
@@ -90,7 +101,7 @@ export function normalizeAppointment(
 
   const newStatus = mapApptStatus(a.status);
   if (newStatus && newStatus !== "scheduled") {
-    const changedAt = isoUtc(a.updated_at);
+    const changedAt = isoUtc(a.updated_at, tz);
     const status: AppointmentStatusChangedEvent = {
       kind: "AppointmentStatusChanged",
       clinicId,
@@ -109,12 +120,14 @@ export function normalizeAppointment(
 
 export function normalizeEncounter(
   clinicId: string,
-  e: ConsentzTreatmentNote
+  e: ConsentzTreatmentNote,
+  opts: NormalizeOptions = {}
 ): EncounterCompletedEvent | null {
+  const tz = opts.timezone ?? DEFAULT_TIMEZONE;
   const id = String(e.id);
   const clientId = String(e.client_id);
   if (!id || !clientId || !e.completed_at) return null;
-  const completedAt = isoUtc(e.completed_at);
+  const completedAt = isoUtc(e.completed_at, tz);
   return {
     kind: "EncounterCompleted",
     clinicId,
@@ -133,10 +146,14 @@ export function normalizeEncounter(
   };
 }
 
+const PAID_STATUSES: ReadonlySet<string> = new Set(["paid", "succeeded", "settled"]);
+
 export function normalizePayment(
   clinicId: string,
-  p: ConsentzPayment
+  p: ConsentzPayment,
+  opts: NormalizeOptions = {}
 ): InvoicePaidEvent | InvoiceRefundedEvent | null {
+  const tz = opts.timezone ?? DEFAULT_TIMEZONE;
   const id = String(p.id);
   const clientId = String(p.client_id);
   if (!id || !clientId) return null;
@@ -150,7 +167,11 @@ export function normalizePayment(
   // Evaluated BEFORE the paid gate: a refund is revenue-relevant regardless of
   // status.
   if (amountCents < 0) {
-    const refundedAt = isoUtc(p.paid_at ?? p.updated_at);
+    const refundedAt = isoUtc(p.paid_at || p.updated_at, tz);
+    // A refund that names the payment it belongs to is booked against that
+    // payment (pvsRefundId = the refund's own id); without a reference it stands
+    // for itself, as before. The dedup id is the refund's own id either way.
+    const original = firstRef(p.parent_payment_id, p.original_payment_id, p.refund_of);
     return {
       kind: "InvoiceRefunded",
       clinicId,
@@ -158,21 +179,21 @@ export function normalizePayment(
       pvsExternalEventId: `consentz:payment-refund:${id}`,
       occurredAt: refundedAt,
       pvsPatientId: clientId,
-      pvsInvoiceId: id,
+      pvsInvoiceId: original ?? id,
+      ...(original ? { pvsRefundId: id } : {}),
       pvsAppointmentId:
         p.appointment_id != null ? String(p.appointment_id) : undefined,
       refundedAmountCents: Math.abs(amountCents),
-      currency: "EUR",
+      currency: vendorCurrency(p.currency),
       refundedAt,
     };
   }
 
-  const status = (p.status ?? "").toLowerCase();
-  const isPaid =
-    status === "paid" || status === "succeeded" || status === "settled" || !!p.paid_at;
-  if (!isPaid) return null;
+  // A void-like status beats a stale paid_at; paid_at decides only when the
+  // status is empty or unknown (see isPaidRow).
+  if (!isPaidRow(p.status, p.paid_at, PAID_STATUSES)) return null;
 
-  const paidAt = isoUtc(p.paid_at ?? p.updated_at);
+  const paidAt = isoUtc(p.paid_at || p.updated_at, tz);
 
   return {
     kind: "InvoicePaid",
@@ -187,15 +208,17 @@ export function normalizePayment(
     pvsEncounterId:
       p.treatment_note_id != null ? String(p.treatment_note_id) : undefined,
     amountCents,
-    currency: "EUR",
+    currency: vendorCurrency(p.currency),
     paidAt,
   };
 }
 
 export function normalizeRecall(
   clinicId: string,
-  r: ConsentzRecall
+  r: ConsentzRecall,
+  opts: NormalizeOptions = {}
 ): RecallScheduledEvent | null {
+  const tz = opts.timezone ?? DEFAULT_TIMEZONE;
   const id = String(r.id);
   const clientId = String(r.client_id);
   if (!id || !clientId || !r.recall_at) return null;
@@ -204,10 +227,10 @@ export function normalizeRecall(
     clinicId,
     bridgeSource: "consentz",
     pvsExternalEventId: `consentz:recall:${id}`,
-    occurredAt: isoUtc(r.updated_at ?? r.recall_at),
+    occurredAt: isoUtc(r.updated_at ?? r.recall_at, tz),
     pvsPatientId: clientId,
     pvsRecallId: id,
-    recallAt: isoUtc(r.recall_at),
+    recallAt: isoUtc(r.recall_at, tz),
     treatmentCode: r.treatment_id != null ? String(r.treatment_id) : undefined,
     treatmentLabel: r.treatment_name ?? undefined,
   };

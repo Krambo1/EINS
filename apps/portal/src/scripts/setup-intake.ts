@@ -14,19 +14,32 @@
  * Invoke from apps/portal:
  *
  *     pnpm setup:intake               # defaults to slug=_template
- *     pnpm setup:intake my-praxis     # custom slug
+ *     pnpm setup:intake my-praxis     # custom slug (Praxis must exist: Admin, "Neue Praxis")
+ *     pnpm setup:intake my-praxis --rotate          # issue a NEW secret
+ *     pnpm setup:intake my-praxis --portal-url=https://app.eins.ag
  *
- * Re-runnable. Re-running rotates the HMAC secret.
+ * Re-runnable (G-02): an existing secret is reused, not rotated, unless
+ * `--rotate` is passed. PORTAL_URL comes from `--portal-url`, else
+ * APP_ORIGIN, else http://localhost:3001. The secret and the clinic UUID are
+ * printed at the end so they can be entered in Vercel (clinic-landing) when
+ * DATABASE_URL points at production.
  */
 
 import "../lib/load-env";
 import { execSync } from "node:child_process";
-import { createCipheriv, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { readFile, writeFile, access } from "node:fs/promises";
 import path from "node:path";
 import postgres from "postgres";
 
-const slug = process.argv[2] ?? "_template";
+const args = process.argv.slice(2);
+const slug = args.find((a) => !a.startsWith("--")) ?? "_template";
+const rotate = args.includes("--rotate");
+const portalUrl = (
+  args.find((a) => a.startsWith("--portal-url="))?.slice("--portal-url=".length) ??
+  process.env.APP_ORIGIN ??
+  "http://localhost:3001"
+).replace(/\/+$/, "");
 
 /**
  * Inline AES-256-GCM encryption. Mirrors src/lib/crypto.ts:encryptString;
@@ -44,6 +57,21 @@ function encryptString(plaintext: string): Buffer {
   const enc = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
   return Buffer.concat([iv, tag, enc]);
+}
+
+function decryptString(blob: Buffer): string {
+  const key = Buffer.from(process.env.ENCRYPTION_KEY ?? "", "hex");
+  const decipher = createDecipheriv("aes-256-gcm", key, blob.subarray(0, 12));
+  decipher.setAuthTag(blob.subarray(12, 28));
+  return Buffer.concat([decipher.update(blob.subarray(28)), decipher.final()]).toString("utf8");
+}
+
+function dbHostLabel(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "(unbekannt)";
+  }
 }
 
 function envVarNameForSlug(s: string): string {
@@ -76,6 +104,9 @@ async function main() {
     process.exit(1);
   }
   const sql = postgres(url, { max: 1, onnotice: () => void 0 });
+  const dbHost = dbHostLabel(url);
+  const localDb = /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(dbHost);
+  console.log(`→ Datenbank: ${dbHost}${localDb ? " (lokal)" : " (NICHT lokal)"}`);
 
   try {
     // 3. Upsert clinic
@@ -83,6 +114,14 @@ async function main() {
       SELECT id FROM clinics WHERE slug = ${slug} LIMIT 1
     `;
     let clinicId: string;
+    if (existing.length === 0 && slug !== "_template") {
+      // G-02: a Praxis is created in the admin ("Neue Praxis"), never here,
+      // so the UUID in clinic.ts always belongs to the database it runs on.
+      console.error(
+        `✗ Keine Praxis mit slug "${slug}" in ${dbHost}. Erst im Admin unter "Neue Praxis" anlegen.`
+      );
+      process.exit(1);
+    }
     if (existing.length === 0) {
       const displayName = slug === "_template" ? "Praxis Dr. Demo" : slug;
       const inserted = await sql<{ id: string }[]>`
@@ -123,16 +162,39 @@ async function main() {
       console.log(`· Fortschritt already has entries — Standard-Journey left as-is`);
     }
 
-    // 4. Generate + encrypt + upsert HMAC secret
-    const plaintext = randomBytes(32).toString("hex");
-    const ciphertext = encryptString(plaintext);
-    await sql`
-      INSERT INTO platform_credentials (clinic_id, platform, access_token_enc)
-      VALUES (${clinicId}, 'intake', ${ciphertext})
-      ON CONFLICT (clinic_id, platform)
-        DO UPDATE SET access_token_enc = EXCLUDED.access_token_enc
+    // 4. Reuse the existing secret unless --rotate (G-02: a second run used
+    // to rotate it silently and break the Zielseite already deployed with
+    // the old one).
+    const current = await sql<{ access_token_enc: Buffer | null }[]>`
+      SELECT access_token_enc FROM platform_credentials
+      WHERE clinic_id = ${clinicId} AND platform = 'intake' LIMIT 1
     `;
-    console.log(`→ Wrote intake credential to platform_credentials`);
+    let plaintext: string | null = null;
+    if (current[0]?.access_token_enc && !rotate) {
+      try {
+        plaintext = decryptString(Buffer.from(current[0].access_token_enc));
+        console.log("→ Vorhandenes Intake-Secret wiederverwendet (neues nur mit --rotate)");
+      } catch {
+        console.error(
+          "✗ Vorhandenes Secret lässt sich mit diesem ENCRYPTION_KEY nicht entschlüsseln. Mit --rotate neu ausstellen."
+        );
+        process.exit(1);
+      }
+    } else {
+      plaintext = randomBytes(32).toString("hex");
+      const ciphertext = encryptString(plaintext);
+      await sql`
+        INSERT INTO platform_credentials (clinic_id, platform, access_token_enc)
+        VALUES (${clinicId}, 'intake', ${ciphertext})
+        ON CONFLICT (clinic_id, platform)
+          DO UPDATE SET access_token_enc = EXCLUDED.access_token_enc
+      `;
+      console.log(
+        current.length > 0
+          ? "→ Intake-Secret ROTIERT: die alte Zielseiten-Variable gilt ab jetzt nicht mehr"
+          : "→ Neues Intake-Secret angelegt"
+      );
+    }
 
     // 5. Update clinic-landing .env.local
     // process.cwd() is apps/portal when invoked via pnpm script.
@@ -159,7 +221,7 @@ async function main() {
     }
     if (filtered.length > 0) filtered.push("");
     filtered.push("# EINS Portal lead mirror");
-    filtered.push("PORTAL_URL=http://localhost:3001");
+    filtered.push(`PORTAL_URL=${portalUrl}`);
     filtered.push(`${envVar}=${plaintext}`);
     filtered.push("");
     await writeFile(envPath, filtered.join("\n"), "utf8");
@@ -193,6 +255,10 @@ async function main() {
     }
 
     console.log("\n✓ Done.\n");
+    console.log("Werte für clinic-landing (bei Produktion in Vercel eintragen):");
+    console.log(`  PORTAL_URL=${portalUrl}`);
+    console.log(`  ${envVar}=${plaintext}`);
+    console.log(`  portalClinicId: "${clinicId}"   (Datenbank ${dbHost})\n`);
     console.log("Next steps:");
     console.log("  1. Start the portal:        pnpm dev          (from apps/portal)");
     console.log("  2. Start clinic-landing:    pnpm dev          (from apps/clinic-landing)");

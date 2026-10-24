@@ -14,11 +14,14 @@ import {
 import { requireAdmin } from "@/auth/admin-guards";
 import { db, schema } from "@/db/client";
 import { eraseClinicDataAction } from "./actions";
+import { PendingSubmitButton } from "../../../_components/PendingSubmitButton";
+import { isUuid } from "@/lib/ids";
 
 export const metadata = { title: "DSGVO" };
 
 interface PageProps {
   params: Promise<{ id: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }
 
 /**
@@ -26,9 +29,12 @@ interface PageProps {
  * ausgeliefert (siehe /api/admin/clinics/[id]/dsgvo/export). Erasure ist
  * nur per Formular und expliziter Slug-Bestätigung möglich.
  */
-export default async function ClinicDsgvoPage({ params }: PageProps) {
+export default async function ClinicDsgvoPage({ params, searchParams }: PageProps) {
   await requireAdmin();
   const { id } = await params;
+  if (!isUuid(id)) notFound();
+  const sp = await searchParams;
+  const error = typeof sp.fehler === "string" ? sp.fehler : null;
 
   const [clinic] = await db
     .select()
@@ -56,6 +62,15 @@ export default async function ClinicDsgvoPage({ params }: PageProps) {
           Audit-Log protokolliert.
         </p>
       </header>
+
+      {error && (
+        <p
+          role="alert"
+          className="rounded-md border border-[var(--tone-bad-border)] bg-[var(--tone-bad-bg)] px-4 py-3 text-base text-tone-bad"
+        >
+          {error}
+        </p>
+      )}
 
       {/* ----- Export -------------------------------------------------- */}
       <Card>
@@ -85,8 +100,9 @@ export default async function ClinicDsgvoPage({ params }: PageProps) {
           <CardTitle>Unwiderrufliche Löschung</CardTitle>
           <CardDescription>
             Entfernt alle praxisbezogenen Daten unwiderruflich aus der
-            Datenbank. Das Audit-Log bleibt erhalten, damit die Löschung
-            nachweisbar ist. Zur Bestätigung geben Sie den Praxis-Slug{" "}
+            Datenbank und alle Dateien der Praxis aus dem Speicher. Das
+            Audit-Log bleibt ohne IP-Adressen und Mitarbeiter-E-Mails
+            erhalten, damit die Löschung nachweisbar ist. Zur Bestätigung geben Sie den Praxis-Slug{" "}
             <code className="rounded bg-bg-secondary px-1">
               {clinic.slug}
             </code>{" "}
@@ -106,9 +122,13 @@ export default async function ClinicDsgvoPage({ params }: PageProps) {
                 autoComplete="off"
               />
             </div>
-            <Button type="submit" variant="danger">
+            <PendingSubmitButton
+              variant="danger"
+              confirm={`${clinic.displayName} und alle Daten und Dateien endgültig löschen? Das lässt sich nicht rückgängig machen.`}
+              pendingLabel="Wird gelöscht …"
+            >
               Daten endgültig löschen
-            </Button>
+            </PendingSubmitButton>
           </form>
         </CardContent>
       </Card>

@@ -1,13 +1,16 @@
 import "server-only";
 import { cache } from "react";
 import { cookies, headers } from "next/headers";
+import { after } from "next/server";
 import { SignJWT, jwtVerify } from "jose";
-import { and, eq, isNull, ne, sql as dsql } from "drizzle-orm";
+import { and, eq, isNull, lt, ne, sql as dsql } from "drizzle-orm";
 import { db, schema } from "../db/client";
 import { env } from "../lib/env";
 import { type CurrencyCode } from "../lib/formatting";
 import {
+  IMPERSONATION_SESSION_MAX_AGE_SECONDS,
   SESSION_COOKIE,
+  SESSION_LAST_SEEN_THROTTLE_SECONDS,
   SESSION_MAX_AGE_SECONDS,
   SESSION_REMEMBER_MAX_AGE_SECONDS,
   type Role,
@@ -15,6 +18,13 @@ import {
 import { deriveSigningKey, generateToken, sha256Hex } from "../lib/crypto";
 import { trustedIpFromHeaders } from "../lib/client-ip";
 import { avatarUrlForKey } from "../server/avatars";
+import { isAdminEmail } from "./admin";
+import { describeErrorForLog } from "../lib/error-log";
+import {
+  sessionMaxAgeSeconds,
+  sessionRejectReason,
+  shouldTouchLastSeen,
+} from "./session-validity";
 
 /**
  * Session layer for clinic users.
@@ -74,6 +84,11 @@ export interface ResolvedSession {
   role: Role;
   /** Non-null when an admin opened this session via "View as clinic user". */
   impersonatedByAdminId: string | null;
+  /**
+   * Absolute end of this session (sessions.expires_at). For an admin view it
+   * is the 30-minute cap, so the banner can show the remaining time.
+   */
+  expiresAt: Date;
   /** Interactive portal-tour lifecycle (drives the first-login auto-prompt). */
   onboardingTourCompletedAt: Date | null;
   onboardingTourDismissedAt: Date | null;
@@ -98,12 +113,14 @@ export async function createSession(
   opts: { impersonatedByAdminId?: string; rememberMe?: boolean } = {}
 ): Promise<void> {
   // "Angemeldet bleiben" verlängert auf 30 Tage. Impersonation bleibt bewusst
-  // kurzlebig: ein Admin, der sich als User einloggt, soll keine 30-Tage-Session
-  // im Namen des Users öffnen, deshalb gewinnt impersonatedByAdminId immer.
-  const maxAgeSeconds =
-    opts.rememberMe && !opts.impersonatedByAdminId
-      ? SESSION_REMEMBER_MAX_AGE_SECONDS
-      : SESSION_MAX_AGE_SECONDS;
+  // kurzlebig (30 Minuten): ein Admin, der sich als User einloggt, soll keine
+  // lange Session im Namen des Users öffnen, deshalb gewinnt
+  // impersonatedByAdminId immer (B-25).
+  const maxAgeSeconds = sessionMaxAgeSeconds(opts, {
+    normal: SESSION_MAX_AGE_SECONDS,
+    remember: SESSION_REMEMBER_MAX_AGE_SECONDS,
+    impersonation: IMPERSONATION_SESSION_MAX_AGE_SECONDS,
+  });
   const token = generateToken(32);
   const tokenHash = sha256Hex(token);
   const expiresAt = new Date(Date.now() + maxAgeSeconds * 1000);
@@ -111,6 +128,27 @@ export async function createSession(
   const hdrs = await headers();
   const ua = hdrs.get("user-agent") ?? null;
   const ip = trustedIpFromHeaders(hdrs.get("x-forwarded-for"), hdrs.get("x-real-ip"));
+
+  // Session rotation (B-14): a login on a device that still carries a session
+  // cookie revokes that older row, so a shared Praxis computer never keeps two
+  // live sessions (the old one would otherwise stay valid until it expires).
+  const jarBefore = await cookies();
+  const previousRaw = jarBefore.get(SESSION_COOKIE)?.value;
+  if (previousRaw) {
+    const previous = await verifyCookie(previousRaw);
+    if (previous) {
+      await db
+        .update(schema.sessions)
+        .set({ revokedAt: new Date() })
+        .where(
+          and(
+            eq(schema.sessions.id, previous.sid),
+            eq(schema.sessions.tokenHash, sha256Hex(previous.tok)),
+            isNull(schema.sessions.revokedAt)
+          )
+        );
+    }
+  }
 
   const [row] = await db
     .insert(schema.sessions)
@@ -163,6 +201,11 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
 
   // Superuser connection: RLS does not apply to session lookup (sessions table is
   // not clinic-scoped in the policy set — it's auth infrastructure).
+  //
+  // One round trip carries every lockout signal: user archived, clinic
+  // archived (G-05 / B-12), and for impersonation sessions the impersonating
+  // admin's email + whether that admin still holds a live admin session
+  // (B-25). The EXISTS only runs for impersonation rows (CASE short-circuits).
   const rows = await db
     .select({
       sessionId: schema.sessions.id,
@@ -170,6 +213,18 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
       impersonatedByAdminId: schema.sessions.impersonatedByAdminId,
       expiresAt: schema.sessions.expiresAt,
       revokedAt: schema.sessions.revokedAt,
+      lastSeenAt: schema.sessions.lastSeenAt,
+      clinicArchivedAt: schema.clinics.archivedAt,
+      impersonatorEmail: schema.adminUsers.email,
+      impersonatorHasActiveSession: dsql<boolean | null>`CASE
+        WHEN ${schema.sessions.impersonatedByAdminId} IS NULL THEN NULL
+        ELSE EXISTS (
+          SELECT 1 FROM admin_sessions s
+           WHERE s.admin_id = ${schema.sessions.impersonatedByAdminId}
+             AND s.revoked_at IS NULL
+             AND s.expires_at > now()
+        )
+      END`,
       clinicId: schema.clinicUsers.clinicId,
       currency: schema.clinics.currency,
       email: schema.clinicUsers.email,
@@ -186,6 +241,10 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
     .from(schema.sessions)
     .innerJoin(schema.clinicUsers, eq(schema.sessions.userId, schema.clinicUsers.id))
     .innerJoin(schema.clinics, eq(schema.clinics.id, schema.clinicUsers.clinicId))
+    .leftJoin(
+      schema.adminUsers,
+      eq(schema.adminUsers.id, schema.sessions.impersonatedByAdminId)
+    )
     .where(
       and(
         eq(schema.sessions.id, payload.sid),
@@ -196,20 +255,54 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
 
   const row = rows[0];
   if (!row) return null;
-  if (row.revokedAt) return null;
-  if (row.expiresAt.getTime() < Date.now()) return null;
-  if (row.archivedAt) return null;
+  const now = new Date();
+  const rejected = sessionRejectReason(
+    {
+      revokedAt: row.revokedAt,
+      expiresAt: row.expiresAt,
+      userArchivedAt: row.archivedAt,
+      clinicArchivedAt: row.clinicArchivedAt,
+      impersonatedByAdminId: row.impersonatedByAdminId,
+      impersonatorEmail: row.impersonatorEmail,
+      impersonatorHasActiveSession: row.impersonatorHasActiveSession,
+    },
+    now,
+    isAdminEmail
+  );
+  if (rejected) return null;
 
-  // Touch lastSeen — fire-and-forget so we don't block page rendering on a
-  // write whose result no caller reads. Errors are logged but never thrown
-  // since a missed lastSeen update is purely cosmetic (admin "last seen" UI).
-  void db
-    .update(schema.sessions)
-    .set({ lastSeenAt: new Date() })
-    .where(eq(schema.sessions.id, row.sessionId))
-    .catch((err) => {
-      console.warn("[session] lastSeenAt update failed", err);
-    });
+  // Touch lastSeen at most every SESSION_LAST_SEEN_THROTTLE_SECONDS (D-5 /
+  // A-21): one UPDATE per 5 minutes instead of one per render, prefetch and
+  // server action. The WHERE repeats the staleness check so concurrent
+  // requests do not stack writes. Runs after the response via `after()`
+  // (kept alive on Vercel); outside a request scope we fall back to a
+  // detached promise. A missed update is cosmetic (admin "last seen").
+  if (shouldTouchLastSeen(row.lastSeenAt, now, SESSION_LAST_SEEN_THROTTLE_SECONDS)) {
+    const touch = () =>
+      db
+        .update(schema.sessions)
+        .set({ lastSeenAt: new Date() })
+        .where(
+          and(
+            eq(schema.sessions.id, row.sessionId),
+            lt(
+              schema.sessions.lastSeenAt,
+              dsql`now() - (${SESSION_LAST_SEEN_THROTTLE_SECONDS}::int * interval '1 second')`
+            )
+          )
+        )
+        .then(
+          () => undefined,
+          (err: unknown) => {
+            console.warn("[session] lastSeenAt update failed", JSON.stringify(describeErrorForLog(err)));
+          }
+        );
+    try {
+      after(touch);
+    } catch {
+      void touch();
+    }
+  }
 
   return {
     sessionId: row.sessionId,
@@ -221,6 +314,7 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
     avatarUrl: avatarUrlForKey(row.avatarKey, row.avatarUpdatedAt),
     role: row.role as Role,
     impersonatedByAdminId: row.impersonatedByAdminId,
+    expiresAt: row.expiresAt,
     onboardingTourCompletedAt: row.onboardingTourCompletedAt,
     onboardingTourDismissedAt: row.onboardingTourDismissedAt,
     onboardingTourNavCardDismissedAt: row.onboardingTourNavCardDismissedAt,
@@ -228,6 +322,15 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
 }
 
 export const getSession = cache(getSessionImpl);
+
+/**
+ * True when the request carries a session cookie at all, valid or not. Lets
+ * `requireSession` tell "Sitzung abgelaufen" apart from "nie angemeldet" (B-6).
+ */
+export async function hasSessionCookie(): Promise<boolean> {
+  const jar = await cookies();
+  return jar.has(SESSION_COOKIE);
+}
 
 /** Revoke the active session (logout). Tolerates missing cookie. */
 export async function destroySession(): Promise<void> {

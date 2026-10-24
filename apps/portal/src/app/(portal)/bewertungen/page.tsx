@@ -16,7 +16,7 @@ import { requirePermissionOrRedirect } from "@/auth/guards";
 import { db, schema } from "@/db/client";
 import { eq } from "drizzle-orm";
 import { can } from "@/lib/roles";
-import { formatDateTime, formatNumber } from "@/lib/formatting";
+import { formatDate, formatDateTime, formatNumber } from "@/lib/formatting";
 import {
   bewertungenPageData,
   type ReviewSnapshot,
@@ -39,7 +39,7 @@ import {
   REPLY_BUCKET_ORDER,
   templatesByBucket,
 } from "./_lib/reply-templates";
-import { Brand } from "@/app/_components/Brand";
+import { BewertungenSectionTabs } from "./_components/BewertungenSectionTabs";
 import { ChapterLaunchLink } from "@/app/(portal)/_components/tour/ChapterLaunchLink";
 
 export const metadata = { title: "Bewertungen" };
@@ -99,17 +99,19 @@ export default async function BewertungenPage() {
         <div>
           <h1 className="text-3xl font-semibold md:text-4xl">Bewertungen.</h1>
           <p className="mt-2 text-base text-fg-primary md:text-lg">
-            Ihre Reputation auf <Brand brand="google" />, <Brand brand="jameda" /> &amp; Co. an einem Ort.
+            Ihre Bewertungen auf Google, Jameda und weiteren Portalen an einem Ort.
           </p>
         </div>
         {isInhaber && <ChapterLaunchLink chapter="bewertungen" />}
       </header>
 
+      <BewertungenSectionTabs />
+
       {canViewPatientFeedback && newFeedbackCount > 0 && (
-        <Card className="border-tone-warn/40 bg-[var(--tone-warn-bg)]/40">
+        <Card className="!border-[var(--tone-warn-border)] !bg-[var(--tone-warn-bg)]">
           <CardContent className="flex flex-col gap-4 pt-6 md:flex-row md:items-center md:justify-between">
             <div className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-tone-warn/15 text-tone-warn">
+              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--tone-warn-bg)] text-tone-warn">
                 <MessageSquare className="h-4 w-4" aria-hidden />
               </span>
               <div className="space-y-1">
@@ -130,9 +132,9 @@ export default async function BewertungenPage() {
                       <li key={f.id} className="flex items-center gap-2">
                         <span
                           className="inline-flex items-center gap-0.5 text-tone-warn tabular-nums"
-                          aria-label={`${f.rating ?? "—"} von 5 Sternen`}
+                          aria-label={`${f.rating ?? "–"} von 5 Sternen`}
                         >
-                          {f.rating ?? "—"}
+                          {f.rating ?? "–"}
                           <Star className="h-3 w-3 fill-current" aria-hidden />
                         </span>
                         <Link
@@ -141,8 +143,8 @@ export default async function BewertungenPage() {
                         >
                           {f.freeText?.trim() || "Ohne Kommentar"}
                         </Link>
-                        <span className="ml-auto shrink-0 text-xs text-fg-tertiary">
-                          {formatDateTime(f.createdAt)}
+                        <span className="ml-auto shrink-0 text-sm text-fg-secondary">
+                          {formatDate(f.createdAt)}
                         </span>
                       </li>
                     ))}
@@ -152,10 +154,10 @@ export default async function BewertungenPage() {
             </div>
             <Link
               href="/bewertungen/feedback"
-              className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-md border border-border bg-bg-primary px-3 py-2 text-sm font-medium text-fg-primary hover:bg-bg-secondary md:self-center"
+              className="inline-flex shrink-0 items-center gap-1 self-start text-sm text-fg-secondary hover:text-accent md:self-center"
             >
               Alle ansehen
-              <ArrowRight className="h-4 w-4" aria-hidden />
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden />
             </Link>
           </CardContent>
         </Card>
@@ -167,7 +169,7 @@ export default async function BewertungenPage() {
         aria-label="Bewertungen pro Plattform"
         className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
       >
-        {TRACKED_PLATFORMS.map((p) => (
+        {TRACKED_PLATFORMS.filter((p) => p !== "manual" || byPlatform.has(p)).map((p) => (
           <PlatformTile
             key={p}
             platform={p}
@@ -250,6 +252,9 @@ function HistoryTable({
 }: {
   rows: Awaited<ReturnType<typeof listReviews>>;
 }) {
+  // Only show the note column when notes actually differ between rows.
+  const notes = new Set(rows.map((r) => r.notes ?? ""));
+  const showNotes = notes.size > 1;
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -259,27 +264,28 @@ function HistoryTable({
             <Th>Plattform</Th>
             <Th align="right">Bewertung</Th>
             <Th align="right">Anzahl</Th>
-            <Th>Notiz</Th>
+            {showNotes && <Th>Notiz</Th>}
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
           {rows.map((r) => (
             <tr key={r.id} className="hover:bg-bg-secondary">
-              <Td>{formatDateTime(r.recordedAt)}</Td>
+              <Td>{formatDate(r.recordedAt)}</Td>
               <Td>{platformLabelNode(r.platform as Platform)}</Td>
               <Td align="right">
-                <span className="tabular-nums">
-                  {r.rating.toFixed(1).replace(".", ",")} ★
+                <span className="inline-flex items-center gap-1 tabular-nums">
+                  {r.rating.toFixed(1).replace(".", ",")}
+                  <Star className="h-3.5 w-3.5 fill-current text-tone-warn" aria-hidden />
                 </span>
               </Td>
               <Td align="right">{formatNumber(r.totalCount)}</Td>
-              <Td>
-                {r.notes ? (
-                  <span className="text-fg-secondary">{r.notes}</span>
-                ) : (
-                  <span className="text-fg-tertiary">—</span>
-                )}
-              </Td>
+              {showNotes && (
+                <Td>
+                  {r.notes && (
+                    <span className="text-fg-secondary">{r.notes}</span>
+                  )}
+                </Td>
+              )}
             </tr>
           ))}
         </tbody>
@@ -297,7 +303,7 @@ function Th({
 }) {
   return (
     <th
-      className={`px-4 py-3 text-xs font-medium uppercase tracking-wide ${
+      className={`px-4 py-3 text-sm font-medium text-fg-primary ${
         align === "right" ? "text-right" : "text-left"
       }`}
     >

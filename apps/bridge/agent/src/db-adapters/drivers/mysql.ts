@@ -138,9 +138,13 @@ export class MysqlDriver implements DbDriver {
     // timezone, which is pinned to "Z" (UTC) in doConnect(); a timestamp
     // cursor (framework Phase 3) is therefore bound as a Date and compared in
     // UTC. Strings and numbers pass through unchanged.
+    // LIMIT is inlined, not bound: execute() sends a JS number as DOUBLE and
+    // MySQL >= 8.0.22 rejects `LIMIT ?` with a DOUBLE argument
+    // (ER_WRONG_ARGUMENTS). The value is validated as an integer 1..5000 first.
+    const { sql: finalSql, values } = inlineLimit(sql, params);
     const [rows, fields] = await this.conn!.execute<Array<Record<string, unknown>>>({
-      sql,
-      values: params,
+      sql: finalSql,
+      values,
       namedPlaceholders: true,
     });
     const columns = (fields ?? []).map((f) => f.name);
@@ -174,6 +178,21 @@ export class MysqlDriver implements DbDriver {
       return { ok: false, reason: (err as Error).message };
     }
   }
+}
+
+/** Replace `:limit` with a validated integer literal and drop it from the binds. */
+export function inlineLimit(
+  sql: string,
+  params: Record<string, string | number | Date>
+): { sql: string; values: Record<string, string | number | Date> } {
+  if (!/:limit(?![A-Za-z0-9_])/.test(sql)) return { sql, values: params };
+  const limit = params.limit;
+  if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 5000) {
+    throw new Error(`mysql: limit must be an integer between 1 and 5000, got ${String(limit)}`);
+  }
+  const { limit: _drop, ...rest } = params;
+  void _drop;
+  return { sql: sql.replace(/:limit(?![A-Za-z0-9_])/g, String(limit)), values: rest };
 }
 
 function inferColumnsFromRow(rows: Array<Record<string, unknown>> | undefined): string[] {

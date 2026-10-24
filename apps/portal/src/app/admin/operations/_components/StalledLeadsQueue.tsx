@@ -13,11 +13,11 @@ export function StalledLeadsQueue({ rows }: { rows: StalledLeadRow[] }) {
       description="Anfragen, die länger als 7 Tage in einer offenen Status-Stufe stehen."
       count={rows.length}
       tone="warn"
-      emptyMessage="Pipeline läuft sauber durch, keine Stagnationen."
+      emptyMessage="Keine Anfrage hängt fest."
     >
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="text-left text-xs font-medium text-fg-secondary">
+          <thead className="text-left text-sm font-medium text-fg-primary">
             <tr>
               <th className="py-2">Praxis</th>
               <th className="py-2">Kontakt</th>

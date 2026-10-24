@@ -12,6 +12,8 @@
  *   - Impressum carries every Pflichtfeld for healthcare professionals (DDG § 5).
  */
 
+import type { PracticePrivacySheet } from "./legal/practice-privacy";
+
 export type Country = "DE" | "AT" | "CH";
 
 export type RadiusStyle = "sharp" | "soft" | "pill";
@@ -213,11 +215,8 @@ export interface Clinic {
    */
   responsePromise?: string;
   connectors: Connectors;
-  /**
-   * Datenschutz copy — Markdown allowed. The template carries a Pflicht-Boilerplate
-   * that should only be replaced with a lawyer-reviewed final version pre-launch.
-   */
-  datenschutzMarkdown: string;
+  /** Final 14 is filled exclusively from this practice's one-page sheet. */
+  privacySheet: PracticePrivacySheet;
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
@@ -275,8 +274,13 @@ export interface PriceRange {
 }
 
 export interface Treatment {
-  /** URL slug under the clinic, e.g. "botox-muenchen". */
+  /** Internal slug, e.g. "botox-muenchen". Never in a public URL (only redirected from). */
   slug: string;
+  /**
+   * Neutral public URL segment, e.g. "a1". Page addresses must not name the
+   * treatment because ad pixels send the full address (health data).
+   */
+  urlCode: string;
   /** Bound to one clinic via the file location — kept here for fast lookups. */
   clinicSlug: string;
   category: TreatmentCategory;
@@ -368,6 +372,11 @@ export interface QuizSubmissionPayload {
   /** Optional free-text note from the patient. */
   notes?: string;
   /**
+   * Optional "Wie sind Sie auf uns aufmerksam geworden?" answer. Only the
+   * closed list in lib/self-reported-source.ts reaches the portal.
+   */
+  selfReportedSource?: string;
+  /**
    * Four booleans:
    *   - privacy      — Datenschutz acknowledged (required, Art. 6(1)(b)+13 DSGVO)
    *   - ageGate      — ≥18 self-declared (required)
@@ -381,6 +390,13 @@ export interface QuizSubmissionPayload {
     ageGate: boolean;
     marketing: boolean;
     aiProcessing: boolean;
+    /**
+     * Separate, optional consent to report the inquiry and a later treatment
+     * to Meta and Google (lib/ads-consent.ts). Absent = no consent.
+     */
+    adsMeasurement?: boolean;
+    /** ADS_CONSENT_VERSION of the text the person saw; set only with consent. */
+    adsMeasurementVersion?: string;
   };
   /**
    * Set by the lead intake route. ISO timestamp once the patient has confirmed

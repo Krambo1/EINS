@@ -391,7 +391,7 @@ function SingleSeriesTrendChart({
   if (!geom) {
     return (
       <div
-        className={cn("h-9 w-full rounded bg-bg-secondary/40", className)}
+        className={cn("h-9 w-full rounded bg-[color-mix(in_srgb,var(--bg-secondary)_40%,transparent)]", className)}
         style={{ height }}
         aria-hidden
       />
@@ -555,7 +555,7 @@ function SingleSeriesTrendChart({
           {activeIdx !== null && (
             <span
               aria-hidden
-              className="pointer-events-none absolute top-0 bottom-0 w-px bg-fg-tertiary/45"
+              className="pointer-events-none absolute top-0 bottom-0 w-px bg-[color-mix(in_srgb,var(--fg-tertiary)_45%,transparent)]"
               style={{ left: `${activePct}%` }}
             />
           )}
@@ -596,7 +596,7 @@ function SingleSeriesTrendChart({
                 transform: `translate(${activePct < 15 ? "0" : activePct > 85 ? "-100%" : "-50%"}, calc(-100% - 8px))`,
               }}
             >
-              <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
+              <div className="text-sm font-medium text-fg-primary">
                 {formatTooltipDate(activeData.date, fmtDateLong)}
               </div>
               <div className="mt-1 font-display text-base font-semibold tabular-nums text-fg-primary">
@@ -604,7 +604,7 @@ function SingleSeriesTrendChart({
                 {fmtValue(activeData.value)}
               </div>
               {activeComparisonData && (
-                <div className="mt-1.5 flex items-center gap-2 border-t border-border/60 pt-1.5 text-xs tabular-nums text-fg-secondary">
+                <div className="mt-1.5 flex items-center gap-2 border-t border-[color-mix(in_srgb,var(--border)_60%,transparent)] pt-1.5 text-xs tabular-nums text-fg-secondary">
                   <span
                     aria-hidden
                     className="inline-block h-[2px] w-3 rounded-full bg-fg-tertiary"
@@ -909,7 +909,7 @@ function MultiSeriesTrendChart({
           {activeIdx !== null && (
             <span
               aria-hidden
-              className="pointer-events-none absolute top-0 bottom-0 w-px bg-fg-tertiary/45"
+              className="pointer-events-none absolute top-0 bottom-0 w-px bg-[color-mix(in_srgb,var(--fg-tertiary)_45%,transparent)]"
               style={{ left: `${activePct}%` }}
             />
           )}
@@ -942,7 +942,7 @@ function MultiSeriesTrendChart({
                 transform: `translate(${activePct < 15 ? "0" : activePct > 85 ? "-100%" : "-50%"}, calc(-100% - 8px))`,
               }}
             >
-              <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
+              <div className="text-sm font-medium text-fg-primary">
                 {formatTooltipDate(activeDate, fmtDateLong)}
               </div>
               <div className="mt-1 space-y-1">

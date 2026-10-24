@@ -29,35 +29,36 @@ ca. 30 Minuten.
 
 ## Installation
 
-1. EINS-Agent herunterladen (Windows-Binary, ca. 14 MB):
-   `https://portal.eins.ag/pvs-bridge/agent/eins-agent-win.exe`
+Befehle in einer PowerShell als Administrator, im Agent-Ordner (mit `eins-agent.cmd`; es gibt keinen Installer, siehe `medatixx.md`, Abschnitt Installation). Token besser per `echo <token> | .\eins-agent.cmd --enroll --token-stdin --clinic <praxis-uuid>` uebergeben. Nach `--enable-db-adapter` mit `.\eins-agent.cmd --probe-db-adapter <vendor>` das Schema pruefen (Exit 0 = alles gefunden). `--install-service` legt die geplante Aufgabe `EINS-Agent` an (SYSTEM, startet beim Hochfahren); als der Windows-Benutzer ausfuehren, der die Einrichtung gemacht hat.
+
+1. Agent-Ordner vom EINS-Team erhalten (siehe Hinweis oben).
 
 2. Im EINS-Portal: Einstellungen, Integrationen, PVS, "Neuen Agent
    verbinden". Token notieren; 24 h gueltig.
 
-3. In einer Admin-PowerShell auf dem Praxis-Server:
+3. In der PowerShell als Administrator auf dem Praxis-Server:
 
    ```powershell
-   .\eins-agent-win.exe --enroll <token> --clinic <praxis-uuid>
+   .\eins-agent.cmd --enroll <token> --clinic <praxis-uuid>
    ```
 
 4. ALBIS-Adapter aktivieren:
 
    ```powershell
-   .\eins-agent-win.exe --enable-db-adapter cgm-albis-db `
+   .\eins-agent.cmd --enable-db-adapter cgm-albis-db `
      --db-host 127.0.0.1 `
      --db-port 5432 `
      --db-database albis `
      --db-username eins_readonly
    ```
 
-   Passwort interaktiv eingeben; sofort in Windows Credential Vault
+   Passwort interaktiv eingeben; sofort in Windows DPAPI (Datenordner `%ProgramData%\EINS-Agent`)
    verschluesselt, nie in einer Datei.
 
 5. Agent als Windows-Dienst:
 
    ```powershell
-   .\eins-agent-win.exe --install-service
+   .\eins-agent.cmd --install-service
    ```
 
 ## Sanity-Check

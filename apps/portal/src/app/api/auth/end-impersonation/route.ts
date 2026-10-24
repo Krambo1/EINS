@@ -4,6 +4,7 @@ import { getSession, destroySession } from "@/auth/session";
 import { db, schema } from "@/db/client";
 import { writeAudit } from "@/server/audit";
 import { adminOrigin } from "@/lib/env";
+import { isCrossSiteRequest } from "@/auth/request-origin";
 
 /**
  * Ends an impersonation session.
@@ -19,7 +20,8 @@ import { adminOrigin } from "@/lib/env";
  *
  * Response:
  *  - JSON `{ ok: true, redirectTo }` for fetch() callers (the banner JS).
- *  - 302 redirect when the request is form-submitted (Accept: text/html).
+ *  - 303 redirect when the request is form-submitted (Accept: text/html), so
+ *    the browser follows with GET to the Praxis page in the admin portal.
  */
 
 async function handle(req: NextRequest): Promise<NextResponse> {
@@ -32,13 +34,15 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   const adminBase = adminOrigin();
   const wantsJson = (req.headers.get("accept") ?? "").includes("application/json");
 
-  if (!session || session.impersonatedByAdminId === null) {
+  // B-15: only our own banner / menu may end the session; a cross-site
+  // request is answered like the no-op below and changes nothing.
+  if (!session || session.impersonatedByAdminId === null || isCrossSiteRequest(req.headers)) {
     // Idempotent no-op — never logs out a real user. Return the admin host
     // anyway so the banner JS has somewhere safe to land.
     if (wantsJson) {
       return NextResponse.json({ ok: true, redirectTo: adminBase });
     }
-    return NextResponse.redirect(new URL(adminBase));
+    return NextResponse.redirect(new URL(adminBase), 303);
   }
 
   const [admin] = await db
@@ -60,6 +64,7 @@ async function handle(req: NextRequest): Promise<NextResponse> {
       targetEmail: session.email,
       clinicId: session.clinicId,
     },
+    impersonatedByAdminId: session.impersonatedByAdminId,
   });
 
   await destroySession();
@@ -68,7 +73,8 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   if (wantsJson) {
     return NextResponse.json({ ok: true, redirectTo });
   }
-  return NextResponse.redirect(new URL(redirectTo));
+  // 303: the banner form POSTs here; the admin page must be fetched with GET.
+  return NextResponse.redirect(new URL(redirectTo), 303);
 }
 
 export const GET = handle;

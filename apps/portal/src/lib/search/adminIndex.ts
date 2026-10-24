@@ -31,7 +31,7 @@ export const ADMIN_INDEX: SearchEntry[] = [
   {
     kind: "nav",
     id: "admin-nav-leads",
-    title: "Leads",
+    title: "Anfragen",
     subtitle: "Akquise · Anfragen über alle Praxen",
     href: "/admin/leads",
     keywords: ["leads", "anfragen", "requests", "inbox", "pipeline"],

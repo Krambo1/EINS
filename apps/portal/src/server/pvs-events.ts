@@ -1,14 +1,20 @@
 import "server-only";
+import { notifyOps } from "@/server/ops-alerts";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db/client";
 import { enqueuePvsStatusDerive, enqueuePvsLinkBackfill } from "@/server/jobs";
 import {
+  moveRequestsOfUnmappedPatient,
   resolvePatientLink,
   recordLinkingFailure,
   upsertPatientFromPvs,
 } from "@/server/pvs-linking";
-import { computePvsEventIntegrityTag } from "@/server/pvs-event-integrity";
+import {
+  computePvsEventIntegrityTag,
+  verifyPvsEventIntegrityTag,
+} from "@/server/pvs-event-integrity";
+import { QUEUES } from "@/lib/queues";
 import { ensurePartitionForMonth } from "@/worker/processors/pvs-partition-rotate";
 
 /**
@@ -37,7 +43,30 @@ import { ensurePartitionForMonth } from "@/worker/processors/pvs-partition-rotat
 /** Tightened ISO-8601 datetime — z.string().datetime() accepts both
  *  `Z` and `±HH:mm` offsets, which is what we want from adapters. */
 const isoDatetime = z.string().datetime({ offset: true });
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+/** Pass 2: YYYY-MM-DD that is also a real calendar day. The bare regex let
+ *  "1980-02-30" through, which then failed the Postgres date cast on the
+ *  patient merge and answered internal_error for that event forever. */
+const isoDate = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/)
+  .refine((s) => {
+    const d = new Date(`${s}T00:00:00Z`);
+    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+  });
+/** Pass 2: free-text labels are clipped to the cap instead of rejecting the
+ *  whole event. A 201-char Leistungstext from a PVS used to cost the entire
+ *  AppointmentCreated / EncounterCompleted (non-retryable invalid_envelope).
+ *  Storage stays bounded either way. Never cuts a surrogate pair in half
+ *  (a lone surrogate fails the jsonb insert). */
+const clip = (max: number) => (s: string): string => {
+  if (s.length <= max) return s;
+  const code = s.charCodeAt(max - 1);
+  return s.slice(0, code >= 0xd800 && code <= 0xdbff ? max - 1 : max);
+};
+/** Pass 2: an over-long Notiz keeps its EINS-Lead token (the only part the
+ *  Stage-2 linker reads) instead of rejecting the PatientUpserted. */
+const keepLeadToken = (s: string): string =>
+  s.length <= 4000 ? s : (/EINS-Lead-[0-9a-f]{8}/i.exec(s)?.[0] ?? clip(4000)(s));
 
 // The portal's canonical bridge-source enum. Conformance-pinned to
 // BRIDGE_SOURCES (apps/bridge/src/canonical/schema-source.ts) by
@@ -99,14 +128,14 @@ const PatientUpsertedSchema = z.object({
   kind: z.literal("PatientUpserted"),
   ...baseFields,
   pvsPatientId: z.string().min(1).max(200),
-  email: z.string().email().max(200).optional(),
-  phone: z.string().max(64).optional(),
-  fullName: z.string().max(200).optional(),
-  dob: isoDate.optional(),
+  email: z.string().email().max(200).optional().catch(undefined),
+  phone: z.string().max(64).optional().catch(undefined),
+  fullName: z.string().transform(clip(200)).optional(),
+  dob: isoDate.optional().catch(undefined),
   gender: z.enum(["f", "m", "d", "x"]).optional(),
   /** Free-text PVS bemerkung field. Stage-2 linker parses this for
    *  EINS-Lead-{8hex} tokens. */
-  bemerkung: z.string().max(4000).optional(),
+  bemerkung: z.string().transform(keepLeadToken).optional(),
   /** Legacy patient external_id — only used by /api/patients/events
    *  back-compatible bridges (CSV mostly). */
   externalId: z.string().max(200).optional(),
@@ -120,11 +149,11 @@ const AppointmentCreatedSchema = z.object({
   pvsPatientId: z.string().min(1).max(200),
   pvsAppointmentId: z.string().min(1).max(200),
   scheduledAt: isoDatetime,
-  treatmentCode: z.string().max(200).optional(),
-  treatmentLabel: z.string().max(200).optional(),
-  locationCode: z.string().max(200).optional(),
-  locationLabel: z.string().max(200).optional(),
-  bemerkung: z.string().max(4000).optional(),
+  treatmentCode: z.string().transform(clip(200)).optional(),
+  treatmentLabel: z.string().transform(clip(200)).optional(),
+  locationCode: z.string().transform(clip(200)).optional(),
+  locationLabel: z.string().transform(clip(200)).optional(),
+  bemerkung: z.string().transform(keepLeadToken).optional(),
 });
 export type AppointmentCreatedEvent = z.infer<typeof AppointmentCreatedSchema>;
 
@@ -154,7 +183,7 @@ const AppointmentCancelledSchema = z.object({
   ...baseFields,
   pvsPatientId: z.string().min(1).max(200),
   pvsAppointmentId: z.string().min(1).max(200),
-  cancellationReason: z.string().max(200).optional(),
+  cancellationReason: z.string().transform(clip(200)).optional(),
   cancelledBy: z.enum(["patient", "clinic"]).optional(),
 });
 export type AppointmentCancelledEvent = z.infer<
@@ -168,10 +197,10 @@ const EncounterCompletedSchema = z.object({
   pvsPatientId: z.string().min(1).max(200),
   pvsEncounterId: z.string().min(1).max(200),
   pvsAppointmentId: z.string().min(1).max(200).optional(),
-  treatmentCode: z.string().max(200).optional(),
-  treatmentLabel: z.string().max(200).optional(),
+  treatmentCode: z.string().transform(clip(200)).optional(),
+  treatmentLabel: z.string().transform(clip(200)).optional(),
   completedAt: isoDatetime,
-  practitionerLabel: z.string().max(200).optional(),
+  practitionerLabel: z.string().transform(clip(200)).optional(),
 });
 export type EncounterCompletedEvent = z.infer<typeof EncounterCompletedSchema>;
 
@@ -206,6 +235,12 @@ const InvoicePaidSchema = z.object({
   amountCents: z.number().int().nonnegative().max(100_000_000),
   currency: z.enum(["EUR", "CHF"]).default("EUR"),
   paidAt: isoDatetime,
+  /** Pass 2: optional producer revision of this invoice / refund (CSV
+   *  invoice-book revision, DB modified_at in epoch ms). When two versions
+   *  both carry one, derive takes the higher revision instead of relying on
+   *  occurredAt / arrival order: the agent retries a failed row behind newer
+   *  rows, and a corrected payment date can be earlier than the original. */
+  sourceRevision: z.number().int().nonnegative().optional(),
 });
 export type InvoicePaidEvent = z.infer<typeof InvoicePaidSchema>;
 
@@ -224,12 +259,18 @@ const InvoiceRefundedSchema = z.object({
   pvsPatientId: z.string().min(1).max(200),
   pvsInvoiceId: z.string().min(1).max(200),
   pvsAppointmentId: z.string().min(1).max(200).optional(),
+  /** Pass 2: the refund / credit-note document's own id. Distinct ids against
+   *  one pvsInvoiceId are separate refunds and are SUMMED by derive; repeated
+   *  events with the same id (or none) are versions of one refund, latest
+   *  wins. Optional: legacy producers keep the latest-wins behaviour. */
+  pvsRefundId: z.string().min(1).max(200).optional(),
   // Same €1,000,000.00 plausibility ceiling as InvoicePaid.amountCents — a
   // refund cannot exceed an invoice we would have accepted (pentest H4).
   refundedAmountCents: z.number().int().nonnegative().max(100_000_000),
   currency: z.enum(["EUR", "CHF"]).default("EUR"),
   refundedAt: isoDatetime,
-  reason: z.string().max(200).optional(),
+  sourceRevision: z.number().int().nonnegative().optional(),
+  reason: z.string().transform(clip(200)).optional(),
 });
 export type InvoiceRefundedEvent = z.infer<typeof InvoiceRefundedSchema>;
 
@@ -240,8 +281,8 @@ const RecallScheduledSchema = z.object({
   pvsPatientId: z.string().min(1).max(200),
   pvsRecallId: z.string().min(1).max(200),
   recallAt: isoDatetime,
-  treatmentCode: z.string().max(200).optional(),
-  treatmentLabel: z.string().max(200).optional(),
+  treatmentCode: z.string().transform(clip(200)).optional(),
+  treatmentLabel: z.string().transform(clip(200)).optional(),
 });
 export type RecallScheduledEvent = z.infer<typeof RecallScheduledSchema>;
 
@@ -300,10 +341,16 @@ export type PvsEventResult =
          * M-D6: a revenue-bearing event arrived from a source that is not the
          * clinic's authoritative billing path (billing_enabled = false, or a
          * gdt_agent event colliding with an active vendor DB/cloud path).
-         * Mapped to 403 (non-retryable) by the route; a standing dashboard
-         * alert is raised so the drop is never silent.
+         * Mapped to 422 (non-retryable, non-auth) by the route; a standing
+         * dashboard alert is raised so the drop is never silent.
          */
         | "billing_conflict"
+        /**
+         * occurredAt outside [2000-01-01, now + 2 years]. A year-0001 / 9999
+         * date maps to a partition that cannot be created, which would be a
+         * permanent 500. Mapped to 400 (non-retryable) by the route.
+         */
+        | "invalid_envelope"
         | "internal_error";
     };
 
@@ -324,8 +371,20 @@ export type PvsEventResult =
  *   5. Update pvs_link.last_event_at + pvs_sync_status counters.
  */
 export async function applyPvsEvent(
-  input: PvsEvent
+  rawInput: PvsEvent
 ): Promise<PvsEventResult> {
+  // Pass 2: Postgres text/jsonb cannot hold U+0000 or a lone UTF-16
+  // surrogate. A UTF-16 export read as UTF-8 (or a torn multi-byte name)
+  // carries them, and the insert then threw on every retry: internal_error
+  // for that event forever. Scrub before anything touches the DB.
+  const input = scrubStringsDeep(rawInput);
+  // 0) occurredAt sanity. Anything outside [2000-01-01, now + 2y] is an
+  //    adapter bug (epoch-0 / year-0001 / 9999 defaults); inserting it would
+  //    need a partition that cannot exist and 500 forever.
+  if (!isPlausibleOccurredAt(input.occurredAt)) {
+    return { ok: false, reason: "invalid_envelope" };
+  }
+
   // 1) Resolve link.
   const [link] = await db
     .select({
@@ -397,11 +456,12 @@ export async function applyPvsEvent(
   //   - Vendor DB/cloud sources win by default: their billing tables are the
   //     system of record; the GDT Honorar fields are a lossy export of them.
   //
-  // Rejections map to 403 in the route — deliberately NON-retryable: a billing
-  // conflict is a standing configuration state, not a transient window, so
-  // retrying hourly forever (409) would only grow the agent outbox. The
-  // agent's dead-letter roll-up keeps the drop visible, and the standing
-  // dashboard alert raised here tells the operator what happened.
+  // Rejections map to 422 in the route — deliberately NON-retryable and
+  // non-auth: a billing conflict is a standing configuration state, not a
+  // transient window, so retrying hourly forever (409) would only grow the
+  // agent outbox, and 403 would read as an auth rejection that pauses the
+  // whole outbox. The agent's dead-letter roll-up keeps the drop visible, and
+  // the standing dashboard alert raised here tells the operator what happened.
   //
   // ORDERING IS LOAD-BEARING: this gate must stay BEFORE the event_log insert
   // (and therefore before the P1-2 pending-quarantine branch). The derive
@@ -409,7 +469,7 @@ export async function applyPvsEvent(
   // so a duplicate that entered the log — even quarantined and later
   // replay-rejected — would still double-count the moment any other event
   // triggers a derive for that patient. Side effect, accepted: a replayed
-  // already-ingested revenue event from a blocked source answers 403 instead
+  // already-ingested revenue event from a blocked source answers 422 instead
   // of 201 deduped.
   if (
     REVENUE_BEARING_KINDS.has(input.kind) &&
@@ -434,7 +494,11 @@ export async function applyPvsEvent(
     eventLogId = await insertEventLogWithPartitionHeal(input, link.status);
   } catch (err) {
     if (isDedupeSentinel(err)) {
-      return { ok: true, status: "deduped" };
+      // The row already exists. "Deduped" is only true when it was fully
+      // applied: a first attempt that died after the insert (linking threw,
+      // route 500) leaves applied_at NULL, and the agent's retry lands here.
+      // Dropping it would mean revenue is never counted, so finish the job.
+      return await finishDuplicate(input, link.id);
     }
     console.error("[pvs-events] event_log insert failed:", err);
     return { ok: false, reason: "internal_error" };
@@ -454,11 +518,45 @@ export async function applyPvsEvent(
     };
   }
 
-  // 3) Branch by kind for linking.
-  let linkResult:
-    | { portalPatientId: string; method: string }
-    | null = null;
+  const outcome = await runPostInsertSteps(input, eventLogId, link.id);
+  if (!outcome.ok) return outcome;
+  return {
+    ok: true,
+    status: "ingested",
+    eventLogId,
+    linked: outcome.linked,
+  };
+}
+
+interface PostInsertOutcomeOk {
+  ok: true;
+  linked: { portalPatientId: string; method: string } | null;
+  /** true when applied_at was stamped (every required enqueue confirmed). */
+  applied: boolean;
+}
+
+/**
+ * Steps 3-5 of applyPvsEvent, runnable any number of times for one logged row
+ * (first ingest, agent retry of a half-applied row, the apply sweep):
+ *   3) link (PatientUpserted / PatientMerged / Stage-1),
+ *   4) enqueue derive (+ link backfill on a miss),
+ *   5) touch the link + stamp applied_at.
+ *
+ * applied_at is stamped ONLY when every required enqueue is confirmed: a job
+ * id, or a null that is provably a short-policy coalesce with a job that is
+ * still queued. A swallowed enqueue failure (jobs.ts returns null for those
+ * too) leaves applied_at NULL so the sweep retries instead of the revenue
+ * silently never being derived. Any throw maps to internal_error (500): the
+ * agent retries, hits the dedupe branch, and re-enters here.
+ */
+async function runPostInsertSteps(
+  input: PvsEvent,
+  eventLogId: string,
+  linkId: string
+): Promise<PostInsertOutcomeOk | { ok: false; reason: "internal_error" }> {
+  let linkResult: { portalPatientId: string; method: string } | null = null;
   let backfillPatientId: string | null = null;
+  const deriveTargets = new Set<string>();
 
   try {
     if (input.kind === "PatientUpserted") {
@@ -473,7 +571,9 @@ export async function applyPvsEvent(
         // but found one or more candidates the operator might want to merge
         // into instead, write a linking_failure. The event still ingests so
         // downstream derive runs against the new patient, but the operator
-        // sees a review-queue card with the candidates ranked.
+        // sees a review-queue card with the candidates ranked. This also
+        // covers an email-exact candidate the auto-accept gate refused
+        // (shared family email, incompatible name/dob): no link is created.
         //
         // Auto-accepted (method === "email_exact") or Stage-1/Stage-2 hits
         // do NOT carry candidates; they skip this branch.
@@ -505,25 +605,15 @@ export async function applyPvsEvent(
     } else if (input.kind === "PatientMerged") {
       // Collapse the from-id into the to-id. After merge, the resolver will
       // route subsequent events for either id to the to-id's portal patient.
-      await mergeMaps(input);
-      // Enqueue derive for both ids' portal patient(s) — they may be the
-      // same row after the merge, but enqueuePvsStatusDerive jobId-dedupes
-      // by (clinic, patient) so it's safe to call twice.
-      const both = await resolveBothSides(input);
-      for (const portalPatientId of both) {
-        await enqueuePvsStatusDerive(input.clinicId, portalPatientId);
+      const beforeMerge = await mergeMaps(input);
+      // Derive for both ids' portal patient(s) — they may be the same row
+      // after the merge; the Set dedupes and enqueuePvsStatusDerive
+      // singleton-keys by (clinic, patient) anyway. Pass 2: plus the
+      // patients they pointed at before, so the absorbed one is reset.
+      for (const portalPatientId of beforeMerge) deriveTargets.add(portalPatientId);
+      for (const portalPatientId of await resolveBothSides(input)) {
+        deriveTargets.add(portalPatientId);
       }
-      // Return early — no single linkResult.
-      await touchLink(link.id);
-      // Mark applied so confirmPvsLinkActive's replayer doesn't pick this
-      // PatientMerged event up again on a future link confirmation.
-      await markEventApplied(eventLogId);
-      return {
-        ok: true,
-        status: "ingested",
-        eventLogId,
-        linked: null,
-      };
     } else {
       // For all other event kinds: Stage-1 only.
       const pvsPatientId = (input as { pvsPatientId: string }).pvsPatientId;
@@ -544,52 +634,256 @@ export async function applyPvsEvent(
     }
   } catch (err) {
     console.error("[pvs-events] linking failed:", err);
-    // The event_log row is already persisted (committed at step 2) so
-    // reconciliation can retry. But the producer (n8n, GDT-Agent, CSV
-    // worker) needs a non-2xx signal — silently returning "ingested"
-    // would let the failure go unnoticed and break the "PVS gewinnt
-    // immer" guarantee. Surface as internal_error → 500 so the producer
-    // retries with backoff.
+    // The event_log row is already persisted (committed at step 2) so the
+    // retry / sweep can finish it. The producer needs a non-2xx signal;
+    // silently returning "ingested" would break the "PVS gewinnt immer"
+    // guarantee. Surface as internal_error → 500 so it retries with backoff.
     return { ok: false, reason: "internal_error" };
   }
 
-  // 4) Enqueue derive for the resolved patient.
-  if (linkResult) {
-    await enqueuePvsStatusDerive(input.clinicId, linkResult.portalPatientId);
+  if (linkResult) deriveTargets.add(linkResult.portalPatientId);
+
+  // 4) Enqueue derive / backfill and note whether each is confirmed.
+  let allConfirmed = true;
+  for (const portalPatientId of deriveTargets) {
+    const jobId = await enqueuePvsStatusDerive(input.clinicId, portalPatientId);
+    if (!(await deriveEnqueueConfirmed(jobId, input.clinicId, portalPatientId))) {
+      allConfirmed = false;
+    }
   }
   if (backfillPatientId) {
-    await enqueuePvsLinkBackfill(input.clinicId, backfillPatientId);
+    // No singleton key on the backfill queue: null can only be a failure.
+    const jobId = await enqueuePvsLinkBackfill(input.clinicId, backfillPatientId);
+    if (jobId === null) allConfirmed = false;
   }
 
-  // 5) Update sync metadata.
-  await touchLink(link.id);
+  try {
+    // 5) Update sync metadata.
+    await touchLink(linkId);
 
-  // P1-2: mark this event as fully applied so the pending-replay query
-  // skips it. Done LAST: any failure above leaves applied_at NULL and
-  // the row stays eligible for re-application by confirmPvsLinkActive
-  // (or a manual replay). We use a small helper rather than inlining
-  // so the PatientMerged early-return at line ~321 can call the same
-  // markApplied.
-  await markEventApplied(eventLogId);
+    // P1-2: mark this event as fully applied so the pending-replay query and
+    // the apply sweep skip it. Done LAST and only when the enqueues are
+    // confirmed: anything short of that leaves applied_at NULL and the row
+    // stays eligible for re-application (agent retry, sweep, replay).
+    if (allConfirmed) await markEventApplied(eventLogId);
+  } catch (err) {
+    console.error("[pvs-events] post-apply bookkeeping failed:", err);
+    return { ok: false, reason: "internal_error" };
+  }
 
+  return { ok: true, linked: linkResult, applied: allConfirmed };
+}
+
+/**
+ * Is an enqueue result acceptable for stamping applied_at? A job id: yes.
+ * `null`: jobs.ts safeAdd returns null both for a swallowed failure and for a
+ * short-policy singleton coalesce (a derive job for this key is already
+ * queued and will fold this event too). Tell them apart by looking for that
+ * queued job. A lookup error counts as "not confirmed" (the sweep retries).
+ * `undefined` (only test doubles) is treated as success.
+ */
+async function deriveEnqueueConfirmed(
+  jobId: string | null | undefined,
+  clinicId: string,
+  portalPatientId: string
+): Promise<boolean> {
+  if (jobId !== null) return true;
+  try {
+    const rows = await db.execute(sql`
+      SELECT 1 AS queued
+        FROM pgboss.job
+       WHERE name = ${QUEUES.pvsStatusDerive}
+         AND singleton_key = ${`${clinicId}__${portalPatientId}`}
+         AND state IN ('created', 'retry')
+       LIMIT 1
+    `);
+    return Array.from(rows as unknown as unknown[]).length > 0;
+  } catch (err) {
+    console.error("[pvs-events] derive coalesce lookup failed:", err);
+    return false;
+  }
+}
+
+/**
+ * Agent retry of an event whose row already exists. Fully applied (or
+ * quarantined behind a pending link) → "deduped". Otherwise re-run the
+ * post-insert steps so a half-applied row is completed instead of dropped.
+ */
+async function finishDuplicate(
+  input: PvsEvent,
+  linkId: string
+): Promise<PvsEventResult> {
+  let existing:
+    | { id: string; appliedAt: Date | null; linkStatusAtIngest: string }
+    | undefined;
+  try {
+    [existing] = await db
+      .select({
+        id: schema.pvsEventLog.id,
+        appliedAt: schema.pvsEventLog.appliedAt,
+        linkStatusAtIngest: schema.pvsEventLog.linkStatusAtIngest,
+      })
+      .from(schema.pvsEventLog)
+      .where(
+        and(
+          eq(schema.pvsEventLog.clinicId, input.clinicId),
+          eq(schema.pvsEventLog.bridgeSource, input.bridgeSource),
+          eq(schema.pvsEventLog.pvsExternalEventId, input.pvsExternalEventId),
+          eq(schema.pvsEventLog.occurredAt, new Date(input.occurredAt))
+        )
+      )
+      .limit(1);
+  } catch (err) {
+    console.error("[pvs-events] dedupe lookup failed:", err);
+    return { ok: false, reason: "internal_error" };
+  }
+  if (!existing || existing.appliedAt !== null) {
+    return { ok: true, status: "deduped" };
+  }
+  // Quarantined behind a pending link: confirmPvsLinkActive owns it.
+  if (existing.linkStatusAtIngest === "pending") {
+    return { ok: true, status: "deduped" };
+  }
+  const outcome = await runPostInsertSteps(input, existing.id, linkId);
+  if (!outcome.ok) return outcome;
   return {
     ok: true,
     status: "ingested",
-    eventLogId,
-    linked: linkResult,
+    eventLogId: existing.id,
+    linked: outcome.linked,
   };
+}
+
+export type ReapplyResult =
+  | { ok: true; status: "reapplied" | "already_applied" | "quarantined" }
+  | {
+      ok: true;
+      /** Steps ran, but a required enqueue was not confirmed: applied_at stays NULL. */
+      status: "unconfirmed";
+    }
+  | {
+      ok: false;
+      reason:
+        | "not_found"
+        | "integrity_failed"
+        | "payload_invalid"
+        | "link_not_ready"
+        | "internal_error";
+    };
+
+/**
+ * Re-run the post-insert pipeline for an already-logged row (apply sweep).
+ * Verifies the stored integrity tag and re-validates the payload first, since
+ * this feeds a row back into the trusted pipeline.
+ */
+export async function reapplyLoggedEvent(rowId: string): Promise<ReapplyResult> {
+  let row:
+    | {
+        id: string;
+        clinicId: string;
+        payload: unknown;
+        payloadSig: string | null;
+        appliedAt: Date | null;
+        linkStatusAtIngest: string;
+      }
+    | undefined;
+  try {
+    [row] = await db
+      .select({
+        id: schema.pvsEventLog.id,
+        clinicId: schema.pvsEventLog.clinicId,
+        payload: schema.pvsEventLog.payload,
+        payloadSig: schema.pvsEventLog.payloadSig,
+        appliedAt: schema.pvsEventLog.appliedAt,
+        linkStatusAtIngest: schema.pvsEventLog.linkStatusAtIngest,
+      })
+      .from(schema.pvsEventLog)
+      .where(eq(schema.pvsEventLog.id, rowId))
+      .limit(1);
+  } catch (err) {
+    console.error("[pvs-events] reapply lookup failed:", err);
+    return { ok: false, reason: "internal_error" };
+  }
+  if (!row) return { ok: false, reason: "not_found" };
+  if (row.appliedAt !== null) return { ok: true, status: "already_applied" };
+  if (row.linkStatusAtIngest === "pending") {
+    return { ok: true, status: "quarantined" };
+  }
+  if (
+    row.payloadSig !== null &&
+    !verifyPvsEventIntegrityTag(row.payload, row.payloadSig)
+  ) {
+    return { ok: false, reason: "integrity_failed" };
+  }
+  const parsed = PvsEventSchema.safeParse(row.payload);
+  if (!parsed.success || parsed.data.clinicId !== row.clinicId) {
+    return { ok: false, reason: "payload_invalid" };
+  }
+
+  let link: { id: string; status: string } | undefined;
+  try {
+    [link] = await db
+      .select({ id: schema.pvsLink.id, status: schema.pvsLink.status })
+      .from(schema.pvsLink)
+      .where(eq(schema.pvsLink.clinicId, row.clinicId))
+      .limit(1);
+  } catch (err) {
+    console.error("[pvs-events] reapply link lookup failed:", err);
+    return { ok: false, reason: "internal_error" };
+  }
+  if (
+    !link ||
+    (link.status !== "connected" &&
+      link.status !== "akkreditierung" &&
+      link.status !== "pending")
+  ) {
+    return { ok: false, reason: "link_not_ready" };
+  }
+
+  const outcome = await runPostInsertSteps(parsed.data, row.id, link.id);
+  if (!outcome.ok) return outcome;
+  return { ok: true, status: outcome.applied ? "reapplied" : "unconfirmed" };
 }
 
 /**
  * P1-2: mark a pvs_event_log row as fully processed. Called after the
  * linker + derive enqueue + touchLink all succeeded. Idempotent: re-
- * calling for an already-applied row is a no-op MAX().
+ * calling for an already-applied row is a no-op.
  */
 async function markEventApplied(eventLogId: string): Promise<void> {
   await db
     .update(schema.pvsEventLog)
     .set({ appliedAt: new Date() })
     .where(eq(schema.pvsEventLog.id, eventLogId));
+}
+
+const MIN_OCCURRED_AT_MS = Date.UTC(2000, 0, 1);
+const MAX_FUTURE_MS = 2 * 366 * 24 * 60 * 60 * 1000;
+
+/** Removes U+0000 and replaces lone surrogates with U+FFFD in every string
+ *  of a JSON-like value. Returns the same shape. Exported for tests. */
+export function scrubStringsDeep<T>(value: T): T {
+  if (typeof value === "string") {
+    return value
+      .replace(/\u0000/g, "")
+      .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "\uFFFD") as T;
+  }
+  if (Array.isArray(value)) return value.map((v) => scrubStringsDeep(v)) as T;
+  if (value && typeof value === "object" && !(value instanceof Date)) {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value)) out[k] = scrubStringsDeep(v);
+    return out as T;
+  }
+  return value;
+}
+
+function isPlausibleOccurredAt(iso: string): boolean {
+  const t = new Date(iso).getTime();
+  return (
+    Number.isFinite(t) &&
+    t >= MIN_OCCURRED_AT_MS &&
+    t <= Date.now() + MAX_FUTURE_MS
+  );
 }
 
 // ---------------------------------------------------------------
@@ -656,7 +950,16 @@ async function insertEventLogWithPartitionHeal(
       console.warn(
         `[pvs-events] missing partition for occurredAt=${input.occurredAt}; self-healing`
       );
-      await ensurePartitionForMonth(new Date(input.occurredAt));
+      try {
+        await ensurePartitionForMonth(new Date(input.occurredAt));
+      } catch (healErr) {
+        // 42P07 duplicate_table: a concurrent request healed the same month
+        // first. The partition exists, which is all we wanted.
+        const he = healErr as { code?: string; cause?: { code?: string } } | null;
+        if (he?.code !== "42P07" && he?.cause?.code !== "42P07") {
+          throw healErr;
+        }
+      }
       // Retry exactly once. If this still fails, propagate — something
       // weirder is going on.
       return await doInsert();
@@ -856,7 +1159,10 @@ async function raiseBillingConflictAlert(
           "Nach einer Umstellung ggf. pnpm pvs:reconcile replay-events für das betroffene Zeitfenster ausführen.",
         ],
         metric: "pvs_billing_conflict_source",
-        observedValue: blockedSource,
+        // dashboard_alerts.observed_value is numeric(14,4): a source-name
+        // string raised 22P02 and the alert was never written. The source
+        // names are in the title and body instead.
+        observedValue: null,
         dedupeKey: `pvs_billing_conflict:${blockedSource}`,
       })
       .onConflictDoUpdate({
@@ -865,7 +1171,6 @@ async function raiseBillingConflictAlert(
           schema.dashboardAlerts.dedupeKey,
         ],
         set: {
-          observedValue: blockedSource,
           updatedAt: new Date(),
         },
       });
@@ -875,9 +1180,24 @@ async function raiseBillingConflictAlert(
       err
     );
   }
+  // Revenue from this source is being rejected: EINS must know, not only the
+  // Praxis dashboard. notifyOps never throws and is rate-limited per clinic.
+  await notifyOps({
+    clinicId,
+    kind: `pvs_billing_conflict:${blockedSource}`,
+    severity: "high",
+    title: `PVS: Rechnungsdaten aus ${blockedSource} werden blockiert (zweiter Datenpfad)`,
+    body: `Führende Quelle: ${winners}.`,
+  });
 }
 
-async function mergeMaps(input: PatientMergedEvent): Promise<void> {
+/**
+ * Returns the portal patients the two PVS ids pointed at BEFORE the merge.
+ * Pass 2: the caller derives all of them. It used to derive only the post-
+ * merge side, so the absorbed patient kept its lifetime revenue and its
+ * Anfragen kept the PVS revenue: the same money counted on two patients.
+ */
+async function mergeMaps(input: PatientMergedEvent): Promise<string[]> {
   // If both pvs ids map to different portal patients, prefer the *toPvsPatientId*'s
   // portal patient as the survivor — the PVS authoritative side decided
   // they're the same person. Re-point the from-id map to the survivor.
@@ -905,12 +1225,15 @@ async function mergeMaps(input: PatientMergedEvent): Promise<void> {
       )
     )
     .limit(1);
-  if (!fromRow && !toRow) return; // neither side known yet — nothing to do
+  if (!fromRow && !toRow) return []; // neither side known yet — nothing to do
 
   // Take the survivor.
   const survivorPatientId =
     toRow?.portalPatientId ?? fromRow?.portalPatientId ?? null;
-  if (!survivorPatientId) return;
+  if (!survivorPatientId) return [];
+  const before = [fromRow?.portalPatientId, toRow?.portalPatientId].filter(
+    (id): id is string => !!id
+  );
 
   // Ensure both ids point at the survivor.
   await db
@@ -938,6 +1261,12 @@ async function mergeMaps(input: PatientMergedEvent): Promise<void> {
         eq(schema.pvsPatientMap.pvsPatientId, input.fromPvsPatientId)
       )
     );
+  for (const old of before) {
+    if (old !== survivorPatientId) {
+      await moveRequestsOfUnmappedPatient(input.clinicId, old, survivorPatientId);
+    }
+  }
+  return before;
 }
 
 async function resolveBothSides(

@@ -90,7 +90,7 @@ describe("healthHubWebhook delivery outcomes", () => {
   it("M-S3: returns a retryable 503 when SOME (not all) events fail to post", async () => {
     mockLinkRow("healthhub");
     vi.mocked(healthHubAdapter.decodePush!).mockReturnValue(twoEvents());
-    vi.mocked(postAll).mockResolvedValue({ ingested: 1, deduped: 0, errors: 1 });
+    vi.mocked(postAll).mockResolvedValue({ ingested: 1, deduped: 0, errors: 1, quarantined: 0, skipped: 0, skippedByReason: {}, dropped: 0, droppedByReason: {} });
     const reply = makeReply();
     await healthHubWebhook(makeReq(), reply as never);
     expect(reply.statusCode).toBe(503);
@@ -99,7 +99,7 @@ describe("healthHubWebhook delivery outcomes", () => {
   it("returns 200 when every event posts cleanly", async () => {
     mockLinkRow("healthhub");
     vi.mocked(healthHubAdapter.decodePush!).mockReturnValue(twoEvents());
-    vi.mocked(postAll).mockResolvedValue({ ingested: 2, deduped: 0, errors: 0 });
+    vi.mocked(postAll).mockResolvedValue({ ingested: 2, deduped: 0, errors: 0, quarantined: 0, skipped: 0, skippedByReason: {}, dropped: 0, droppedByReason: {} });
     const reply = makeReply();
     await healthHubWebhook(makeReq(), reply as never);
     expect(reply.statusCode).toBe(200);
@@ -121,7 +121,7 @@ describe("redWebhook delivery outcomes", () => {
   it("M-S3: returns a retryable 503 when SOME (not all) events fail to post", async () => {
     mockLinkRow("red");
     vi.mocked(redAdapter.decodePush!).mockReturnValue(twoEvents());
-    vi.mocked(postAll).mockResolvedValue({ ingested: 1, deduped: 0, errors: 1 });
+    vi.mocked(postAll).mockResolvedValue({ ingested: 1, deduped: 0, errors: 1, quarantined: 0, skipped: 0, skippedByReason: {}, dropped: 0, droppedByReason: {} });
     const reply = makeReply();
     await redWebhook(makeReq(), reply as never);
     expect(reply.statusCode).toBe(503);

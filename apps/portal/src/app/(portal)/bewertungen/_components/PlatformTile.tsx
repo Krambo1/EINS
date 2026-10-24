@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Star, ExternalLink } from "lucide-react";
-import { Badge, TrendChart } from "@eins/ui";
+import { Badge, Card, TrendChart } from "@eins/ui";
 import { formatNumber, formatRelative } from "@/lib/formatting";
 import type { ReviewSnapshot, ReviewTrendRow } from "@/server/queries/reviews";
 import {
@@ -36,16 +36,16 @@ export function PlatformTile({
   }));
 
   return (
-    <div className="flex flex-col rounded-xl border border-border bg-bg-secondary p-4">
+    <Card className="flex flex-col !p-5 md:!p-5">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <div className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
+          <div className="text-sm font-medium text-fg-primary">
             {platformLabelNode(platform)}
           </div>
           {snapshot ? (
             <div className="mt-2 flex items-baseline gap-1.5 font-display text-3xl font-semibold tabular-nums">
               {snapshot.rating.toFixed(1).replace(".", ",")}
-              <Star className="h-5 w-5 text-tone-warn" />
+              <Star className="h-5 w-5 fill-current text-tone-warn" aria-hidden />
             </div>
           ) : (
             <div className="mt-2 font-display text-3xl font-semibold tabular-nums text-fg-tertiary">
@@ -57,7 +57,7 @@ export function PlatformTile({
               {formatNumber(snapshot.totalCount)} Bewertungen
             </div>
           ) : (
-            <div className="mt-1 text-sm text-fg-tertiary">Noch keine Daten</div>
+            <div className="mt-1 text-sm text-fg-secondary">Noch keine Daten</div>
           )}
         </div>
         {snapshot && (
@@ -67,7 +67,7 @@ export function PlatformTile({
 
       {trendData.length > 1 && (
         <div className="mt-4">
-          <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-fg-secondary">
+          <div className="mb-1 text-sm font-medium text-fg-primary">
             6-Monats-Trend
           </div>
           <TrendChart
@@ -75,7 +75,7 @@ export function PlatformTile({
             tone="good"
             height={48}
             label="Ø Bewertung"
-            formatValue={(v) => v.toFixed(2).replace(".", ",") + " ★"}
+            formatValue={(v) => v.toFixed(2).replace(".", ",")}
           />
         </div>
       )}
@@ -104,6 +104,6 @@ export function PlatformTile({
           </Link>
         )}
       </div>
-    </div>
+    </Card>
   );
 }

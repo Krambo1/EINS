@@ -20,6 +20,7 @@ import { writeAudit } from "@/server/audit";
 
 const Schema = z.object({
   password: z.string(),
+  password2: z.string(),
 });
 
 /**
@@ -37,7 +38,7 @@ export type SetAdminPasswordActionState =
   | undefined;
 
 const ERR_INVALID_INPUT = "Bitte ein Passwort angeben.";
-const ERR_POLICY = "Bitte ein Passwort mit mindestens 10 Zeichen wählen.";
+const ERR_MISMATCH = "Die beiden Eingaben stimmen nicht überein.";
 const ERR_RATE_LIMITED = "Zu viele Versuche. Bitte einen Moment warten.";
 const ERR_EXPIRED =
   "Die Setup-Sitzung ist abgelaufen. Bitte fordern Sie einen neuen Link an.";
@@ -63,13 +64,19 @@ export async function setAdminPasswordAction(
 ): Promise<SetAdminPasswordActionState> {
   const parsed = Schema.safeParse({
     password: formData.get("password"),
+    password2: formData.get("password2"),
   });
   if (!parsed.success) {
     return { error: ERR_INVALID_INPUT };
   }
+  if (parsed.data.password !== parsed.data.password2) {
+    return { error: ERR_MISMATCH };
+  }
+  // Show the policy's own message (12 characters, 3 of 4 classes); the old
+  // fixed text said "10 Zeichen" (B-16).
   const policy = checkPasswordPolicy(parsed.data.password);
   if (!policy.ok) {
-    return { error: ERR_POLICY };
+    return { error: policy.message ?? "Das Passwort ist zu schwach." };
   }
 
   const ip = (await getTrustedClientIp()) ?? "unknown";

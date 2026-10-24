@@ -20,7 +20,7 @@ export function TourNavCard({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        "relative rounded-xl border border-accent/40 bg-bg-secondary p-3",
+        "relative rounded-xl border border-[var(--accent-glow)] bg-bg-secondary p-3",
         className
       )}
     >
@@ -38,14 +38,14 @@ export function TourNavCard({ className }: { className?: string }) {
         disabled={isRunning}
         className="flex w-full items-start gap-2.5 pr-5 text-left disabled:opacity-60"
       >
-        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-accent/40 text-accent">
+        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[var(--accent-glow)] text-accent">
           <Compass className="h-4 w-4" />
         </span>
         <span className="min-w-0">
           <span className="block text-sm font-semibold text-fg-primary">
             Portal-Rundgang
           </span>
-          <span className="block text-xs text-fg-secondary">
+          <span className="block text-sm text-fg-primary">
             Kurze Tour erneut starten
           </span>
         </span>

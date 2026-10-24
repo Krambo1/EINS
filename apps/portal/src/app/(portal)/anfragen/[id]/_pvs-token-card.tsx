@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, Button } from "@eins/ui";
-import { Copy, Check, Link2 } from "lucide-react";
+import { Copy, Check } from "lucide-react";
 
 /**
  * Direction A — token surfacing for MFA copy-paste.
@@ -39,24 +39,21 @@ export function PvsTokenCard({
     pvsVendor === "n8n_custom";
 
   return (
-    <Card className="border-dashed">
-      <CardHeader className="pb-2">
-        <CardTitle className="flex items-center gap-2 text-sm">
-          <Link2 className="h-4 w-4" />
-          PVS-Verknüpfung
-        </CardTitle>
+    <Card className="p-5 md:p-6">
+      <CardHeader className="mb-3">
+        <CardTitle>PVS-Verknüpfung</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
-        <p className="text-fg-secondary">
+        <p className="text-fg-primary">
           {supportsAutoWrite
-            ? "EINS hat versucht, diesen Code automatisch in die PVS-Bemerkung zu schreiben. Falls das nicht geklappt hat, bitte manuell beim Anlegen des Patienten einfügen:"
-            : "Diesen Code beim Anlegen des Patienten in der PVS in das Bemerkungs-Feld einfügen. Dadurch verknüpft EINS den späteren Termin automatisch mit dieser Anfrage."}
+            ? "EINS hat versucht, diesen Code automatisch in die PVS-Bemerkung zu schreiben. Falls er dort fehlt, fügen Sie ihn beim Anlegen des Patienten selbst ein."
+            : "Fügen Sie diesen Code beim Anlegen des Patienten in der PVS in das Bemerkungsfeld ein. So verknüpft EINS den späteren Termin mit dieser Anfrage."}
         </p>
         <div className="flex items-center gap-2">
-          <code className="flex-1 overflow-x-auto rounded bg-bg-secondary p-2 font-mono text-xs">
+          <code className="flex-1 overflow-x-auto rounded bg-bg-secondary p-2 font-mono text-sm">
             {token}
           </code>
-          <Button size="sm" variant="outline" onClick={copy}>
+          <Button size="sm" variant="outline" onClick={copy} aria-label="Code kopieren">
             {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
           </Button>
         </div>

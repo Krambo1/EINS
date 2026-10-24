@@ -5,6 +5,7 @@ import { getSession, type ResolvedSession } from "@/auth/session";
 import { ForbiddenError, can, type Permission } from "@/lib/roles";
 import { dbApp, withClinicContext } from "@/db/client";
 import { writeAudit, type AuditInput } from "./audit";
+import { describeErrorForLog } from "@/lib/error-log";
 
 /**
  * Route-handler composition helpers.
@@ -86,7 +87,7 @@ export function withApi<T>(options: ApiOptions, handler: Handler<T>) {
       }
       return response;
     } catch (err) {
-      return mapError(err);
+      return mapError(err, request);
     }
   };
 }
@@ -133,7 +134,7 @@ export function withApiTx<T>(
       }
       return response;
     } catch (err) {
-      return mapError(err);
+      return mapError(err, request);
     }
   };
 }
@@ -142,7 +143,7 @@ function jsonError(status: number, code: string, message: string): NextResponse 
   return NextResponse.json({ error: { code, message } }, { status });
 }
 
-function mapError(err: unknown): NextResponse {
+function mapError(err: unknown, request: NextRequest): NextResponse {
   if (err instanceof ApiError) {
     return jsonError(err.status, err.code, err.message);
   }
@@ -161,6 +162,17 @@ function mapError(err: unknown): NextResponse {
       { status: 422 }
     );
   }
-  console.error("[api] unhandled error:", err);
+  // Route + method + patient-data-safe error shape (DB errors by SQLSTATE
+  // only, no query string, no raw driver text). The raw `err` used to be
+  // logged here and could carry row values from Postgres error details.
+  console.error(
+    JSON.stringify({
+      kind: "api_error",
+      level: "error",
+      method: request.method,
+      path: request.nextUrl.pathname,
+      error: describeErrorForLog(err),
+    })
+  );
   return jsonError(500, "internal", "Interner Fehler.");
 }

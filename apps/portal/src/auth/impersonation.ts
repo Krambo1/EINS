@@ -5,6 +5,7 @@ import { db, schema } from "../db/client";
 import { generateToken, sha256Hex } from "../lib/crypto";
 import { trustedIpFromHeaders } from "../lib/client-ip";
 import { createSession } from "./session";
+import { findActiveClinicUserById } from "./user-lookup";
 
 /**
  * "View as clinic user" handoff between the admin host (admin.localhost)
@@ -53,6 +54,11 @@ export type ConsumeResult =
       targetUserId: string;
       clinicId: string;
       targetEmail: string;
+      /** Whether the consuming IP equals the IP the token was issued to.
+       *  null when either side is unknown. Recorded in the audit row, not
+       *  enforced: IPv4/IPv6 flips between admin and clinic host would
+       *  otherwise lock the admin out (B-25). */
+      sameIpAsIssue: boolean | null;
     }
   | { ok: false; reason: "invalid" | "expired" | "consumed" | "no_user" };
 
@@ -63,6 +69,8 @@ export type ConsumeResult =
  */
 export async function consumeImpersonationToken(token: string): Promise<ConsumeResult> {
   const tokenHash = sha256Hex(token);
+  const hdrs = await headers();
+  const consumeIp = trustedIpFromHeaders(hdrs.get("x-forwarded-for"), hdrs.get("x-real-ip"));
 
   const outcome: ConsumeResult = await db.transaction(async (tx): Promise<ConsumeResult> => {
     const rows = await tx
@@ -72,6 +80,7 @@ export async function consumeImpersonationToken(token: string): Promise<ConsumeR
         targetUserId: schema.impersonationTokens.targetUserId,
         expiresAt: schema.impersonationTokens.expiresAt,
         consumedAt: schema.impersonationTokens.consumedAt,
+        issueIp: schema.impersonationTokens.issueIp,
       })
       .from(schema.impersonationTokens)
       .where(eq(schema.impersonationTokens.tokenHash, tokenHash))
@@ -84,19 +93,10 @@ export async function consumeImpersonationToken(token: string): Promise<ConsumeR
       return { ok: false, reason: "expired" as const };
     }
 
-    const users = await tx
-      .select({
-        id: schema.clinicUsers.id,
-        clinicId: schema.clinicUsers.clinicId,
-        email: schema.clinicUsers.email,
-        archivedAt: schema.clinicUsers.archivedAt,
-      })
-      .from(schema.clinicUsers)
-      .where(eq(schema.clinicUsers.id, row.targetUserId))
-      .limit(1);
-
-    const user = users[0];
-    if (!user || user.archivedAt) return { ok: false, reason: "no_user" as const };
+    // Active user in an active Praxis (G-05 / B-12): an archived Praxis can
+    // not be opened as user either.
+    const user = await findActiveClinicUserById(row.targetUserId, tx);
+    if (!user) return { ok: false, reason: "no_user" as const };
 
     const consumed = await tx
       .update(schema.impersonationTokens)
@@ -119,6 +119,8 @@ export async function consumeImpersonationToken(token: string): Promise<ConsumeR
       targetUserId: user.id,
       clinicId: user.clinicId,
       targetEmail: user.email,
+      sameIpAsIssue:
+        row.issueIp && consumeIp ? normalizeIp(row.issueIp) === normalizeIp(consumeIp) : null,
     };
   });
 
@@ -129,4 +131,9 @@ export async function consumeImpersonationToken(token: string): Promise<ConsumeR
   });
 
   return outcome;
+}
+
+/** Compare IPs loosely: strip an IPv4-mapped IPv6 prefix and a /32 or /128 suffix (inet). */
+function normalizeIp(ip: string): string {
+  return ip.trim().toLowerCase().replace(/\/(32|128)$/, "").replace(/^::ffff:/, "");
 }

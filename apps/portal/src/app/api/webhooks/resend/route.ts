@@ -1,9 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { createHmac, timingSafeEqual } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { env } from "@/lib/env";
 import { writeAudit } from "@/server/audit";
+import {
+  recipientsOf,
+  suppressionReasonFor,
+  type ResendWebhookEvent,
+} from "./classify";
 
 /**
  * Resend bounce / complaint webhook.
@@ -20,24 +25,7 @@ import { writeAudit } from "@/server/audit";
  * compare; any failure → 401 so misconfiguration is loud.
  */
 
-interface ResendBounceEvent {
-  type:
-    | "email.bounced"
-    | "email.complained"
-    | "email.delivery_delayed"
-    | string;
-  created_at?: string;
-  data?: {
-    email_id?: string;
-    to?: string[];
-    from?: string;
-    subject?: string;
-    bounce?: {
-      type?: "permanent" | "transient" | string;
-      message?: string;
-    };
-  };
-}
+type ResendBounceEvent = ResendWebhookEvent;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -99,24 +87,21 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const recipients = (event.data?.to ?? []).map((s) => s.trim().toLowerCase());
+  const recipients = recipientsOf(event);
   if (recipients.length === 0) {
     return NextResponse.json({ ok: true, processed: 0 }, { status: 200 });
   }
 
+  // E-06: casing-safe classification ("Permanent" from Resend), see classify.ts.
+  const reason = suppressionReasonFor(event);
   let processed = 0;
-  for (const email of recipients) {
-    if (event.type === "email.bounced") {
-      const isPermanent = event.data?.bounce?.type === "permanent";
-      if (!isPermanent) continue; // transient bounces don't suppress
-      await suppressEverywhere(email, "bounced", event);
-      processed++;
-    } else if (event.type === "email.complained") {
-      await suppressEverywhere(email, "complained", event);
+  if (reason) {
+    for (const email of recipients) {
+      await suppressEverywhere(email, reason, event);
       processed++;
     }
-    // Other event types are acknowledged but no-op.
   }
+  // Other event types (and transient bounces) are acknowledged but no-op.
 
   return NextResponse.json({ ok: true, processed }, { status: 200 });
 }
@@ -134,7 +119,7 @@ async function suppressEverywhere(
   const patientRows = await db
     .select({ clinicId: schema.patients.clinicId })
     .from(schema.patients)
-    .where(eq(schema.patients.email, email));
+    .where(sql`lower(${schema.patients.email}) = ${email}`);
 
   // Also include clinics where this person is a staff user — magic-link
   // bounces should suppress the staff side too, so we don't keep blasting
@@ -142,11 +127,25 @@ async function suppressEverywhere(
   const userRows = await db
     .select({ clinicId: schema.clinicUsers.clinicId })
     .from(schema.clinicUsers)
-    .where(eq(schema.clinicUsers.email, email));
+    .where(sql`lower(${schema.clinicUsers.email}) = ${email}`);
+
+  // E-07: review mails go to review_email_schedule.review_email, and the
+  // Wiederbehandlungs-Mail prefers requests.contact_email. Neither address
+  // has to exist in `patients`, so resolve the clinic from both as well.
+  const reviewRows = await db
+    .selectDistinct({ clinicId: schema.reviewEmailSchedule.clinicId })
+    .from(schema.reviewEmailSchedule)
+    .where(sql`lower(${schema.reviewEmailSchedule.reviewEmail}) = ${email}`);
+  const requestRows = await db
+    .selectDistinct({ clinicId: schema.requests.clinicId })
+    .from(schema.requests)
+    .where(sql`lower(${schema.requests.contactEmail}) = ${email}`);
 
   const clinicIds = new Set<string>([
     ...patientRows.map((r) => r.clinicId),
     ...userRows.map((r) => r.clinicId),
+    ...reviewRows.map((r) => r.clinicId),
+    ...requestRows.map((r) => r.clinicId),
   ]);
 
   for (const clinicId of clinicIds) {
@@ -164,8 +163,12 @@ async function suppressEverywhere(
       clinicId,
       action: "email_suppress",
       entityKind: "email_suppression",
+      // No address in the audit log (L-14): domain plus a short hash is
+      // enough to match a support question, the row itself lives in
+      // email_suppression.
       diff: {
-        email,
+        emailDomain: email.split("@")[1] ?? null,
+        emailRef: createHash("sha256").update(email).digest("hex").slice(0, 12),
         reason,
         provider: "resend",
         eventType: event.type,

@@ -4,30 +4,28 @@ import {
   Badge,
   StatusPill,
   Button,
+  ExplainerPopover,
 } from "@eins/ui";
 import {
-  AlertTriangle,
   AlarmClock,
   ArrowRight,
   MessageCircle,
   Mail,
   Phone,
-  Sparkles,
 } from "lucide-react";
-import {
-  SOURCE_LABELS,
-  AI_CATEGORY_LABELS,
-  type AiCategory,
-} from "@/lib/constants";
-import { SourceLabel } from "@/app/_components/Brand";
+import { SOURCE_LABELS } from "@/lib/constants";
 import { formatRelative } from "@/lib/formatting";
 import type { CallQueueLead } from "@/server/queries/requests";
 import { CallOutcomeActions } from "./CallOutcomeActions";
+import { TimingLine } from "./TimingLine";
+import { quizAnswerLines } from "../_lib/quiz-answers";
+import { AI_SCORE_EXPLANATION, aiCategoryWord, aiScoreText } from "../_lib/ai-score";
+import { rowTiming } from "../_lib/row-timing";
 
 /**
- * Call-Center-Header für die Anfragen-Seite. Wird ausschließlich für
- * MFA/Sekretariat (role=frontdesk) gerendert. Inhaber/Marketing sehen
- * weiterhin die reine Liste, weil deren Job nicht "anrufen" ist.
+ * Call-Center-Header für die Anfragen-Seite. Wird für jede Rolle mit
+ * `requests.update` gerendert (C-20): in kleinen Praxen ruft die Inhaberin
+ * selbst zurück, ihre fälligen Wiedervorlagen müssen hier auftauchen.
  *
  * Layout-Logik:
  *  - Großes Hero-Card = "Jetzt anrufen" für den priorisiertesten Lead
@@ -45,10 +43,16 @@ import { CallOutcomeActions } from "./CallOutcomeActions";
 export function CallQueue({
   leads,
   dueCount = 0,
+  countryCode = "49",
+  ruleStart,
 }: {
   leads: CallQueueLead[];
+  /** K-3: 48-Werkstunden rule start of the Praxis (signing date). */
+  ruleStart?: Date | null;
   /** Clinic-wide count of Wiedervorlagen due now — may exceed the visible rows. */
   dueCount?: number;
+  /** Country calling code for national numbers ("0170 ...") in WhatsApp links. */
+  countryCode?: string;
 }) {
   if (leads.length === 0) return null;
 
@@ -62,14 +66,14 @@ export function CallQueue({
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-xl font-semibold md:text-2xl">
-            Jetzt anrufen.
+            Jetzt anrufen
           </h2>
           <p className="mt-1 text-sm text-fg-secondary">
-            Diese Anfragen zuerst — sortiert nach Dringlichkeit und KI-Bewertung.
+            Diese Anfragen zuerst: fällige Wiedervorlagen, dann die nächste Antwortfrist.
           </p>
           {dueCount > 0 && (
-            <p className="mt-1.5 inline-flex items-center gap-1.5 text-sm font-medium text-tone-warn">
-              <AlarmClock className="h-4 w-4" />
+            <p className="mt-1.5 inline-flex items-center gap-1.5 text-sm font-medium text-fg-primary">
+              <AlarmClock className="h-4 w-4 text-tone-warn" aria-hidden />
               {dueCount} Wiedervorlage{dueCount === 1 ? "" : "n"} fällig
             </p>
           )}
@@ -83,16 +87,16 @@ export function CallQueue({
         </Link>
       </header>
 
-      {hero && <HeroCard lead={hero} />}
+      {hero && <HeroCard lead={hero} countryCode={countryCode} ruleStart={ruleStart} />}
 
       {queue.length > 0 && (
         <div>
-          <div className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-tertiary">
-            Als Nächstes ({queue.length})
+          <div className="mb-2 text-sm font-medium text-fg-primary">
+            Als Nächstes <span className="font-normal text-fg-secondary">{queue.length}</span>
           </div>
           <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-bg-primary">
             {queue.map((l) => (
-              <QueueRow key={l.id} lead={l} />
+              <QueueRow key={l.id} lead={l} ruleStart={ruleStart} />
             ))}
           </ul>
         </div>
@@ -101,85 +105,49 @@ export function CallQueue({
   );
 }
 
-function HeroCard({ lead }: { lead: CallQueueLead }) {
-  const slaBreached = isSlaBreached(lead);
+function HeroCard({
+  lead,
+  countryCode,
+  ruleStart,
+}: {
+  lead: CallQueueLead;
+  countryCode: string;
+  ruleStart?: Date | null;
+}) {
   const phoneHref = lead.contactPhone ? `tel:${lead.contactPhone}` : null;
-  const whatsappHref = waMeHref(lead.contactPhone);
+  const whatsappHref = waMeHref(lead.contactPhone, countryCode);
+  const answers = quizAnswerLines(lead.quiz);
   const emailHref = lead.contactEmail ? `mailto:${lead.contactEmail}` : null;
+  const treatment = lead.treatmentName ?? lead.treatmentWish;
+  const source = SOURCE_LABELS[lead.source as keyof typeof SOURCE_LABELS] ?? lead.source;
 
   return (
-    <Card className="relative overflow-hidden border-accent/40 bg-bg-primary p-5 md:p-6">
+    <Card className="relative overflow-hidden !border-accent bg-bg-primary p-5 md:p-6">
       <div className="grid gap-5 md:grid-cols-[1fr_auto]">
         <div className="min-w-0 space-y-3">
-          <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-wide text-accent">
-            <Sparkles className="h-3.5 w-3.5" />
-            Nächster Anruf
-          </div>
+          <div className="text-sm font-medium text-fg-primary">Nächster Anruf</div>
 
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+          <div className="space-y-1.5">
             <h3 className="text-2xl font-semibold leading-tight md:text-3xl">
               {lead.contactName ?? "Unbekannt"}
             </h3>
-            <span className="text-sm text-fg-secondary tabular-nums">
-              eingegangen {formatRelative(lead.createdAt)}
-            </span>
+            <FactsLine lead={lead} explain />
+            <div className="text-sm text-fg-secondary">
+              {[treatment, source, `eingegangen ${formatRelative(lead.createdAt)}`]
+                .filter(Boolean)
+                .join(" · ")}
+            </div>
+            <TimingLine timing={timingOf(lead, ruleStart)} explain className="text-base" />
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
-            <StatusPill status={lead.status} />
-            {lead.aiCategory && (
-              <Badge
-                tone={
-                  lead.aiCategory === "hot"
-                    ? "accent"
-                    : lead.aiCategory === "warm"
-                    ? "warn"
-                    : "neutral"
-                }
-              >
-                <span className="inline-flex items-center gap-1">
-                  <Sparkles className="h-3 w-3" />
-                  {AI_CATEGORY_LABELS[lead.aiCategory as AiCategory]}
-                  {lead.aiScore != null && (
-                    <span className="tabular-nums">· {lead.aiScore}</span>
-                  )}
-                </span>
-              </Badge>
-            )}
-            <Badge tone="neutral">
-              <SourceLabel
-                source={lead.source}
-                label={
-                  SOURCE_LABELS[lead.source as keyof typeof SOURCE_LABELS] ??
-                  lead.source
-                }
-              />
-            </Badge>
-            {(lead.treatmentName || lead.treatmentWish) && (
-              <Badge tone="accent">
-                {lead.treatmentName ?? lead.treatmentWish}
-              </Badge>
-            )}
-            {slaBreached && (
-              <Badge tone="bad">
-                <span className="inline-flex items-center gap-1">
-                  <AlertTriangle className="h-3 w-3" />
-                  SLA überfällig
-                </span>
-              </Badge>
-            )}
-            {isFollowupDue(lead) && (
-              <Badge tone="warn">
-                <span className="inline-flex items-center gap-1">
-                  <AlarmClock className="h-3 w-3" />
-                  Wiedervorlage fällig
-                </span>
-              </Badge>
-            )}
-          </div>
+          {answers.length > 0 && (
+            <p className="text-sm text-fg-primary">
+              {answers.map((a) => `${a.label}: ${a.value}`).join(" · ")}
+            </p>
+          )}
 
           {lead.message && (
-            <blockquote className="rounded-lg border-l-2 border-accent/50 bg-bg-secondary px-3 py-2 text-sm leading-relaxed text-fg-primary">
+            <blockquote className="rounded-lg border-l-2 border-accent bg-bg-secondary px-3 py-2 text-sm leading-relaxed text-fg-primary">
               {truncate(lead.message, 320)}
             </blockquote>
           )}
@@ -194,7 +162,7 @@ function HeroCard({ lead }: { lead: CallQueueLead }) {
                 <span className="tabular-nums">{lead.contactPhone}</span>
               </a>
             ) : (
-              <span className="inline-flex items-center gap-1.5 text-fg-tertiary">
+              <span className="inline-flex items-center gap-1.5 text-fg-secondary">
                 <Phone className="h-4 w-4" /> Keine Telefonnummer
               </span>
             )}
@@ -260,79 +228,39 @@ function HeroCard({ lead }: { lead: CallQueueLead }) {
   );
 }
 
-function QueueRow({ lead }: { lead: CallQueueLead }) {
-  const slaBreached = isSlaBreached(lead);
+function QueueRow({ lead, ruleStart }: { lead: CallQueueLead; ruleStart?: Date | null }) {
   const phoneHref = lead.contactPhone ? `tel:${lead.contactPhone}` : null;
 
   return (
     <li>
-      <div className="flex flex-wrap items-center gap-3 px-4 py-3 transition hover:bg-bg-secondary md:gap-4 md:px-5">
-        <Link
-          href={`/anfragen/${lead.id}`}
-          className="flex min-w-0 flex-1 items-center gap-3"
-        >
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className="truncate text-base font-semibold text-fg-primary">
-                {lead.contactName ?? "Unbekannt"}
-              </span>
-              {lead.aiCategory && (
-                <Badge
-                  tone={
-                    lead.aiCategory === "hot"
-                      ? "accent"
-                      : lead.aiCategory === "warm"
-                      ? "warn"
-                      : "neutral"
-                  }
-                >
-                  <span className="inline-flex items-center gap-1">
-                    <Sparkles className="h-3 w-3" />
-                    {lead.aiCategory === "hot"
-                      ? "Heiß"
-                      : lead.aiCategory === "warm"
-                      ? "Warm"
-                      : "Kalt"}
-                  </span>
-                </Badge>
-              )}
-              {slaBreached && (
-                <Badge tone="bad">
-                  <span className="inline-flex items-center gap-1">
-                    <AlertTriangle className="h-3 w-3" />
-                    Überfällig
-                  </span>
-                </Badge>
-              )}
-              {isFollowupDue(lead) && (
-                <Badge tone="warn">
-                  <span className="inline-flex items-center gap-1">
-                    <AlarmClock className="h-3 w-3" />
-                    Wiedervorlage
-                  </span>
-                </Badge>
-              )}
-            </div>
-            <div className="mt-0.5 truncate text-sm text-fg-secondary">
-              {lead.treatmentName ?? lead.treatmentWish ?? "Keine Angabe"}
-              {lead.contactPhone ? ` · ${lead.contactPhone}` : ""}
-            </div>
+      {/* Phones: the button sits in the top-right corner, so the lines below
+          the name keep the full width (the Frist must not be cut off). */}
+      <div className="relative flex items-center gap-4 px-4 py-3 transition hover:bg-bg-secondary md:px-5">
+        <Link href={`/anfragen/${lead.id}`} className="min-w-0 flex-1 space-y-1">
+          <div
+            className={`truncate text-base font-semibold text-fg-primary md:pr-0 ${phoneHref ? "pr-12" : "pr-24"}`}
+          >
+            {lead.contactName ?? "Unbekannt"}
           </div>
+          <FactsLine lead={lead} />
+          <div className="truncate text-sm text-fg-secondary">
+            {[
+              lead.treatmentName ?? lead.treatmentWish ?? "Keine Angabe",
+              lead.contactPhone,
+              formatRelative(lead.createdAt),
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </div>
+          <TimingLine timing={timingOf(lead, ruleStart)} className="max-w-full" />
         </Link>
 
-        <div className="hidden shrink-0 text-right md:block">
-          <StatusPill status={lead.status} />
-          <div className="mt-1 text-xs text-fg-tertiary tabular-nums">
-            {formatRelative(lead.createdAt)}
-          </div>
-        </div>
-
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="absolute right-4 top-3 shrink-0 md:static">
           {phoneHref ? (
-            <Button asChild size="sm">
+            <Button asChild size="sm" aria-label="Anrufen">
               <a href={phoneHref}>
                 <Phone className="h-4 w-4" />
-                Anrufen
+                <span className="hidden md:inline">Anrufen</span>
               </a>
             </Button>
           ) : (
@@ -346,11 +274,48 @@ function QueueRow({ lead }: { lead: CallQueueLead }) {
   );
 }
 
-function isSlaBreached(lead: CallQueueLead): boolean {
+/**
+ * Status first, then the plain facts: same order as the Anfragen list on
+ * phones. The score is a fact, not a state, so it carries no coloured dot.
+ */
+function FactsLine({ lead, explain = false }: { lead: CallQueueLead; explain?: boolean }) {
+  const score =
+    lead.aiScore != null ? aiScoreText(lead.aiScore) : aiCategoryWord(lead.aiCategory);
   return (
-    !lead.firstContactedAt &&
-    !!lead.slaRespondBy &&
-    lead.slaRespondBy.getTime() < Date.now()
+    <div className="flex min-w-0 items-center gap-x-1.5 overflow-hidden text-sm text-fg-secondary">
+      <StatusPill status={lead.status} />
+      {score && (
+        <span className="inline-flex items-center whitespace-nowrap tabular-nums" title={AI_SCORE_EXPLANATION}>
+          · KI {score}
+          {explain && (
+            <ExplainerPopover term="KI-Bewertung" ariaLabel="Erklärung zur KI-Bewertung">
+              {AI_SCORE_EXPLANATION}
+            </ExplainerPopover>
+          )}
+        </span>
+      )}
+      {isFollowupDue(lead) && (
+        <Badge tone="warn" className="ml-1">
+          <AlarmClock aria-hidden />
+          Wiedervorlage fällig
+        </Badge>
+      )}
+    </div>
+  );
+}
+
+/** The one timing line (Frist, Rückruf-Ziel, flags), shared with the list. */
+function timingOf(lead: CallQueueLead, ruleStart?: Date | null) {
+  return rowTiming(
+    {
+      createdAt: lead.createdAt,
+      firstAttemptAt: lead.firstAttemptAt,
+      status: lead.status,
+      ruleStart,
+      firstContactedAt: lead.firstContactedAt,
+      slaRespondBy: lead.slaRespondBy,
+    },
+    new Date()
   );
 }
 
@@ -360,15 +325,16 @@ function isFollowupDue(lead: CallQueueLead): boolean {
 
 /**
  * Strip phone formatting to a wa.me-compatible E.164-ish digits string.
- * Leading `00` → drop; leading `0` (German national) → `49`; leading `+` →
- * drop. Returns null if too few digits to be a real number.
+ * The "(0)" in "+49 (0) 170 ..." is dropped first (C-32). Leading `00` or
+ * `+` → drop; leading `0` (national) → the Praxis' country code. Returns
+ * null if too few digits to be a real number.
  */
-function waMeHref(phone: string | null): string | null {
+function waMeHref(phone: string | null, countryCode: string): string | null {
   if (!phone) return null;
-  let digits = phone.replace(/[^\d+]/g, "");
+  let digits = phone.replace(/\(\s*0\s*\)/g, "").replace(/[^\d+]/g, "");
   if (digits.startsWith("+")) digits = digits.slice(1);
   if (digits.startsWith("00")) digits = digits.slice(2);
-  else if (digits.startsWith("0")) digits = "49" + digits.slice(1);
+  else if (digits.startsWith("0")) digits = countryCode + digits.slice(1);
   if (digits.length < 8) return null;
   return `https://wa.me/${digits}`;
 }

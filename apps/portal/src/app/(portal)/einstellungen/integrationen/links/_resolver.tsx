@@ -30,6 +30,7 @@ export function LinkingResolver({
 }) {
   const [pending, startTransition] = useTransition();
   const [resolved, setResolved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (resolved) {
     return (
@@ -39,28 +40,37 @@ export function LinkingResolver({
     );
   }
 
-  function pick(patientId: string) {
+  function run(action: () => Promise<{ ok: boolean; error?: string }>) {
+    setError(null);
     startTransition(async () => {
-      const r = await resolveLinkingFailureAction({
-        failureId,
-        pickedPatientId: patientId,
-        method: "candidate_pick",
-      });
-      if (r.ok) setResolved(true);
+      try {
+        const r = await action();
+        if (r.ok) setResolved(true);
+        else setError(r.error ?? "Speichern hat nicht geklappt. Bitte versuchen Sie es noch einmal.");
+      } catch {
+        setError("Keine Verbindung. Bitte versuchen Sie es noch einmal.");
+      }
     });
   }
 
+  function pick(patientId: string) {
+    run(() =>
+      resolveLinkingFailureAction({
+        failureId,
+        pickedPatientId: patientId,
+        method: "candidate_pick",
+      })
+    );
+  }
+
   function ignore() {
-    startTransition(async () => {
-      const r = await ignoreLinkingFailureAction({ failureId });
-      if (r.ok) setResolved(true);
-    });
+    run(() => ignoreLinkingFailureAction({ failureId }));
   }
 
   return (
     <div className="space-y-2">
       {candidates.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-fg-secondary">
           Keine ähnlichen Patienten gefunden. Sie können ignorieren oder über
           die Patienten-Suche manuell zuordnen.
         </p>
@@ -69,21 +79,18 @@ export function LinkingResolver({
           {candidates.map((c) => (
             <div
               key={c.patientId}
-              className="flex items-center justify-between rounded-md border p-2"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-2"
             >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-sm font-medium">
                     {c.patient?.fullName ?? "(unbekannt)"}
                   </span>
-                  <Badge
-                    tone={c.score >= 0.85 ? "good" : "neutral"}
-                    className="text-[10px]"
-                  >
-                    {Math.round(c.score * 100)} %
+                  <Badge tone={c.score >= 0.85 ? "good" : "neutral"}>
+                    {Math.round(c.score * 100)} % Übereinstimmung
                   </Badge>
                 </div>
-                <div className="text-xs text-muted-foreground">
+                <div className="text-sm text-fg-secondary">
                   {c.patient?.email && <>{c.patient.email} · </>}
                   {c.patient?.phone && <>{c.patient.phone} · </>}
                   {c.reason}
@@ -101,9 +108,16 @@ export function LinkingResolver({
           ))}
         </div>
       )}
-      <Button size="sm" variant="ghost" disabled={pending} onClick={ignore}>
-        <X className="mr-1 h-4 w-4" /> Ignorieren (nicht real)
+      <Button
+        size="sm"
+        variant="ghost"
+        className="h-auto min-h-9 whitespace-normal py-1.5 text-left"
+        disabled={pending}
+        onClick={ignore}
+      >
+        <X className="mr-1 h-4 w-4" /> Ignorieren (keine echte Person)
       </Button>
+      {error && <p className="text-sm text-tone-bad">{error}</p>}
     </div>
   );
 }

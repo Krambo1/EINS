@@ -48,8 +48,19 @@ export const PLATFORM_SCHEDULES: readonly PlatformSchedule[] = [
   // PVS Bridge: agent liveness scan hourly at :05, offset from the top of the
   // hour so it does not queue behind the per-clinic syncs.
   { queue: QUEUES.pvsAgentHealthScan, cron: "5 * * * *" },
+  // PVS Bridge: re-apply events stuck unapplied + re-enqueue lost ads-conversion
+  // outbox rows. Cron mirrors PVS_APPLY_SWEEP_CRON in the processor (kept as a
+  // literal here: this registry must stay free of processor imports).
+  { queue: QUEUES.pvsApplySweep, cron: "*/10 * * * *" },
   // Anomaly scan every 6h at :30, offset from the top-of-hour per-clinic syncs.
   { queue: QUEUES.anomalyScan, cron: "30 */6 * * *" },
+  // Wiederbehandlungs-Kalender: reminders once a day at 08:00 UTC (09:00 or
+  // 10:00 in Berlin), after the 03:45 per-clinic refresh, so patients get the
+  // mail in the morning and never at night.
+  { queue: QUEUES.retreatmentReminderTick, cron: "0 8 * * *" },
+  // Beiträge: hourly at :25, late approval batches become an (unnotified)
+  // Verzug in the Garantie-Uhr; decided batches close theirs.
+  { queue: QUEUES.contentApprovalVerzug, cron: "25 * * * *" },
 ];
 
 function yesterdayIso(): string {
@@ -109,5 +120,12 @@ export const CLINIC_DISPATCHERS: readonly ClinicDispatcher[] = [
     target: QUEUES.monthlyReport,
     cron: "0 5 1 * *",
     data: (clinicId) => ({ clinicId, period: "__autoprev__" }),
+  },
+  {
+    // Wiederbehandlungs-Kalender rebuild 03:45 UTC, after the night's PVS
+    // syncs and before the 08:00 reminder tick.
+    dispatchQueue: dispatcherQueueName(QUEUES.retreatmentRefresh),
+    target: QUEUES.retreatmentRefresh,
+    cron: "45 3 * * *",
   },
 ];

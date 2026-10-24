@@ -67,6 +67,16 @@ Aufmerksamkeit". Pro Stream stehen dort:
 
 ### 6.2 Behebung in vier Schritten
 
+> **Ab Agent 0.3.0 gibt es dafür den Fernweg.** Statt an jeden Praxis-Rechner
+> zu gehen: YAML anpassen, offline signieren, im Portal hochladen, Verteilung
+> setzen. Jeder Agent zieht die neue Konfiguration beim nächsten Heartbeat,
+> löscht den `schema_drift`-Halt selbst und nimmt den Stream wieder auf.
+> Ablauf: `apps/bridge/docs/remote-config.md`.
+>
+> Die vier Schritte unten bleiben der lokale Weg: für eine einzelne Praxis, für
+> einen Agenten ohne hinterlegten Signaturschlüssel, und als Notfallpfad, wenn
+> das Portal nicht erreichbar ist.
+
 1. **Spalte identifizieren.** Im Portal-Warnhinweis steht z. B.
    `Fehlende Spalten: termin_zeit` und `Neue Spalten: appointment_time`.
    Das bedeutet: das PVS-Update hat `termin_zeit` zu `appointment_time`

@@ -12,11 +12,13 @@ import { fileURLToPath } from "node:url";
  *              (soak_tomedo) via the tomedo-db vendor config. Revenue flows
  *              ONLY through bridge_source 'tomedo'.
  *   Praxis B — Datei-Pfad. The agent watches a GDT folder + Honorar-CSV
- *              folder. Revenue flows ONLY through bridge_source 'gdt_agent'.
+ *              folder. Revenue flows ONLY through the Honorar-CSV (agent
+ *              bridge_source 'gdt_agent'); GDT gives patient master data
+ *              (PatientUpserted) only, it carries no billing data.
  *
  * One clinic must never ship revenue through both paths: the portal's M-D6
- * billing-authority gate would (correctly) block the gdt_agent side with a
- * non-retryable 403 and the reconciliation would fail by design.
+ * billing-authority gate now answers a non-retryable 422 (not 403) and the
+ * agent dead-letters that event, so the reconciliation would fail by design.
  */
 
 const here = dirname(fileURLToPath(import.meta.url));

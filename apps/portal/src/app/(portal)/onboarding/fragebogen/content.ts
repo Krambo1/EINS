@@ -1,15 +1,18 @@
 /**
- * Discovery-Fragebogen, Teil 1 (Vorab-Formular) — question definitions.
+ * Discovery-Fragebogen, Teil 1 (Vorab-Formular) - question definitions.
  *
- * Source of truth for the question SET is the Notion page
- * "Discovery-Fragebogen (Kunden-Onboarding)"; this file mirrors Teil 1
- * verbatim (22 Fragen, 16 Pflicht). Teil 2 (Gesprächsleitfaden) is
- * deliberately NOT in the portal — Karam asks those live.
+ * Source of truth for the question SET is the Obsidian note
+ * "Discovery-Fragebogen (Kunden-Onboarding)" (10 EINS/Kunden/); this file mirrors Teil 1
+ * verbatim (26 Fragen, 19 Pflicht). Teil 2 (Gesprächsleitfaden, incl. Block J
+ * "Ihr KI-Klon") is deliberately NOT in the portal - Karam asks those live.
  *
  * Answers are stored as a jsonb map keyed by question id: string for
  * "auswahl" / "text" / "textarea", string[] for "mehrfach". The ids ("A1",
- * "B3", ...) are the contract with the stored answers — never renumber an
- * existing id; retire it and add a new one instead.
+ * "B3", ...) are the contract with the stored answers - never renumber an
+ * existing id; retire it and add a new one instead. Answers to unknown ids are
+ * dropped on the next save (see saveDiscoveryAction), so retiring is safe.
+ * F1 (monthly Werbebudget) keeps its id: same question, options replaced,
+ * optional since 2026-09-30; older stored preset strings stay readable.
  */
 
 export type DiscoveryQuestionType = "auswahl" | "mehrfach" | "text" | "textarea";
@@ -33,10 +36,6 @@ export interface DiscoveryQuestion {
   allowCustom?: boolean;
   /** Label shown next to the free-entry field when `allowCustom`. */
   customLabel?: string;
-  /** Hard floor in € for a free-entry value; below this, submit is blocked. */
-  customMinEur?: number;
-  /** Soft recommendation in €; between min and this, a non-blocking note shows. */
-  recommendedMinEur?: number;
   /** Pflichtfrage: must be answered before final submit (not for drafts). */
   required: boolean;
 }
@@ -50,7 +49,7 @@ export interface DiscoveryBlock {
 }
 
 export const DISCOVERY_INTRO =
-  "Diese Antworten sind die Grundlage für Ihre Kampagnen, Ihre Zielseite und Ihr Video. " +
+  "Diese Antworten sind die Grundlage für Ihren KI-Klon, Ihre Beiträge und Ihre Zielseite. " +
   "Je genauer Sie antworten, desto weniger müssen wir im Gespräch nachfragen. " +
   "Pflichtfragen sind markiert; alles andere können Sie überspringen. " +
   "Dauer: etwa 15 bis 20 Minuten. Schätzungen reichen überall aus, niemand erwartet exakte Zahlen.";
@@ -122,7 +121,7 @@ export const DISCOVERY_BLOCKS: readonly DiscoveryBlock[] = [
     key: "B",
     title: "Ausgangslage und Ziel",
     why:
-      "Eine ausgelastete Praxis braucht eine andere Kampagne als eine Praxis mit freien Terminen. " +
+      "Eine ausgelastete Praxis braucht eine andere Strategie als eine Praxis mit freien Terminen. " +
       "Wenn wir das falsch einschätzen, bewerben wir das Falsche.",
     questions: [
       {
@@ -218,7 +217,7 @@ export const DISCOVERY_BLOCKS: readonly DiscoveryBlock[] = [
     key: "D",
     title: "Anfragen-Annahme und Beratung heute",
     why:
-      "Die Garantie setzt voraus, dass Anfragen binnen 48 Werkstunden beantwortet werden. " +
+      "Bitte versuchen Sie, jede Anfrage innerhalb von 48 Werkstunden zu kontaktieren. Das ist keine Bedingung der Garantie. Schaffen Sie es nicht, hat das drei Folgen: Sie können bei dieser Anfrage nicht mehr einwenden, die Person sei nicht echt oder nicht erreichbar gewesen. Die Anfrage steht in Ihrer Auswertung als \"von der Praxis nicht beantwortet\". Und liegen drei oder mehr solcher Anfragen offen, dürfen wir nach einer Warnung die bezahlten Anzeigen pausieren, bis Sie die Anfragen kontaktiert haben. " +
       "Wir müssen wissen, wie das heute läuft, damit wir die Weiterleitung richtig bauen.",
     questions: [
       {
@@ -315,20 +314,20 @@ export const DISCOVERY_BLOCKS: readonly DiscoveryBlock[] = [
     questions: [
       {
         id: "F1",
-        label: "Welches monatliche Werbebudget planen Sie ein?",
-        hint: "Direkt an Meta/Google, getrennt von der EINS-Gebühr. Empfohlenes Minimum 3.000 €; weniger nur in Ausnahmefällen.",
+        label: "Welches monatliche Werbebudget haben Sie heute oder für später vorgesehen?",
+        hint: "Freiwillig. Zu Beginn brauchen Sie kein Werbebudget, wir starten organisch. Das Werbebudget zahlen Sie direkt an Meta und Google, getrennt von der EINS-Gebühr.",
         type: "auswahl",
         options: [
-          "3.000-5.000 €",
-          "5.000-8.000 €",
-          "über 8.000 €",
+          "kein Werbebudget zu Beginn",
+          "bis 1.000 €",
+          "1.000-2.500 €",
+          "2.500-5.000 €",
+          "über 5.000 €",
           "muss ich noch entscheiden",
         ],
         allowCustom: true,
         customLabel: "Oder eigener Betrag",
-        customMinEur: 1500,
-        recommendedMinEur: 3000,
-        required: true,
+        required: false,
       },
       {
         id: "F2",
@@ -376,13 +375,18 @@ export function formatBudgetEur(n: number): string {
 
 /**
  * Parse a German-style euro amount to a whole-euro number, or null.
- * "1.500 €" -> 1500, "2000" -> 2000, "1.500,50 €" -> 1500 (cents dropped).
+ * "1.500 €" -> 1500, "2000" -> 2000, "1.500,50 €" -> 1500 (cents dropped),
+ * "2.000,-" -> 2000. Anything ambiguous is rejected instead of guessed:
+ * ranges ("2000-3000"), English decimals ("1.5"), words ("ca. 3 Mio").
  */
 export function parseEuroAmount(raw: string): number | null {
-  const beforeComma = raw.split(",")[0] ?? "";
-  const digits = beforeComma.replace(/[^\d]/g, "");
-  if (digits.length === 0) return null;
-  const n = Number.parseInt(digits, 10);
+  const compact = raw
+    .replace(/\s+/g, "")
+    .replace(/(€|eur|euro)$/i, "")
+    .replace(/,-{1,2}$/, "");
+  const m = /^(\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{1,2})?$/.exec(compact);
+  if (!m) return null;
+  const n = Number.parseInt(m[1]!.replace(/\./g, ""), 10);
   return Number.isFinite(n) ? n : null;
 }
 
@@ -390,7 +394,8 @@ export function parseEuroAmount(raw: string): number | null {
  * Submit-time validation for free-entry budget answers. Returns the first
  * offending question id + message, or null when all custom values are fine.
  * Preset selections and empty values are skipped (the required-check owns the
- * empty case). Below the hard floor (customMinEur) -> blocking error.
+ * empty case). There is no minimum amount (Werbebudget is not mandatory since
+ * 2026-09-30); only a non-numeric value is rejected.
  */
 export function customBudgetError(
   answers: DiscoveryAnswers
@@ -403,21 +408,11 @@ export function customBudgetError(
     if (trimmed.length === 0) continue;
     if (q.options?.includes(trimmed)) continue;
     const eur = parseEuroAmount(trimmed);
-    const min = q.customMinEur ?? 0;
     if (eur === null) {
       return {
         id: q.id,
-        message: "Bitte geben Sie das Werbebudget als Zahl ein, zum Beispiel 2.000.",
-      };
-    }
-    if (eur < min) {
-      return {
-        id: q.id,
-        message: `Unter ${formatBudgetEur(
-          min
-        )} pro Monat lässt sich keine wirksame Kampagne aufsetzen. Bitte planen Sie mindestens ${formatBudgetEur(
-          min
-        )} ein oder wählen Sie eine der Optionen.`,
+        message:
+          "Bitte geben Sie das Werbebudget als einen Betrag ein, zum Beispiel 2.000. Für eine Spanne wählen Sie oben eine der Stufen.",
       };
     }
   }

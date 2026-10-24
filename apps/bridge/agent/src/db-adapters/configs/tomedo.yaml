@@ -196,6 +196,7 @@ streams:
   # request status. Honorar-amounts in Tomedo are stored as numeric EUR
   # (e.g. 125.50), so the amountToCents transform multiplies by 100.
   - kind: InvoicePaid
+    statusColumn: status
     cursorColumn: modified_at
     cursorType: timestamp
     tiebreakColumn: id
@@ -277,6 +278,12 @@ streams:
   # Cancellations stay on stream 3 (AppointmentStatusChanged -> cancelled); no
   # AppointmentCancelled stream until a real schema separates patient- vs
   # Praxis-side cancel.
+  # PROBE TODO (review finding 12): a Storno / Gutschrift booked as a NEW row has its own
+  # id here (pvsRefundId = that id, sent automatically). To net the ORIGINAL invoice and
+  # sum several partial credit notes, the schema probe must find the Storno reference
+  # column (original invoice id) and map it as `originalInvoiceId: <column>` below
+  # (select it in the query too). Until then pvsInvoiceId stays the row id, which is
+  # only right when the invoice row itself flips to storniert (flag-flip case).
   - kind: InvoiceRefunded
     cursorColumn: modified_at
     cursorType: timestamp

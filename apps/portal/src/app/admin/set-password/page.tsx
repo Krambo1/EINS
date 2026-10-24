@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@eins/ui";
+import { UserRound } from "lucide-react";
 import { db, schema } from "@/db/client";
 import { readPasswordSetupCookie } from "@/auth/password-setup-cookie";
-import { EinsLogo } from "@/app/_components/EinsLogo";
+import { AuthHeader } from "@/app/(auth)/_components/auth-ui";
 import { SetAdminPasswordForm } from "./SetAdminPasswordForm";
 
 export const metadata = { title: "Admin-Passwort setzen" };
@@ -29,26 +29,17 @@ export default async function AdminSetPasswordPage() {
     redirect("/admin/login?error=invalid_or_expired");
   }
 
+  // The frame (logo, "Admin" badge, card) comes from admin/layout.tsx.
   return (
-    <div className="mx-auto flex min-h-[80vh] max-w-md flex-col justify-center gap-6 py-12">
-      <div className="flex flex-col items-center gap-3">
-        <EinsLogo width={160} height={64} className="h-9 w-auto" />
-        <span className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
-          Admin
-        </span>
-      </div>
-      <Card>
-        <CardHeader>
-          <CardTitle>Passwort setzen</CardTitle>
-          <CardDescription>
-            Für {adminRow.email}. Ab jetzt loggen Sie sich mit E-Mail und
-            Passwort ein.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <SetAdminPasswordForm />
-        </CardContent>
-      </Card>
+    <div>
+      <AuthHeader title="Passwort setzen.">
+        <p>Ab jetzt melden Sie sich mit E-Mail und Passwort an.</p>
+        <p className="mt-4 inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-white px-3 py-1 text-sm text-fg-primary">
+          <UserRound aria-hidden className="h-4 w-4 shrink-0 text-fg-secondary" />
+          <span className="truncate">{adminRow.email}</span>
+        </p>
+      </AuthHeader>
+      <SetAdminPasswordForm email={adminRow.email} />
     </div>
   );
 }

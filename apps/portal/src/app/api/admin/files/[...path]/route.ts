@@ -5,6 +5,9 @@ import { join, resolve, sep } from "node:path";
 import { getAdminSession } from "@/auth/admin";
 import { getStorage } from "@/server/storage";
 import { hasR2 } from "@/lib/env";
+import { writeAudit } from "@/server/audit";
+import { trustedIpFromHeaders } from "@/lib/client-ip";
+import { isUuid } from "@/lib/ids";
 
 /**
  * Admin-scoped file passthrough. Admins are cross-tenant by design, so unlike
@@ -36,6 +39,21 @@ export async function GET(
     return new NextResponse("Bad Request", { status: 400 });
   }
 
+  // G-24: trail of who opened which Praxis file. Keys start with the
+  // clinic UUID for every Praxis upload.
+  const first = segments[0] ?? "";
+  await writeAudit({
+    clinicId: isUuid(first) ? first : null,
+    actorEmail: session.email,
+    action: "download",
+    entityKind: "admin_file",
+    entityId: key.slice(0, 300),
+    requestMeta: {
+      ip: trustedIpFromHeaders(req.headers.get("x-forwarded-for"), req.headers.get("x-real-ip")),
+      ua: req.headers.get("user-agent"),
+    },
+  });
+
   // R2: hand off to a signed URL; the SDK is only loaded on that path.
   if (hasR2()) {
     const url = await getStorage().urlFor(key, { expiresInSeconds: 300 });
@@ -54,13 +72,23 @@ export async function GET(
       return new NextResponse("Not Found", { status: 404 });
     }
     const stream = createReadStream(real);
+    const type = contentTypeFor(real);
+    // G-24: a Praxis-uploaded SVG (or anything unknown) must never render
+    // inline on the admin origin, where its script would run.
+    const inline = type === "application/pdf" || (type.startsWith("image/") && type !== "image/svg+xml");
     return new NextResponse(stream as unknown as ReadableStream, {
       status: 200,
       headers: {
-        "Content-Type": contentTypeFor(real),
+        "Content-Type": type,
         "Content-Length": String(stats.size),
         "Cache-Control": "private, max-age=60",
         "Referrer-Policy": "no-referrer",
+        "X-Content-Type-Options": "nosniff",
+        // Chrome's PDF viewer does not run in a sandboxed document.
+        ...(type === "application/pdf"
+          ? {}
+          : { "Content-Security-Policy": "sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline'" }),
+        ...(inline ? {} : { "Content-Disposition": "attachment" }),
       },
     });
   } catch {

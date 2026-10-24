@@ -1,29 +1,35 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
-import { Input, Label, Button } from "@eins/ui";
+import { AuthToast } from "@/app/(auth)/_components/AuthToast";
+import {
+  AuthHeader,
+  AuthLabel,
+  CheckInbox,
+  PendingDots,
+  authCtaClass,
+  authFieldClass,
+  authTextLinkClass,
+} from "@/app/(auth)/_components/auth-ui";
 import {
   requestAdminPasswordResetAction,
   type AdminMailActionState,
 } from "../login/actions";
 
 /**
- * Admin "Passwort vergessen"-Formular.
- *
- * Success wird inline gerendert (kein Redirect auf /admin/login/sent).
- * Hintergrund: Next.js #65893 — Server-Action-Redirects auf /admin/*
- * unter admin.*-Subdomain-Rewrite zeigen not-found.tsx bis Hard-Reload.
- * Inline-State umgeht den Bug.
+ * Admin "Passwort vergessen". Success and errors come back as action state
+ * and are shown in place: a server-action redirect under the admin.* host
+ * rewrite hits Next.js #65893 (not-found.tsx until a hard reload).
  */
 
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" disabled={pending} className="w-full">
-      {pending ? "Wird gesendet…" : "Link senden"}
-    </Button>
+    <button type="submit" disabled={pending} aria-busy={pending} className={authCtaClass}>
+      {pending ? <PendingDots label="Wird gesendet" /> : "Link senden"}
+    </button>
   );
 }
 
@@ -32,63 +38,62 @@ export function ForgotPasswordForm() {
     requestAdminPasswordResetAction,
     undefined
   );
+  const [closedFor, setClosedFor] = useState<AdminMailActionState>(undefined);
+  // Controlled, so React's form reset after an error keeps the address.
+  const [email, setEmail] = useState("");
 
+  // Same answer for allowlisted and unknown addresses (enumeration defence).
   if (state?.ok) {
     return (
-      <div className="space-y-4">
-        <div
-          role="status"
-          className="space-y-2 rounded-xl border border-[var(--tone-good-border)] bg-[var(--tone-good-bg)] p-4 text-sm text-fg-primary"
-        >
-          <p className="font-medium">Posteingang prüfen.</p>
-          <p className="text-fg-secondary">
-            Wenn die Adresse in der Admin-Allowlist hinterlegt ist, liegt
-            jetzt ein Reset-Link im Posteingang. Der Link ist 15 Minuten
-            gültig und kann nur einmal verwendet werden.
-          </p>
-        </div>
-        <p className="text-xs text-fg-secondary">
-          <Link
-            href="/admin/login"
-            className="underline-offset-2 hover:underline"
-          >
-            ← Zurück zur Anmeldung
-          </Link>
-        </p>
-      </div>
+      <CheckInbox backHref="/admin/login">
+        Wenn die Adresse für den Admin-Bereich freigeschaltet ist, haben wir
+        Ihnen einen Link geschickt, mit dem Sie ein neues Passwort wählen. Er
+        gilt 15 Minuten lang und nur einmal.
+      </CheckInbox>
     );
   }
 
+  const error = state && !state.ok && closedFor !== state ? state.error : null;
+
   return (
-    <form action={action} className="space-y-4">
-      <div className="space-y-1.5">
-        <Label htmlFor="email">E-Mail</Label>
-        <Input
-          id="email"
-          name="email"
-          type="email"
-          autoComplete="email"
-          required
-          autoFocus
-        />
-      </div>
-      {state && !state.ok && (
-        <div
-          role="alert"
-          className="rounded-md border border-[var(--tone-bad-border)] bg-[var(--tone-bad-bg)] p-3 text-sm text-tone-bad"
-        >
-          {state.error}
+    <div>
+      <AuthHeader title="Passwort zurücksetzen.">
+        Geben Sie Ihre Admin-Adresse ein. Wir schicken Ihnen einen Link, mit
+        dem Sie ein neues Passwort wählen.
+      </AuthHeader>
+      <form action={action} onSubmit={() => setClosedFor(state)} className="space-y-6">
+        <div>
+          <AuthLabel htmlFor="email" className="mb-2">
+            E-Mail
+          </AuthLabel>
+          <input
+            id="email"
+            name="email"
+            type="email"
+            autoComplete="username email"
+            autoCapitalize="none"
+            spellCheck={false}
+            inputMode="email"
+            required
+            autoFocus
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className={authFieldClass}
+          />
         </div>
-      )}
-      <SubmitButton />
-      <p className="text-xs text-fg-secondary">
-        <Link
-          href="/admin/login"
-          className="underline-offset-2 hover:underline"
-        >
-          ← Zurück zur Anmeldung
+        <SubmitButton />
+      </form>
+      <p className="mt-6 text-center text-sm text-fg-secondary">
+        Doch wieder eingefallen?{" "}
+        <Link href="/admin/login" className={authTextLinkClass}>
+          Zur Anmeldung
         </Link>
       </p>
-    </form>
+      {error && (
+        <AuthToast tone="bad" onClose={() => setClosedFor(state)}>
+          {error}
+        </AuthToast>
+      )}
+    </div>
   );
 }

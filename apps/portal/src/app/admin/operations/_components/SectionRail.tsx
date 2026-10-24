@@ -38,10 +38,10 @@ export function SectionRail({ items }: { items: RailItem[] }) {
 
   return (
     <nav
-      aria-label="Operations-Sektionen"
+      aria-label="Aufgaben-Sektionen"
       className="sticky top-28 hidden w-56 shrink-0 space-y-1 lg:block"
     >
-      <span className="text-xs font-medium uppercase tracking-wide text-fg-secondary">
+      <span className="text-sm font-medium text-fg-primary">
         Sprung
       </span>
       <ul className="mt-2 space-y-0.5">

@@ -39,7 +39,7 @@ export interface AdsConversionHealth {
  * P2-2: agent heartbeat surface. Populated from pvs_agent_status; the
  * "recent reasons" expander reads the JSONB column directly. Null when
  * the agent has never sent a heartbeat (e.g. clinic without an on-prem
- * install — cloud adapters don't produce this signal).
+ * install: cloud adapters don't produce this signal).
  */
 /** Ein Eintrag aus pvs_agent_status.adapter_statuses (0069). */
 export interface AdapterStatusEntry {
@@ -174,11 +174,11 @@ export function IntegrationenTab({
 
       <Card>
         <CardHeader>
-          <CardTitle>Closed-Loop Conversion-Outbox</CardTitle>
+          <CardTitle>Abschluss-Meldungen an Meta und Google</CardTitle>
           <CardDescription>
-            Pro bezahlte Rechnung wird je ein Meta-CAPI- und ein
-            Google-OCI-Upload in die Outbox geschrieben. Hier sind die
-            letzten Ereignisse mit Status und Antwort-Code der Plattformen.
+            Pro bezahlte Rechnung wird je eine Meldung an Meta (CAPI) und
+            Google (OCI) in die Warteschlange geschrieben. Hier stehen die
+            letzten Meldungen mit Status und Antwort-Code der Plattformen.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -202,7 +202,7 @@ export function IntegrationenTab({
           </div>
           {adsConversion.recent.length === 0 ? (
             <p className="text-sm text-fg-secondary">
-              Noch keine Conversion-Uploads. Erste bezahlte Rechnung mit
+              Noch keine Abschluss-Meldungen. Die erste bezahlte Rechnung mit
               vorhandenem fbclid oder gclid füllt diese Liste.
             </p>
           ) : (
@@ -294,7 +294,7 @@ function OutboxStat({
 }) {
   return (
     <div className="rounded-md border border-border bg-bg-secondary px-2.5 py-2">
-      <div className="text-fg-secondary">{label}</div>
+      <div className="text-sm font-medium text-fg-primary">{label}</div>
       <div
         className={
           tone === "good"
@@ -324,7 +324,7 @@ function outboxTone(status: string): "good" | "neutral" | "warn" | "bad" {
 }
 
 function AgentStatusCard({ status }: { status: AgentStatusHealth }) {
-  // OutboxStat tone is good|neutral|bad — no separate "warn" bucket, so
+  // OutboxStat tone is good|neutral|bad, no separate "warn" bucket, so
   // we map "some failures but under the alert threshold" to "neutral"
   // and reserve "bad" for the alert threshold.
   const failedTone: "good" | "neutral" | "bad" =
@@ -335,7 +335,7 @@ function AgentStatusCard({ status }: { status: AgentStatusHealth }) {
         : "good";
   // The heartbeat producer cadence is 60s. If the last heartbeat is
   // older than 5 min, the agent is either offline or its Praxis-network
-  // is down — the operator should be alerted.
+  // is down, the operator should be alerted.
   const heartbeatStale =
     Date.now() - status.lastHeartbeatAt.getTime() > 5 * 60 * 1000;
   // 0069: das Wartende-Backlog. Alles unter 1 h ist normaler Durchlauf
@@ -375,7 +375,7 @@ function AgentStatusCard({ status }: { status: AgentStatusHealth }) {
             tone={pendingTone}
           />
           <div className="rounded-md border border-border bg-bg-secondary px-2.5 py-2">
-            <div className="text-fg-secondary">Letzter Heartbeat</div>
+            <div className="text-sm font-medium text-fg-primary">Letztes Lebenszeichen</div>
             <div className={heartbeatStale ? "text-tone-bad" : "text-fg-primary"}>
               <span className="text-sm font-semibold">
                 {formatRelative(status.lastHeartbeatAt)}
@@ -386,7 +386,7 @@ function AgentStatusCard({ status }: { status: AgentStatusHealth }) {
             </div>
           </div>
           <div className="rounded-md border border-border bg-bg-secondary px-2.5 py-2">
-            <div className="text-fg-secondary">Ältester Fehler</div>
+            <div className="text-sm font-medium text-fg-primary">Ältester Fehler</div>
             <div className="text-fg-primary">
               <span className="text-sm font-semibold">
                 {status.oldestFailedAt
@@ -479,7 +479,7 @@ function AgentStatusCard({ status }: { status: AgentStatusHealth }) {
           ))}
         {status.lastFailureReason && (
           <div className="rounded-md border border-border bg-bg-secondary px-3 py-2 text-xs">
-            <div className="text-fg-secondary">Letzter Grund</div>
+            <div className="text-sm font-medium text-fg-primary">Letzter Grund</div>
             <div className="mt-0.5 truncate font-mono text-fg-primary" title={status.lastFailureReason}>
               {status.lastFailureReason}
             </div>

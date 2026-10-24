@@ -2,7 +2,8 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getAdminSession, isAllowedAdminIp } from "@/auth/admin";
 import { getTrustedClientIp } from "@/lib/client-ip";
-import { pendingOperationCounts } from "@/server/queries/admin";
+import { adminAttentionCounts, pendingOperationCounts } from "@/server/queries/admin";
+import { AuthShell } from "@/app/(auth)/_components/AuthShell";
 import { AdminShell } from "./_components/AdminShell";
 
 /**
@@ -10,8 +11,9 @@ import { AdminShell } from "./_components/AdminShell";
  *
  *  1. IP allowlist: a non-allowlisted origin is bounced to "/".
  *  2. Bare-vs-chrome: keyed off the SESSION, not the pathname. No session =>
- *     bare surface (login / forgot-password / set-password sit on a clean
- *     background); session present => the full nav chrome (<AdminShell>).
+ *     the sign-in frame (<AuthShell variant="admin">, the same eins.ag look
+ *     as the clinic login, no outbound links); session present => the full
+ *     nav chrome (<AdminShell>).
  *
  * Why session-keyed and not path-keyed: the admin app lives behind an
  * `admin.*` host rewrite (see src/middleware.ts), so the browser-visible path
@@ -47,7 +49,7 @@ export default async function AdminLayout({
 
   const session = await getAdminSession();
 
-  // No session => bare surface (matches the login card's clean background).
+  // No session => sign-in frame (login / forgot-password / set-password / link).
   // The <Suspense> keeps `children` from being the direct child of a DOM
   // element. `children` can arrive from the RSC stream as a lazy element while
   // a client chunk it needs is still loading (dev: about 1 in 3 loads;
@@ -59,19 +61,20 @@ export default async function AdminLayout({
   // catch the wait.
   if (!session) {
     return (
-      <div className="relative min-h-dvh bg-bg-primary">
-        <div className="p-6 md:p-12">
-          <Suspense>{children}</Suspense>
-        </div>
-      </div>
+      <AuthShell variant="admin">
+        <Suspense>{children}</Suspense>
+      </AuthShell>
     );
   }
 
   // Authenticated => full nav chrome.
-  const pendingCounts = await pendingOperationCounts();
+  const [pendingCounts, attention] = await Promise.all([
+    pendingOperationCounts(),
+    adminAttentionCounts().catch(() => null),
+  ]);
 
   return (
-    <AdminShell email={session.email} pendingCounts={pendingCounts}>
+    <AdminShell email={session.email} pendingCounts={pendingCounts} attention={attention}>
       {children}
     </AdminShell>
   );

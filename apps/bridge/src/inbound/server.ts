@@ -2,13 +2,20 @@ import Fastify from "fastify";
 import { env } from "../config.js";
 import { healthHubWebhook } from "./healthhub-webhook.js";
 import { redWebhook } from "./red-webhook.js";
+import { computeHealth } from "../health.js";
+import { pingDb, failingLinkSummary } from "../db/client.js";
 
 /**
  * Inbound Fastify server.
  *
  *   POST /webhooks/healthhub/:linkId  → HealthHub FHIR Subscription delivery
  *   POST /webhooks/red/:linkId        → RED FHIR Subscription delivery
- *   GET  /healthz                     → liveness check (for the load balancer)
+ *   GET  /healthz                     → 503 when the scheduler stopped ticking
+ *                                       (no tick in 3 tick intervals) or the DB
+ *                                       does not answer SELECT 1 within 2 s
+ *
+ * The HealthHub route is only registered with ENABLE_HEALTHHUB_WEBHOOK=true
+ * (shelved vendor; default off so it is not an exposed, unused surface).
  *
  * Each push adapter route:
  *   1. Verifies the vendor's outbound signature against the vendor-specific
@@ -20,10 +27,17 @@ import { redWebhook } from "./red-webhook.js";
  * portal is down, we return 503 so the vendor retries.
  */
 
+const UUID_PATTERN =
+  "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
+
 export async function startInbound(): Promise<{ stop: () => Promise<void> }> {
   const app = Fastify({
     logger: env().NODE_ENV === "production",
-    bodyLimit: 5 * 1024 * 1024, // 5 MB cap on FHIR Bundle size
+    bodyLimit: 1024 * 1024, // 1 MB cap on FHIR Bundle size
+    // Fastify's defaults are 0 (= no timeout): a slowloris client could hold a
+    // socket and a handler forever.
+    requestTimeout: 30_000,
+    connectionTimeout: 60_000,
   });
 
   // Raw-body retention so we can compute HMAC over exactly what the
@@ -40,10 +54,29 @@ export async function startInbound(): Promise<{ stop: () => Promise<void> }> {
     (_req, body, done) => done(null, body)
   );
 
-  app.get("/healthz", async () => ({ ok: true, ts: new Date().toISOString() }));
+  app.get("/healthz", async (_req, reply) => {
+    const report = await computeHealth({
+      tickMs: env().SCHEDULER_TICK_MS,
+      ping: () => pingDb(2_000),
+      failingSummary: () => failingLinkSummary(env().FAIL_THRESHOLD),
+    });
+    return reply.code(report.status).send(report.body);
+  });
 
-  app.post("/webhooks/healthhub/:linkId", healthHubWebhook);
-  app.post("/webhooks/red/:linkId", redWebhook);
+  // linkId is a uuid; reject anything else before any DB query is made.
+  const linkParams = {
+    schema: {
+      params: {
+        type: "object",
+        properties: { linkId: { type: "string", pattern: UUID_PATTERN } },
+        required: ["linkId"],
+      },
+    },
+  };
+  if (env().ENABLE_HEALTHHUB_WEBHOOK) {
+    app.post("/webhooks/healthhub/:linkId", linkParams, healthHubWebhook);
+  }
+  app.post("/webhooks/red/:linkId", linkParams, redWebhook);
 
   await app.listen({ host: "0.0.0.0", port: env().PORT });
   console.log(`[inbound] listening on :${env().PORT}`);

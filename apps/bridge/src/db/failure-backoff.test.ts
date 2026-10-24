@@ -4,18 +4,19 @@ import { fileURLToPath } from "node:url";
 import { join, dirname } from "node:path";
 
 /**
- * M-S4 contract, pinned against the db/client.ts source in the same style as
- * the loadDueLinks SQL-contract test in client.test.ts (a pg-mem integration
+ * Failure-state contract, pinned against the db/client.ts source (a pg-mem
  * harness isn't worth the dep weight for these one-line SQL invariants):
  *
- *   1. Failure backoff off-by-one: the DO UPDATE must schedule next_poll_at off
- *      the POST-increment count (`+ 1`), so the first failure waits a full
- *      backoff step instead of retrying immediately (0 * 60s).
- *   2. Error links self-recover: once a link crosses FAIL_THRESHOLD it backs off
- *      to an hourly cadence, and loadDueLinks selects status='error' links so
- *      they are retried instead of being permanently dead.
- *   3. Recovery restores status: a successful poll / initial sync clears the
- *      'error' status (clearErrorStatus), and both transitions are logged.
+ *   1. Backoff off-by-one stays fixed: next_poll_at is scheduled off the
+ *      POST-increment count (`+ 1`).
+ *   2. The bridge NEVER writes pvs_link.status='error' any more: the portal
+ *      rejects every event for an 'error' link, so tripping it froze the
+ *      practice for good. Failure state lives in pvs_sync_status (last_error,
+ *      consecutive_failure_count) and /healthz. Past FAIL_THRESHOLD the link
+ *      settles at a 15 minute cadence and keeps being retried.
+ *   3. Legacy links already tripped to 'error' are still loaded and are
+ *      un-tripped on claim (restoreLegacyErrorStatus).
+ *   4. claimLink is an atomic lease on next_poll_at (mutual exclusion).
  */
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -32,43 +33,43 @@ function slice(fnName: string): string {
   return nm ? after.slice(0, nm.index) : after;
 }
 
-describe("recordFailure backoff (M-S4)", () => {
-  const body = slice("recordFailure");
+describe("recordFailure backoff", () => {
+  const body = slice("recordFailure").split(String.fromCharCode(10) + "}" + String.fromCharCode(10))[0]!;
 
   it("schedules the next poll off the post-increment failure count (off-by-one fix)", () => {
-    expect(body).toMatch(/consecutive_failure_count \+ 1/);
-    // The old bug used the bare pre-increment count inside the LEAST(...) math.
     expect(body).toMatch(/LEAST\(pvs_sync_status\.consecutive_failure_count \+ 1/);
   });
 
-  it("backs an errored link off to an hourly recovery cadence", () => {
-    expect(body).toMatch(/INTERVAL '1 hour'/);
+  it("settles at 15 minutes once past the threshold, with retryAfter as a floor", () => {
+    expect(body).toMatch(/INTERVAL '15 minutes'/);
     expect(body).toMatch(/>=\s*\$\{failThreshold\}/);
+    expect(body).toMatch(/GREATEST\(/);
   });
 
-  it("only trips to error on the actual transition and logs loudly", () => {
-    expect(body).toMatch(/status <> 'error'/);
-    expect(body).toMatch(/entered status=error/);
+  it("never writes pvs_link (no status='error' trip)", () => {
+    expect(body).not.toMatch(/UPDATE pvs_link/);
+    expect(body).not.toMatch(/status\s*=\s*'error'/);
   });
 });
 
-describe("self-recovery wiring (M-S4)", () => {
-  it("loadDueLinks selects status='error' links for retry", () => {
+describe("legacy error links and claim lease", () => {
+  it("loadDueLinks still selects legacy status='error' links alongside 'connected'", () => {
     const body = slice("loadDueLinks");
     expect(body).toMatch(/l\.status = 'error'/);
-    // The existing 'connected' gate must stay intact.
     expect(body).toMatch(/l\.status = 'connected'/);
   });
 
-  it("clearErrorStatus restores 'connected' and logs the recovery", () => {
-    const body = slice("clearErrorStatus");
+  it("restoreLegacyErrorStatus only flips error back to connected", () => {
+    const body = slice("restoreLegacyErrorStatus");
     expect(body).toMatch(/status = 'connected'/);
     expect(body).toMatch(/status = 'error'/);
-    expect(body).toMatch(/recovered from status=error/);
+    expect(body).toMatch(/un-tripped/);
   });
 
-  it("both success paths clear a self-recovered error status", () => {
-    expect(slice("checkpointSync")).toMatch(/clearErrorStatus\(linkId\)/);
-    expect(slice("completeInitialSync")).toMatch(/clearErrorStatus\(linkId\)/);
+  it("claimLink is one atomic conditional upsert on next_poll_at", () => {
+    const body = slice("claimLink");
+    expect(body).toMatch(/ON CONFLICT \(pvs_link_id\) DO UPDATE/);
+    expect(body).toMatch(/next_poll_at <= NOW\(\)/);
+    expect(body).toMatch(/RETURNING/);
   });
 });

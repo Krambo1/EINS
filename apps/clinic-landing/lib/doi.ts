@@ -5,8 +5,8 @@ import type { Clinic } from "./types";
 /**
  * Double-opt-in for the marketing consent.
  *
- * Why stateless: this app has no DB. Each token is a self-contained, HMAC-signed
- * blob (email | clinicSlug | treatmentSlug | eventId | exp). The confirmation
+ * Why stateless: this app has no DB. Each token is a self-contained blob
+ * (email | clinicSlug | treatmentSlug | eventId | exp). The confirmation
  * route re-derives the signature from `DOI_SIGNING_SECRET`, checks expiry, and
  * fires a `marketing-confirmed` follow-up event to the same CRM webhook. The
  * CRM upserts on email and flips the marketing flag from pending → confirmed.
@@ -17,6 +17,14 @@ import type { Clinic } from "./types";
  * Replay protection: an in-memory Set keeps confirmed token-IDs for the same
  * dedup window the lead route uses. A second click is a no-op (idempotent for
  * the patient, no double event for the CRM).
+ *
+ * L-9: the link sits in access logs, mail scanners and browser history, so
+ * the claims are ENCRYPTED, not just signed: token = "v2." +
+ * base64url(iv[12] | AES-256-GCM ciphertext | tag[16]), key = HKDF-SHA256
+ * from DOI_SIGNING_SECRET. GCM authenticates, so a forged or altered token
+ * fails like a bad signature. Nothing in the URL is readable (no e-mail, no
+ * treatment). Old v1 tokens (readable claims + HMAC) are still accepted
+ * until they expire (48 h), so links mailed before the switch keep working.
  */
 
 const TOKEN_TTL_SECONDS = 60 * 60 * 48; // 48h
@@ -52,25 +60,79 @@ function requireSecret(): string {
   return s;
 }
 
+const V2_PREFIX = "v2.";
+const IV_BYTES = 12;
+const TAG_BYTES = 16;
+
+/** AES-256 key for v2 tokens, derived so the HMAC secret is never used as a raw cipher key. */
+function encryptionKey(): Buffer {
+  return Buffer.from(
+    crypto.hkdfSync("sha256", requireSecret(), Buffer.alloc(0), "eins-doi-token-v2", 32)
+  );
+}
+
 export function signDoiToken(claims: Omit<DoiClaims, "x">): string {
   const full: DoiClaims = {
     ...claims,
     e: claims.e.toLowerCase().trim(),
     x: Math.floor(Date.now() / 1000) + TOKEN_TTL_SECONDS,
   };
-  const body = b64url(JSON.stringify(full));
-  const sig = b64url(crypto.createHmac("sha256", requireSecret()).update(body).digest());
-  return `${body}.${sig}`;
+  const iv = crypto.randomBytes(IV_BYTES);
+  const cipher = crypto.createCipheriv("aes-256-gcm", encryptionKey(), iv);
+  const enc = Buffer.concat([cipher.update(JSON.stringify(full), "utf8"), cipher.final()]);
+  return V2_PREFIX + b64url(Buffer.concat([iv, enc, cipher.getAuthTag()]));
 }
 
 export type VerifyResult =
   | { ok: true; claims: DoiClaims }
   | { ok: false; reason: "malformed" | "bad-signature" | "expired" };
 
+function checkClaims(claims: unknown): VerifyResult {
+  if (!claims || typeof claims !== "object") return { ok: false, reason: "malformed" };
+  const c = claims as DoiClaims;
+  if (!c.e || !c.c || !c.t || !c.id || typeof c.x !== "number") {
+    return { ok: false, reason: "malformed" };
+  }
+  if (c.x < Math.floor(Date.now() / 1000)) {
+    return { ok: false, reason: "expired" };
+  }
+  return { ok: true, claims: c };
+}
+
+function verifyV2(token: string): VerifyResult {
+  let raw: Buffer;
+  try {
+    raw = b64urlDecode(token.slice(V2_PREFIX.length));
+  } catch {
+    return { ok: false, reason: "malformed" };
+  }
+  if (raw.length <= IV_BYTES + TAG_BYTES) return { ok: false, reason: "malformed" };
+  const iv = raw.subarray(0, IV_BYTES);
+  const tag = raw.subarray(raw.length - TAG_BYTES);
+  const enc = raw.subarray(IV_BYTES, raw.length - TAG_BYTES);
+  let json: string;
+  try {
+    const decipher = crypto.createDecipheriv("aes-256-gcm", encryptionKey(), iv);
+    decipher.setAuthTag(tag);
+    json = Buffer.concat([decipher.update(enc), decipher.final()]).toString("utf8");
+  } catch {
+    // Wrong key, altered ciphertext or tag: same outcome as a bad HMAC.
+    return { ok: false, reason: "bad-signature" };
+  }
+  try {
+    return checkClaims(JSON.parse(json));
+  } catch {
+    return { ok: false, reason: "malformed" };
+  }
+}
+
 export function verifyDoiToken(token: string): VerifyResult {
   if (!token || typeof token !== "string" || !token.includes(".")) {
     return { ok: false, reason: "malformed" };
   }
+  if (token.startsWith(V2_PREFIX)) return verifyV2(token);
+
+  // Legacy v1 (signed, readable claims): accepted until expiry, never issued.
   const [body, sig] = token.split(".", 2);
   if (!body || !sig) return { ok: false, reason: "malformed" };
 
@@ -85,20 +147,13 @@ export function verifyDoiToken(token: string): VerifyResult {
     return { ok: false, reason: "bad-signature" };
   }
 
-  let claims: DoiClaims;
+  let claims: unknown;
   try {
     claims = JSON.parse(b64urlDecode(body).toString("utf8"));
   } catch {
     return { ok: false, reason: "malformed" };
   }
-  if (!claims || typeof claims !== "object") return { ok: false, reason: "malformed" };
-  if (!claims.e || !claims.c || !claims.t || !claims.id || typeof claims.x !== "number") {
-    return { ok: false, reason: "malformed" };
-  }
-  if (claims.x < Math.floor(Date.now() / 1000)) {
-    return { ok: false, reason: "expired" };
-  }
-  return { ok: true, claims };
+  return checkClaims(claims);
 }
 
 /**
@@ -158,7 +213,7 @@ export async function sendDoiEmail(args: SendDoiEmailArgs): Promise<{ ok: boolea
     "",
     args.confirmUrl,
     "",
-    "Der Link ist 48 Stunden gültig. Wenn Sie sich nicht bei uns gemeldet haben, ignorieren Sie diese E-Mail einfach – es wird Ihnen dann nichts zugeschickt.",
+    "Der Link ist 48 Stunden gültig. Wenn Sie sich nicht bei uns gemeldet haben, ignorieren Sie diese E-Mail einfach, es wird Ihnen dann nichts zugeschickt.",
     "",
     "Ihre Anfrage zur Beratung wurde unabhängig davon bereits bei uns gespeichert; das Praxisteam meldet sich in Kürze.",
     "",
@@ -192,7 +247,7 @@ export async function sendDoiEmail(args: SendDoiEmailArgs): Promise<{ ok: boolea
           <tr><td style="padding:0 28px 24px 28px;">
             <p style="margin:0 0 12px 0;font-size:13px;line-height:1.55;color:#555;">
               Der Link ist 48 Stunden gültig. Wenn Sie sich nicht bei uns gemeldet haben, ignorieren
-              Sie diese E-Mail einfach — es wird Ihnen dann nichts zugeschickt.
+              Sie diese E-Mail einfach, es wird Ihnen dann nichts zugeschickt.
             </p>
             <p style="margin:0;font-size:13px;line-height:1.55;color:#555;">
               Ihre Anfrage zur Beratung wurde unabhängig davon bereits bei uns gespeichert; das

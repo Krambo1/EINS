@@ -13,6 +13,9 @@ export function renderMarkdown(md: string): ReactNode {
 }
 
 function renderBlock(block: string, key: number): ReactNode {
+  if (block.startsWith("# ")) {
+    return <h1 className="text-3xl font-semibold md:text-4xl">{renderInline(block.slice(2))}</h1>;
+  }
   if (block.startsWith("### ")) {
     return <h3 className="mt-8 text-lg font-semibold">{renderInline(block.slice(4))}</h3>;
   }

@@ -7,7 +7,7 @@ import { requireSession } from "@/auth/guards";
 import { db, schema, withClinicContext } from "@/db/client";
 import { writeAudit } from "@/server/audit";
 import { getStorage } from "@/server/storage";
-import { getEmailSender, renderEmailLayout } from "@/server/email";
+import { escapeHtml, getEmailSender, renderEmailLayout } from "@/server/email";
 import { can, ForbiddenError } from "@/lib/roles";
 import {
   GENERAL_UPLOAD_EXTENSIONS,
@@ -19,6 +19,8 @@ import {
   verifyUploadedObject,
   type UploadTarget,
 } from "@/server/uploads";
+import { formatBytes } from "@/lib/formatting";
+import { flashError, flashMessageFromError } from "@/lib/flash";
 
 /**
  * "Dateien an EINS" — general clinic-to-EINS file delivery.
@@ -111,7 +113,9 @@ const FinalizeInput = z.object({
 
 export async function finalizeClientUploadsAction(
   input: z.infer<typeof FinalizeInput>
-): Promise<UploadActionResult<{ saved: number; failed: string[] }>> {
+): Promise<
+  UploadActionResult<{ saved: number; failed: string[]; failedKeys: string[] }>
+> {
   const session = await requireSession();
   if (!can(session.role, "uploads.send")) {
     throw new ForbiddenError("uploads.send");
@@ -123,17 +127,35 @@ export async function finalizeClientUploadsAction(
   const prefix = `${session.clinicId}/uploads/`;
   const saved: { name: string; size: number }[] = [];
   const failed: string[] = [];
+  const failedKeys: string[] = [];
 
   for (const f of parsed.data.files) {
     // A client can only finalize keys inside its own uploads namespace, and
     // only ones that actually hold bytes.
     if (!f.key.startsWith(prefix) || f.key.includes("..")) {
       failed.push(f.name);
+      failedKeys.push(f.key);
       continue;
     }
     const head = await verifyUploadedObject(f.key);
     if (!head) {
       failed.push(f.name);
+      failedKeys.push(f.key);
+      continue;
+    }
+    // A presigned PUT cannot cap the size, and the client-declared size was
+    // only checked when the target was minted. The stored object counts: an
+    // oversized or wrong-type object is deleted instead of registered.
+    const ext = fileExtension(f.key);
+    if (
+      !GENERAL_UPLOAD_EXTENSIONS.includes(ext) ||
+      head.size > uploadLimitForExtension(ext)
+    ) {
+      await getStorage()
+        .remove(f.key)
+        .catch(() => undefined);
+      failed.push(f.name);
+      failedKeys.push(f.key);
       continue;
     }
     await withClinicContext(session.clinicId, session.userId, async (tx) => {
@@ -167,7 +189,7 @@ export async function finalizeClientUploadsAction(
     revalidatePath("/dateien");
   }
 
-  return { ok: true, data: { saved: saved.length, failed } };
+  return { ok: true, data: { saved: saved.length, failed, failedKeys } };
 }
 
 // ---------------------------------------------------------------
@@ -178,6 +200,22 @@ export async function deleteClientUploadAction(
   formData: FormData
 ): Promise<void> {
   const session = await requireSession();
+  try {
+    await deleteClientUpload(session, formData);
+  } catch (err) {
+    // F-01: a toast instead of the error page.
+    await flashError(
+      "Datei nicht gelöscht",
+      flashMessageFromError(err, "uploads.delete")
+    );
+  }
+  revalidatePath("/dateien");
+}
+
+async function deleteClientUpload(
+  session: Awaited<ReturnType<typeof requireSession>>,
+  formData: FormData
+): Promise<void> {
   if (!can(session.role, "uploads.send")) {
     throw new ForbiddenError("uploads.send");
   }
@@ -206,7 +244,20 @@ export async function deleteClientUploadAction(
   });
 
   if (storageKey) {
-    await getStorage().remove(storageKey);
+    // The row is already gone, so the file has left the list; a failed
+    // object delete only leaves an orphan in storage, not an error for the
+    // Praxis.
+    await getStorage()
+      .remove(storageKey)
+      .catch((err: unknown) =>
+        console.error(
+          JSON.stringify({
+            kind: "storage_remove_failed",
+            scope: "client_upload",
+            error: err instanceof Error ? err.name : "unknown",
+          })
+        )
+      );
     await writeAudit({
       clinicId: session.clinicId,
       actorId: session.userId,
@@ -217,8 +268,6 @@ export async function deleteClientUploadAction(
       diff: { filename },
     });
   }
-
-  revalidatePath("/dateien");
 }
 
 // ---------------------------------------------------------------
@@ -255,11 +304,7 @@ async function notifyEins(
       "Abrufbar im Admin unter Praxen → Dateien.",
     ].join("\n");
 
-    const esc = (s: string) =>
-      s
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;");
+    const esc = escapeHtml;
     const fileListHtml = `<ul style="margin:0 0 24px 0; padding-left:20px; color:#10101a; font-size:15px; line-height:1.7;">${saved
       .map((s) => `<li>${esc(s.name)} <span style="color:#6a6a74;">(${formatBytes(s.size)})</span></li>`)
       .join("")}</ul>`;
@@ -285,12 +330,4 @@ async function notifyEins(
   } catch {
     // Swallow — the files are persisted; the admin tab is the fallback.
   }
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  if (bytes < 1024 * 1024 * 1024)
-    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }

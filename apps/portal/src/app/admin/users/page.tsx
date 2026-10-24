@@ -32,7 +32,7 @@ const ROLE_OPTIONS = [
   { value: "alle", label: "Rolle: alle" },
   { value: "inhaber", label: "Inhaber" },
   { value: "marketing", label: "Marketing-Verantwortlicher" },
-  { value: "frontdesk", label: "Frontdesk" },
+  { value: "frontdesk", label: "Empfang" },
 ];
 const STATUS_OPTIONS = [
   { value: "alle", label: "Status: alle" },

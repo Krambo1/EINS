@@ -14,7 +14,6 @@ import {
   integer,
   bigint,
   numeric,
-  date,
   jsonb,
   unique,
   inet,
@@ -444,6 +443,9 @@ export const pvsCsvUploads = pgTable(
       .defaultNow(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+    // C8 (0095): atomic ingest claim, see worker/processors/pvs-csv-ingest.ts.
+    claimedAt: timestamp("claimed_at", { withTimezone: true }),
+    ingestAttempts: integer("ingest_attempts").notNull().default(0),
   },
   (t) => ({
     streamCheck: check(
@@ -625,10 +627,113 @@ export const pvsAgentStatus = pgTable("pvs_agent_status", {
   adapterStatuses: jsonb("adapter_statuses")
     .notNull()
     .default(sql`'[]'::jsonb`),
+  /**
+   * 0071: remote vendor-config state. `vendorConfigs` is what this machine is
+   * actually running, which is the only way to tell a delivered push apart
+   * from a published one; `configRollbacks` is what it refused on its own.
+   */
+  vendorConfigs: jsonb("vendor_configs").notNull().default(sql`'[]'::jsonb`),
+  configSyncError: text("config_sync_error"),
+  configRollbacks: jsonb("config_rollbacks")
+    .notNull()
+    .default(sql`'[]'::jsonb`),
+  /**
+   * 0079: NULL = row seeded at enrollment, no heartbeat received yet. The
+   * hourly scan raises `heartbeat_never` 2 h after created_at.
+   */
+  firstHeartbeatAt: timestamp("first_heartbeat_at", { withTimezone: true }),
+  /** 0079: agent sentAt minus portal receive time, seconds. */
+  clockSkewSeconds: integer("clock_skew_seconds"),
+  /**
+   * 0093: why uploads are (not) flowing, from the agent: { uploadState,
+   * pendingReasons, fileWatchers }. Counters and reason codes only, no patient
+   * data. NULL = the agent build predates it.
+   */
+  uploadDiagnostics: jsonb("upload_diagnostics"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
 });
+
+// ---------------------------------------------------------------
+// PVS_VENDOR_CONFIG: signed vendor configs delivered to on-prem agents (0071).
+// ---------------------------------------------------------------
+// Signatures are minted OFFLINE (apps/bridge/agent/scripts/sign-vendor-config.ts);
+// the portal only verifies with a public key and serves the bundle verbatim.
+export const pvsVendorConfig = pgTable(
+  "pvs_vendor_config",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** YAML `vendor:` id, e.g. 'tomedo-db'. Not a bridge_source. */
+    vendor: text("vendor").notNull(),
+    /** Monotonic per vendor; a revert is a NEW version with the older YAML. */
+    version: integer("version").notNull(),
+    bridgeSource: text("bridge_source").notNull(),
+    driver: text("driver").notNull(),
+    streams: jsonb("streams").notNull().default(sql`'[]'::jsonb`),
+    minAgentVersion: text("min_agent_version").notNull(),
+    notes: text("notes"),
+    yaml: text("yaml").notNull(),
+    sha256: text("sha256").notNull(),
+    keyId: text("key_id").notNull(),
+    signature: text("signature").notNull(),
+    signedAt: timestamp("signed_at", { withTimezone: true }).notNull(),
+    /** The uploaded bundle verbatim; served unmodified so the signature holds. */
+    bundle: jsonb("bundle").notNull(),
+    /** 'off' | 'pilot' | 'all'. New uploads start at 'off'. */
+    rolloutMode: text("rollout_mode").notNull().default("off"),
+    /** 'active' | 'revoked'. */
+    status: text("status").notNull().default("active"),
+    uploadedByEmail: text("uploaded_by_email"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => ({
+    versionUnique: unique("pvs_vendor_config_version_unique").on(
+      t.vendor,
+      t.version
+    ),
+    vendorVersionIdx: index("pvs_vendor_config_vendor_version_idx").on(
+      t.vendor,
+      t.version.desc()
+    ),
+    rolloutIdx: index("pvs_vendor_config_rollout_idx").on(
+      t.rolloutMode,
+      t.status
+    ),
+  })
+);
+
+// ---------------------------------------------------------------
+// PVS_VENDOR_CONFIG_TARGET: per-clinic config pin (0071).
+// ---------------------------------------------------------------
+// Overrides rollout_mode in both directions: it delivers a 'pilot' version to
+// the Praxen in the pilot, and it holds one Praxis on a known-good version
+// while a newer one goes out to everyone else.
+export const pvsVendorConfigTarget = pgTable(
+  "pvs_vendor_config_target",
+  {
+    clinicId: uuid("clinic_id")
+      .notNull()
+      .references(() => clinics.id, { onDelete: "cascade" }),
+    vendor: text("vendor").notNull(),
+    configId: uuid("config_id")
+      .notNull()
+      .references((): AnyPgColumn => pvsVendorConfig.id, {
+        onDelete: "cascade",
+      }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    createdByEmail: text("created_by_email"),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.clinicId, t.vendor] }),
+    configIdx: index("pvs_vendor_config_target_config_idx").on(t.configId),
+  })
+);
 
 // ---------------------------------------------------------------
 // PVS_AGENT_FAILURE_SUMMARY: append-only dead-letter prune log (P2-2).

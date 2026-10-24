@@ -1,13 +1,13 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { getClinic, listClinics } from "@/lib/clinic-registry";
-import { formatAddress } from "@/lib/format";
+import { getClinic, isHiddenClinicSlug, listClinics } from "@/lib/clinic-registry";
+import { practiceLegalLinks } from "@/lib/legal/practice-privacy";
 
 export const dynamic = "force-static";
 export const dynamicParams = false;
 
 export function generateStaticParams() {
-  return listClinics().map((c) => ({ clinicSlug: c.slug }));
+  return listClinics().filter((c) => !isHiddenClinicSlug(c.slug)).map((c) => ({ clinicSlug: c.slug }));
 }
 
 export function generateMetadata({ params }: { params: { clinicSlug: string } }) {
@@ -21,14 +21,16 @@ export function generateMetadata({ params }: { params: { clinicSlug: string } })
 
 export default function ImpressumPage({ params }: { params: { clinicSlug: string } }) {
   const clinic = getClinic(params.clinicSlug);
-  if (!clinic) notFound();
+  if (!clinic || isHiddenClinicSlug(params.clinicSlug)) notFound();
+  const imprintHref = practiceLegalLinks(clinic).imprint;
+  if (imprintHref !== `/${clinic.slug}/impressum`) redirect(imprintHref);
   const l = clinic.legal;
 
   return (
     <main className="bg-brand-bg">
       <div className="container mx-auto max-w-3xl py-12 md:py-16">
         <Link
-          href="../"
+          href={`/${clinic.slug}`}
           className="text-sm text-brand-fg-muted underline-offset-4 hover:text-brand-fg hover:underline"
         >
           ← zurück
@@ -38,8 +40,8 @@ export default function ImpressumPage({ params }: { params: { clinicSlug: string
 
         <Section title="Anbieter">
           <P>{clinic.name}</P>
-          <P>{clinic.doctor.name}</P>
-          <P>{formatAddress(clinic.address)}</P>
+          <P>{clinic.privacySheet.rechtstraeger}</P>
+          <P>{clinic.privacySheet.anschrift}</P>
           <P>{clinic.address.country}</P>
         </Section>
 
@@ -112,17 +114,9 @@ export default function ImpressumPage({ params }: { params: { clinicSlug: string
           <P>Geltungsbereich: {l.berufshaftpflicht.geltungsbereich}</P>
         </Section>
 
-        {l.datenschutzbeauftragter && (
+        {clinic.privacySheet.datenschutzbeauftragter && (
           <Section title="Datenschutzbeauftragter">
-            <P>{l.datenschutzbeauftragter.name}</P>
-            <P>
-              <a
-                className="underline-offset-4 hover:underline"
-                href={`mailto:${l.datenschutzbeauftragter.email}`}
-              >
-                {l.datenschutzbeauftragter.email}
-              </a>
-            </P>
+            <P>{clinic.privacySheet.datenschutzbeauftragter}</P>
           </Section>
         )}
 

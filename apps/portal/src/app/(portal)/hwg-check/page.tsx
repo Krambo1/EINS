@@ -38,9 +38,10 @@ export default async function HwgCheckPage() {
           <p>
             <strong>Rot</strong> bedeutet: klarer Verstoß, so nicht
             veröffentlichen. <strong>Gelb</strong> heißt: Graubereich, bitte
-            individuell prüfen. Ein sauberes Ergebnis ist keine Rechtsberatung,
-            entbindet aber bei Routinetexten von der Sorge, etwas offensichtlich
-            Falsches zu übersehen.
+            individuell prüfen. Kein Treffer heißt: keine der geprüften
+            Formulierungen gefunden. Heilversprechen in eigenen Worten und
+            Bilder erkennt die Prüfung nicht, lesen Sie solche Stellen bitte
+            selbst noch einmal.
           </p>
         </CardContent>
       </Card>

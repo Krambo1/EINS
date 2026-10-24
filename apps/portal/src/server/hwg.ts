@@ -43,13 +43,33 @@ export interface HwgResult {
   findings: HwgFinding[];
 }
 
+/**
+ * Word-start guard. JS `\b` is ASCII-only and needs a word character on one
+ * side, so it misses "-20 %" and anything around umlauts. Every pattern starts
+ * with this Unicode-aware lookbehind instead; word ends are handled per rule
+ * (stems consume `\p{L}*`, short words use `(?!\p{L})`).
+ */
+const START = String.raw`(?<![\p{L}\p{N}])`;
+/** Treatments for the discount rule (stems, compounds allowed). */
+const TREATMENT = String.raw`(?:zahn|implantat|botox|lifting|filler|hyaluron|falten|lid|brust|fettabsaug|laser|behandlung)\p{L}*`;
+/** Discount wording for the discount rule. */
+const DISCOUNT = String.raw`(?:rabatt\p{L}*|nachlass|-\s*\d+\s*%|\d+\s*%\s*(?:rabatt|nachlass|günstiger|reduziert)|sale(?!\p{L})|angebot\p{L}*|aktionspreis\p{L}*|gutschein\p{L}*)`;
+
+function rx(body: string): RegExp {
+  return new RegExp(`${START}(?:${body})`, "giu");
+}
+
 // --- The rule list. Order does not matter; all matches are reported. ---
 const RULES: HwgRule[] = [
   // --- Red: explicit violations ---
   {
     id: "before-after",
     severity: "red",
-    pattern: /\bvorher[-\s]?nachher\b|\bbefore[-\s]?after\b/gi,
+    // "Vorher-Nachher", "Vorher/Nachher", "Vorher- und Nachher-Bilder",
+    // "Before & After", "before and after".
+    pattern: rx(
+      String.raw`vorher[\s\-–/&]*(?:und[\s\-–]*)?nachher|before[\s\-–/&]*(?:and[\s\-–]*)?after`
+    ),
     reason:
       "Vorher-Nachher-Bilder sind bei operativen Eingriffen (§ 11 HWG) grundsätzlich verboten.",
     reference: "§ 11 Abs. 1 Nr. 5 HWG",
@@ -57,7 +77,11 @@ const RULES: HwgRule[] = [
   {
     id: "guarantee",
     severity: "red",
-    pattern: /\b(garantie|garantiert|guaranteed|100\s*%\s*erfolg)\b/gi,
+    // Stems and compounds: "Garantie", "Garantien", "garantierte Ergebnisse",
+    // "Erfolgsgarantie", "100 % Erfolg", "100 % zufrieden".
+    pattern: rx(
+      String.raw`\p{L}*garanti(?:e|er)\p{L}*|guarantee\p{L}*|100\s*%\s*(?:erfolg|zufrieden|sicher)\p{L}*`
+    ),
     reason:
       "Erfolgs- oder Wirkungsgarantien sind in der Heilmittelwerbung untersagt.",
     reference: "§ 3 HWG",
@@ -65,7 +89,9 @@ const RULES: HwgRule[] = [
   {
     id: "pain-free",
     severity: "red",
-    pattern: /\b(völlig|komplett|absolut)\s+schmerzfrei\b|\bpain[-\s]?free\b/gi,
+    pattern: rx(
+      String.raw`(?:völlig|komplett|absolut|garantiert|100\s*%)\s+schmerz(?:frei|los)\p{L}*|pain[\s\-]?free`
+    ),
     reason:
       "Aussagen wie „völlig schmerzfrei“ gelten als irreführend, wenn sie nicht individuell zutreffen.",
     reference: "§ 3 HWG",
@@ -73,7 +99,7 @@ const RULES: HwgRule[] = [
   {
     id: "only-with-us",
     severity: "red",
-    pattern: /\bnur\s+bei\s+uns\b|\beinzigartig(e|er)?\b/gi,
+    pattern: rx(String.raw`nur\s+bei\s+uns(?!\p{L})|einzigartig\p{L}*`),
     reason:
       "Alleinstellungsbehauptungen sind nur zulässig, wenn sie sachlich belegbar sind.",
     reference: "§ 3 HWG, § 5 UWG",
@@ -81,7 +107,9 @@ const RULES: HwgRule[] = [
   {
     id: "risk-free",
     severity: "red",
-    pattern: /\b(risikofrei|nebenwirkungsfrei|ohne risiken)\b/gi,
+    pattern: rx(
+      String.raw`risiko(?:frei|los)\p{L}*|nebenwirkungs(?:frei|los)\p{L}*|ohne\s+(?:jedes\s+|jegliches\s+|jegliche\s+)?(?:risiko|risiken|nebenwirkungen)(?!\p{L})`
+    ),
     reason:
       "Aussagen zur völligen Risikofreiheit sind unzulässig, da jede medizinische Behandlung Risiken birgt.",
     reference: "§ 3 HWG",
@@ -91,7 +119,7 @@ const RULES: HwgRule[] = [
   {
     id: "testimonial-generic",
     severity: "yellow",
-    pattern: /\bpatientenstimmen?\b|\berfahrungsberichte?\b/gi,
+    pattern: rx(String.raw`patientenstimme\p{L}*|erfahrungsbericht\p{L}*`),
     reason:
       "Patientenäußerungen sind bei operativen Eingriffen (§ 11 HWG) nur unter engen Voraussetzungen zulässig.",
     reference: "§ 11 Abs. 1 Nr. 11 HWG",
@@ -99,7 +127,7 @@ const RULES: HwgRule[] = [
   {
     id: "emotional-fear",
     severity: "yellow",
-    pattern: /\b(leiden sie unter|endlich wieder|schluss mit)\b/gi,
+    pattern: rx(String.raw`(?:leiden\s+sie\s+unter|endlich\s+wieder|schluss\s+mit)(?!\p{L})`),
     reason:
       "Werbung, die Angst erzeugt oder Leid ausnutzt, ist bei Fachkreisen unzulässig.",
     reference: "§ 11 Abs. 1 Nr. 4 HWG",
@@ -107,7 +135,7 @@ const RULES: HwgRule[] = [
   {
     id: "medical-professional-attire",
     severity: "yellow",
-    pattern: /\bim\s+(weißen\s+)?kittel\b/gi,
+    pattern: rx(String.raw`im\s+(?:weißen\s+)?kittel(?!\p{L})`),
     reason:
       "Fotos in Berufskleidung dürfen nicht werblich eingesetzt werden, wenn sie die Autorität medizinisch überhöhen.",
     reference: "§ 11 Abs. 1 Nr. 4 HWG",
@@ -115,7 +143,8 @@ const RULES: HwgRule[] = [
   {
     id: "before-after-soft",
     severity: "yellow",
-    pattern: /\bergebnis\s*(bild|foto)\b|\bresult(at)?\s*(bild|foto)\b/gi,
+    // "Ergebnisbild", "Ergebnis-Fotos", "Resultatbilder".
+    pattern: rx(String.raw`(?:ergebnis|resultat|result)(?:s)?[\s\-]*(?:bild|foto)\p{L}*`),
     reason:
       "Ergebnis- oder Resultat-Bilder werden häufig als unzulässige Vorher-Nachher-Darstellung gewertet.",
     reference: "§ 11 Abs. 1 Nr. 5 HWG",
@@ -123,7 +152,7 @@ const RULES: HwgRule[] = [
   {
     id: "before-after-compare",
     severity: "yellow",
-    pattern: /\bgegenüberstellung\b|\bvergleichsbild(er)?\b/gi,
+    pattern: rx(String.raw`gegenüberstellung\p{L}*|vergleichs(?:bild|foto)\p{L}*`),
     reason:
       "Direkte Vergleichsbilder fallen oft unter das Vorher-Nachher-Verbot.",
     reference: "§ 11 Abs. 1 Nr. 5 HWG",
@@ -131,7 +160,10 @@ const RULES: HwgRule[] = [
   {
     id: "discount-medical",
     severity: "yellow",
-    pattern: /\b(rabatt|\-\s*\d+\s*%|sale|angebot)\b.{0,40}\b(zahn|implantat|botox|lifting|filler)\b/gi,
+    // Either order: "-20 % auf Botox" and "Botox jetzt 20 % günstiger".
+    pattern: rx(
+      `${DISCOUNT}[^.!?\\n]{0,40}?${TREATMENT}|${TREATMENT}[^.!?\\n]{0,40}?${DISCOUNT}`
+    ),
     reason:
       "Rabattwerbung für medizinische Leistungen ist gebührenrechtlich (GOÄ/GOZ) eingeschränkt.",
     reference: "GOÄ § 2, GOZ § 2",
@@ -139,7 +171,9 @@ const RULES: HwgRule[] = [
   {
     id: "miracle",
     severity: "yellow",
-    pattern: /\b(wunder|revolutionär|einzigartig|phänomenal)\b/gi,
+    pattern: rx(
+      String.raw`wunder(?:mittel|waffe|heilung|kur|spritze|behandlung)\p{L}*|wunder(?!\p{L})|revolutionär\p{L}*|einzigartig\p{L}*|phänomenal\p{L}*`
+    ),
     reason:
       "Superlative ohne sachliche Grundlage gelten als irreführende Werbung.",
     reference: "§ 3 HWG",

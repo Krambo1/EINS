@@ -26,9 +26,13 @@ export function clinicMetadata(clinic: Clinic): Metadata {
 
 export function treatmentMetadata(clinic: Clinic, treatment: Treatment): Metadata {
   return {
-    title: treatment.seo.metaTitle,
+    // Neutral tab title: gtag and the TikTok pixel send document.title with
+    // every page view, so it must not name the treatment. og/twitter titles
+    // (link previews) keep the treatment.
+    title: "Beratungsanfrage",
     description: treatment.seo.metaDescription,
-    alternates: { canonical: `/${treatment.slug}` },
+    // Neutral urlCode, never the slug: pixels send the page address.
+    alternates: { canonical: `/${treatment.urlCode}` },
     openGraph: {
       title: treatment.seo.metaTitle,
       description: treatment.seo.metaDescription,
@@ -37,12 +41,35 @@ export function treatmentMetadata(clinic: Clinic, treatment: Treatment): Metadat
       type: "website",
       images: treatment.seo.ogImage
         ? [{ url: treatment.seo.ogImage, width: 1200, height: 630 }]
-        : [{ url: `/${treatment.slug}/opengraph-image`, width: 1200, height: 630 }],
+        : [{ url: `/${treatment.urlCode}/opengraph-image`, width: 1200, height: 630 }],
     },
     twitter: {
       card: "summary_large_image",
       title: treatment.seo.metaTitle,
       description: treatment.seo.metaDescription,
     },
+  };
+}
+
+/**
+ * Practice start page (bare domain, `/<clinicSlug>` on internal hosts).
+ * Pixels send the page address and title, so neither names a treatment: the
+ * title is the practice name only, link previews use the same neutral text.
+ * scripts/validate-clinics.ts checks this against every treatment word.
+ */
+export function practiceStartMetadata(clinic: Clinic): Metadata {
+  const description = `${clinic.name}, ${clinic.doctor.facharzt} in ${clinic.address.city}. Beratungsanfrage online.`;
+  return {
+    title: { absolute: clinic.name },
+    description,
+    alternates: { canonical: "/" },
+    openGraph: {
+      title: clinic.name,
+      description,
+      siteName: clinic.name,
+      locale: "de_DE",
+      type: "website",
+    },
+    twitter: { card: "summary", title: clinic.name, description },
   };
 }

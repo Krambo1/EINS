@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import {
   getClinic,
-  getTreatment,
+  getTreatmentByCode,
   isHiddenClinicSlug,
   listAllRoutes,
 } from "@/lib/clinic-registry";
@@ -34,6 +34,9 @@ export function generateStaticParams() {
   return listAllRoutes();
 }
 
+// The `[treatmentSlug]` segment is the treatment's neutral `urlCode` (e.g.
+// "a1"), never the slug: ad pixels send the page address. A request with the
+// old slug is 308-redirected to the code by middleware.ts before this runs.
 interface PageProps {
   params: { clinicSlug: string; treatmentSlug: string };
 }
@@ -41,7 +44,7 @@ interface PageProps {
 export function generateMetadata({ params }: PageProps) {
   if (isHiddenClinicSlug(params.clinicSlug)) return {};
   const clinic = getClinic(params.clinicSlug);
-  const treatment = getTreatment(params.clinicSlug, params.treatmentSlug);
+  const treatment = getTreatmentByCode(params.clinicSlug, params.treatmentSlug);
   if (!clinic || !treatment) return {};
   return treatmentMetadata(clinic, treatment);
 }
@@ -53,13 +56,12 @@ export default function TreatmentPage({ params }: PageProps) {
   if (isHiddenClinicSlug(params.clinicSlug)) notFound();
 
   const clinic = getClinic(params.clinicSlug);
-  const treatment = getTreatment(params.clinicSlug, params.treatmentSlug);
+  const treatment = getTreatmentByCode(params.clinicSlug, params.treatmentSlug);
   if (!clinic || !treatment) notFound();
 
   const apexHttps = clinic.domains[0] ? `https://${clinic.domains[0]}` : "";
-  const pageUrl = `${apexHttps}/${treatment.slug}`;
+  const pageUrl = `${apexHttps}/${treatment.urlCode}`;
   const jsonld = buildJsonLd(clinic, treatment, pageUrl);
-  const pageViewEventId = `${treatment.slug}-${Date.now().toString(36)}`;
   const privacyHref = `/${clinic.slug}/datenschutz`;
 
   return (
@@ -97,10 +99,7 @@ export default function TreatmentPage({ params }: PageProps) {
 
       {/* Tracking — all consent-gated inside the components themselves. */}
       {clinic.connectors.metaPixelId && (
-        <MetaPixel
-          pixelId={clinic.connectors.metaPixelId}
-          pageViewEventId={pageViewEventId}
-        />
+        <MetaPixel pixelId={clinic.connectors.metaPixelId} />
       )}
       {clinic.connectors.googleAdsId && (
         <GoogleAds adsId={clinic.connectors.googleAdsId} />

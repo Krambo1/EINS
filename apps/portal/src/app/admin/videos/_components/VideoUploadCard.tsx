@@ -14,6 +14,7 @@ import {
 import { uploadFileToTarget } from "@/lib/upload-client";
 import { createOutreachVideoAction, createVideoUploadTargetAction } from "../actions";
 import { CopyLinkButton } from "./CopyLinkButton";
+import { formatBytes } from "@/lib/formatting";
 
 const ACCEPT = VIDEO_EXTENSIONS.map((e) => `.${e}`).join(",");
 
@@ -38,7 +39,7 @@ export function VideoUploadCard() {
   const [title, setTitle] = useState("");
   const [message, setMessage] = useState("");
   const [recipientEmail, setRecipientEmail] = useState("");
-  const [notionPage, setNotionPage] = useState("");
+  const [obsidianRef, setObsidianRef] = useState("");
   const [phase, setPhase] = useState<Phase>({ step: "idle" });
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -79,7 +80,7 @@ export function VideoUploadCard() {
     setTitle("");
     setMessage("");
     setRecipientEmail("");
-    setNotionPage("");
+    setObsidianRef("");
     setPraxisName("");
   }
 
@@ -133,7 +134,7 @@ export function VideoUploadCard() {
         title,
         message,
         recipientEmail,
-        notionPage,
+        obsidianRef,
         durationSeconds: probe?.durationSeconds ?? null,
       });
       if (!created.ok) throw new Error(created.error);
@@ -277,14 +278,14 @@ export function VideoUploadCard() {
                 onChange={(e) => setRecipientEmail(e.target.value)}
               />
             </Field>
-            <Field label="Notion-Link zum Lead (optional)" htmlFor="v-notion">
+            <Field label="Obsidian-Link (Lead oder Teardown)" htmlFor="v-obsidian">
               <Input
-                id="v-notion"
+                id="v-obsidian"
                 maxLength={500}
-                placeholder="https://www.notion.so/…"
-                value={notionPage}
+                placeholder="obsidian://open?vault=Karam&file=… oder Lead-ID"
+                value={obsidianRef}
                 disabled={busy}
-                onChange={(e) => setNotionPage(e.target.value)}
+                onChange={(e) => setObsidianRef(e.target.value)}
               />
             </Field>
           </div>
@@ -416,10 +417,4 @@ function errorText(code: string): string {
   if (code === "not_uploaded") return "Das Video ist nicht vollständig angekommen. Bitte erneut versuchen.";
   if (code === "invalid") return "Bitte die Eingaben prüfen (z. B. die E-Mail-Adresse).";
   return "Hochladen fehlgeschlagen. Bitte erneut versuchen.";
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }

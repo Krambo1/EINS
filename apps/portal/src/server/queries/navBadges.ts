@@ -14,7 +14,7 @@ export type NavSection = "fortschritt" | "medien" | "dokumente";
  * Upper bound on how far back a never-visited user's badge will look. Stops
  * a brand-new account from seeing "Neu" for ancient archived content.
  */
-const NEW_USER_LOOKBACK_DAYS = 14;
+export const NEW_USER_LOOKBACK_DAYS = 14;
 
 /**
  * The threshold against which a section's content `created_at` (or similar)

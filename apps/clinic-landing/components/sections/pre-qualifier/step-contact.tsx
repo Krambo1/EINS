@@ -2,6 +2,9 @@
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { healthConsentText } from "@/lib/legal/health-consent";
+import { LANDING_SELF_REPORTED_SOURCE_OPTIONS } from "@/lib/self-reported-source";
+import { cn } from "@/lib/utils";
 import type { Clinic } from "@/lib/types";
 import type { QuizAction, QuizState } from "./types";
 
@@ -9,7 +12,6 @@ interface Props {
   clinic: Clinic;
   state: QuizState;
   dispatch: React.Dispatch<QuizAction>;
-  privacyHref: string;
   isInfoOnly: boolean;
   /** Honeypot value lives outside the reducer — bots fill it, humans never see it. */
   honeypotRef: React.MutableRefObject<string>;
@@ -18,10 +20,10 @@ interface Props {
 /**
  * Contact step v2 — exactly 3 fields on the qualified branch (Vorname,
  * Telefon, E-Mail), 2 on the info branch (no phone). One combined consent
- * checkbox (Datenschutz + 18+, Art. 6 (1) b DSGVO); marketing opt-in moved
+ * checkbox (Final 14 health-data consent + 18+); marketing opt-in moved
  * to the confirmation screen, notes + AI consent removed entirely.
  */
-export function StepContact({ clinic, state, dispatch, privacyHref, isInfoOnly, honeypotRef }: Props) {
+export function StepContact({ clinic, state, dispatch, isInfoOnly, honeypotRef }: Props) {
   const responsePromise = clinic.responsePromise ?? "innerhalb eines Werktags";
   return (
     <div className="step-enter space-y-4">
@@ -83,6 +85,38 @@ export function StepContact({ clinic, state, dispatch, privacyHref, isInfoOnly, 
           />
         </label>
       </div>
+      {/* Optional self-report: one tap, tap again to undo, no validation.
+          Closed list, no free text (lib/self-reported-source.ts). */}
+      <fieldset className="min-w-0">
+        <legend className="mb-1.5 block text-sm font-medium text-brand-fg">
+          Wie sind Sie auf uns aufmerksam geworden?{" "}
+          <span className="font-normal text-brand-fg-muted">(freiwillig)</span>
+        </legend>
+        <div className="flex flex-wrap gap-2">
+          {LANDING_SELF_REPORTED_SOURCE_OPTIONS.map((opt) => {
+            const selected = state.selfReportedSource === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                aria-pressed={selected}
+                onClick={() =>
+                  dispatch({ type: "setSelfReportedSource", value: selected ? null : opt.id })
+                }
+                className={cn(
+                  "rounded-full border px-3 py-1.5 text-sm transition-colors",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary focus-visible:ring-offset-2",
+                  selected
+                    ? "border-brand-primary bg-brand-primary-soft font-medium text-brand-fg"
+                    : "border-brand-border bg-white text-brand-fg hover:border-brand-primary",
+                )}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </fieldset>
       <Checkbox
         checked={state.consent}
         onCheckedChange={(v) => dispatch({ type: "setConsent", value: v })}
@@ -90,19 +124,16 @@ export function StepContact({ clinic, state, dispatch, privacyHref, isInfoOnly, 
         error={state.errors.consent}
         label={
           <>
-            Ich bin mindestens 18 Jahre alt und habe die{" "}
-            <a
-              href={privacyHref}
-              target="_blank"
-              rel="noopener"
-              className="underline underline-offset-4 hover:text-brand-primary"
-            >
-              Datenschutzerklärung
-            </a>{" "}
-            zur Kenntnis genommen.
+            Ich bin mindestens 18 Jahre alt.{" "}
+            {healthConsentText(clinic.privacySheet.email)}
           </>
         }
       />
+      <p className="text-xs leading-relaxed text-brand-fg-muted">
+        Ohne Einwilligung können Sie Ihren Termin direkt unter{" "}
+        <a href={`tel:${clinic.contact.phoneE164}`} className="underline underline-offset-4">{clinic.contact.phoneDisplay}</a>{" "}
+        oder per <a href={`mailto:${clinic.privacySheet.email}`} className="underline underline-offset-4">E-Mail</a> vereinbaren.
+      </p>
     </div>
   );
 }

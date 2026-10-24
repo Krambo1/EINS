@@ -2,6 +2,7 @@ import type { Treatment } from "@/lib/types";
 
 export const templateLidOp: Treatment = {
   slug: "lidstraffung-stadt",
+  urlCode: "a3",
   clinicSlug: "_template",
   category: "lid-op",
   city: "[Stadt]",

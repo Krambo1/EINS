@@ -1,6 +1,5 @@
 import * as React from "react";
 import { cn } from "@eins/ui";
-import type { ToneKey } from "@/server/constants/admin";
 import { AdminRowDetails } from "./AdminRowDetails";
 
 /**
@@ -30,14 +29,6 @@ export interface AdminTableProps<T> {
   empty?: React.ReactNode;
   className?: string;
 }
-
-/** Solid text-tone classes for cells (no broken `/NN` opacity tokens). */
-export const TONE_TEXT: Record<ToneKey, string> = {
-  good: "text-tone-good",
-  warn: "text-tone-warn",
-  bad: "text-tone-bad",
-  neutral: "text-fg-secondary",
-};
 
 export function AdminTable<T>({
   columns,

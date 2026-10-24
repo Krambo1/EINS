@@ -38,10 +38,17 @@ const percentFormatter = new Intl.NumberFormat("de-DE", {
   maximumFractionDigits: 1,
 });
 
+// Every Praxis is in DACH, but the server (Vercel) runs in UTC. Without an
+// explicit zone a 23:30 Anfrage renders as 21:30 on the server and 23:30 in
+// the browser (wrong time + hydration mismatch). Pin all display formatting
+// to Berlin wall time.
+export const DISPLAY_TIME_ZONE = "Europe/Berlin";
+
 const dateFormatter = new Intl.DateTimeFormat("de-DE", {
   day: "2-digit",
   month: "2-digit",
   year: "numeric",
+  timeZone: DISPLAY_TIME_ZONE,
 });
 
 const dateTimeFormatter = new Intl.DateTimeFormat("de-DE", {
@@ -50,7 +57,22 @@ const dateTimeFormatter = new Intl.DateTimeFormat("de-DE", {
   year: "numeric",
   hour: "2-digit",
   minute: "2-digit",
+  timeZone: DISPLAY_TIME_ZONE,
 });
+
+// en-CA formats as YYYY-MM-DD, which makes the Berlin calendar date of any
+// instant a plain string compare/parse.
+const berlinIsoDateFormatter = new Intl.DateTimeFormat("en-CA", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  timeZone: DISPLAY_TIME_ZONE,
+});
+
+/** Berlin calendar date ("YYYY-MM-DD") of an instant. */
+export function berlinDateString(d: Date = new Date()): string {
+  return berlinIsoDateFormatter.format(d);
+}
 
 const relativeTimeFormatter = new Intl.RelativeTimeFormat("de-DE", {
   numeric: "auto",
@@ -112,6 +134,14 @@ export function formatPercent(value: number | null | undefined): string {
   return percentFormatter.format(value);
 }
 
+/** File size for upload lists: "512 B", "40 KB", "3.4 MB", "1.25 GB". */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 export function formatDate(value: Date | string | null | undefined): string {
   if (!value) return "–";
   const d = typeof value === "string" ? new Date(value) : value;
@@ -142,37 +172,36 @@ export function formatRelative(value: Date | string | null | undefined): string 
 }
 
 /**
- * Day-granularity relative label, anchored on local midnight. Used for
+ * Day-granularity relative label, anchored on Berlin midnight. Used for
  * forward-looking action lists (touchpoints, review-request schedule) where
  * "Heute" / "Morgen" / "in 4 Tagen" reads faster than an absolute
  * `22.5.2026`. Past dates collapse
  * to "Überfällig" with the day count surfaced via `overdueDays` so callers can
  * decide whether to show "vor 3 Tagen" or just paint the row red.
  *
- * Note: parses `YYYY-MM-DD` strings as local-midnight (not UTC) so day math
- * never drifts across the timezone boundary for German users.
+ * Note: `YYYY-MM-DD` strings are taken as Berlin calendar dates and instants
+ * are converted to their Berlin date, so day math never drifts on a UTC server.
  */
 export function formatRelativeDay(
   value: string | Date | null | undefined
 ): { label: string; diffDays: number; overdue: boolean } {
   if (!value) return { label: "–", diffDays: 0, overdue: false };
-  let target: Date;
-  if (typeof value === "string") {
-    const m = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    target = m
-      ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
-      : new Date(value);
+  // Compare Berlin calendar days, not server-local midnights: on a UTC
+  // server "today" otherwise flips at 01:00/02:00 Berlin time.
+  let targetIso: string;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+    targetIso = value.slice(0, 10);
   } else {
-    target = new Date(value);
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) {
+      return { label: "–", diffDays: 0, overdue: false };
+    }
+    targetIso = berlinDateString(d);
   }
-  if (Number.isNaN(target.getTime())) {
-    return { label: "–", diffDays: 0, overdue: false };
-  }
-  target.setHours(0, 0, 0, 0);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const toUtcDay = (iso: string) =>
+    Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)));
   const diffDays = Math.round(
-    (target.getTime() - today.getTime()) / 86_400_000
+    (toUtcDay(targetIso) - toUtcDay(berlinDateString())) / 86_400_000
   );
   if (diffDays < 0) {
     return { label: "Überfällig", diffDays, overdue: true };
@@ -180,14 +209,6 @@ export function formatRelativeDay(
   if (diffDays === 0) return { label: "Heute", diffDays, overdue: false };
   if (diffDays === 1) return { label: "Morgen", diffDays, overdue: false };
   return { label: `in ${diffDays} Tagen`, diffDays, overdue: false };
-}
-
-/** "Für jeden Euro kommen 2,50 € zurück" — Opa-proof ROAS translation. */
-export function formatRoasSentence(roas: number | null | undefined): string {
-  if (roas == null || Number.isNaN(roas) || roas <= 0) {
-    return "Noch zu wenig Daten für eine Aussage.";
-  }
-  return `Für jeden Euro Werbeausgabe kommen ${formatEuro(roas, { decimal: true })} zurück.`;
 }
 
 /** Traffic-light tone from a goal ratio (current/target). */
@@ -212,20 +233,4 @@ export function deltaTone(
   if (positive) return inverse ? "bad" : "good";
   if (negative) return inverse ? "good" : "bad";
   return "neutral";
-}
-
-/** "23 Min", "4,5 Std" — readable response-time formatting. */
-export function formatMinutes(value: number | null | undefined): string {
-  if (value == null || Number.isNaN(value)) return "–";
-  if (value < 60) return `${Math.round(value)} Min`;
-  if (value < 60 * 24) return `${(value / 60).toFixed(1).replace(".", ",")} Std`;
-  return `${(value / 60 / 24).toFixed(1).replace(".", ",")} Tage`;
-}
-
-/** Format a percentage delta (e.g. 0.12 → "+12,0 %"). */
-export function formatDeltaPct(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "–";
-  const pct = value * 100;
-  const sign = pct > 0 ? "+" : "";
-  return `${sign}${pct.toFixed(1).replace(".", ",")} %`;
 }

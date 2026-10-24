@@ -1,3 +1,5 @@
+import { isoUtc as sharedIsoUtc } from "../_shared/iso.js";
+
 /**
  * Tomedo event-identity contract (Phase 11 cross-path dedup).
  *
@@ -45,10 +47,15 @@
  * unchanged when it cannot be parsed (so the portal Zod surfaces the bad value
  * rather than this silently dropping it), and "" for empty/nullish input.
  */
-export function isoUtc(value: string | null | undefined): string {
-  if (value == null || value === "") return "";
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? value : d.toISOString();
+export function isoUtc(
+  value: string | null | undefined,
+  timezone?: string
+): string {
+  // `timezone` (optional) is applied ONLY to a timestamp with no UTC offset
+  // (a wall-clock reading in the Praxis). Offset/Z timestamps, and every call
+  // without a timezone, behave exactly as before: the cross-path contract above
+  // is untouched for them.
+  return sharedIsoUtc(value, timezone);
 }
 
 /**

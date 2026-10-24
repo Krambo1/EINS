@@ -34,11 +34,13 @@ vs. Cloud-REST) festzulegen.
 
 ## Installation
 
+Befehle in einer PowerShell als Administrator, im Agent-Ordner (mit `eins-agent.cmd`; es gibt keinen Installer, siehe `medatixx.md`, Abschnitt Installation). Token besser per `echo <token> | .\eins-agent.cmd --enroll --token-stdin --clinic <praxis-uuid>` uebergeben. Nach `--enable-db-adapter` mit `.\eins-agent.cmd --probe-db-adapter <vendor>` das Schema pruefen (Exit 0 = alles gefunden). `--install-service` legt die geplante Aufgabe `EINS-Agent` an (SYSTEM, startet beim Hochfahren); als der Windows-Benutzer ausfuehren, der die Einrichtung gemacht hat.
+
 ```powershell
-.\eins-agent-win.exe --enroll <token> --clinic <praxis-uuid>
-.\eins-agent-win.exe --enable-db-adapter pixelmedics-db `
+.\eins-agent.cmd --enroll <token> --clinic <praxis-uuid>
+.\eins-agent.cmd --enable-db-adapter pixelmedics-db `
   --db-database "C:\ProgramData\Pixelmedics\store.sqlite"
-.\eins-agent-win.exe --install-service
+.\eins-agent.cmd --install-service
 ```
 
 Bei SQLite werden Port, Username und Passwort nicht abgefragt (Datei

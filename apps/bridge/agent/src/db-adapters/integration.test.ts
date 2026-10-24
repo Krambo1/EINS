@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { newDb, type IMemoryDb } from "pg-mem";
 import Database from "better-sqlite3";
 
@@ -158,6 +158,16 @@ function seedTomedoSchema(db: IMemoryDb): void {
   `);
 }
 
+// The seeded rows are dated May/June 2026; the default 90-day first-poll horizon
+// and the future-cursor clamp are both relative to "now", so pin the clock.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-06-10T12:00:00Z"));
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("integration: pg-mem driven Tomedo poll", () => {
   it("emits a full AppointmentCreated event end-to-end", async () => {
     const vendor = await loadVendorConfigFile(TOMEDO_YAML);
@@ -188,7 +198,7 @@ describe("integration: pg-mem driven Tomedo poll", () => {
     expect(ev.kind).toBe("AppointmentCreated");
     expect(ev.bridgeSource).toBe("tomedo");
     expect(ev.clinicId).toBe("11111111-1111-1111-1111-111111111111");
-    expect(ev.pvsExternalEventId).toBe("tomedo:appointment:777");
+    expect(ev.pvsExternalEventId).toMatch(/^tomedo:appointment:777:[0-9a-f]{12}$/);
     expect(ev.pvsAppointmentId).toBe("777");
     expect(ev.pvsPatientId).toBe("42");
     expect(typeof ev.scheduledAt).toBe("string");
@@ -317,15 +327,20 @@ describe("integration: pg-mem driven Tomedo poll", () => {
       `ALTER TABLE termin RENAME COLUMN termin_zeit TO termin_zeit_v2;`
     );
 
-    const drifted = await pollOnce({
-      clinicId: "c1",
-      vendor,
-      stream,
-      driver,
-      sink: () => {
-        throw new Error("sink must not run once the query errors");
-      },
-    });
+    // Drift needs SCHEMA_ERROR_THRESHOLD consecutive schema-class errors: one
+    // flaky read must not halt the stream.
+    let drifted = await pollOnce({ clinicId: "c1", vendor, stream, driver, sink: () => { throw new Error("sink must not run once the query errors"); } });
+    for (let i = 1; i < 3; i++) {
+      drifted = await pollOnce({
+        clinicId: "c1",
+        vendor,
+        stream,
+        driver,
+        sink: () => {
+          throw new Error("sink must not run once the query errors");
+        },
+      });
+    }
 
     // Loud, not silent: classified as drift, zero events, stream halted, and a
     // report queued for drift-publisher -> /api/pvs/health.
@@ -374,7 +389,7 @@ describe("integration: pg-mem driven Tomedo poll", () => {
     // order. 92 rows also far exceeds batchSize 3, so the cluster spans many
     // batch boundaries.
     memDb.public.none(`DELETE FROM patient;`);
-    const ts = "2026-07-01 00:00:00";
+    const ts = "2026-06-01 00:00:00";
     const ids: number[] = [];
     for (let id = 9; id <= 100; id++) ids.push(id);
     for (const id of ids) {
