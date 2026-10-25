@@ -9,10 +9,7 @@ interface GlobalSearchProps {
 }
 
 /**
- * Visible search trigger that lives at the top of the sidebar / drawer. State,
- * keyboard shortcuts, and the dialog itself are owned by PortalShell so the
- * trigger can render in multiple places (desktop rail + mobile drawer) without
- * spawning duplicate dialogs.
+ * Visible search trigger that lives at the top of the sidebar / drawer.
  */
 export function GlobalSearch({ onOpen }: GlobalSearchProps) {
   const [isMac, setIsMac] = useState(true);
