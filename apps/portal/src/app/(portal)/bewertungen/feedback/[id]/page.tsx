@@ -271,7 +271,7 @@ export default async function PatientenfeedbackDetailPage({
 
             <FeedbackReplyEditor
               feedbackId={feedback.id}
-              rating={feedback.rating ?? null}
+              rating={feedback.rating}
               defaultNote={feedback.internalNote ?? ""}
             />
           </CardContent>

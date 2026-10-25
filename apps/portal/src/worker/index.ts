@@ -51,12 +51,8 @@ import { processPvsLinkBackfill } from "./processors/pvs-link-backfill";
 import { processPvsLeadTokenWrite } from "./processors/pvs-lead-token-write";
 import { processPvsPartitionRotate } from "./processors/pvs-partition-rotate";
 import { processPvsReconcile } from "./processors/pvs-reconcile";
-import { processPvsTreatmentSuggest } from "./processors/pvs-treatment-suggest";
 import { processPvsAgentHealthScan } from "./processors/pvs-agent-health-scan";
 import { processPvsApplySweep } from "./processors/pvs-apply-sweep";
-import { processCapiPurchase } from "./processors/capi-purchase";
-import { processOciPurchase } from "./processors/oci-purchase";
-import { processForecastSnapshot } from "./processors/forecast-snapshot";
 import { processAnomalyScan } from "./processors/anomaly-scan";
 import { processRetreatmentRefresh } from "./processors/retreatment-refresh";
 import { processRetreatmentReminderTick } from "./processors/retreatment-reminder";
@@ -142,12 +138,8 @@ const QUEUE_DEFS: QueueDef[] = [
   { name: QUEUES.pvsLeadTokenWrite, handler: wrap("pvs-lead-token-write", processPvsLeadTokenWrite) },
   { name: QUEUES.pvsPartitionRotate, handler: wrap("pvs-partition-rotate", processPvsPartitionRotate) },
   { name: QUEUES.pvsReconcile, handler: wrap("pvs-reconcile", processPvsReconcile) },
-  { name: QUEUES.pvsTreatmentSuggest, handler: wrap("pvs-treatment-suggest", processPvsTreatmentSuggest) },
   { name: QUEUES.pvsAgentHealthScan, handler: wrap("pvs-agent-health-scan", processPvsAgentHealthScan) },
   { name: QUEUES.pvsApplySweep, handler: wrap("pvs-apply-sweep", async (j) => void (await processPvsApplySweep(j))) },
-  { name: QUEUES.capiPurchase, handler: wrap("capi-purchase", processCapiPurchase) },
-  { name: QUEUES.ociPurchase, handler: wrap("oci-purchase", processOciPurchase) },
-  { name: QUEUES.forecastSnapshot, handler: wrap("forecast-snapshot", processForecastSnapshot) },
   { name: QUEUES.anomalyScan, handler: wrap("anomaly-scan", processAnomalyScan) },
   { name: QUEUES.retreatmentRefresh, handler: wrap("retreatment-refresh", processRetreatmentRefresh) },
   {

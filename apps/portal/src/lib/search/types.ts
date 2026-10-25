@@ -14,11 +14,3 @@ export interface SearchEntry {
   /** RBAC gate — entry is hidden when the user lacks this permission. */
   permission?: Permission;
 }
-
-/** Shape returned by the lead search API. */
-export interface LeadSearchResult {
-  id: string;
-  title: string;
-  subtitle: string;
-  href: string;
-}

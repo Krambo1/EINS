@@ -13,10 +13,8 @@ import { RequestSubmitButton } from "./RequestSubmitButton";
  */
 export function RequestCustomizationForm({
   libraryId,
-  label,
 }: {
   libraryId: string;
-  label: string;
 }) {
   const [state, action] = useActionState<RequestCustomizationState, FormData>(
     requestAnimationCustomizationAction,
@@ -41,7 +39,7 @@ export function RequestCustomizationForm({
         placeholder="Logo, Farbe, Stimme …"
         className="w-full rounded-lg border border-border bg-bg-primary p-2 text-sm"
       />
-      <RequestSubmitButton label={label} />
+      <RequestSubmitButton label="Anfrage senden" />
       {failed && (
         <p className="text-sm text-tone-bad" role="alert">
           {failed.error}

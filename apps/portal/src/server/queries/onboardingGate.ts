@@ -23,7 +23,6 @@ import {
  * these are owner-only reads on a single clinic id.
  */
 export interface OnboardingGateStatus {
-  fragebogenSubmitted: boolean;
   blockersDelivered: number;
   blockersTotal: number;
   requiredDelivered: number;
@@ -79,7 +78,6 @@ async function getOnboardingGateStatusUncached(
   const checklistComplete = requiredDelivered >= REQUIRED_CHECKLIST_IDS.length;
 
   return {
-    fragebogenSubmitted,
     blockersDelivered,
     blockersTotal: BLOCKER_CHECKLIST_IDS.length,
     requiredDelivered,

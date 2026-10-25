@@ -17,7 +17,6 @@ import {
 } from "../lib/constants";
 import { deriveSigningKey, generateToken, sha256Hex } from "../lib/crypto";
 import { trustedIpFromHeaders } from "../lib/client-ip";
-import { avatarUrlForKey } from "../server/avatars";
 import { isAdminEmail } from "./admin";
 import { describeErrorForLog } from "../lib/error-log";
 import {
@@ -80,7 +79,6 @@ export interface ResolvedSession {
   currency: CurrencyCode;
   email: string;
   fullName: string | null;
-  avatarUrl: string | null;
   role: Role;
   /** Non-null when an admin opened this session via "View as clinic user". */
   impersonatedByAdminId: string | null;
@@ -89,11 +87,6 @@ export interface ResolvedSession {
    * is the 30-minute cap, so the banner can show the remaining time.
    */
   expiresAt: Date;
-  /** Interactive portal-tour lifecycle (drives the first-login auto-prompt). */
-  onboardingTourCompletedAt: Date | null;
-  onboardingTourDismissedAt: Date | null;
-  /** Set once the user dismisses the left-nav tour card; suppresses it for good. */
-  onboardingTourNavCardDismissedAt: Date | null;
 }
 
 /**
@@ -229,14 +222,8 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
       currency: schema.clinics.currency,
       email: schema.clinicUsers.email,
       fullName: schema.clinicUsers.fullName,
-      avatarKey: schema.clinicUsers.avatarKey,
-      avatarUpdatedAt: schema.clinicUsers.avatarUpdatedAt,
       role: schema.clinicUsers.role,
       archivedAt: schema.clinicUsers.archivedAt,
-      onboardingTourCompletedAt: schema.clinicUsers.onboardingTourCompletedAt,
-      onboardingTourDismissedAt: schema.clinicUsers.onboardingTourDismissedAt,
-      onboardingTourNavCardDismissedAt:
-        schema.clinicUsers.onboardingTourNavCardDismissedAt,
     })
     .from(schema.sessions)
     .innerJoin(schema.clinicUsers, eq(schema.sessions.userId, schema.clinicUsers.id))
@@ -311,13 +298,9 @@ async function getSessionImpl(): Promise<ResolvedSession | null> {
     currency: row.currency as CurrencyCode,
     email: row.email,
     fullName: row.fullName,
-    avatarUrl: avatarUrlForKey(row.avatarKey, row.avatarUpdatedAt),
     role: row.role as Role,
     impersonatedByAdminId: row.impersonatedByAdminId,
     expiresAt: row.expiresAt,
-    onboardingTourCompletedAt: row.onboardingTourCompletedAt,
-    onboardingTourDismissedAt: row.onboardingTourDismissedAt,
-    onboardingTourNavCardDismissedAt: row.onboardingTourNavCardDismissedAt,
   };
 }
 

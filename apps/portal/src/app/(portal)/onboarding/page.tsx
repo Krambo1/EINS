@@ -11,7 +11,6 @@ import {
 import { requirePermissionOrRedirect } from "@/auth/guards";
 import { db, schema } from "@/db/client";
 import {
-  Phone,
   Link as LinkIcon,
   Users,
   Camera,
@@ -35,15 +34,14 @@ export const metadata = { title: "Erste Schritte" };
 export default async function OnboardingPage() {
   const session = await requirePermissionOrRedirect("onboarding.complete");
 
-  // All reads are independent: one parallel wave instead of seven sequential
-  // round trips. The gate status is the same React-cached call the layout
-  // already made for this request (no second Fragebogen/Checkliste read).
+  // All reads are independent: one parallel wave. The gate status is the
+  // same React-cached call the layout already made for this request (no
+  // second Fragebogen/Checkliste read).
   const [
     [clinic],
     [teamRow],
     credentials,
     assetRows,
-    goalRows,
     [discoveryRow],
     gate,
   ] = await Promise.all([
@@ -72,11 +70,6 @@ export default async function OnboardingPage() {
       .select({ id: schema.assets.id })
       .from(schema.assets)
       .where(eq(schema.assets.clinicId, session.clinicId))
-      .limit(1),
-    db
-      .select({ id: schema.goals.id })
-      .from(schema.goals)
-      .where(eq(schema.goals.clinicId, session.clinicId))
       .limit(1),
     db
       .select({ status: schema.discoveryFragebogen.status })
@@ -165,15 +158,6 @@ export default async function OnboardingPage() {
       icon: <LinkIcon className="h-5 w-5" />,
     },
     {
-      key: "goals",
-      title: "Monatsziel festlegen",
-      description:
-        "Was bedeutet für Sie ein guter Monat? Anfragen oder Umsatz, wir arbeiten in diese Richtung.",
-      done: goalRows.length > 0,
-      action: { label: "Zur Übersicht", href: "/dashboard" },
-      icon: <CheckCircle2 className="h-5 w-5" />,
-    },
-    {
       key: "media",
       title: "Erste Beiträge ansehen",
       description:
@@ -181,15 +165,6 @@ export default async function OnboardingPage() {
       done: assetRows.length > 0,
       action: { label: "Medien ansehen", href: "/medien" },
       icon: <Camera className="h-5 w-5" />,
-    },
-    {
-      key: "playbook",
-      title: "Vertriebsleitfaden lesen",
-      description:
-        "Wie aus einer Anfrage eine Behandlung wird. Kurz, konkret, auf Ihre Rezeption zugeschnitten.",
-      done: false, // We don't track reads: always visible as recommended.
-      action: { label: "Zum Leitfaden", href: "/leitfaden" },
-      icon: <Phone className="h-5 w-5" />,
     },
   ];
 

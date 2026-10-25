@@ -9,34 +9,24 @@ import type { Role } from "./constants";
 export const PERMISSIONS = {
   // Dashboard / KPIs
   "dashboard.view": ["inhaber", "marketing", "frontdesk"],
-  "dashboard.view.full": ["inhaber", "marketing", "frontdesk"],
   // Anfragen
   "requests.view": ["inhaber", "marketing", "frontdesk"],
   "requests.update": ["inhaber", "marketing", "frontdesk"],
   // Medien
   "assets.view": ["inhaber", "marketing", "frontdesk"],
-  "assets.download": ["inhaber", "marketing", "frontdesk"],
-  "assets.upload": [] as Role[], // nur Karam (super-admin)
   // Animationen
   "animations.view": ["inhaber", "marketing", "frontdesk"],
   "animations.request_customization": ["inhaber", "marketing", "frontdesk"],
-  // Auswertung
-  "reports.view": ["inhaber", "marketing", "frontdesk"],
   // Werbebudget Live
   "campaigns.live": ["inhaber", "marketing", "frontdesk"],
   // Dokumente
-  "documents.view.all": ["inhaber"], // Verträge, AVV — owner only
   "documents.view.marketing": ["inhaber", "marketing", "frontdesk"],
-  "documents.view.all_roles": ["inhaber", "marketing", "frontdesk"],
-  // Leitfaden — viewable + quiz testable by every clinic role (Schulung fürs Praxisteam)
+  // Leitfaden — viewable by every clinic role (Schulung fürs Praxisteam)
   "leitfaden.view": ["inhaber", "marketing", "frontdesk"],
-  "leitfaden.quiz": ["inhaber", "marketing", "frontdesk"],
   // Einstellungen — owner only (team, OAuth tokens, audit log)
   "settings.team": ["inhaber"],
   "settings.integrations": ["inhaber"],
   "audit.view": ["inhaber"],
-  // Tools
-  "tools.hwg_check": ["inhaber", "marketing", "frontdesk"],
   // Bewertungen / Reputation
   "reviews.view": ["inhaber", "marketing", "frontdesk"],
   "reviews.manage": ["inhaber", "marketing", "frontdesk"],
@@ -45,7 +35,6 @@ export const PERMISSIONS = {
   "patient_feedback.manage": ["inhaber", "marketing"],
   // Feedback — anyone in the clinic can send feedback to EINS
   "feedback.submit": ["inhaber", "marketing", "frontdesk"],
-  "feedback.view": ["inhaber", "marketing", "frontdesk"],
   // Dateien an EINS — general file delivery (documents, images, videos)
   "uploads.send": ["inhaber", "marketing", "frontdesk"],
   // Onboarding — owner only (initial setup)

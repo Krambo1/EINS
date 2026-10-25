@@ -25,8 +25,7 @@ export default async function GdtAgentSetupPage() {
         <h1 className="text-2xl font-semibold">GDT-Agent</h1>
         <p className="mt-1 text-base text-fg-primary">
           Für lokal installierte Praxis-Software (CGM Albis, x.concept, pixelmedic,
-          DURIA und alle, die GDT/BDT ausgeben können). GDT ist ein
-          Standard-Dateiformat, über das Praxis-Software Daten austauscht. Der
+          DURIA und alle, die GDT/BDT ausgeben können). Der
           EINS-Agent läuft als kleines Programm auf einem Praxisrechner, liest
           neue GDT-Dateien aus einem Ordner und sendet sie verschlüsselt ans
           Portal.

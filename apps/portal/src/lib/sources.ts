@@ -1,13 +1,13 @@
 /**
  * Stable source taxonomy. The raw `requests.source` column is free text
  * (Meta webhook writes "meta", intake API writes "formular", PVS CSV writes
- * "csv", manual entries write "manuell", etc.). Forecast + reporting queries
+ * "csv", manual entries write "manuell", etc.). Reporting queries
  * need a constrained set of buckets that survives free-text drift.
  *
  * This module is the ONE source contract: ENTRY_SOURCES (what a producer may
  * write), their labels and aliases, the Messweg classification and the
  * attribution confidence. `constants.ts` only re-exports from here.
- * attribution.ts and forecast.ts go through `canonicalSource()` so an old or
+ * attribution.ts goes through `canonicalSource()` so an old or
  * misspelled stored value collapses to "unbekannt" instead of fragmenting a
  * per-source rate into a one-row sample.
  */
@@ -107,7 +107,7 @@ export function entrySourceLabel(raw: string | null | undefined): string {
   return s ? ENTRY_SOURCE_LABELS[s] : raw ?? "";
 }
 
-// Reporting buckets (forecast, Auswertung) live at the end of this file:
+// Reporting buckets (Auswertung) live at the end of this file:
 // REPORTING_CHANNELS / reportingChannel(). They are derived from
 // classifyAttribution(), so organic Instagram/Facebook/TikTok, profile-link
 // and DM-link inquiries never collapse into the paid Meta bucket.
@@ -439,7 +439,7 @@ export function attributionConfidence(input: {
 }
 
 // ---------------------------------------------------------------------------
-// Reporting buckets (forecast, Auswertung "Quellen")
+// Reporting buckets (Auswertung "Quellen")
 // ---------------------------------------------------------------------------
 
 /**
@@ -512,7 +512,6 @@ export function adPlatformFor(channel: string): "meta" | "google" | null {
   if (channel === "google_anzeige") return "google";
   return null;
 }
-export type ForecastSource = ReportingChannel;
 
 /**
  * Normalize an inquiry into its reporting bucket. Pass the UTM bag whenever

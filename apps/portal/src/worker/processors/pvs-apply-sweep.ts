@@ -1,7 +1,6 @@
 import { and, asc, gt, isNull, lt, ne } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { reapplyLoggedEvent } from "@/server/pvs-events";
-import { reenqueueStuckOutbox } from "@/server/ads-conversion-outbox";
 
 /**
  * PVS apply sweep: safety net for pvs_event_log rows that were persisted but
@@ -13,9 +12,6 @@ import { reenqueueStuckOutbox } from "@/server/ads-conversion-outbox";
  * retry normally finishes it (the dedupe branch re-runs the steps), but an
  * agent that gave up, was re-enrolled or lost its outbox never retries, and
  * the revenue would stay uncounted forever. This sweep finishes those rows.
- *
- * Also re-enqueues ads_conversion_outbox rows stuck in `pending` for > 30 min
- * (lost enqueue); nothing else does that.
  *
  * Suggested registration (NOT registered here; the owner of worker/index.ts and
  * the schedule registry wires it):
@@ -39,7 +35,6 @@ export interface PvsApplySweepSummary {
   scanned: number;
   reapplied: number;
   failed: number;
-  outbox: { found: number; enqueued: number; failed: number } | null;
 }
 
 export async function processPvsApplySweep(
@@ -80,23 +75,14 @@ export async function processPvsApplySweep(
     }
   }
 
-  let outbox: PvsApplySweepSummary["outbox"] = null;
-  let outboxThrew = false;
-  try {
-    outbox = await reenqueueStuckOutbox(30);
-  } catch (err) {
-    outboxThrew = true;
-    console.error("[pvs-apply-sweep] outbox re-enqueue failed:", err);
-  }
-
   console.log(
-    `[pvs-apply-sweep] scanned=${rows.length} reapplied=${reapplied} failed=${failed} outbox=${JSON.stringify(outbox)}`
+    `[pvs-apply-sweep] scanned=${rows.length} reapplied=${reapplied} failed=${failed}`
   );
 
-  if (failed > 0 || outboxThrew) {
+  if (failed > 0) {
     throw new Error(
-      `pvs-apply-sweep: ${failed}/${rows.length} events failed to re-apply${outboxThrew ? "; outbox re-enqueue failed" : ""}`
+      `pvs-apply-sweep: ${failed}/${rows.length} events failed to re-apply`
     );
   }
-  return { scanned: rows.length, reapplied, failed, outbox };
+  return { scanned: rows.length, reapplied, failed };
 }

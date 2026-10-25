@@ -15,11 +15,9 @@ import { cn } from "@eins/ui";
 export function GoogleSignInButton({
   href,
   className,
-  label = "Mit Google anmelden",
 }: {
   href: string;
   className?: string;
-  label?: string;
 }) {
   return (
     <a
@@ -30,7 +28,7 @@ export function GoogleSignInButton({
       )}
     >
       <GoogleGlyph />
-      {label}
+      Mit Google anmelden
     </a>
   );
 }

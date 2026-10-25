@@ -1,6 +1,6 @@
 import "server-only";
 import { cache } from "react";
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { withClinicContext, schema, db, type dbApp } from "@/db/client";
 import { cacheClinicQuery, SHORT_REVALIDATE_S } from "./_cache";
 import { openQueueDailyInRangeWithComparison } from "./requests";
@@ -294,44 +294,6 @@ export const kpiSummary = cacheClinicQuery(
 );
 
 /**
- * Daily rows for charts, ascending, in the `kpi_daily` row shape (numeric
- * columns as strings) so `/api/kpis?series=1` keeps its contract. Days
- * without data are omitted, like the old table read.
- */
-async function kpiDailySeriesUncached(
-  clinicId: string,
-  userId: string,
-  from: Date,
-  to: Date
-) {
-  const days = await liveKpiDays(clinicId, userId, from, to);
-  return days.map((d) => {
-    const rate = noShowRateOf(d);
-    return {
-      clinicId,
-      date: d.date,
-      leads: d.leads,
-      costPerLead:
-        d.spendEur > 0 && d.leads > 0 ? (d.spendEur / d.leads).toFixed(2) : null,
-      appointments: d.appointments,
-      consultationsHeld: d.consultationsHeld,
-      casesWon: d.casesWon,
-      noShowRate: rate != null ? rate.toFixed(4) : null,
-      totalSpendEur: d.spendEur.toFixed(2),
-      revenueAttributedEur: d.revenueEur.toFixed(2),
-      roas: d.spendEur > 0 ? (d.revenueEur / d.spendEur).toFixed(2) : null,
-    };
-  });
-}
-
-/** Cached version (short TTL, live values). */
-export const kpiDailySeries = cacheClinicQuery(
-  "kpiDailySeries",
-  kpiDailySeriesUncached,
-  { dateArgs: [0, 1], revalidate: SHORT_REVALIDATE_S }
-);
-
-/**
  * Open-queue size ("Neu") at the end of each Berlin day in [from, to], plus
  * the size right before `from` for the comparison line. Same function as
  * `openQueueDailyInRangeWithComparison` in requests.ts (Berlin days, one
@@ -387,39 +349,6 @@ export async function campaignLiveSummaryTx(
     });
   }
 }
-
-/** Goals for a period that overlaps `today`. Returns latest matching per metric. */
-async function currentGoalsUncached(clinicId: string, userId: string) {
-  // Berlin day: goals switch at 00:00 Berlin, not 02:00.
-  const today = berlinDay();
-  return withClinicContext(clinicId, userId, async (tx) => {
-    return await tx
-      .select()
-      .from(schema.goals)
-      .where(
-        and(
-          eq(schema.goals.clinicId, clinicId),
-          lte(schema.goals.periodStart, today),
-          gte(schema.goals.periodEnd, today)
-        )
-      )
-      .orderBy(desc(schema.goals.createdAt));
-  });
-}
-
-/**
- * Cached for SHORT_REVALIDATE_S. Goals are range-independent, so the dashboard
- * re-running this on every TimeRangeToggle is pure waste; they also change
- * rarely (set monthly in Einstellungen), so ~30s staleness is invisible.
- * Date columns on the returned rows are never read as Dates downstream (the
- * ordering is done in SQL), so the unstable_cache Date→string round-trip is
- * harmless here.
- */
-export const currentGoals = cacheClinicQuery(
-  "currentGoals",
-  currentGoalsUncached,
-  { revalidate: SHORT_REVALIDATE_S }
-);
 
 // ---------------------------------------------------------------
 // Detail-mode extensions: comparison vs prior period + sparklines.

@@ -7,7 +7,6 @@ import { writeAudit } from "@/server/audit";
 import { ClinicArchivedError } from "@/server/leads";
 import { createManualRequest, UnknownTreatmentError } from "@/server/manual-entry";
 import { invalidateClinicKpiCache } from "@/server/queries/_cache";
-import { invalidateNavBadges } from "@/server/queries/navBadgesCache";
 import { flashSuccess } from "@/lib/flash";
 import { can } from "@/lib/roles";
 import { MANUAL_ENTRY_REPEAT_NOTICE, parseManualEntry } from "@/lib/manual-entry";
@@ -81,7 +80,6 @@ export async function createManualRequestAction(
   revalidatePath("/anfragen");
   revalidatePath(`/anfragen/${result.id}`);
   void invalidateClinicKpiCache(session.clinicId);
-  invalidateNavBadges(session.clinicId, session.userId);
 
   if (repeat) await flashSuccess("Eintrag ergänzt", MANUAL_ENTRY_REPEAT_NOTICE);
   else await flashSuccess("Anfrage angelegt");

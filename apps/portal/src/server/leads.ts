@@ -69,9 +69,7 @@ export interface LeadQuiz {
 
 /**
  * Closed-loop attribution envelope — click-IDs + browser hints captured at
- * lead time and persisted on the requests row so the capi-purchase /
- * oci-purchase workers can join InvoicePaid events back to the original
- * paid click. All fields nullable: organic / manual / PVS-only requests
+ * lead time and persisted on the requests row. All fields nullable: organic / manual / PVS-only requests
  * will not have them.
  */
 export interface LeadAttribution {

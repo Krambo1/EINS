@@ -55,14 +55,9 @@ const TargetsInput = z.object({
     .max(MAX_FILES_PER_BATCH),
 });
 
-export interface MintedTarget extends UploadTarget {
-  /** Echo of the client filename, so the browser can pair file ↔ target. */
-  name: string;
-}
-
 export async function createClientUploadTargetsAction(
   input: z.infer<typeof TargetsInput>
-): Promise<UploadActionResult<{ targets: MintedTarget[] }>> {
+): Promise<UploadActionResult<{ targets: UploadTarget[] }>> {
   const session = await requireSession();
   if (!can(session.role, "uploads.send")) {
     throw new ForbiddenError("uploads.send");
@@ -80,7 +75,7 @@ export async function createClientUploadTargetsAction(
     }
   }
 
-  const targets: MintedTarget[] = [];
+  const targets: UploadTarget[] = [];
   for (const f of parsed.data.files) {
     const target = await createUploadTarget({
       clinicId: session.clinicId,
@@ -88,7 +83,7 @@ export async function createClientUploadTargetsAction(
       extension: fileExtension(f.name),
       contentType: f.type,
     });
-    targets.push({ ...target, name: f.name });
+    targets.push(target);
   }
   return { ok: true, data: { targets } };
 }
@@ -114,7 +109,7 @@ const FinalizeInput = z.object({
 export async function finalizeClientUploadsAction(
   input: z.infer<typeof FinalizeInput>
 ): Promise<
-  UploadActionResult<{ saved: number; failed: string[]; failedKeys: string[] }>
+  UploadActionResult<{ saved: number; failedKeys: string[] }>
 > {
   const session = await requireSession();
   if (!can(session.role, "uploads.send")) {
@@ -126,20 +121,17 @@ export async function finalizeClientUploadsAction(
   const note = parsed.data.note?.trim() ? parsed.data.note.trim() : null;
   const prefix = `${session.clinicId}/uploads/`;
   const saved: { name: string; size: number }[] = [];
-  const failed: string[] = [];
   const failedKeys: string[] = [];
 
   for (const f of parsed.data.files) {
     // A client can only finalize keys inside its own uploads namespace, and
     // only ones that actually hold bytes.
     if (!f.key.startsWith(prefix) || f.key.includes("..")) {
-      failed.push(f.name);
       failedKeys.push(f.key);
       continue;
     }
     const head = await verifyUploadedObject(f.key);
     if (!head) {
-      failed.push(f.name);
       failedKeys.push(f.key);
       continue;
     }
@@ -154,7 +146,6 @@ export async function finalizeClientUploadsAction(
       await getStorage()
         .remove(f.key)
         .catch(() => undefined);
-      failed.push(f.name);
       failedKeys.push(f.key);
       continue;
     }
@@ -189,7 +180,7 @@ export async function finalizeClientUploadsAction(
     revalidatePath("/dateien");
   }
 
-  return { ok: true, data: { saved: saved.length, failed, failedKeys } };
+  return { ok: true, data: { saved: saved.length, failedKeys } };
 }
 
 // ---------------------------------------------------------------

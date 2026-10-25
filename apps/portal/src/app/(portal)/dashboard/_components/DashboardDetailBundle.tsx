@@ -35,7 +35,7 @@ import {
 } from "@/lib/dashboard-range";
 import { RatingStars } from "../../_components/RatingStars";
 import { DataTable } from "./detail-helpers";
-import { CardEmptyNote, CardRangeLabel } from "./card-notes";
+import { CardEmptyNote } from "./card-notes";
 import { FIRST_INQUIRY_NOTE, RANGE_SENTENCE_START } from "./range-text";
 
 /**
@@ -52,11 +52,9 @@ export async function DashboardDetailBundle({
   noShow,
   noShowPrior,
   canManageReviews,
-  showRangeLabels,
   funnelRange,
   locationsRange,
   treatmentsRange,
-  noShowRange,
 }: {
   clinicId: string;
   userId: string;
@@ -69,13 +67,9 @@ export async function DashboardDetailBundle({
   noShowPrior: NoShowWindow;
   /** Inhaber: may connect review platforms in Einstellungen. */
   canManageReviews: boolean;
-  /** Only true when the per-card ranges differ (deep link); otherwise the
-   *  page-level switch names the period and the cards stay silent. */
-  showRangeLabels: boolean;
   funnelRange: DashboardRange;
   locationsRange: DashboardRange;
   treatmentsRange: DashboardRange;
-  noShowRange: DashboardRange;
 }) {
   // Each breakdown owns its own time window via its own toggle param:
   // `locationsWin` = Standorte (rLocations),
@@ -159,13 +153,11 @@ export async function DashboardDetailBundle({
           summary={summary}
           priorSummary={priorSummary}
           range={funnelRange}
-          showRange={showRangeLabels}
           hasAnyRequest={hasAnyRequest}
         />
         <TreatmentBreakdownCard
           rows={treatmentRows}
           range={treatmentsRange}
-          showRange={showRangeLabels}
           currency={currency}
           hasAnyRequest={hasAnyRequest}
         />
@@ -279,16 +271,12 @@ export async function DashboardDetailBundle({
         <NoShowQuoteCard
           current={noShow}
           prior={noShowPrior}
-          range={noShowRange}
-          showRange={showRangeLabels}
         />
       </div>
 
       {showLocations && (
         <MultiLocationCard
           rows={locationBreakdown}
-          range={locationsRange}
-          showRange={showRangeLabels}
           currency={currency}
         />
       )}
@@ -307,13 +295,9 @@ export async function DashboardDetailBundle({
 function NoShowQuoteCard({
   current,
   prior,
-  range,
-  showRange,
 }: {
   current: NoShowWindow;
   prior: NoShowWindow;
-  range: DashboardRange;
-  showRange: boolean;
 }) {
   const hasData = current.appointments > 0;
   return (
@@ -340,7 +324,6 @@ function NoShowQuoteCard({
             </p>
           </ExplainerPopover>
         </div>
-        {showRange && <CardRangeLabel range={range} />}
       </CardHeader>
       <CardContent className="space-y-3">
         {!hasData ? (
@@ -436,13 +419,9 @@ function NoShowDelta({
  */
 function MultiLocationCard({
   rows,
-  range,
-  showRange,
   currency,
 }: {
   rows: LocationBreakdownRow[];
-  range: DashboardRange;
-  showRange: boolean;
   currency: CurrencyCode;
 }) {
   return (
@@ -457,7 +436,6 @@ function MultiLocationCard({
         <CardTitle className="!text-xl !font-medium md:!text-2xl">
           Standorte
         </CardTitle>
-        {showRange && <CardRangeLabel range={range} />}
       </CardHeader>
       <CardContent>
         <DataTable
@@ -563,13 +541,11 @@ function FunnelOverviewCard({
   summary,
   priorSummary,
   range,
-  showRange,
   hasAnyRequest,
 }: {
   summary: KpiSummary;
   priorSummary: KpiSummary;
   range: DashboardRange;
-  showRange: boolean;
   hasAnyRequest: boolean;
 }) {
   const stages: FunnelStageData[] = [
@@ -607,7 +583,6 @@ function FunnelOverviewCard({
             Trichter-Übersicht
           </CardTitle>
         </div>
-        {showRange && <CardRangeLabel range={range} />}
       </CardHeader>
       <CardContent>
         {empty ? (
@@ -711,13 +686,11 @@ function treatmentRoasToneClass(roas: number | null): string {
 function TreatmentBreakdownCard({
   rows,
   range,
-  showRange,
   currency,
   hasAnyRequest,
 }: {
   rows: TreatmentDisplayRow[];
   range: DashboardRange;
-  showRange: boolean;
   currency: CurrencyCode;
   hasAnyRequest: boolean;
 }) {
@@ -749,7 +722,6 @@ function TreatmentBreakdownCard({
             </p>
           </ExplainerPopover>
         </div>
-        {showRange && <CardRangeLabel range={range} />}
       </CardHeader>
       <CardContent>
         {!hasAnyRequest || rows.length === 0 ? (

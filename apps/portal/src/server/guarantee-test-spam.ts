@@ -15,7 +15,7 @@ import type { RejectionReason } from "@/lib/guarantee-clock";
  * admin is no clinic user, so `actor_id` stays NULL like PVS rows; the admin
  * is named in the guarantee audit row). The activity carries the same
  * `meta.from` / `meta.to` shape as every other status change, which the
- * Verlauf, forecast and KPI reconstruction read.
+ * Verlauf and KPI reconstruction read.
  */
 
 /** Marks the status_change written by the rejection, so the undo finds it. */

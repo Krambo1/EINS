@@ -101,7 +101,7 @@ export function FaqBrowser() {
           </p>
           <p className="mt-1 text-sm text-fg-secondary">
             Versuchen Sie ein anderes Stichwort. Ihre Frage ist nicht dabei?
-            Schreiben Sie uns über den Bereich Feedback, wir helfen gerne weiter.
+            Schreiben Sie uns über den Bereich Nachrichten an EINS, wir helfen gerne weiter.
           </p>
         </div>
       ) : (

@@ -11,7 +11,7 @@ import { requirePermissionOrRedirect } from "@/auth/guards";
 import { listAssets, listAnimationsForClinic } from "@/server/queries/assets";
 import { getStorage } from "@/server/storage";
 import { formatDate } from "@/lib/formatting";
-import { Film, Camera, Package, Clapperboard } from "lucide-react";
+import { Film } from "lucide-react";
 import {
   ANIMATION_STATE_LABELS,
   type AnimationState,
@@ -35,13 +35,6 @@ const ASSET_KIND_LABELS: Record<AssetKind, string> = {
   foto: "Bildmaterial",
   rohmaterial: "Weiteres Material",
   behind_scenes: "Weiteres Material",
-};
-
-const ASSET_KIND_ICONS: Record<AssetKind, React.ReactNode> = {
-  video: <Film className="h-4 w-4" />,
-  foto: <Camera className="h-4 w-4" />,
-  rohmaterial: <Package className="h-4 w-4" />,
-  behind_scenes: <Camera className="h-4 w-4" />,
 };
 
 const ANIMATION_STATE_TONE: Record<
@@ -139,7 +132,7 @@ export default async function MedienPage({
 
   return (
     <div className="space-y-8">
-      <header data-tour="medien-header">
+      <header>
         <h1 className="text-3xl font-semibold md:text-4xl">Medien.</h1>
         <p className="mt-2 text-base text-fg-primary md:text-lg">
           Alle Videos, Animationen und Bilder für Ihre Praxis. Online geht nur, was Sie unter{" "}
@@ -166,7 +159,6 @@ export default async function MedienPage({
             key={k}
             href={`/medien?kind=${k}`}
             active={filter === k}
-            icon={ASSET_KIND_ICONS[k]}
           >
             {ASSET_KIND_LABELS[k]}
           </FilterChip>
@@ -175,7 +167,6 @@ export default async function MedienPage({
           <FilterChip
             href="/medien?kind=animationen"
             active={filter === "animationen"}
-            icon={<Clapperboard className="h-4 w-4" />}
           >
             Animationen
           </FilterChip>
@@ -192,7 +183,7 @@ export default async function MedienPage({
           }
           description={
             filter === "animationen"
-              ? "Wir bauen die Bibliothek gerade auf. Sobald Animationen bereitstehen, erscheinen sie hier."
+              ? "Sobald Animationen bereitstehen, erscheinen sie hier."
               : "Sobald Ihre ersten Beiträge fertig sind, erscheinen sie hier. Veröffentlicht wird erst nach Ihrer Freigabe."
           }
         />
@@ -219,9 +210,6 @@ export default async function MedienPage({
                           className="h-full w-full object-cover"
                         />
                       )}
-                      <div className="absolute inset-0 grid place-items-center bg-black/30 text-bg-primary">
-                        <Film className="h-12 w-12" />
-                      </div>
                     </>
                   ) : a.kind === "video" ? (
                     <video
@@ -365,7 +353,7 @@ export default async function MedienPage({
                         <summary className="inline-flex h-9 cursor-pointer list-none items-center rounded-md border border-border px-3 text-sm font-medium hover:bg-bg-secondary [&::-webkit-details-marker]:hidden">
                           {state === "ready" ? "Weitere Anpassung anfordern" : "Anpassung anfordern"}
                         </summary>
-                        <RequestCustomizationForm libraryId={library.id} label="Anfrage senden" />
+                        <RequestCustomizationForm libraryId={library.id} />
                       </details>
                     )}
                   </div>
@@ -382,9 +370,8 @@ export default async function MedienPage({
               <CardContent className="space-y-2 text-base text-fg-primary">
                 <p>
                   Wenn Sie eine Anpassung anfordern, erhält das EINS-Team
-                  automatisch eine Nachricht. Wir melden uns innerhalb von 2
-                  Werktagen mit einem Vorschlag und liefern die angepasste
-                  Version in der Regel binnen einer Woche.
+                  automatisch eine Nachricht. Wir melden uns mit einem
+                  Vorschlag und liefern die angepasste Version.
                 </p>
                 <p>
                   Die angepasste Animation ersetzt die Standard-Version
@@ -402,12 +389,10 @@ export default async function MedienPage({
 function FilterChip({
   href,
   active,
-  icon,
   children,
 }: {
   href: string;
   active: boolean;
-  icon?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
@@ -419,7 +404,6 @@ function FilterChip({
           : "border-border bg-bg-primary text-fg-secondary hover:bg-bg-secondary"
       }`}
     >
-      {icon}
       {children}
     </Link>
   );

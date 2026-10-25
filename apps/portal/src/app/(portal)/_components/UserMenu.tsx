@@ -1,13 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ChevronDown,
   LogOut,
   Settings,
-  MessageSquare,
-  UserCog,
 } from "lucide-react";
 import {
   Avatar,
@@ -26,10 +24,8 @@ interface UserMenuProps {
   user: {
     email: string;
     fullName: string | null;
-    avatarUrl: string | null;
     role: Role;
   };
-  impersonating: boolean;
 }
 
 const TRIGGER_CLASSES = cn(
@@ -40,9 +36,7 @@ const TRIGGER_CLASSES = cn(
 
 /**
  * Top-right account menu. The trigger doubles as the user-info chip: clicking
- * the name/role expands a Radix dropdown with account actions. When an admin
- * is currently impersonating a praxis user, an additional "Zurück zum Admin"
- * item appears at the top — that's the in-place "switch profile" affordance.
+ * the name expands a Radix dropdown with account actions.
  *
  * Hydration: Radix's DropdownMenu generates `useId` values for aria linkage,
  * and under React 19 the SSR-produced id and the post-hydration id diverge
@@ -51,53 +45,26 @@ const TRIGGER_CLASSES = cn(
  * the real DropdownMenu only after the client has hydrated. The result is
  * no layout shift and no warning.
  */
-export function UserMenu({ user, impersonating }: UserMenuProps) {
+export function UserMenu({ user }: UserMenuProps) {
   const displayName = user.fullName ?? user.email;
   const showSettings = can(user.role, "settings.team");
-  const showFeedback = can(user.role, "feedback.submit");
 
   const [open, setOpen] = useState(false);
-  const [endingImpersonation, startEnding] = useTransition();
   const [mounted, setMounted] = useState(false);
   const logoutFormRef = useRef<HTMLFormElement>(null);
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const onEndImpersonation = () => {
-    startEnding(async () => {
-      try {
-        const res = await fetch("/api/auth/end-impersonation", {
-          method: "POST",
-          headers: { Accept: "application/json" },
-        });
-        const data = (await res.json()) as { ok: boolean; redirectTo?: string };
-        if (!data.ok || !data.redirectTo) return;
-        window.close();
-        setTimeout(() => {
-          if (!window.closed) {
-            window.location.href = data.redirectTo!;
-          }
-        }, 100);
-      } catch {
-        // No-op — banner remains visible and offers the same action.
-      }
-    });
-  };
-
   const chipInner = (
     <>
       <Avatar
-        src={user.avatarUrl}
         name={displayName}
         size="sm"
         className="rounded-lg"
       />
       <span className="hidden flex-col leading-tight md:flex">
         <span className="text-sm font-medium">{displayName}</span>
-        <span className="text-sm text-fg-secondary">
-          {ROLE_LABELS[user.role]}
-        </span>
       </span>
       <ChevronDown
         aria-hidden
@@ -132,7 +99,7 @@ export function UserMenu({ user, impersonating }: UserMenuProps) {
 
       <DropdownMenuContent align="end" className="min-w-[16rem]">
         <div className="flex items-center gap-3 px-3 py-2">
-          <Avatar src={user.avatarUrl} name={displayName} size="lg" />
+          <Avatar name={displayName} size="lg" />
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-fg-primary">
               {displayName}
@@ -157,36 +124,6 @@ export function UserMenu({ user, impersonating }: UserMenuProps) {
               <span>Einstellungen</span>
             </Link>
           </DropdownMenuItem>
-        )}
-
-        {showFeedback && (
-          <DropdownMenuItem asChild>
-            <Link href="/feedback" className="cursor-pointer">
-              <MessageSquare className="h-4 w-4 text-fg-secondary" aria-hidden />
-              <span>Feedback senden</span>
-            </Link>
-          </DropdownMenuItem>
-        )}
-
-        {impersonating && (
-          <>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={(e) => {
-                e.preventDefault();
-                onEndImpersonation();
-              }}
-              disabled={endingImpersonation}
-              className="cursor-pointer"
-            >
-              <UserCog className="h-4 w-4 text-tone-warn" aria-hidden />
-              <span>
-                {endingImpersonation
-                  ? "Beenden …"
-                  : "Zurück zum Admin"}
-              </span>
-            </DropdownMenuItem>
-          </>
         )}
 
         <DropdownMenuSeparator />

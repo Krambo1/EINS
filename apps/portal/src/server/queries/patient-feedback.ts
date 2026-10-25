@@ -23,7 +23,6 @@ export interface PatientFeedbackListRow {
   source: PatientFeedbackSource;
   publicPlatform: PatientFeedbackPublicPlatform | null;
   createdAt: Date;
-  resolvedAt: Date | null;
 }
 
 export async function listPatientFeedback(
@@ -50,7 +49,6 @@ export async function listPatientFeedback(
           source: schema.patientFeedback.source,
           publicPlatform: schema.patientFeedback.publicPlatform,
           createdAt: schema.patientFeedback.createdAt,
-          resolvedAt: schema.patientFeedback.resolvedAt,
         })
         .from(schema.patientFeedback)
         .where(where)
@@ -131,7 +129,6 @@ export async function countNewPatientFeedback(
 
 export interface PatientFeedbackDetail extends PatientFeedbackListRow {
   internalNote: string | null;
-  resolvedBy: string | null;
   reviewRequestTreatmentLabel: string | null;
   reviewRequestScheduledFor: string | null;
 }
@@ -157,9 +154,7 @@ export async function getPatientFeedback(
           source: schema.patientFeedback.source,
           publicPlatform: schema.patientFeedback.publicPlatform,
           createdAt: schema.patientFeedback.createdAt,
-          resolvedAt: schema.patientFeedback.resolvedAt,
           internalNote: schema.patientFeedback.internalNote,
-          resolvedBy: schema.patientFeedback.resolvedBy,
           reviewRequestTreatmentLabel:
             schema.reviewEmailSchedule.reviewTreatmentLabel,
           reviewRequestScheduledFor: schema.reviewEmailSchedule.scheduledFor,

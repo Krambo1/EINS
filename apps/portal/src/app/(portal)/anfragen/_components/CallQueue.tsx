@@ -4,7 +4,6 @@ import {
   Badge,
   StatusPill,
   Button,
-  ExplainerPopover,
 } from "@eins/ui";
 import {
   AlarmClock,
@@ -19,7 +18,6 @@ import type { CallQueueLead } from "@/server/queries/requests";
 import { CallOutcomeActions } from "./CallOutcomeActions";
 import { TimingLine } from "./TimingLine";
 import { quizAnswerLines } from "../_lib/quiz-answers";
-import { AI_SCORE_EXPLANATION, aiCategoryWord, aiScoreText } from "../_lib/ai-score";
 import { rowTiming } from "../_lib/row-timing";
 
 /**
@@ -131,7 +129,7 @@ function HeroCard({
             <h3 className="text-2xl font-semibold leading-tight md:text-3xl">
               {lead.contactName ?? "Unbekannt"}
             </h3>
-            <FactsLine lead={lead} explain />
+            <FactsLine lead={lead} />
             <div className="text-sm text-fg-secondary">
               {[treatment, source, `eingegangen ${formatRelative(lead.createdAt)}`]
                 .filter(Boolean)
@@ -276,24 +274,12 @@ function QueueRow({ lead, ruleStart }: { lead: CallQueueLead; ruleStart?: Date |
 
 /**
  * Status first, then the plain facts: same order as the Anfragen list on
- * phones. The score is a fact, not a state, so it carries no coloured dot.
+ * phones.
  */
-function FactsLine({ lead, explain = false }: { lead: CallQueueLead; explain?: boolean }) {
-  const score =
-    lead.aiScore != null ? aiScoreText(lead.aiScore) : aiCategoryWord(lead.aiCategory);
+function FactsLine({ lead }: { lead: CallQueueLead }) {
   return (
     <div className="flex min-w-0 items-center gap-x-1.5 overflow-hidden text-sm text-fg-secondary">
       <StatusPill status={lead.status} />
-      {score && (
-        <span className="inline-flex items-center whitespace-nowrap tabular-nums" title={AI_SCORE_EXPLANATION}>
-          · KI {score}
-          {explain && (
-            <ExplainerPopover term="KI-Bewertung" ariaLabel="Erklärung zur KI-Bewertung">
-              {AI_SCORE_EXPLANATION}
-            </ExplainerPopover>
-          )}
-        </span>
-      )}
       {isFollowupDue(lead) && (
         <Badge tone="warn" className="ml-1">
           <AlarmClock aria-hidden />

@@ -83,34 +83,6 @@ export function Brand({
   );
 }
 
-/**
- * Direct source → brand-decorated label. Avoids the regex-split + variadic
- * <Brand> render that `withBrandLogos` produces, which is expensive for
- * list pages that render this once per row (e.g. /anfragen).
- *
- * Falls back to a plain text label for sources without a registered brand
- * (today: `whatsapp`).
- */
-const SOURCE_TO_BRAND: Record<string, BrandKey> = {
-  meta: "meta",
-  google: "google",
-  formular: "formular",
-  manuell: "manuell",
-  jameda: "jameda",
-};
-
-export function SourceLabel({
-  source,
-  label,
-}: {
-  source: string;
-  label: string;
-}) {
-  const brand = SOURCE_TO_BRAND[source];
-  if (!brand) return <>{label}</>;
-  return <Brand brand={brand}>{label}</Brand>;
-}
-
 const BRAND_PATTERN =
   /(Google Ads|Google Maps|Google Authenticator|Google|Jameda|Meta|Zielseiten-Formular|Manueller Eintrag)/g;
 
@@ -139,32 +111,4 @@ export function withBrandLogos(text: string): ReactNode {
       </Brand>
     );
   });
-}
-
-/**
- * Icon-only variant of {@link withBrandLogos}: renders just the brand logo(s)
- * for any recognised token in `text` and drops the surrounding words. Used in
- * tight layouts (e.g. the mobile Quellen-Aufschlüsselung) where the source is
- * conveyed by its logo alone and the text label would steal column width.
- *
- * Falls back to the plain text when no brand matches (e.g. "WhatsApp"), so an
- * unbranded source never collapses to nothing.
- */
-export function brandIconsOnly(text: string): ReactNode {
-  const parts = text.split(BRAND_PATTERN);
-  const logos: ReactNode[] = [];
-  parts.forEach((part, i) => {
-    if (i % 2 === 0) return; // even indices are the non-brand text, dropped
-    const brand: BrandKey = part.startsWith("Google")
-      ? "google"
-      : part === "Jameda"
-        ? "jameda"
-        : part === "Zielseiten-Formular"
-          ? "formular"
-          : part === "Manueller Eintrag"
-            ? "manuell"
-            : "meta";
-    logos.push(<BrandLogo key={i} brand={brand} />);
-  });
-  return logos.length > 0 ? logos : text;
 }

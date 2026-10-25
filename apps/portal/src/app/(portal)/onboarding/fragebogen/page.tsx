@@ -71,8 +71,7 @@ export default async function DiscoveryFragebogenPage() {
                   Wir bauen darauf Ihren KI-Klon, Ihre ersten Beiträge und Ihre
                   Zielseite auf. Den Rest besprechen wir im
                   Onboarding-Gespräch. Hat sich etwas geändert? Sie können Ihre
-                  Antworten jederzeit anpassen, Ihr EINS-Team wird automatisch
-                  informiert.
+                  Antworten jederzeit anpassen.
                 </p>
                 {row?.submittedAt && (
                   <p className="mt-1 text-sm text-fg-secondary">

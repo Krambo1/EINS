@@ -5,7 +5,6 @@ import {
   assignBucketsToRequests,
   clampActivityTimestamp,
   clampKpiRebuildRange,
-  conversionsToSend,
   deriveStatusForBucket,
   foldEvents,
   isRefundExplained,
@@ -26,9 +25,8 @@ const ev = (payload: Record<string, unknown>, occurredAt: string, id: string) =>
 /**
  * P2-3 cascade-attribution alarm — predicate tests.
  *
- * The full applyToRequest / fanoutInvoiceConversions paths require a
- * live database (foreign keys, partition heal, pg-boss enqueue). They
- * are covered by integration tests in the staging soak environment.
+ * The full applyToRequest path requires a live database (foreign keys,
+ * partition heal, pg-boss enqueue). It is covered by integration tests in the staging soak environment.
  * Here we lock down the predicate behaviour so a future refactor can't
  * change the threshold logic without flipping these expectations.
  *
@@ -228,8 +226,6 @@ describe("foldEvents · H4 per-invoice-id dedup (no double-counting on re-emissi
     const b = foldEvents(events);
     expect(b.invoiceTotalsCents).toBe(60000); // latest amount, not 110000
     expect(b.byAppt.get("A1")?.invoiceCents).toBe(60000);
-    // Only one ads-conversion event survives (no duplicate Purchase upload).
-    expect(b.byAppt.get("A1")?.invoiceEvents.length).toBe(1);
   });
 
   it("takes the latest occurredAt even when the re-emission sorts earlier in the input", () => {
@@ -251,7 +247,6 @@ describe("foldEvents · H4 per-invoice-id dedup (no double-counting on re-emissi
     const b = foldEvents(events);
     expect(b.invoiceTotalsCents).toBe(80000);
     expect(b.byAppt.get("A1")?.invoiceCents).toBe(80000);
-    expect(b.byAppt.get("A1")?.invoiceEvents.length).toBe(2);
   });
 
   it("keys the dedup per source system: same id from different bridgeSources stays distinct", () => {
@@ -275,7 +270,6 @@ describe("foldEvents · H4 per-invoice-id dedup (no double-counting on re-emissi
     const b = foldEvents(events);
     expect(b.invoiceTotalsCents).toBe(80000);
     expect(b.byAppt.get("A1")?.invoiceCents).toBe(80000);
-    expect(b.byAppt.get("A1")?.invoiceEvents.length).toBe(2);
   });
 
   it("dedups a re-emitted refund and still nets the invoice once (refund netting intact)", () => {
@@ -612,7 +606,6 @@ describe("pass 2 · refunds", () => {
     expect(agg.invoiceCents).toBe(0);
     expect(agg.refundedCents).toBe(100000);
     expect(isRefundExplained(agg)).toBe(true);
-    expect(conversionsToSend([...b.byAppt.values()])).toEqual([]);
   });
 
   it("a lowered amount keeps the lower revenue and records the drop", () => {
@@ -651,20 +644,6 @@ describe("pass 2 · appointment status corrections", () => {
       ev({ kind: "AppointmentStatusChanged", pvsAppointmentId: "A1", newStatus: "completed" }, "2026-05-20T11:00:00.000Z", "e1"),
     ]);
     expect(deriveStatusForBucket(b.byAppt.get("A1")!)).toBe("behandelt");
-  });
-});
-
-describe("pass 2 · ads conversions", () => {
-  it("a zero-amount invoice and a fully refunded invoice are never sent as a purchase", () => {
-    const b = foldEvents([
-      ev({ kind: "InvoicePaid", pvsInvoiceId: "I0", pvsAppointmentId: "A1", amountCents: 0, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:00.000Z", "p0"),
-      ev({ kind: "InvoicePaid", pvsInvoiceId: "I1", pvsAppointmentId: "A1", amountCents: 50000, paidAt: "2026-05-20T10:00:00.000Z" }, "2026-05-20T10:00:01.000Z", "p1"),
-      ev({ kind: "InvoicePaid", pvsInvoiceId: "I2", pvsAppointmentId: "A1", amountCents: 30000, paidAt: "2026-05-21T10:00:00.000Z" }, "2026-05-21T10:00:00.000Z", "p2"),
-      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "I2", refundedAmountCents: 30000, refundedAt: "2026-05-22T10:00:00.000Z" }, "2026-05-22T10:00:00.000Z", "r2"),
-      ev({ kind: "InvoiceRefunded", pvsInvoiceId: "I1", refundedAmountCents: 10000, refundedAt: "2026-05-22T10:00:00.000Z" }, "2026-05-22T11:00:00.000Z", "r1"),
-    ]);
-    const sends = conversionsToSend([...b.byAppt.values()]);
-    expect(sends.map((s) => [s.eventLogId, s.valueCents])).toEqual([["p1", 40000]]);
   });
 });
 

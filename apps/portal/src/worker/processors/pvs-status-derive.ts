@@ -1,6 +1,5 @@
-import { and, asc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { db, schema } from "@/db/client";
-import { enqueueInvoiceConversions } from "@/server/ads-conversion-outbox";
 import { enqueueKpiRebuild } from "@/server/jobs";
 import { scheduleReviewRequest } from "@/server/patient-events";
 import { notifyOps } from "@/server/ops-alerts";
@@ -62,17 +61,8 @@ export interface PvsStatusDeriveJob {
  *      invoice); €5,000 → €4,000 is a 20% drop and almost certainly
  *      means the linker absorbed a different patient that wasn't this
  *      one.
- *
- * Ads-conversion fanout gate:
- *   If the request's click id (fbclid/gclid) is older than 90 days
- *   *and* the ad campaign/adset associated with that click hasn't seen
- *   any recent activity, hold the conversion until an operator
- *   confirms. Most platform conversion APIs reject clicks older than
- *   90 days outright, so without this gate we'd fire and burn the
- *   request's API quota with no upside.
  */
 const REVENUE_SWING_ALARM_RATIO = 0.20;
-const STALE_CLICK_ID_DAYS = 90;
 
 interface AppointmentBuckets {
   /** Keyed by pvsAppointmentId. */
@@ -101,18 +91,6 @@ interface AppointmentBuckets {
  *  would pull "server-only" plus the pg-boss job chain into the worker. */
 const UNIVERSAL_PVS_SOURCES = new Set(["csv_upload", "n8n_custom"]);
 
-interface InvoiceEvent {
-  /** pvs_event_log row id of the InvoicePaid event — outbox dedup key. */
-  eventLogId: string;
-  amountCents: number;
-  /** Pass 2: amountCents minus this invoice's (clamped) refunds. The ads
-   *  fanout sends this, and never a zero or fully refunded invoice. */
-  netCents: number;
-  paidAt: Date;
-  /** Phase 11: the invoice's currency (EUR/CHF), threaded to the ads outbox. */
-  currency?: "EUR" | "CHF";
-}
-
 export interface AppointmentBucket {
   /** The PVS appointment id, or `synthetic:<source>::<invoice>` for a
    *  synthetic bucket (see `synthetic`). */
@@ -120,8 +98,8 @@ export interface AppointmentBucket {
   /**
    * Pass 2: true for an invoice that carries no appointment and no resolvable
    * encounter (the normal case for Honorar CSV exports). Before pass 2 such
-   * revenue only reached the patient total, never a lead, a dashboard number
-   * or an ads conversion. A synthetic bucket is attributed like an
+   * revenue only reached the patient total, never a lead or a dashboard
+   * number. A synthetic bucket is attributed like an
    * appointment (to the patient's lead that existed at the payment date) but
    * never becomes the request's pvs_appointment_id and contributes a status
    * only through its money (gewonnen when > 0).
@@ -148,13 +126,6 @@ export interface AppointmentBucket {
    *  from "no payment ever" when a gewonnen lead would be downgraded. */
   refundedCents: number;
   earliestInvoiceAt: Date | null;
-  /**
-   * One entry per InvoicePaid event tied to this appointment. Carried
-   * separately from `invoiceCents` so the ads-conversion outbox can emit
-   * one Meta CAPI Purchase + one Google OCI upload per payment (a deal
-   * with installments produces multiple invoices).
-   */
-  invoiceEvents: InvoiceEvent[];
 }
 
 export async function processPvsStatusDerive(
@@ -269,7 +240,7 @@ export async function processPvsStatusDerive(
     : 0;
 
   // 4) Apply changes per appointment.
-  const fanoutFailures = await applyAppointmentBuckets(
+  await applyAppointmentBuckets(
     clinicId,
     portalPatientId,
     buckets
@@ -308,9 +279,7 @@ export async function processPvsStatusDerive(
       lastSeenAt: buckets.maxOccurredAt
         ? clampActivityTimestamp(buckets.maxOccurredAt, now)
         : undefined,
-      // Pass 2: not stamped when an ads-outbox insert failed, so the
-      // pvs-reconcile stale-derive scan re-derives this patient as well.
-      pvsDerivedAt: fanoutFailures === 0 ? derivedAt : undefined,
+      pvsDerivedAt: derivedAt,
     })
     .where(eq(schema.patients.id, portalPatientId));
 
@@ -322,16 +291,6 @@ export async function processPvsStatusDerive(
       now
     );
     if (range) await enqueueKpiRebuild(clinicId, range.from, range.to);
-  }
-
-  // Pass 2: an outbox insert that failed used to be logged and forgotten
-  // ("reconcile will retry", which it never did), so that Purchase was lost.
-  // Every request write above is done and idempotent; failing the job now
-  // makes pg-boss retry it, and the outbox UNIQUE keys absorb the replay.
-  if (fanoutFailures > 0) {
-    throw new Error(
-      `pvs-status-derive: ${fanoutFailures} ads-outbox insert(s) failed for patient ${portalPatientId}, retrying`
-    );
   }
 }
 
@@ -560,53 +519,6 @@ async function raiseStatusDowngradeAlarm(args: {
   }
 }
 
-async function raiseStaleClickIdAlarm(args: {
-  clinicId: string;
-  requestId: string;
-  clickCreatedAt: Date;
-  valueEur: number;
-}): Promise<void> {
-  const day = new Date().toISOString().slice(0, 10);
-  const dedupeKey = `pvs_stale_click_conversion:${args.requestId}:${day}`;
-  const ageDays = Math.floor(
-    (Date.now() - args.clickCreatedAt.getTime()) / (24 * 60 * 60 * 1000)
-  );
-  try {
-    await db
-      .insert(schema.dashboardAlerts)
-      .values({
-        clinicId: args.clinicId,
-        kind: "pvs_stale_click_conversion",
-        severity: "warn",
-        title: `Conversion gegen alten Klick angehalten (${ageDays} Tage)`,
-        body: `Eine Rechnung über ${args.valueEur.toFixed(2)} EUR würde an einen Klick weitergegeben, dessen fbclid/gclid älter als ${STALE_CLICK_ID_DAYS} Tage ist. Meta und Google verwerfen solche Conversion-Uploads sowieso, daher wird kein Outbox-Eintrag erzeugt. Wenn die Zuordnung trotzdem gewünscht ist, muss ein Operator den Outbox-Eintrag manuell anlegen.`,
-        actionSteps: [
-          "Plausibilität prüfen: gehört diese Rechnung wirklich zu dieser Anfrage?",
-          "Falls ja: Outbox-Eintrag manuell anlegen (DB direkt) und Conversion-Worker triggern.",
-          "Falls nein: keine Aktion nötig — Lead wurde organisch.",
-        ],
-        metric: "pvs_stale_click_age_days",
-        observedValue: ageDays.toString(),
-        dedupeKey,
-      })
-      .onConflictDoUpdate({
-        target: [
-          schema.dashboardAlerts.clinicId,
-          schema.dashboardAlerts.dedupeKey,
-        ],
-        set: {
-          observedValue: ageDays.toString(),
-          updatedAt: new Date(),
-        },
-      });
-  } catch (err) {
-    console.error(
-      `[pvs-status-derive] stale-click alarm write failed (clinic=${args.clinicId}, request=${args.requestId}):`,
-      err
-    );
-  }
-}
-
 // ---------------------------------------------------------------
 // Fold events → buckets
 // ---------------------------------------------------------------
@@ -666,7 +578,6 @@ export function foldEvents(
     paidAt: Date;
     occurredAt: Date;
     sourceRevision: number | null;
-    currency?: "EUR" | "CHF";
     /** M-D6: provenance of the counted payment, for dual-path detection. */
     bridgeSource: string | undefined;
   }
@@ -745,7 +656,6 @@ export function foldEvents(
         invoiceCents: 0,
         refundedCents: 0,
         earliestInvoiceAt: null,
-        invoiceEvents: [],
       };
       byAppt.set(id, b);
     }
@@ -823,7 +733,6 @@ export function foldEvents(
           paidAt: new Date(payload.paidAt),
           occurredAt: e.occurredAt,
           sourceRevision: payload.sourceRevision ?? null,
-          currency: payload.currency,
           bridgeSource: payload.bridgeSource,
         };
         if (payload.pvsInvoiceId) {
@@ -849,8 +758,7 @@ export function foldEvents(
         // so a re-emitted refund is netted once. Reconciled after the loop:
         // subtract from the patient total and from the bucket the invoice's
         // revenue landed on, so request-level revenue and the gewonnen status
-        // net down. The ads-platform refund/adjustment is a follow-up; v1
-        // corrects the dashboard numbers.
+        // net down.
         const entry: RefundEntry = {
           refundedAmountCents: payload.refundedAmountCents,
           pvsInvoiceId: payload.pvsInvoiceId ?? null,
@@ -888,7 +796,7 @@ export function foldEvents(
   }
 
   // H4: apply the deduped invoices. Sort the paid entries by occurredAt ASC so
-  // earliestInvoiceAt and invoiceEvents keep the ordering they had when this was
+  // earliestInvoiceAt keeps the ordering they had when this was
   // accumulated inline in the loop.
   const paidEntries = [...paidByInvoice.values(), ...unkeyedPaid].sort(
     (a, b) => a.occurredAt.getTime() - b.occurredAt.getTime()
@@ -903,7 +811,7 @@ export function foldEvents(
   }
   // #10: index each (deduped) invoice by the bucket its revenue landed on, so
   // an InvoiceRefunded keyed only by pvsInvoiceId nets that same bucket.
-  const paidIndex = new Map<string, { bucket: AppointmentBucket; paid: PaidEntry; inv: InvoiceEvent }>();
+  const paidIndex = new Map<string, { bucket: AppointmentBucket; paid: PaidEntry }>();
   const keyOfPaid = new Map<PaidEntry, string>();
   for (const [key, paid] of paidByInvoice) keyOfPaid.set(paid, key);
   for (const paid of paidEntries) {
@@ -918,16 +826,8 @@ export function foldEvents(
     if (!b.earliestInvoiceAt || paid.paidAt < b.earliestInvoiceAt) {
       b.earliestInvoiceAt = paid.paidAt;
     }
-    const inv: InvoiceEvent = {
-      eventLogId: paid.eventLogId,
-      amountCents: paid.amountCents,
-      netCents: paid.amountCents,
-      paidAt: paid.paidAt,
-      currency: paid.currency,
-    };
-    b.invoiceEvents.push(inv);
     if (key) {
-      paidIndex.set(key, { bucket: b, paid, inv });
+      paidIndex.set(key, { bucket: b, paid });
       const drop = (peakPaidByInvoice.get(key) ?? 0) - paid.amountCents;
       if (drop > 0) b.refundedCents += drop;
     }
@@ -960,7 +860,6 @@ export function foldEvents(
     invoiceTotalsCents -= applied;
     hit.bucket.invoiceCents -= applied;
     hit.bucket.refundedCents += applied;
-    hit.inv.netCents = hit.paid.amountCents - applied;
   }
   if (orphanRefunds > 0) {
     console.warn(
@@ -994,16 +893,15 @@ async function applyAppointmentBuckets(
   clinicId: string,
   portalPatientId: string,
   buckets: AppointmentBuckets
-): Promise<number> {
+): Promise<void> {
   const all = [...buckets.byAppt.values()];
-  let fanoutFailures = 0;
 
   // Pass 2: load the candidate requests once, then attribute every bucket in
   // memory (assignBucketsToRequests) and write ONE aggregate per request.
   // Before, each appointment was matched on its own and a lead could hold
   // only one: once the consultation linked the request, the later treatment
   // appointment (with the actual invoice) found no request and its revenue
-  // never reached the lead, the dashboard or the ads conversion.
+  // never reached the lead or the dashboard.
   const cols = {
     id: schema.requests.id,
     createdAt: schema.requests.createdAt,
@@ -1044,11 +942,6 @@ async function applyAppointmentBuckets(
     const agg = aggregateRequestBuckets(reqBuckets, current.pvsAppointmentId);
     const applied = await applyToRequest(current, agg, clinicId);
     if (!applied) continue;
-    fanoutFailures += await fanoutInvoiceConversions(
-      clinicId,
-      requestId,
-      conversionsToSend(reqBuckets)
-    );
     for (const bucket of reqBuckets) {
       if (bucket.completedAt) {
         await maybeScheduleReviewForCompletedEncounter({
@@ -1098,7 +991,6 @@ async function applyAppointmentBuckets(
       });
     }
   }
-  return fanoutFailures;
 }
 
 const ATTACH_SLACK_MS = 24 * 60 * 60 * 1000;
@@ -1300,32 +1192,13 @@ export function isRefundExplained(agg: RequestAggregate): boolean {
   return agg.invoiceCents === 0 && agg.refundedCents > 0;
 }
 
-/** Pass 2: the purchases to report for one request: each invoice once, at its
- *  net (refund-adjusted) value, never a zero or fully refunded invoice. */
-export function conversionsToSend(
-  buckets: AppointmentBucket[]
-): Array<{ eventLogId: string; valueCents: number; paidAt: Date; currency?: "EUR" | "CHF" }> {
-  const out: Array<{ eventLogId: string; valueCents: number; paidAt: Date; currency?: "EUR" | "CHF" }> = [];
-  for (const b of buckets) {
-    for (const inv of b.invoiceEvents) {
-      if (inv.netCents > 0) {
-        out.push({ eventLogId: inv.eventLogId, valueCents: inv.netCents, paidAt: inv.paidAt, currency: inv.currency });
-      }
-    }
-  }
-  return out;
-}
-
 const toCents = (eur: string | null | undefined): number | null =>
   eur === null || eur === undefined ? null : Math.round(parseFloat(eur) * 100);
 
 /**
  * Apply one request's aggregate. Returns `true` if the status write happened,
  * `false` if it was suppressed (P2-3 cascade-downgrade gate) or there was
- * nothing to write. When suppressed, the caller MUST also skip the downstream
- * ads-conversion fanout — the alarm row holds the change in a queue for
- * operator review, and firing CAPI/OCI on top of a still-gewonnen request
- * would emit duplicate conversion events later when the operator approves.
+ * nothing to write.
  */
 async function applyToRequest(
   current: {
@@ -1419,9 +1292,8 @@ async function applyToRequest(
       kind: "status_change",
       body: `PVS: ${derivedStatus}`,
       // Pass 2: from/to like every other status_change writer. The KPI
-      // open-queue history (queries/kpis.ts) reads meta.from and the forecast
-      // stage history (queries/forecast.ts) reads meta.to; PVS moves were
-      // invisible to both.
+      // open-queue history (queries/kpis.ts) reads meta.from; PVS moves were
+      // invisible to it.
       meta: {
         source: "pvs",
         from: currentStatus,
@@ -1435,119 +1307,6 @@ async function applyToRequest(
   }
 
   return true;
-}
-
-/**
- * For each InvoicePaid event tied to this appointment, insert an outbox
- * row per channel and enqueue the corresponding worker.
- *
- * Idempotency: the outbox UNIQUE(clinic_id, channel, pvs_event_log_id)
- * makes this safe under derive-replay — rows already inserted on a prior
- * run are no-ops on the insert side and don't re-enqueue.
- *
- * Failure to insert/enqueue MUST NOT roll back the request update above.
- * Practical reason: pvs-status-derive is the source of truth for "gewonnen"
- * status in the UI; if the enqueue fails, we still want the praxis to see
- * the correct status. Returns the number of failed inserts; the caller fails
- * the derive job after every request is written, so pg-boss retries it (no
- * other job re-emits missing outbox rows).
- */
-async function fanoutInvoiceConversions(
-  clinicId: string,
-  requestId: string,
-  sends: ReturnType<typeof conversionsToSend>
-): Promise<number> {
-  // Pass 2: nothing to report (no invoice, all zero or fully refunded).
-  if (sends.length === 0) return 0;
-  // P2-3: look up the request's click-id age + the platform's most-
-  // recent activity. If the click is older than STALE_CLICK_ID_DAYS the
-  // platform will reject the upload anyway, so we hold the conversion
-  // behind an alert instead of burning the API quota.
-  const [reqRow] = await db
-    .select({
-      createdAt: schema.requests.createdAt,
-      fbclid: schema.requests.fbclid,
-      gclid: schema.requests.gclid,
-    })
-    .from(schema.requests)
-    .where(eq(schema.requests.id, requestId))
-    .limit(1);
-  const hasClickId = !!(reqRow?.fbclid || reqRow?.gclid);
-  const clickAgeDays = reqRow?.createdAt
-    ? Math.floor(
-        (Date.now() - reqRow.createdAt.getTime()) / (24 * 60 * 60 * 1000)
-      )
-    : null;
-  const clickIsStale =
-    hasClickId &&
-    clickAgeDays !== null &&
-    clickAgeDays > STALE_CLICK_ID_DAYS;
-
-  // The "no recent activity on the ad-id" gate from the plan: if the
-  // platform credential hasn't synced any campaign data in the last 90d
-  // either, the click target is even more obviously dead. We check
-  // platform_credentials.last_synced_at as a proxy because the actual
-  // per-ad activity isn't stored row-wise — a clinic that disabled ads
-  // 90+ days ago has a stale last_synced_at across both channels.
-  let credsStale = false;
-  if (clickIsStale) {
-    const ninetyDaysAgo = new Date(
-      Date.now() - STALE_CLICK_ID_DAYS * 24 * 60 * 60 * 1000
-    );
-    const recentCreds = await db
-      .select({ id: schema.platformCredentials.id })
-      .from(schema.platformCredentials)
-      .where(
-        and(
-          eq(schema.platformCredentials.clinicId, clinicId),
-          gte(schema.platformCredentials.lastSyncedAt, ninetyDaysAgo)
-        )
-      )
-      .limit(1);
-    credsStale = recentCreds.length === 0;
-  }
-
-  if (clickIsStale && credsStale && reqRow?.createdAt) {
-    // Raise the alarm once per request/day, then skip the outbox
-    // insert. The operator can manually insert outbox rows for legit
-    // late-conversions; the typical path here is "the lead converted
-    // organically months later, not via the ad", which is exactly the
-    // case we want to suppress automated emission for.
-    let totalValueCents = 0;
-    for (const invoice of sends) totalValueCents += invoice.valueCents;
-    await raiseStaleClickIdAlarm({
-      clinicId,
-      requestId,
-      clickCreatedAt: reqRow.createdAt,
-      valueEur: totalValueCents / 100,
-    });
-    return 0;
-  }
-
-  let failures = 0;
-  for (const invoice of sends) {
-    try {
-      await enqueueInvoiceConversions({
-        clinicId,
-        requestId,
-        pvsEventLogId: invoice.eventLogId,
-        valueEur: invoice.valueCents / 100,
-        // Phase 11: attribute in the invoice's real currency (EUR/CHF);
-        // defaults EUR in the outbox insert.
-        currency: invoice.currency,
-        occurredAt: invoice.paidAt,
-      });
-    } catch (err) {
-      console.error(
-        `[pvs-status-derive] ads-outbox fanout failed (request=${requestId}, event_log=${invoice.eventLogId}):`,
-        err
-      );
-      // Request update already committed; the caller fails the job after
-      // all requests are written so pg-boss retries (pass 2).
-      failures++;
-    }
-  }
-  return failures;
 }
 
 // ---------------------------------------------------------------

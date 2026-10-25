@@ -1,6 +1,6 @@
 import "server-only";
 import { and, desc, eq, gte, lt, lte, ne, sql } from "drizzle-orm";
-import { withClinicContext, schema, type dbApp } from "@/db/client";
+import { schema, type dbApp } from "@/db/client";
 import { addIsoDays, berlinDay, berlinStartOfDay } from "@/lib/dashboard-range";
 import { adPlatformFor } from "@/lib/sources";
 import { channelGroupBy, channelKeys, channelOfGroup } from "./_channel";
@@ -237,17 +237,6 @@ export interface SyncHistoryRow {
 }
 
 /** Recent sync activity per platform (proxy: distinct snapshot dates). */
-export async function syncHistory(
-  clinicId: string,
-  userId: string,
-  platform: "meta" | "google",
-  limit = 10
-): Promise<SyncHistoryRow[]> {
-  return withClinicContext(clinicId, userId, (tx) =>
-    syncHistoryTx(tx, clinicId, platform, limit)
-  );
-}
-
 export async function syncHistoryTx(
   tx: Tx,
   clinicId: string,
@@ -276,15 +265,13 @@ export async function syncHistoryTx(
 
 /**
  * Pace projection — at the current daily run-rate, what's the projected
- * total spend by month-end vs the goal target. Returns NULL when no goal.
+ * total spend by month-end.
  */
 export interface SpendPaceProjection {
   monthSpendSoFar: number;
   daysElapsed: number;
   daysInMonth: number;
   projectedMonthSpend: number;
-  goalTargetEur: number | null;
-  pacePct: number | null;
 }
 
 export async function spendPaceProjectionTx(
@@ -317,29 +304,11 @@ export async function spendPaceProjectionTx(
     const monthSpendSoFar = Number(spendRow?.spend ?? 0);
     const projectedMonthSpend = (monthSpendSoFar / daysElapsed) * daysInMonth;
 
-    const [goalRow] = await tx
-      .select({ targetValue: schema.goals.targetValue })
-      .from(schema.goals)
-      .where(
-        and(
-          eq(schema.goals.clinicId, clinicId),
-          eq(schema.goals.metric, "spend"),
-          lte(schema.goals.periodStart, today),
-          gte(schema.goals.periodEnd, today)
-        )
-      )
-      .limit(1);
-
-    const goalTarget = goalRow ? Number(goalRow.targetValue) : null;
-    const pacePct = goalTarget && goalTarget > 0 ? projectedMonthSpend / goalTarget : null;
-
     return {
       monthSpendSoFar,
       daysElapsed,
       daysInMonth,
       projectedMonthSpend: Number(projectedMonthSpend.toFixed(2)),
-      goalTargetEur: goalTarget,
-      pacePct,
     };
   }
 }

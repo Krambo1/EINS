@@ -213,11 +213,9 @@ export type EncounterCompletedEvent = z.infer<typeof EncounterCompletedSchema>;
 // stops that data loss; the real currency is preserved on the event payload.
 //
 // NOT YET multi-currency downstream: lifetimeRevenueEur (column name + €
-// display) and the ads-conversion upload (capi-purchase.ts hardcodes
-// currency:"EUR") still assume EUR. So a CHF Praxis's revenue is captured
-// with correct cents but labelled/attributed as EUR. Before onboarding any
-// CHF Praxis, thread `currency` through derive -> ads_conversion_outbox ->
-// CAPI/OCI and fix the € display. Tracked as a follow-up, not silent.
+// display) still assumes EUR. So a CHF Praxis's revenue is captured with
+// correct cents but labelled as EUR. Before onboarding any CHF Praxis, fix
+// the € display. Tracked as a follow-up, not silent.
 const InvoicePaidSchema = z.object({
   kind: z.literal("InvoicePaid"),
   ...baseFields,
@@ -229,7 +227,7 @@ const InvoicePaidSchema = z.object({
   // aesthetic-medicine encounter bills this much, so a value above it is an
   // adapter bug or an injection (Chain B used €10M to triple a clinic's
   // revenue). Rejecting it here keeps a fabricated amount out of
-  // lifetimeRevenueEur / kpi_daily / the ads-conversion outbox (pentest H4 /
+  // lifetimeRevenueEur / kpi_daily (pentest H4 /
   // BR-03 / apvs-04). The DB column is numeric(10,2) (~€100M) — this is the
   // tighter business ceiling.
   amountCents: z.number().int().nonnegative().max(100_000_000),
@@ -248,11 +246,9 @@ export type InvoicePaidEvent = z.infer<typeof InvoicePaidSchema>;
 // InvoicePaid, keyed by pvsInvoiceId. refundedAmountCents is a POSITIVE
 // magnitude (the amount given back); the derive worker subtracts it from the
 // patient total and the matching appointment bucket. A dedicated kind (rather
-// than a negative InvoicePaid) keeps the amount validators nonnegative and lets
-// the ads-conversion side later send a proper Meta refund / Google adjustment
-// instead of a nonsensical negative Purchase. That ad-platform propagation is a
-// follow-up; v1 nets the dashboard revenue and lets the P2-3 downgrade alarm
-// catch a gewonnen -> lower flip.
+// than a negative InvoicePaid) keeps the amount validators nonnegative. v1 nets
+// the dashboard revenue and lets the P2-3 downgrade alarm catch a gewonnen ->
+// lower flip.
 const InvoiceRefundedSchema = z.object({
   kind: z.literal("InvoiceRefunded"),
   ...baseFields,

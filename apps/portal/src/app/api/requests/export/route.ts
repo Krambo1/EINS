@@ -4,10 +4,8 @@ import { can } from "@/lib/roles";
 import { writeAudit } from "@/server/audit";
 import { exportRequests } from "@/server/queries/requests";
 import {
-  AI_CATEGORY_LABELS,
   REQUEST_STATUS_LABELS,
   SOURCE_LABELS,
-  type AiCategory,
   type RequestSource,
   type RequestStatus,
 } from "@/lib/constants";
@@ -38,7 +36,6 @@ const HEADER = [
   "Kampagne",
   "Beitrag",
   "Status",
-  "KI-Bewertung",
   "Erstkontakt",
   "Nachricht",
   "Anfrage-ID",
@@ -64,7 +61,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const filters = {
     status: params.status,
     source: params.source,
-    aiCategory: params.aiCategory,
     treatmentId: params.treatmentId,
     search: params.search,
     slaBreachedOnly: params.slaBreachedOnly,
@@ -90,7 +86,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       r.utmCampaign,
       r.utmContent,
       REQUEST_STATUS_LABELS[r.status as RequestStatus] ?? r.status,
-      r.aiCategory ? AI_CATEGORY_LABELS[r.aiCategory as AiCategory] ?? r.aiCategory : null,
       r.firstContactedAt ? formatDateTime(r.firstContactedAt) : null,
       r.message,
       r.id,
@@ -112,7 +107,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       filters: {
         status: filters.status ?? null,
         source: filters.source ?? null,
-        aiCategory: filters.aiCategory ?? null,
         treatmentCount: filters.treatmentId?.length ?? 0,
         search: Boolean(filters.search),
         slaBreachedOnly: filters.slaBreachedOnly,

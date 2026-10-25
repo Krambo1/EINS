@@ -133,7 +133,6 @@ export const AI_CATEGORY_LABELS: Record<AiCategory, string> = {
 export const REQUEST_SORTS = [
   "neueste",
   "aelteste",
-  "ki",
   "ltv",
   "dringlichkeit",
 ] as const;
@@ -142,7 +141,6 @@ export type RequestSort = (typeof REQUEST_SORTS)[number];
 export const REQUEST_SORT_LABELS: Record<RequestSort, string> = {
   neueste: "Neueste zuerst",
   aelteste: "Älteste zuerst",
-  ki: "Höchste KI-Bewertung",
   ltv: "Höchster Gesamtumsatz",
   dringlichkeit: "Dringlichkeit",
 };
@@ -213,38 +211,6 @@ export const ANIMATION_STATE_LABELS: Record<AnimationState, string> = {
   requested: "Angefordert",
   in_production: "In Produktion",
   ready: "Bereit",
-};
-
-export const FEEDBACK_CATEGORIES = [
-  "verbesserung",
-  "fehler",
-  "lob",
-  "frage",
-  "sonstiges",
-] as const;
-export type FeedbackCategory = (typeof FEEDBACK_CATEGORIES)[number];
-
-export const FEEDBACK_CATEGORY_LABELS: Record<FeedbackCategory, string> = {
-  verbesserung: "Verbesserungsvorschlag",
-  fehler: "Fehler / Bug",
-  lob: "Lob",
-  frage: "Frage",
-  sonstiges: "Sonstiges",
-};
-
-export const FEEDBACK_STATUSES = [
-  "offen",
-  "gesehen",
-  "bearbeitet",
-  "verworfen",
-] as const;
-export type FeedbackStatus = (typeof FEEDBACK_STATUSES)[number];
-
-export const FEEDBACK_STATUS_LABELS: Record<FeedbackStatus, string> = {
-  offen: "Offen",
-  gesehen: "Gesehen",
-  bearbeitet: "Bearbeitet",
-  verworfen: "Verworfen",
 };
 
 /** Clinic-facing "Fortschritt" timeline entries — admin-authored milestones. */
@@ -335,9 +301,7 @@ export const DAY_MS = 86_400_000;
  * Ansprechpartner surfaced in the sidebar contact card (SidebarContactCard).
  *
  * There is no per-clinic account-manager field in the data model yet, so this
- * is a single shared EINS-Team identity. When clinics get a named
- * Ansprechpartner, pass an override into `PortalShell` instead of relying on
- * this default — the card already accepts a `contact` prop.
+ * is a single shared EINS-Team identity.
  *
  * `bookingUrl` is the same Calendly link the marketing site uses.
  */
@@ -347,10 +311,3 @@ export const EINS_CONTACT = {
   email: "team@eins.ag",
 } as const;
 
-/**
- * Cookie persisting whether the sidebar contact card (SidebarContactCard) is
- * minimized. Read server-side in the (portal) layout so the first paint
- * matches the user's last choice (no expand→collapse flash), written
- * client-side on toggle. Value: "1" = minimized, anything else = expanded.
- */
-export const CONTACT_CARD_COOKIE = "eins_contact_card_collapsed";

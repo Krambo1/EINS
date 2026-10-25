@@ -2,8 +2,7 @@
 
 import { revalidatePath, revalidateTag } from "next/cache";
 import { after } from "next/server";
-import { randomBytes } from "node:crypto";
-import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 import { requireSession } from "@/auth/guards";
 import { db, schema, withClinicContext } from "@/db/client";
@@ -13,7 +12,6 @@ import { issueMagicLink, type MagicLinkIssueResult } from "@/auth/magic-link";
 import { revokeAllSessionsForUser } from "@/auth/session";
 import { rateLimit } from "@/server/rate-limit";
 import { ROLES } from "@/lib/constants";
-import { encryptString } from "@/lib/crypto";
 import { flashSuccess, flashError } from "@/lib/flash";
 import {
   parseSettingsInput,
@@ -21,7 +19,6 @@ import {
   SettingsUserError,
 } from "./_errors";
 import { keywordsWithName, slugifyTreatmentName, uniqueSlug } from "./_slug";
-import { invalidateSignatureSecretCache } from "@/server/clinic-signature";
 import { env } from "@/lib/env";
 import { releaseDisconnectedMetaPage } from "@/server/meta-pages";
 import {
@@ -929,90 +926,9 @@ export async function syncReviewsNowAction(
   }
 }
 
-/** Grace window in which the secret before a rotation still verifies. */
-const INTAKE_SECRET_GRACE_HOURS = 24;
-
-export type RotateIntakeSecretState =
-  | undefined
-  | { ok: true; secret: string }
-  | { ok: false; error: string };
-
-/**
- * Rotate the per-clinic HMAC secret used by /api/leads/intake (Zielseiten
- * forms). C-34 / F-11: the previous secret stays valid for 24 h
- * (platform_credentials.previous_access_token_enc), so a rotation no longer
- * rejects every Anfrage until EINS updates the Zielseite. Rotating twice in a
- * row drops the original secret at once (leak response). The client
- * component asks for confirmation first.
- *
- * F-30: the plaintext goes straight back to the client component (shown
- * once), no flash cookie that a server render would have to delete.
- */
-export async function rotateIntakeSecretAction(
-  _prev: RotateIntakeSecretState,
-  _formData: FormData
-): Promise<RotateIntakeSecretState> {
-  try {
-    const session = await requireSession();
-    if (!can(session.role, "settings.integrations")) {
-      throw new ForbiddenError("settings.integrations");
-    }
-
-    const plaintext = randomBytes(32).toString("hex");
-    const ciphertext = encryptString(plaintext);
-
-    await db
-      .insert(schema.platformCredentials)
-      .values({
-        clinicId: session.clinicId,
-        platform: "intake",
-        accessTokenEnc: ciphertext,
-      })
-      .onConflictDoUpdate({
-        target: [
-          schema.platformCredentials.clinicId,
-          schema.platformCredentials.platform,
-        ],
-        set: {
-          accessTokenEnc: ciphertext,
-          // The existing row's current secret becomes the grace secret.
-          previousAccessTokenEnc: sql`${schema.platformCredentials.accessTokenEnc}`,
-          previousValidUntil: sql`now() + (${INTAKE_SECRET_GRACE_HOURS}::int * interval '1 hour')`,
-        },
-      });
-
-    // Drop the cached old secret so the next /api/leads/intake verification
-    // on this instance reads the new row (other instances re-read on their
-    // first mismatch, see clinic-signature.ts).
-    invalidateSignatureSecretCache(session.clinicId, "intake");
-
-    await writeAudit({
-      clinicId: session.clinicId,
-      actorId: session.userId,
-      actorEmail: session.email,
-      action: "rotate",
-      entityKind: "intake_secret",
-      diff: { graceHours: INTAKE_SECRET_GRACE_HOURS },
-    });
-
-    return { ok: true, secret: plaintext };
-  } catch (err) {
-    return { ok: false, error: settingsErrorMessage(err, "settings.intake_rotate") };
-  }
-}
-
 // ============================================================
-// Closed-loop ads-conversion config (Meta CAPI + Google Ads OCI)
+// Ads-conversion config
 // ============================================================
-
-/**
- * Meta Pixel IDs are numeric, usually 15 digits but sometimes 16-17 on
- * older accounts; we permit 10-20 to be safe and let Meta reject the
- * actual value on the next CAPI call.
- */
-const MetaPixelIdSchema = z
-  .string()
-  .regex(/^\d{10,20}$/, "Pixel-ID muss 10–20 Ziffern haben.");
 
 /** Google Ads customer id; accepts `123-456-7890` or `1234567890`. */
 const GoogleAdsCustomerIdSchema = z
@@ -1020,17 +936,6 @@ const GoogleAdsCustomerIdSchema = z
   .regex(
     /^[0-9]{3}-?[0-9]{3}-?[0-9]{4}$/,
     "Customer-ID hat das Format 123-456-7890."
-  );
-
-/**
- * Conversion-action resource name from Google Ads, e.g.
- * `customers/1234567890/conversionActions/9876543210`.
- */
-const GoogleAdsConversionActionSchema = z
-  .string()
-  .regex(
-    /^customers\/[0-9]+\/conversionActions\/[0-9]+$/,
-    "Bitte vollständigen Resource-Name eingeben (customers/…/conversionActions/…)."
   );
 
 const OptionalMccSchema = z
@@ -1050,19 +955,13 @@ export async function updateAdsConversionConfigAction(formData: FormData) {
 
     const input = parseSettingsInput(
       z.object({
-        metaPixelId: MetaPixelIdSchema.optional().or(z.literal("")),
         googleAdsCustomerId: GoogleAdsCustomerIdSchema.optional().or(
           z.literal("")
         ),
-        googleAdsConversionAction:
-          GoogleAdsConversionActionSchema.optional().or(z.literal("")),
         googleAdsLoginCustomerId: OptionalMccSchema,
       }),
       {
-        metaPixelId: formData.get("metaPixelId") ?? undefined,
         googleAdsCustomerId: formData.get("googleAdsCustomerId") ?? undefined,
-        googleAdsConversionAction:
-          formData.get("googleAdsConversionAction") ?? undefined,
         googleAdsLoginCustomerId:
           formData.get("googleAdsLoginCustomerId") ?? undefined,
       }
@@ -1072,9 +971,7 @@ export async function updateAdsConversionConfigAction(formData: FormData) {
       await tx
         .update(schema.clinics)
         .set({
-          metaPixelId: input.metaPixelId || null,
           googleAdsCustomerId: input.googleAdsCustomerId || null,
-          googleAdsConversionAction: input.googleAdsConversionAction || null,
           googleAdsLoginCustomerId: input.googleAdsLoginCustomerId || null,
         })
         .where(eq(schema.clinics.id, session.clinicId));
@@ -1087,16 +984,14 @@ export async function updateAdsConversionConfigAction(formData: FormData) {
       action: "update",
       entityKind: "clinic_ads_conversion_config",
       diff: {
-        hasMetaPixelId: Boolean(input.metaPixelId),
         hasGoogleAdsCustomerId: Boolean(input.googleAdsCustomerId),
-        hasGoogleAdsConversionAction: Boolean(input.googleAdsConversionAction),
         hasGoogleAdsLoginCustomerIdOverride: Boolean(
           input.googleAdsLoginCustomerId
         ),
       },
     });
 
-    await flashSuccess("Einstellungen für Abschluss-Meldungen gespeichert");
+    await flashSuccess("Einstellungen für Google Ads gespeichert");
   } catch (err) {
     await flashError("Speichern fehlgeschlagen", settingsErrorMessage(err, "settings.ads_conversion"));
   } finally {

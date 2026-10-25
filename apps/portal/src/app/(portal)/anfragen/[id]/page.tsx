@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { after } from "next/server";
-import { and, desc, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import Link from "next/link";
 import {
   Avatar,
@@ -27,7 +27,6 @@ import { leadTokenForRequestId } from "@/server/pvs-token";
 import { can } from "@/lib/roles";
 import { PvsTokenCard } from "./_pvs-token-card";
 import { LeadCockpit, MobileActionBar } from "./_lead-cockpit";
-import { AI_SCORE_EXPLANATION, aiCategoryWord, aiScoreText } from "../_lib/ai-score";
 import {
   DEADLINE_RUNNING_HINT,
   LATE_HINT,
@@ -38,7 +37,6 @@ import { Followups } from "./_followups";
 import { statusChangeLine } from "./_status-change";
 import { RevokeAdsConsentButton } from "./_revoke-ads-consent";
 import { quizAnswerLines } from "../_lib/quiz-answers";
-import { germanAiReasoning } from "../_lib/ai-reasoning";
 import { quizFromSignals } from "@/server/queries/requests";
 import {
   siblingRequests,
@@ -90,7 +88,7 @@ export default async function AnfrageDetailPage({
   if (!isUuid(id)) notFound();
 
   const canWork = can(session.role, "requests.update");
-  // Protokoll and technical raw data are owner-only (`audit.view`, C-27).
+  // Technical raw data are owner-only (`audit.view`, C-27).
   const canAudit = can(session.role, "audit.view");
 
   // D-6: everything that only needs the id or the clinic starts together
@@ -98,26 +96,6 @@ export default async function AnfrageDetailPage({
   // (RLS or an explicit clinic_id filter), so a foreign id leaks nothing.
   const sidePromise = Promise.all([
     siblingRequests(session.clinicId, session.userId, id),
-    canAudit
-      ? db
-          .select({
-            id: schema.auditLog.id,
-            action: schema.auditLog.action,
-            actorEmail: schema.auditLog.actorEmail,
-            diff: schema.auditLog.diff,
-            createdAt: schema.auditLog.createdAt,
-          })
-          .from(schema.auditLog)
-          .where(
-            and(
-              eq(schema.auditLog.clinicId, session.clinicId),
-              eq(schema.auditLog.entityKind, "request"),
-              eq(schema.auditLog.entityId, id)
-            )
-          )
-          .orderBy(desc(schema.auditLog.createdAt))
-          .limit(20)
-      : Promise.resolve([]),
     db
       .select({
         vendor: schema.pvsLink.pvsVendor,
@@ -162,7 +140,7 @@ export default async function AnfrageDetailPage({
     after(() => markRequestViewed(session.clinicId, session.userId, id));
   }
 
-  const [[siblings, auditTrail, pvsLinkRow, followups, responseRuleStart], patientLtv] = await Promise.all([
+  const [[siblings, pvsLinkRow, followups, responseRuleStart], patientLtv] = await Promise.all([
     sidePromise,
     request.patientId
       ? patientLifetimeRevenue(session.clinicId, session.userId, request.patientId)
@@ -212,17 +190,6 @@ export default async function AnfrageDetailPage({
     request.slaRespondBy &&
     request.slaRespondBy.getTime() < Date.now();
 
-  // Parse aiSignals for badge strip.
-  const aiSignals =
-    request.aiSignals && typeof request.aiSignals === "object"
-      ? (request.aiSignals as Record<string, unknown>)
-      : null;
-
-  // KI-Bewertung, short (DS3): "74/100"; the bands are explained in the popover.
-  const scoreText =
-    request.aiScore != null
-      ? aiScoreText(request.aiScore)
-      : aiCategoryWord(request.aiCategory);
   const responseFlagged = isPraxisResponseFlag(response.state);
   const responseHint =
     response.state === "nicht_beantwortet"
@@ -364,10 +331,8 @@ export default async function AnfrageDetailPage({
             </div>
           )}
 
-          {/* Nachricht und KI-Bewertung nebeneinander auf breiten Schirmen */}
-          {(request.message || request.aiReasoning || scoreText) && (
+          {request.message && (
             <div className="grid gap-4 md:grid-cols-2">
-              {request.message && (
                 <div>
                   <div className="text-sm font-medium text-fg-primary">
                     Nachricht der Anfrage
@@ -376,41 +341,10 @@ export default async function AnfrageDetailPage({
                     {request.message}
                   </blockquote>
                 </div>
-              )}
-
-              {(scoreText || request.aiReasoning) && (
-                <div>
-                  <div className="flex items-center gap-1 text-sm font-medium text-fg-primary">
-                    KI-Bewertung
-                    <ExplainerPopover term="KI-Bewertung" ariaLabel="Erklärung zur KI-Bewertung">
-                      {AI_SCORE_EXPLANATION}
-                    </ExplainerPopover>
-                  </div>
-                  {scoreText && (
-                    <p className="mt-1 text-lg font-semibold tabular-nums text-fg-primary">
-                      {scoreText}
-                    </p>
-                  )}
-                  {request.aiReasoning && (
-                    <p className="mt-1 text-sm leading-relaxed text-fg-primary">
-                      {germanAiReasoning(request.aiReasoning)}
-                    </p>
-                  )}
-                  {request.aiPromptVersion === "rules-v3-llm-notes" && (
-                    <p className="mt-1 text-sm text-fg-secondary">
-                      Notizen-Bewertung KI-generiert · finale Qualifizierung durch das Praxis-Team
-                    </p>
-                  )}
-                  {aiSignals && signalLine(aiSignals) && (
-                    <p className="mt-2 text-sm text-fg-secondary">{signalLine(aiSignals)}</p>
-                  )}
-                </div>
-              )}
             </div>
           )}
 
-          {/* Consent to report to Meta/Google (migration 0077). Without an
-              active consent the purchase workers never report this person. */}
+          {/* Consent to report to Meta/Google (migration 0077). */}
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-fg-primary">
             <span>
               Einwilligung Meta/Google:{" "}
@@ -519,7 +453,6 @@ export default async function AnfrageDetailPage({
                           <span aria-hidden>·</span>
                           <span className="inline-flex items-center gap-1.5 text-fg-secondary">
                             <Avatar
-                              src={a.actorAvatarUrl ?? null}
                               name={a.actorName ?? a.actorEmail ?? "?"}
                               size="xs"
                             />
@@ -538,7 +471,7 @@ export default async function AnfrageDetailPage({
                     )}
                     {a.body && (
                       <p className="mt-1 whitespace-pre-wrap text-base text-fg-primary">
-                        {a.kind === "ai_rescore" ? germanAiReasoning(a.body) : a.body}
+                        {a.body}
                       </p>
                     )}
                   </li>
@@ -604,7 +537,7 @@ export default async function AnfrageDetailPage({
             </Card>
           )}
 
-          {/* Technical metadata + UTM + raw payload + audit — all collapsible */}
+          {/* Technical metadata + raw payload — all collapsible */}
           <Accordion type="multiple">
             <AccordionItem value="tech">
               <AccordionTrigger>Technische Details</AccordionTrigger>
@@ -634,24 +567,10 @@ export default async function AnfrageDetailPage({
                     label="DSGVO IP (gekürzt)"
                     value={maskIp(request.dsgvoConsentIp)}
                   />
-                  <DataField
-                    label="KI-Version"
-                    value={request.aiPromptVersion}
-                  />
                   <DataField label="Patient-ID" value={request.patientId ?? null} />
                 </div>
               </AccordionContent>
             </AccordionItem>
-            {!!request.utm &&
-              typeof request.utm === "object" &&
-              Object.keys(request.utm as Record<string, unknown>).length > 0 && (
-                <AccordionItem value="utm">
-                  <AccordionTrigger>UTM-Parameter</AccordionTrigger>
-                  <AccordionContent>
-                    <KvTable kv={request.utm as Record<string, unknown>} />
-                  </AccordionContent>
-                </AccordionItem>
-              )}
             {canAudit &&
               !!request.rawPayload &&
               typeof request.rawPayload === "object" &&
@@ -665,35 +584,6 @@ export default async function AnfrageDetailPage({
                   </AccordionContent>
                 </AccordionItem>
               )}
-            {auditTrail.length > 0 && (
-              <AccordionItem value="audit">
-                <AccordionTrigger>Protokoll</AccordionTrigger>
-                <AccordionContent>
-                  <ul className="divide-y divide-border text-sm">
-                    {auditTrail.map((a) => (
-                      <li key={a.id} className="py-2">
-                        <div className="flex items-center justify-between text-sm text-fg-secondary">
-                          <span className="font-medium text-fg-primary">
-                            {a.action}
-                          </span>
-                          <span className="tabular-nums">
-                            {formatDateTime(a.createdAt)}
-                          </span>
-                        </div>
-                        <div className="text-fg-primary">
-                          {a.actorEmail ?? "–"}
-                        </div>
-                        {!!a.diff && (
-                          <pre className="mt-1 overflow-x-auto rounded bg-bg-secondary p-2 text-xs">
-                            {JSON.stringify(a.diff, null, 2)}
-                          </pre>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </AccordionContent>
-              </AccordionItem>
-            )}
           </Accordion>
     </div>
   );
@@ -757,13 +647,9 @@ function ProofStat({ label, value }: { label: string; value: React.ReactNode }) 
 function DataField({
   label,
   value,
-  icon,
-  href,
 }: {
   label: string;
   value: string | null | undefined;
-  icon?: React.ReactNode;
-  href?: string;
 }) {
   const content = value ?? <span className="text-fg-secondary">–</span>;
   return (
@@ -772,14 +658,7 @@ function DataField({
         {label}
       </div>
       <div className="mt-1 flex items-center gap-2 text-base text-fg-primary">
-        {icon}
-        {href ? (
-          <a href={href} className="underline underline-offset-4 hover:text-accent">
-            {content}
-          </a>
-        ) : (
-          content
-        )}
+        {content}
       </div>
     </div>
   );
@@ -799,52 +678,6 @@ function ActivityIcon({ kind }: { kind: ActivityKind }) {
     default:
       return <Clock className="h-3.5 w-3.5" />;
   }
-}
-
-/**
- * The scorer's inputs as one grey line ("Kontaktdaten vollständig: Ja ·
- * Textlänge: 69"). Plain facts, so no coloured dots. Nested objects (the raw
- * `quiz` payload that produced the other signals) and empty values are left out.
- */
-function signalLine(signals: Record<string, unknown>): string | null {
-  const parts = Object.entries(signals)
-    .filter(([, v]) => v != null && typeof v !== "object")
-    .map(([k, v]) => {
-      const label = SIGNAL_LABELS[k] ?? k;
-      const display = typeof v === "boolean" ? (v ? "Ja" : "Nein") : String(v);
-      return `${label}: ${display}`;
-    });
-  return parts.length > 0 ? parts.join(" · ") : null;
-}
-
-const SIGNAL_LABELS: Record<string, string> = {
-  budgetMentioned: "Budget genannt",
-  treatmentSpecified: "Behandlung konkret",
-  contactComplete: "Kontaktdaten vollständig",
-  hasUrgency: "Dringlichkeit",
-  messageLength: "Textlänge",
-};
-
-function KvTable({ kv }: { kv: Record<string, unknown> }) {
-  const entries = Object.entries(kv);
-  if (entries.length === 0)
-    return <p className="text-sm text-fg-secondary">Keine Werte.</p>;
-  return (
-    <table className="w-full text-sm">
-      <tbody className="divide-y divide-border">
-        {entries.map(([k, v]) => (
-          <tr key={k}>
-            <td className="px-3 py-1.5 text-sm font-medium text-fg-primary">
-              {k}
-            </td>
-            <td className="px-3 py-1.5 tabular-nums text-fg-primary">
-              {v == null ? "–" : String(v)}
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  );
 }
 
 /**

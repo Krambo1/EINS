@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button, Input, Label } from "@eins/ui";
 import { issueAgentEnrollmentAction } from "../../actions";
-import { Copy, Loader2, KeyRound, Check } from "lucide-react";
+import { Copy, Loader2, Check } from "lucide-react";
 
 export function GdtAgentEnroll() {
   const [busy, setBusy] = useState(false);
@@ -54,7 +54,7 @@ export function GdtAgentEnroll() {
       </div>
 
       <Button onClick={generate} disabled={busy}>
-        {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <KeyRound className="mr-2 h-4 w-4" />}
+        {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
         Einrichtungs-Code erzeugen
       </Button>
 

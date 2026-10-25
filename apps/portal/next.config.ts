@@ -33,8 +33,7 @@ const config: NextConfig = {
     },
     // Tree-shake barrel imports from these packages.
     // - lucide-react: 16 import sites in portal pages, ~hundreds of icons total.
-    // - date-fns: defensive — server-only utility imports.
-    optimizePackageImports: ["lucide-react", "date-fns"],
+    optimizePackageImports: ["lucide-react"],
     // Client-side Router Cache reuse window for dynamic routes. Next 15
     // defaults `dynamic` to 0, so every dashboard TimeRangeToggle does a full
     // server round-trip even when flipping back to a window viewed seconds

@@ -176,9 +176,8 @@ export function IntegrationenTab({
         <CardHeader>
           <CardTitle>Abschluss-Meldungen an Meta und Google</CardTitle>
           <CardDescription>
-            Pro bezahlte Rechnung wird je eine Meldung an Meta (CAPI) und
-            Google (OCI) in die Warteschlange geschrieben. Hier stehen die
-            letzten Meldungen mit Status und Antwort-Code der Plattformen.
+            Hier stehen die letzten Meldungen mit Status und Antwort-Code der
+            Plattformen.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -202,8 +201,7 @@ export function IntegrationenTab({
           </div>
           {adsConversion.recent.length === 0 ? (
             <p className="text-sm text-fg-secondary">
-              Noch keine Abschluss-Meldungen. Die erste bezahlte Rechnung mit
-              vorhandenem fbclid oder gclid füllt diese Liste.
+              Noch keine Abschluss-Meldungen.
             </p>
           ) : (
             <ol className="space-y-1.5 text-xs">

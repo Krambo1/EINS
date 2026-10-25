@@ -102,14 +102,11 @@ export function BreakdownStackChart({
   centerLabel = "Anfragen",
   emptyText = "Keine Daten im Zeitraum.",
   totals,
-  defaultOpenKey,
 }: {
   rows: BreakdownRow[];
   centerLabel?: string;
   emptyText?: string;
   totals?: BreakdownTotals;
-  /** Source opened on first paint. Defaults to the largest (top) row. */
-  defaultOpenKey?: string;
 }) {
   const total = rows.reduce((s, r) => s + r.value, 0);
 
@@ -122,7 +119,7 @@ export function BreakdownStackChart({
 
   // Starts expanded on the top row; clicking the open row collapses it.
   const [open, setOpen] = React.useState<string | null>(
-    () => defaultOpenKey ?? sorted[0]?.key ?? null
+    () => sorted[0]?.key ?? null
   );
 
   // Key → full row lookup so the share bar's hover card (rendered from a

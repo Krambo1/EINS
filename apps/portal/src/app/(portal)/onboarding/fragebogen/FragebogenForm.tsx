@@ -329,9 +329,7 @@ export function FragebogenForm({
         </div>
       </div>
       <p className="text-sm text-fg-secondary">
-        Nach dem Einreichen können Sie Ihre Antworten weiterhin anpassen. Ihr
-        EINS-Team wird über Änderungen automatisch informiert, damit Ihr KI-Klon,
-        Ihre Beiträge und Ihre Zielseite auf dem aktuellen Stand aufbauen.
+        Nach dem Einreichen können Sie Ihre Antworten weiterhin anpassen.
       </p>
     </div>
     </div>

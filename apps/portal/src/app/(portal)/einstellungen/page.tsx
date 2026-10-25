@@ -37,20 +37,13 @@ import {
   Plus,
   MapPin,
   Send,
-  ListChecks,
-  ClipboardList,
-  ClipboardCheck,
 } from "lucide-react";
 import { listTreatments } from "@/server/queries/treatments";
 import { listLocations } from "@/server/queries/locations";
 import { Brand } from "@/app/_components/Brand";
-import { TourRelaunchCard } from "@/app/(portal)/_components/tour/TourRelaunchCard";
-import { AvatarUploader } from "./_components/AvatarUploader";
 import { ConfirmSubmitButton } from "./_components/ConfirmSubmitButton";
-import { IntakeSecretRotator } from "./_components/IntakeSecretRotator";
 import { ReviewSyncButton } from "./_components/ReviewSyncButton";
 import { Avatar } from "@eins/ui";
-import { avatarUrlForKey } from "@/server/avatars";
 import { auditLabel } from "./_audit-label";
 
 export const metadata = { title: "Einstellungen" };
@@ -68,7 +61,6 @@ export default async function EinstellungenPage() {
     await Promise.all([
       db
         .select({
-          id: schema.clinics.id,
           createdAt: schema.clinics.createdAt,
           displayName: schema.clinics.displayName,
           defaultDoctorEmail: schema.clinics.defaultDoctorEmail,
@@ -97,8 +89,6 @@ export default async function EinstellungenPage() {
               invitedAt: schema.clinicUsers.invitedAt,
               lastLoginAt: schema.clinicUsers.lastLoginAt,
               passwordSetAt: schema.clinicUsers.passwordSetAt,
-              avatarKey: schema.clinicUsers.avatarKey,
-              avatarUpdatedAt: schema.clinicUsers.avatarUpdatedAt,
             })
             .from(schema.clinicUsers)
             .where(
@@ -145,11 +135,6 @@ export default async function EinstellungenPage() {
     ]);
   const clinic = clinicRows[0];
 
-  const team = teamRows.map((m) => ({
-    ...m,
-    avatarUrl: avatarUrlForKey(m.avatarKey, m.avatarUpdatedAt),
-  }));
-
   const metaCred = credentials.find((c) => c.platform === "meta");
   const googleCred = credentials.find((c) => c.platform === "google");
 
@@ -180,17 +165,6 @@ export default async function EinstellungenPage() {
           <CardTitle>Mein Profil</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div>
-            <label className="mb-2 block text-sm font-medium">Profilbild</label>
-            <AvatarUploader
-              currentUrl={session.avatarUrl}
-              name={session.fullName}
-              email={session.email}
-            />
-            <p className="mt-2 text-sm text-fg-secondary">
-              JPG, PNG oder WebP, wird quadratisch auf 512&times;512 zugeschnitten.
-            </p>
-          </div>
           <form
             action={updateOwnProfileAction}
             className="grid gap-4 md:grid-cols-[1fr_auto]"
@@ -238,9 +212,6 @@ export default async function EinstellungenPage() {
         </CardContent>
       </Card>
 
-      {/* Portal-Rundgang re-launch — Inhaber only (matches the tour audience) */}
-      {isInhaber && <TourRelaunchCard />}
-
       {/* Onboarding entry points — Inhaber only. Lets the owner reach the
           Fragebogen + Checkliste again after the initial setup, e.g. to adjust
           answers or deliver remaining assets. */}
@@ -258,19 +229,16 @@ export default async function EinstellungenPage() {
               {[
                 {
                   href: "/onboarding",
-                  icon: <ListChecks className="h-4 w-4" />,
                   label: "Erste Schritte",
                   desc: "Ihr Einrichtungsstand auf einen Blick.",
                 },
                 {
                   href: "/onboarding/fragebogen",
-                  icon: <ClipboardList className="h-4 w-4" />,
                   label: "Fragebogen zum Start",
                   desc: "Ziele, Behandlungen und Ihre Ausgangswerte.",
                 },
                 {
                   href: "/onboarding/checkliste",
-                  icon: <ClipboardCheck className="h-4 w-4" />,
                   label: "Checkliste zum Start",
                   desc: "Zugänge, Logo, Bildmaterial, Klon-Aufnahme und Einwilligung.",
                 },
@@ -279,9 +247,6 @@ export default async function EinstellungenPage() {
                   key={row.href}
                   className="flex flex-wrap items-center gap-3 bg-bg-secondary p-4"
                 >
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border text-fg-primary">
-                    {row.icon}
-                  </span>
                   <div className="min-w-0 flex-1">
                     <div className="font-medium text-fg-primary">{row.label}</div>
                     <div className="text-sm text-fg-secondary">{row.desc}</div>
@@ -582,42 +547,6 @@ export default async function EinstellungenPage() {
                 <ReviewSyncButton />
               </div>
             </div>
-
-            <Separator />
-
-            {/* Zielseiten lead-intake signing secret */}
-            <div className="space-y-3">
-              <div>
-                <h3 className="text-sm font-semibold text-fg-primary">
-                  Zielseiten-Anbindung
-                </h3>
-                <p className="mt-1 text-sm text-fg-secondary">
-                  Ihre Zielseiten-Formulare senden neue Anfragen an das
-                  Portal. Ein geheimer Schlüssel sorgt dafür, dass nur Ihre
-                  eigenen Formulare Anfragen eintragen können. Das richtet
-                  EINS für Sie ein; Sie müssen hier normalerweise nichts tun.
-                </p>
-              </div>
-              <div className="rounded-xl border border-border bg-bg-secondary p-3">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-medium text-fg-primary">
-                      Geheimer Schlüssel{" "}
-                      <span className="font-normal text-fg-secondary">
-                        (technisch: HMAC, X-EINS-Signature)
-                      </span>
-                    </div>
-                    <p className="mt-1 text-sm text-fg-secondary">
-                      Wird beim Erneuern einmalig angezeigt. Der bisherige
-                      Schlüssel gilt danach noch 24 Stunden. Bis dahin müssen
-                      Ihre Zielseiten-Formulare den neuen Schlüssel verwenden,
-                      sonst werden Anfragen abgelehnt.
-                    </p>
-                  </div>
-                  <IntakeSecretRotator />
-                </div>
-              </div>
-            </div>
           </CardContent>
         </Card>
       )}
@@ -674,7 +603,7 @@ export default async function EinstellungenPage() {
 
             {/* Existing members */}
             <ul className="divide-y divide-border">
-              {team.map((m) => {
+              {teamRows.map((m) => {
                 const isSelf = m.id === session.userId;
                 return (
                   <li
@@ -683,7 +612,6 @@ export default async function EinstellungenPage() {
                   >
                     <div className="flex min-w-0 items-center gap-3">
                       <Avatar
-                        src={m.avatarUrl}
                         name={m.fullName ?? m.email}
                         size="lg"
                       />

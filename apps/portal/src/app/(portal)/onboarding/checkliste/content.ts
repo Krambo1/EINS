@@ -23,7 +23,7 @@
 
 // ---------------------------------------------------------------
 // EINS recipient data referenced in the step-by-step instructions.
-// TODO(karam): replace these three placeholders with the real values before
+// TODO(karam): replace these placeholders with the real values before
 // go-live (the {{...}} originals are listed in docs/asset-checkliste/checkliste-v1.md).
 // ---------------------------------------------------------------
 export const EINS_CONTACT = {
@@ -31,8 +31,6 @@ export const EINS_CONTACT = {
   metaBmId: "(Ihre EINS-Business-Manager-ID nennen wir Ihnen im Onboarding)",
   /** E-mail address clinics invite for Google Ads / GBP / Analytics / CMS. */
   adsEmail: "(diese E-Mail-Adresse nennen wir Ihnen im Onboarding)",
-  /** Fallback contact for questions about uploads. */
-  uploadKontakt: "Ihre EINS-Ansprechperson",
 } as const;
 
 // ---------------------------------------------------------------
@@ -822,14 +820,6 @@ export const BLOCKER_CHECKLIST_IDS: string[] = ALL_CHECKLIST_ITEMS.filter(
 
 /** Answer map stored in checklist_items.answer. */
 export type ChecklistAnswer = Record<string, string | boolean>;
-
-export interface ChecklistFileMeta {
-  id: string;
-  originalFilename: string;
-  sizeBytes: number;
-  contentType: string | null;
-  uploadedAt: Date;
-}
 
 // ---------------------------------------------------------------
 // Contact-field validation (email / phone). Shared by the client (inline

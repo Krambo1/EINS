@@ -7,9 +7,8 @@ import { canonicalSource } from "@/lib/sources";
 /**
  * Average lifetime value keyed by raw first-touch source (the same source
  * vocabulary as `requests.source` / `bySource`), so it maps onto the
- * Quellen-Aufschlüsselung rows 1:1 — no collapsing into coarse channels the
- * way `ltvByChannel` does. Deliberately *not* window-scoped: LTV is a lifetime
- * metric, so it aggregates every patient regardless of the dashboard period.
+ * Quellen-Aufschlüsselung rows 1:1. Deliberately *not* window-scoped: LTV is a
+ * lifetime metric, so it aggregates every patient regardless of the dashboard period.
  */
 async function ltvBySourceUncached(
   clinicId: string,
@@ -50,8 +49,8 @@ async function ltvBySourceUncached(
  * Cached for SHORT_REVALIDATE_S. Range-independent (LTV is a lifetime metric),
  * so the dashboard re-running it on every TimeRangeToggle is pure waste.
  * unstable_cache JSON-serializes its result and a Map round-trips to `{}`, so
- * we cache the entries array and rehydrate to a Map outside the cache (same
- * pattern as getClinicRelationshipStart's Date). Public signature unchanged.
+ * we cache the entries array and rehydrate to a Map outside the cache. Public
+ * signature unchanged.
  */
 const ltvBySourceEntries = cacheClinicQuery(
   "ltvBySource",

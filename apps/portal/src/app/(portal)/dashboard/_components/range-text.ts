@@ -1,19 +1,6 @@
 import type { DashboardRange } from "@/lib/dashboard-range";
 
-/**
- * Plain-language window names shown as text in each dashboard card header,
- * so the owner sees at a glance which period a card's numbers cover. Matches
- * `dashboardRangeWindow` (1 / 30 / 365 / 1825 Berlin calendar days incl. today).
- */
-export const RANGE_HEADER_TEXT: Record<DashboardRange, string> = {
-  heute: "Heute",
-  mon: "Letzte 30 Tage",
-  jahr: "Letzte 12 Monate",
-  max: "Letzte 5 Jahre",
-};
-
-/** Short names on the page-level switch. Same periods as RANGE_HEADER_TEXT,
- *  so the switch and a card's own label never name one window two ways. */
+/** Short names on the page-level switch. */
 export const RANGE_SWITCH_TEXT: Record<DashboardRange, string> = {
   heute: "Heute",
   mon: "30 Tage",

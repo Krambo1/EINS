@@ -42,8 +42,6 @@ export const QUEUES = {
   pvsPartitionRotate: "pvs-partition-rotate",
   /** PVS Bridge — nightly reconciliation: diff expected vs ingested events. */
   pvsReconcile: "pvs-reconcile",
-  /** PVS Bridge — trigram-based treatment auto-mapping suggestions. */
-  pvsTreatmentSuggest: "pvs-treatment-suggest",
   /**
    * PVS Bridge: hourly agent liveness scan. Raises the two conditions a
    * heartbeat cannot report about itself: agent gone silent, and agent
@@ -52,23 +50,6 @@ export const QUEUES = {
   pvsAgentHealthScan: "pvs-agent-health-scan",
   /** PVS Bridge: 15-min sweep that re-applies events stuck unapplied. */
   pvsApplySweep: "pvs-apply-sweep",
-  /**
-   * Nightly per-praxis 90-day cashflow forecast snapshot. Bootstrap Monte
-   * Carlo over historical close rates + time-to-close + DSO; writes one row
-   * to `forecast_snapshots` per (clinic_id, snapshot_date).
-   */
-  forecastSnapshot: "forecast-snapshot",
-  /**
-   * Closed-loop attribution — fire Meta CAPI Purchase event when a
-   * PVS InvoicePaid event arrives for a request with fbclid/fbc.
-   */
-  capiPurchase: "capi-purchase",
-  /**
-   * Closed-loop attribution — upload an offline conversion to Google
-   * Ads (uploadClickConversions) when a PVS InvoicePaid event arrives
-   * for a request with gclid/wbraid/gbraid.
-   */
-  ociPurchase: "oci-purchase",
   /**
    * Dashboard anomaly scanner. Runs every 6h, evaluates rule library
    * against kpi_daily + campaign_snapshots + requests + notifications,
@@ -114,26 +95,6 @@ export const PVS_RETRY = {
   retryBackoff: true,
 } as const;
 
-/**
- * Pass 2: ads conversion uploads (Meta CAPI, Google OCI). DEFAULT_RETRY gave
- * up after ~35 s (5 s, 10 s, 20 s), so a minute of platform trouble or a 429
- * marked the Purchase failed for good. 8 retries from 60 s back off to about
- * 4 h in total. The processors' attempt cap is ADS_MAX_ATTEMPTS.
- */
-export const ADS_RETRY = {
-  retryLimit: 8,
-  retryDelay: 60,
-  retryBackoff: true,
-} as const;
-
-/** Attempt cap stored on the outbox row: the first try plus every retry. */
-export const ADS_MAX_ATTEMPTS = ADS_RETRY.retryLimit + 1;
-
-const ADS_RETRY_QUEUES: ReadonlySet<string> = new Set([
-  QUEUES.capiPurchase,
-  QUEUES.ociPurchase,
-]);
-
 /** Terminal queue for PVS jobs that exhausted PVS_RETRY. Nobody works it. */
 export const PVS_DEAD_LETTER_QUEUE = "pvs-dead-letter";
 
@@ -157,7 +118,6 @@ export function retryOptionsFor(queue: string): {
   retryBackoff: boolean;
 } {
   if (PVS_RETRY_QUEUES.has(queue)) return { ...PVS_RETRY };
-  if (ADS_RETRY_QUEUES.has(queue)) return { ...ADS_RETRY };
   return { ...DEFAULT_RETRY };
 }
 
@@ -166,13 +126,11 @@ export function retryOptionsFor(queue: string): {
  * redundant enqueues. In pg-boss this maps to the `short` queue policy
  * (at most one job in the `created`/queued state per `singletonKey`) plus a
  * `singletonKey` on the producer side. The real idempotency guard for these
- * still lives in the DB (outbox `UNIQUE(clinic, channel, event)` + derive
- * full-replay); the policy only trims duplicate pending enqueues.
+ * still lives in the DB (derive full-replay); the policy only trims duplicate
+ * pending enqueues.
  */
 export const DEDUP_QUEUES: ReadonlySet<QueueName> = new Set([
   QUEUES.pvsStatusDerive,
-  QUEUES.capiPurchase,
-  QUEUES.ociPurchase,
 ]);
 
 /**
@@ -196,8 +154,6 @@ export const LATENCY_SENSITIVE: ReadonlySet<QueueName> = new Set([
   QUEUES.pvsStatusDerive,
   QUEUES.pvsLinkBackfill,
   QUEUES.pvsLeadTokenWrite,
-  QUEUES.capiPurchase,
-  QUEUES.ociPurchase,
 ]);
 
 export const FAST_POLL_SECONDS = 2;

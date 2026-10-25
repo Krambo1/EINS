@@ -8,7 +8,6 @@ export const GATE_ALLOWED_PREFIXES = [
   "/onboarding",
   "/einstellungen",
   "/faq",
-  "/feedback",
   "/support",
 ] as const;
 

@@ -31,7 +31,7 @@ const DASHBOARD_CARD_KEYS = [
 /**
  * One time-range switch for the whole dashboard. Active segment = the range
  * all cards share; when a deep link carries different per-card ranges no
- * segment is active and each card header names its own period.
+ * segment is active.
  */
 export function DashboardRangeSwitch() {
   const router = useRouter();

@@ -12,8 +12,8 @@ import {
  * dispatcher model (one dispatcher per per-clinic job instead of N repeatables).
  */
 describe("worker schedule registry", () => {
-  it("registers the 13 platform-wide schedules with their crons", () => {
-    expect(PLATFORM_SCHEDULES).toHaveLength(13);
+  it("registers the 12 platform-wide schedules with their crons", () => {
+    expect(PLATFORM_SCHEDULES).toHaveLength(12);
     const map = Object.fromEntries(PLATFORM_SCHEDULES.map((s) => [s.queue, s.cron]));
     expect(map[QUEUES.slaCheck]).toBe("*/15 * * * *");
     expect(map[QUEUES.refreshOauth]).toBe("*/15 * * * *");
@@ -22,7 +22,6 @@ describe("worker schedule registry", () => {
     expect(map[QUEUES.purgeAudit]).toBe("0 4 * * 0");
     expect(map[QUEUES.pvsPartitionRotate]).toBe("0 4 * * *");
     expect(map[QUEUES.pvsReconcile]).toBe("15 */4 * * *");
-    expect(map[QUEUES.pvsTreatmentSuggest]).toBe("30 4 * * *");
     expect(map[QUEUES.anomalyScan]).toBe("30 */6 * * *");
     // 0069: agent liveness. Offset off the top of the hour so it does not
     // queue behind the per-clinic syncs.
@@ -36,13 +35,12 @@ describe("worker schedule registry", () => {
   });
 
   it("registers one fan-out dispatcher per per-clinic queue", () => {
-    expect(CLINIC_DISPATCHERS).toHaveLength(8);
+    expect(CLINIC_DISPATCHERS).toHaveLength(7);
     expect(new Set(CLINIC_DISPATCHERS.map((d) => d.target))).toEqual(
       new Set([
         QUEUES.syncMeta,
         QUEUES.syncGoogle,
         QUEUES.kpiRebuild,
-        QUEUES.forecastSnapshot,
         QUEUES.syncReviewsGoogle,
         QUEUES.syncReviewsJameda,
         QUEUES.monthlyReport,
@@ -64,7 +62,6 @@ describe("worker schedule registry", () => {
     expect(map[QUEUES.syncMeta]).toBe("0 2 * * *");
     expect(map[QUEUES.syncGoogle]).toBe("30 2 * * *");
     expect(map[QUEUES.kpiRebuild]).toBe("0 3 * * *");
-    expect(map[QUEUES.forecastSnapshot]).toBe("15 3 * * *");
     expect(map[QUEUES.syncReviewsGoogle]).toBe("0 4 * * *");
     expect(map[QUEUES.syncReviewsJameda]).toBe("20 4 * * *");
     expect(map[QUEUES.monthlyReport]).toBe("0 5 1 * *");

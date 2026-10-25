@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/db/client";
 import { requireSession } from "@/auth/guards";
@@ -43,15 +43,6 @@ const NOT_RESOLVED_TEXT =
   "Diese Zuordnung ist schon erledigt oder nicht mehr möglich. Bitte laden Sie die Seite neu.";
 
 const UuidSchema = z.string().uuid();
-const MappingStatusSchema = z.enum(["mapped", "ignored", "unmapped"]);
-const MappingInputSchema = z
-  .object({
-    mappingId: UuidSchema,
-    targetId: UuidSchema.nullable(),
-    setStatus: MappingStatusSchema,
-  })
-  // "mapped" needs a target; "ignored" / "unmapped" never keep one.
-  .refine((v) => v.setStatus !== "mapped" || v.targetId !== null);
 
 // ---------------------------------------------------------------
 // GDT-Agent enrollment
@@ -267,145 +258,5 @@ export async function ignoreLinkingFailureAction(input: {
     return { ok: true };
   } catch (err) {
     return { ok: false, error: flashMessageFromError(err, "integrations.link_ignore") };
-  }
-}
-
-// ---------------------------------------------------------------
-// Treatment / location mapping
-// ---------------------------------------------------------------
-
-export async function mapTreatmentAction(input: {
-  mappingId: string;
-  portalTreatmentId: string | null;
-  setStatus: "mapped" | "ignored" | "unmapped";
-}): Promise<{ ok: boolean; error?: string }> {
-  const session = await requireSession();
-  try {
-    if (!can(session.role, "settings.integrations")) {
-      return { ok: false, error: FORBIDDEN_TEXT };
-    }
-    const parsed = MappingInputSchema.safeParse({
-      mappingId: input?.mappingId,
-      targetId: input?.setStatus === "mapped" ? (input?.portalTreatmentId ?? null) : null,
-      setStatus: input?.setStatus,
-    });
-    if (!parsed.success) return { ok: false, error: INVALID_TEXT };
-    input = {
-      mappingId: parsed.data.mappingId,
-      portalTreatmentId: parsed.data.targetId,
-      setStatus: parsed.data.setStatus,
-    };
-    // The target treatment must be an active treatment of THIS Praxis.
-    if (input.portalTreatmentId) {
-      const [target] = await db
-        .select({ id: schema.treatments.id })
-        .from(schema.treatments)
-        .where(
-          and(
-            eq(schema.treatments.id, input.portalTreatmentId),
-            eq(schema.treatments.clinicId, session.clinicId),
-            isNull(schema.treatments.archivedAt)
-          )
-        )
-        .limit(1);
-      if (!target) return { ok: false, error: INVALID_TEXT };
-    }
-    const updated = await db
-      .update(schema.pvsTreatmentMapping)
-      .set({
-        portalTreatmentId: input.portalTreatmentId,
-        status: input.setStatus,
-        mappedBy: session.userId,
-        mappedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(schema.pvsTreatmentMapping.id, input.mappingId),
-          eq(schema.pvsTreatmentMapping.clinicId, session.clinicId)
-        )
-      )
-      .returning({ id: schema.pvsTreatmentMapping.id });
-    if (updated.length === 0) return { ok: false, error: INVALID_TEXT };
-    await writeAudit({
-      clinicId: session.clinicId,
-      actorId: session.userId,
-      action: "pvs_treatment_mapped",
-      entityKind: "pvs_treatment_mapping",
-      entityId: input.mappingId,
-      diff: { portalTreatmentId: input.portalTreatmentId, status: input.setStatus },
-    });
-    revalidatePath("/einstellungen/integrationen/mapping/treatments");
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: flashMessageFromError(err, "integrations.map_treatment") };
-  }
-}
-
-export async function mapLocationAction(input: {
-  mappingId: string;
-  portalLocationId: string | null;
-  setStatus: "mapped" | "ignored" | "unmapped";
-}): Promise<{ ok: boolean; error?: string }> {
-  const session = await requireSession();
-  try {
-    if (!can(session.role, "settings.integrations")) {
-      return { ok: false, error: FORBIDDEN_TEXT };
-    }
-    const parsed = MappingInputSchema.safeParse({
-      mappingId: input?.mappingId,
-      targetId: input?.setStatus === "mapped" ? (input?.portalLocationId ?? null) : null,
-      setStatus: input?.setStatus,
-    });
-    if (!parsed.success) return { ok: false, error: INVALID_TEXT };
-    input = {
-      mappingId: parsed.data.mappingId,
-      portalLocationId: parsed.data.targetId,
-      setStatus: parsed.data.setStatus,
-    };
-    // The target location must be an active location of THIS Praxis.
-    if (input.portalLocationId) {
-      const [target] = await db
-        .select({ id: schema.locations.id })
-        .from(schema.locations)
-        .where(
-          and(
-            eq(schema.locations.id, input.portalLocationId),
-            eq(schema.locations.clinicId, session.clinicId),
-            isNull(schema.locations.archivedAt)
-          )
-        )
-        .limit(1);
-      if (!target) return { ok: false, error: INVALID_TEXT };
-    }
-    const updated = await db
-      .update(schema.pvsLocationMapping)
-      .set({
-        portalLocationId: input.portalLocationId,
-        status: input.setStatus,
-        mappedBy: session.userId,
-        mappedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(schema.pvsLocationMapping.id, input.mappingId),
-          eq(schema.pvsLocationMapping.clinicId, session.clinicId)
-        )
-      )
-      .returning({ id: schema.pvsLocationMapping.id });
-    if (updated.length === 0) return { ok: false, error: INVALID_TEXT };
-    await writeAudit({
-      clinicId: session.clinicId,
-      actorId: session.userId,
-      action: "pvs_location_mapped",
-      entityKind: "pvs_location_mapping",
-      entityId: input.mappingId,
-      diff: { portalLocationId: input.portalLocationId, status: input.setStatus },
-    });
-    revalidatePath("/einstellungen/integrationen/mapping/locations");
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: flashMessageFromError(err, "integrations.map_location") };
   }
 }

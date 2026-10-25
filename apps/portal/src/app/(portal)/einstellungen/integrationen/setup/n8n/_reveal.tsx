@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@eins/ui";
 import { rotatePvsSecretAction } from "../../actions";
-import { Copy, Loader2, KeyRound, Check, AlertTriangle } from "lucide-react";
+import { Copy, Loader2, Check, AlertTriangle } from "lucide-react";
 
 export function N8nSecretReveal() {
   const [busy, setBusy] = useState(false);
@@ -41,11 +41,7 @@ export function N8nSecretReveal() {
   return (
     <div className="space-y-3">
       <Button onClick={rotate} disabled={busy}>
-        {busy ? (
-          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-        ) : (
-          <KeyRound className="mr-2 h-4 w-4" />
-        )}
+        {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
         {secret ? "Neuen Schlüssel erzeugen" : "Schlüssel erzeugen"}
       </Button>
 

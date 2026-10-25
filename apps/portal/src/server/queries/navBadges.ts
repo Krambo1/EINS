@@ -1,7 +1,6 @@
 import "server-only";
-import { and, eq, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { withClinicContext, schema } from "@/db/client";
-import { invalidateNavBadges } from "./navBadgesCache";
 
 /**
  * Stable section keys used in `user_nav_section_views.section`. Add to this
@@ -15,42 +14,6 @@ export type NavSection = "fortschritt" | "medien" | "dokumente";
  * a brand-new account from seeing "Neu" for ancient archived content.
  */
 export const NEW_USER_LOOKBACK_DAYS = 14;
-
-/**
- * The threshold against which a section's content `created_at` (or similar)
- * should be compared to decide whether to surface the "Neu" pill. Returns
- * the user's own last-seen timestamp for this section, or — for never-
- * visited users — a 14-day-ago fallback so the badge only surfaces actually
- * recent content for new accounts.
- */
-export async function sectionBadgeThreshold(
-  clinicId: string,
-  userId: string,
-  section: NavSection
-): Promise<Date> {
-  const fallback = new Date(
-    Date.now() - NEW_USER_LOOKBACK_DAYS * 24 * 60 * 60 * 1000
-  );
-  const row = await withClinicContext(
-    clinicId,
-    userId,
-    async (tx) => {
-      const [r] = await tx
-        .select({ lastSeenAt: schema.userNavSectionViews.lastSeenAt })
-        .from(schema.userNavSectionViews)
-        .where(
-          and(
-            eq(schema.userNavSectionViews.userId, userId),
-            eq(schema.userNavSectionViews.section, section)
-          )
-        )
-        .limit(1);
-      return r ?? null;
-    },
-    `nav:threshold:${section}`
-  );
-  return row?.lastSeenAt ?? fallback;
-}
 
 /**
  * Stamps this user's last-seen timestamp for the given section to now,
@@ -80,9 +43,6 @@ export async function markSectionSeen(
           }),
       `nav:mark-seen:${section}`
     );
-    // Flush the bundled badge cache so this user's next render computes
-    // the pill from the just-stamped last-seen timestamp.
-    invalidateNavBadges(clinicId, userId);
   } catch {
     // Non-critical — silently drop.
   }

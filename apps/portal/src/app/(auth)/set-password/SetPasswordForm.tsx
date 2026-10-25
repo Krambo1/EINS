@@ -13,7 +13,6 @@ import {
 } from "./actions";
 
 interface Props {
-  mode: "set_password" | "reset_password";
   /** The account's address, for password managers (hidden username field). */
   email: string;
 }
@@ -32,9 +31,7 @@ function SubmitButton({ blocked }: { blocked: boolean }) {
   );
 }
 
-// `mode` only selects copy on the page; every mode uses the cookie action
-// (the session-based invite action is gone, B-8).
-export function SetPasswordForm({ mode: _mode, email }: Props) {
+export function SetPasswordForm({ email }: Props) {
   const [state, formAction] = useActionState<SetPasswordState, FormData>(
     setPasswordFromCookieAction,
     undefined

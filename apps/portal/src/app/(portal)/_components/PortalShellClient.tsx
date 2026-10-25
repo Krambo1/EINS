@@ -10,7 +10,6 @@ import {
 } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import dynamic from "next/dynamic";
 import { cn } from "@eins/ui";
 import { TopProgressBar } from "./TopProgressBar";
 import {
@@ -24,27 +23,16 @@ import {
   Milestone,
   Star,
   Menu,
-  Search,
   HelpCircle,
   FileUp,
   CalendarClock,
 } from "lucide-react";
-import { CONTACT_CARD_COOKIE, type Role } from "@/lib/constants";
+import type { Role } from "@/lib/constants";
 import { can } from "@/lib/roles";
 import { ImpersonationBanner } from "./ImpersonationBanner";
-import { GlobalSearch } from "./GlobalSearch";
-
-// Lazy-load the dialog so cmdk + the static index + icons don't ship on every
-// authenticated route. Once loaded we keep it mounted so subsequent opens are
-// instant.
-const GlobalSearchDialog = dynamic(
-  () => import("./GlobalSearchDialog").then((m) => m.GlobalSearchDialog),
-  { ssr: false }
-);
 import { UserMenu } from "./UserMenu";
 import { markSectionSeenAction } from "./nav-actions";
 import { SidebarContactCard } from "./SidebarContactCard";
-import { TourNavCard } from "./tour/TourNavCard";
 import { ThemeToggle } from "@/app/_components/ThemeToggle";
 import { EinsLogo } from "@/app/_components/EinsLogo";
 
@@ -73,10 +61,9 @@ interface NavGroup {
 
 /**
  * Sidebar, main path first. Kept short on purpose (about ten entries for a
- * new Praxis): "Werbebudget" appears once ads run, "Einstellungen" and
- * "Feedback senden" live in the account menu (top right), "Häufige Fragen" is
- * the single "Hilfe" entry. Every page stays reachable by URL and by the
- * search (Strg+K); permissions are unchanged.
+ * new Praxis): "Werbebudget" appears once ads run, "Einstellungen" lives
+ * in the account menu (top right), "Häufige Fragen" is the single "Hilfe"
+ * entry. Every page stays reachable by URL; permissions are unchanged.
  */
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -106,18 +93,9 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/fortschritt", label: "Fortschritt", icon: Milestone },
       { href: "/medien", label: "Medien", icon: Film, permission: "assets.view" },
       { href: "/beitraege", label: "Beiträge", icon: Clapperboard, permission: "assets.view" },
-      { href: "/dokumente", label: "Dokumente", icon: FileText, permission: "documents.view.all_roles" },
+      { href: "/dokumente", label: "Dokumente", icon: FileText, permission: "documents.view.marketing" },
       { href: "/dateien", label: "Dateien an EINS", icon: FileUp, permission: "uploads.send" },
-      {
-        href: "/leitfaden",
-        label: "Leitfaden",
-        icon: BookOpen,
-        permission: "leitfaden.view",
-        subItems: [
-          { href: "/leitfaden", label: "Inhalt" },
-          { href: "/leitfaden/pruefung", label: "Prüfung" },
-        ],
-      },
+      { href: "/leitfaden", label: "Leitfaden", icon: BookOpen, permission: "leitfaden.view" },
     ],
   },
   {
@@ -135,7 +113,7 @@ const BOTTOM_ANCHORED_GROUP = "hilfe";
 
 /**
  * Pill for something the user still owes, right of the nav label: due
- * Wiedervorlagen next to "Anfragen", the open Prüfung next to "Leitfaden".
+ * Wiedervorlagen next to "Anfragen".
  * Dark text on a light amber tint with an amber dot, so it reads apart from
  * the green "neu" count without putting text on a strong colour fill. Every
  * nav marker sits on the right, none on the icon.
@@ -181,22 +159,10 @@ function DuePill({ count, active }: { count: number; active: boolean }) {
   );
 }
 
-function LeitfadenPill({ active }: { active: boolean }) {
-  return (
-    <ActionPill
-      text="offen"
-      label="Schulung ausstehend"
-      title="Die Leitfaden-Prüfung ist noch nicht bestanden"
-      active={active}
-    />
-  );
-}
-
 export interface PortalShellProps {
   user: {
     email: string;
     fullName: string | null;
-    avatarUrl: string | null;
     role: Role;
   };
   clinic: {
@@ -208,8 +174,6 @@ export interface PortalShellProps {
   impersonating: boolean;
   /** ISO end of the impersonation session (hard 30 min), for the banner. */
   impersonationExpiresAt?: string | null;
-  /** Per-nav-item pending indicators (amber "offen" pill right of the label). */
-  pendingBadges?: { leitfaden?: boolean };
   /**
    * Per-nav-item accent badges, keyed by href. Rendered as a green accent
    * pill next to the label (desktop) / corner badge (mobile).
@@ -224,9 +188,6 @@ export interface PortalShellProps {
   anfragenDue?: number;
   /** Ad account connected or campaign data present: list "Werbebudget". */
   showWerbebudget?: boolean;
-  /** Initial minimized state of the sidebar contact card, read from a cookie
-   *  server-side so the first paint matches the user's last choice. */
-  contactCardCollapsed?: boolean;
   children: ReactNode;
 }
 
@@ -247,11 +208,9 @@ export function PortalShellClient({
   clinic,
   impersonating,
   impersonationExpiresAt,
-  pendingBadges,
   navBadgeCounts: serverBadgeCounts,
   anfragenDue = 0,
   showWerbebudget = false,
-  contactCardCollapsed,
   children,
 }: PortalShellProps) {
   const pathname = usePathname();
@@ -278,20 +237,7 @@ export function PortalShellClient({
     return out;
   }, [serverBadgeCounts, seenSections]);
 
-  // Sidebar contact card: minimized/expanded, persisted to a cookie so the
-  // choice survives navigations and future sessions. State is lifted here (not
-  // in the card) so the desktop rail and mobile drawer instances stay in sync.
-  const [contactCollapsed, setContactCollapsed] = useState(!!contactCardCollapsed);
-  const toggleContactCard = (next: boolean) => {
-    setContactCollapsed(next);
-    try {
-      document.cookie = `${CONTACT_CARD_COOKIE}=${next ? "1" : "0"}; path=/; max-age=31536000; samesite=lax`;
-    } catch {
-      // document unavailable (shouldn't happen client-side) — ignore.
-    }
-  };
-
-  // "Werbebudget" stays listed while the user is on it (tour step, search).
+  // "Werbebudget" stays listed while the user is on it.
   const onWerbebudget =
     pathname === "/werbebudget" || pathname.startsWith("/werbebudget/");
   const adsVisible = showWerbebudget || onWerbebudget;
@@ -345,29 +291,9 @@ export function PortalShellClient({
   pendingHrefRef.current = pendingHref;
 
   // Mobile nav drawer: slide-out panel that hosts the same sidebar content
-  // as the desktop rail. Opened via the header burger or a right-swipe from
-  // the left edge; closed via tap-backdrop, swipe-left on the panel, Escape,
-  // or any route change.
+  // as the desktop rail. Opened via the header burger; closed via
+  // tap-backdrop, Escape, or any route change.
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-
-  // Global search palette. State lives here (not in <GlobalSearch>) so the
-  // trigger can render twice (desktop rail + mobile drawer) without
-  // duplicating the dialog. `loaded` gates the dynamic import — once true
-  // the dialog stays mounted for instant re-opens.
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchLoaded, setSearchLoaded] = useState(false);
-  const openSearchPalette = () => {
-    setSearchLoaded(true);
-    setSearchOpen(true);
-  };
-
-  // Desktop sidenav: same sliding-pill idea, but vertical and width-variable.
-  // Items use `self-start` so each is sized to its own label, hence we track
-  // top/left/width/height per active item rather than just left/width.
-  const desktopItemRefs = useRef<Record<string, HTMLAnchorElement | null>>({});
-  const [desktopPill, setDesktopPill] = useState<
-    { top: number; left: number; width: number; height: number } | null
-  >(null);
 
   useEffect(() => {
     const target = pendingHrefRef.current;
@@ -412,123 +338,6 @@ export function PortalShellClient({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [mobileNavOpen]);
-
-  // Global search keyboard shortcuts. ⌘/Ctrl-K toggles the palette; "/" opens
-  // it but only when the user isn't typing into a form control.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.repeat) return;
-      const isPalette = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k";
-      if (isPalette) {
-        e.preventDefault();
-        setSearchLoaded(true);
-        setSearchOpen((v) => !v);
-        return;
-      }
-      if (e.key === "/") {
-        const t = e.target as HTMLElement | null;
-        if (!t) return;
-        const tag = t.tagName;
-        if (
-          tag === "INPUT" ||
-          tag === "TEXTAREA" ||
-          tag === "SELECT" ||
-          t.isContentEditable
-        ) {
-          return;
-        }
-        e.preventDefault();
-        setSearchLoaded(true);
-        setSearchOpen(true);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
-  // Edge-swipe gestures: right-swipe from the left edge opens the drawer,
-  // left-swipe (anywhere) closes it once open. Mobile only — we gate on a
-  // matchMedia query so desktop pointer events don't trigger it. Thresholds
-  // are tuned so a clearly horizontal gesture is required; vertical scrolls
-  // and small wobbles are ignored.
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 767px)");
-    const EDGE = 28; // px from left edge to start an open gesture
-    const THRESHOLD = 60; // px of horizontal travel to commit
-    let startX = 0;
-    let startY = 0;
-    let tracking = false;
-
-    const onStart = (e: TouchEvent) => {
-      if (!mq.matches) return;
-      const t = e.touches[0];
-      if (!t) return;
-      if (mobileNavOpen) {
-        // When open, any touch on screen can start a left-swipe-to-close.
-        startX = t.clientX;
-        startY = t.clientY;
-        tracking = true;
-        return;
-      }
-      // When closed, only start if the touch began near the left edge.
-      if (t.clientX > EDGE) return;
-      startX = t.clientX;
-      startY = t.clientY;
-      tracking = true;
-    };
-    const onMove = (e: TouchEvent) => {
-      if (!tracking) return;
-      const t = e.touches[0];
-      if (!t) return;
-      const dx = t.clientX - startX;
-      const dy = Math.abs(t.clientY - startY);
-      if (Math.abs(dx) <= dy) return; // dominated by vertical motion
-      if (!mobileNavOpen && dx > THRESHOLD) {
-        tracking = false;
-        setMobileNavOpen(true);
-      } else if (mobileNavOpen && -dx > THRESHOLD) {
-        tracking = false;
-        setMobileNavOpen(false);
-      }
-    };
-    const onEnd = () => {
-      tracking = false;
-    };
-
-    window.addEventListener("touchstart", onStart, { passive: true });
-    window.addEventListener("touchmove", onMove, { passive: true });
-    window.addEventListener("touchend", onEnd, { passive: true });
-    window.addEventListener("touchcancel", onEnd, { passive: true });
-    return () => {
-      window.removeEventListener("touchstart", onStart);
-      window.removeEventListener("touchmove", onMove);
-      window.removeEventListener("touchend", onEnd);
-      window.removeEventListener("touchcancel", onEnd);
-    };
-  }, [mobileNavOpen]);
-
-  // Desktop sidenav: measure the active item and observe all items so the
-  // pill follows font-load / role-change / hover-induced size shifts.
-  useEffect(() => {
-    if (!activeHref) return;
-    const measure = () => {
-      const el = desktopItemRefs.current[activeHref];
-      if (!el) return;
-      setDesktopPill({
-        top: el.offsetTop,
-        left: el.offsetLeft,
-        width: el.offsetWidth,
-        height: el.offsetHeight,
-      });
-    };
-    measure();
-
-    const ro = new ResizeObserver(measure);
-    Object.values(desktopItemRefs.current).forEach((el) => {
-      if (el) ro.observe(el);
-    });
-    return () => ro.disconnect();
-  }, [activeHref]);
 
   const showProgress = pendingHref !== null;
 
@@ -623,45 +432,20 @@ export function PortalShellClient({
             </Link>
           )}
 
-          <button
-            type="button"
-            onClick={openSearchPalette}
-            aria-label="Suchen"
-            className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-fg-primary hover:bg-bg-secondary md:hidden"
-          >
-            <Search className="h-5 w-5" />
-          </button>
-
           {/* Phone: the theme switch moves into the drawer to make room. */}
           <div className="hidden md:block">
             <ThemeToggle />
           </div>
 
-          <UserMenu user={user} impersonating={impersonating} />
+          <UserMenu user={user} />
         </div>
       </header>
 
       <div className="mx-auto flex w-full max-w-screen-2xl flex-1 gap-8 px-4 py-6 md:px-6">
-        {/* Side rail (global search + nav). The wrapping <div> owns sticky
-            positioning + overflow; the inner <nav> owns the pill-positioning
-            context. Items use offsetTop relative to that inner <nav>, so the
-            search bar above doesn't shift the math. */}
+        {/* Side rail (nav). The wrapping <div> owns sticky positioning +
+            overflow. */}
         <div className="sticky top-20 hidden h-[calc(100dvh-6rem)] w-56 shrink-0 flex-col gap-3 self-start overflow-y-auto pr-1 md:flex">
-          <GlobalSearch onOpen={openSearchPalette} />
-          <nav aria-label="Hauptnavigation" className="relative flex flex-1 flex-col gap-4">
-          {/* Sliding active pill — slides vertically + resizes width/height to
-              whichever sidenav item is active (parent or sub-tab). */}
-          {desktopPill && (
-            <div
-              aria-hidden
-              className="pointer-events-none absolute left-0 top-0 rounded-xl bg-fg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)] transition-[transform,width,height] duration-300 ease-out will-change-transform"
-              style={{
-                transform: `translate3d(${desktopPill.left}px, ${desktopPill.top}px, 0)`,
-                width: desktopPill.width,
-                height: desktopPill.height,
-              }}
-            />
-          )}
+          <nav aria-label="Hauptnavigation" className="flex flex-1 flex-col gap-4">
           {visibleGroups.map((group) => {
             const isBottom = group.id === BOTTOM_ANCHORED_GROUP;
             return (
@@ -670,16 +454,7 @@ export function PortalShellClient({
                   It carries `mt-auto` (rather than the group below it) so the
                   card + footer cluster at the bottom with no gap between
                   them. */}
-              {isBottom && (
-                <SidebarContactCard
-                  className="mt-auto"
-                  collapsed={contactCollapsed}
-                  onToggle={toggleContactCard}
-                />
-              )}
-              {/* Tour re-entry card sits directly above the help group
-                  ("Hilfe"), below everything else. */}
-              {isBottom && <TourNavCard />}
+              {isBottom && <SidebarContactCard className="mt-auto" />}
             <div className="flex flex-col gap-0.5">
               {group.label && (
                 <h3 className="px-3 pb-1 text-sm font-medium text-fg-primary">
@@ -696,20 +471,13 @@ export function PortalShellClient({
                 // When a parent has sub-tabs, the pill belongs on the active
                 // sub-tab — even when the sub-tab shares the parent's URL
                 // (e.g. Bewertungen + its "Plattformen" sub-tab are both
-                // /bewertungen). Without this, the parent would render as
-                // white-on-transparent because the pill is sitting under the
-                // sub-tab below it.
+                // /bewertungen).
                 const exactlyActive = !hasSubItems && item.href === activeHref;
-                const showBadge =
-                  item.href === "/leitfaden" && pendingBadges?.leitfaden === true;
                 const badge = badgeText(navBadgeCounts?.[item.href], 99);
                 const visibleSubItems = sectionActive ? item.subItems ?? [] : [];
                 return (
                   <div key={item.href} className="flex flex-col gap-0.5">
                     <Link
-                      ref={(el) => {
-                        desktopItemRefs.current[item.href] = el;
-                      }}
                       href={item.href}
                       // Default prefetch (loading skeleton only), not a full
                       // render: the desktop rail is always in view, so a full
@@ -721,22 +489,20 @@ export function PortalShellClient({
                       onClick={exactlyActive ? undefined : () => setPendingHref(item.href)}
                       aria-current={exactlyActive ? "page" : undefined}
                       className={cn(
-                        "relative z-10 flex items-center gap-3 rounded-xl px-3 py-1.5 text-base transition-colors duration-300",
+                        "relative flex items-center gap-3 rounded-xl px-3 py-1.5 text-base transition-colors duration-300",
                         exactlyActive
                           ? "font-semibold text-bg-primary"
                           : sectionActive
                             ? "font-semibold text-fg-primary"
                             : "font-medium text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
-                        // SSR / pre-measurement fallback so the active label isn't
-                        // briefly light-on-light before the pill mounts.
-                        exactlyActive && !desktopPill && "bg-fg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
+                        exactlyActive && "bg-fg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
                       )}
                     >
                       <span className="relative inline-flex shrink-0">
                         <Icon className="h-5 w-5" />
                       </span>
                       <span>{item.label}</span>
-                      {(badge || showBadge || (item.href === "/anfragen" && anfragenDue > 0)) && (
+                      {(badge || (item.href === "/anfragen" && anfragenDue > 0)) && (
                         <span className="ml-auto flex items-center gap-1">
                           {badge && (
                             <span
@@ -756,7 +522,6 @@ export function PortalShellClient({
                           {item.href === "/anfragen" && (
                             <DuePill count={anfragenDue} active={exactlyActive} />
                           )}
-                          {showBadge && <LeitfadenPill active={exactlyActive} />}
                         </span>
                       )}
                     </Link>
@@ -768,19 +533,16 @@ export function PortalShellClient({
                           return (
                             <Link
                               key={sub.href}
-                              ref={(el) => {
-                                desktopItemRefs.current[sub.href] = el;
-                              }}
                               href={sub.href}
                               prefetch={subActive ? false : undefined}
                               onClick={subActive ? undefined : () => setPendingHref(sub.href)}
                               aria-current={subActive ? "page" : undefined}
                               className={cn(
-                                "relative z-10 flex items-center gap-2 rounded-lg px-3 py-1 text-sm transition-colors duration-300",
+                                "relative flex items-center gap-2 rounded-lg px-3 py-1 text-sm transition-colors duration-300",
                                 subActive
                                   ? "font-semibold text-bg-primary"
                                   : "font-medium text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
-                                subActive && !desktopPill && "bg-fg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
+                                subActive && "bg-fg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
                               )}
                             >
                               <span>{sub.label}</span>
@@ -855,21 +617,12 @@ export function PortalShellClient({
               </span>
             </div>
 
-            <GlobalSearch onOpen={openSearchPalette} />
-
             <nav aria-label="Hauptnavigation" className="flex flex-1 flex-col gap-4">
               {visibleGroups.map((group) => {
                 const isBottom = group.id === BOTTOM_ANCHORED_GROUP;
                 return (
                 <Fragment key={group.id}>
-                  {isBottom && (
-                    <SidebarContactCard
-                      className="mt-auto"
-                      collapsed={contactCollapsed}
-                      onToggle={toggleContactCard}
-                    />
-                  )}
-                  {isBottom && <TourNavCard />}
+                  {isBottom && <SidebarContactCard className="mt-auto" />}
                 <div className="flex flex-col gap-0.5">
                   {group.label && (
                     <h3 className="px-3 pb-1 text-sm font-medium text-fg-primary">
@@ -884,8 +637,6 @@ export function PortalShellClient({
                       (item.href === activeHref ||
                         activeHref.startsWith(`${item.href}/`));
                     const exactlyActive = !hasSubItems && item.href === activeHref;
-                    const showBadge =
-                      item.href === "/leitfaden" && pendingBadges?.leitfaden === true;
                     const badge = badgeText(navBadgeCounts?.[item.href], 99);
                     const visibleSubItems = sectionActive ? item.subItems ?? [] : [];
                     return (
@@ -912,7 +663,7 @@ export function PortalShellClient({
                             <Icon className="h-5 w-5" />
                           </span>
                           <span>{item.label}</span>
-                          {(badge || showBadge || (item.href === "/anfragen" && anfragenDue > 0)) && (
+                          {(badge || (item.href === "/anfragen" && anfragenDue > 0)) && (
                             <span className="ml-auto flex items-center gap-1">
                               {badge && (
                                 <span
@@ -932,7 +683,6 @@ export function PortalShellClient({
                               {item.href === "/anfragen" && (
                                 <DuePill count={anfragenDue} active={exactlyActive} />
                               )}
-                              {showBadge && <LeitfadenPill active={exactlyActive} />}
                             </span>
                           )}
                         </Link>
@@ -1005,16 +755,6 @@ export function PortalShellClient({
             stay unaffected. */}
         <main className="min-w-0 flex-1 pb-[max(5rem,env(safe-area-inset-bottom))]">{children}</main>
       </div>
-
-      {searchLoaded && (
-        <GlobalSearchDialog
-          open={searchOpen}
-          onOpenChange={setSearchOpen}
-          userRole={user.role}
-          clinicId={clinic.id}
-          userEmail={user.email}
-        />
-      )}
     </div>
   );
 }

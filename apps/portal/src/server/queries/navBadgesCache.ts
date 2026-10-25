@@ -4,7 +4,6 @@ import { sql } from "drizzle-orm";
 import { withClinicContext, schema } from "@/db/client";
 import type { Role } from "@/lib/constants";
 import { can } from "@/lib/roles";
-import { CURRENT_QUESTIONS_VERSION } from "@/app/(portal)/leitfaden/pruefung/questions";
 import { NEW_USER_LOOKBACK_DAYS } from "./navBadges";
 
 /**
@@ -17,10 +16,7 @@ import { NEW_USER_LOOKBACK_DAYS } from "./navBadges";
  * `unstable_cache` that could not be invalidated from the render that
  * stamped a section as seen (Next forbids `revalidateTag` during render), so
  * a cleared "Neu" pill came back on the next page. Now every render reads
- * the current state; the values are identical to the old per-query helpers
- * (`countNewRequests`, `countNewPatientFeedback`, `hasRecentTimelineUpdate`,
- * `hasNewMedia`, `hasNewDocuments`, `hasUserPassedLeitfadenQuiz`,
- * `sectionBadgeThreshold`), whose SQL is mirrored below.
+ * the current state.
  */
 
 export interface NavBadgeBundle {
@@ -31,7 +27,6 @@ export interface NavBadgeBundle {
   timelineHasUpdate: boolean;
   medienHasUpdate: boolean;
   dokumenteHasUpdate: boolean;
-  hasPassedLeitfaden: boolean;
   /**
    * The Praxis has a Meta/Google ad account connected or any campaign data.
    * Drives whether "Werbebudget" shows in the sidebar (organic start: the
@@ -107,13 +102,6 @@ async function computeNavBadges(
               : no
           } AS dokumente_update,
           ${
-            can(role, "leitfaden.quiz")
-              ? sql`EXISTS (SELECT 1 FROM ${schema.leitfadenQuizAttempts} q
-                     WHERE q.user_id = ${userId} AND q.passed = true
-                       AND q.questions_version >= ${CURRENT_QUESTIONS_VERSION}::int)`
-              : sql`true`
-          } AS passed_leitfaden,
-          ${
             can(role, "campaigns.live")
               ? sql`(EXISTS (SELECT 1 FROM ${schema.platformCredentials} pc
                       WHERE pc.clinic_id = ${clinicId}
@@ -133,7 +121,6 @@ async function computeNavBadges(
     timelineHasUpdate: r.timeline_update === true,
     medienHasUpdate: r.medien_update === true,
     dokumenteHasUpdate: r.dokumente_update === true,
-    hasPassedLeitfaden: r.passed_leitfaden === true,
     hasAdData: r.has_ad_data === true,
   };
 }
@@ -147,16 +134,3 @@ export const getNavBadges = cache(
     return computeNavBadges(clinicId, userId, role);
   }
 );
-
-/**
- * Best-effort cache flush for this user's badge bundle. Called from
- * mutations that immediately change a badge value (markSectionSeen,
- * markRequestViewed, etc.) so the next render doesn't show a stale pill.
- */
-export function invalidateNavBadges(clinicId: string, userId: string): void {
-  // No-op since the badges are no longer cached across requests (every
-  // render reads them fresh in one statement). Kept so existing callers in
-  // requests.ts / anfragen actions keep compiling.
-  void clinicId;
-  void userId;
-}

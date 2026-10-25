@@ -66,7 +66,7 @@ export default async function DokumentePage({
 }: {
   searchParams: Promise<Search>;
 }) {
-  // Any role with "documents.view.marketing" or better can open this page;
+  // Any role with "documents.view.marketing" can open this page;
   // per-document visibility is filtered below.
   const session = await requirePermissionOrRedirect("documents.view.marketing");
   const params = await searchParams;

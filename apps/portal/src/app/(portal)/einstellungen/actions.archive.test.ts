@@ -42,8 +42,6 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn(), revalidateTag: vi.fn() }
 vi.mock("@/auth/magic-link", () => ({ issueMagicLink: vi.fn() }));
 vi.mock("@/auth/session", () => ({ revokeAllSessionsForUser: vi.fn() }));
 vi.mock("@/server/rate-limit", () => ({ rateLimit: vi.fn() }));
-vi.mock("@/server/clinic-signature", () => ({ invalidateSignatureSecretCache: vi.fn() }));
-vi.mock("@/lib/crypto", () => ({ encryptString: vi.fn() }));
 
 import { archiveLocationAction, archiveTreatmentAction } from "./actions";
 

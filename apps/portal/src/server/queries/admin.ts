@@ -1839,14 +1839,13 @@ export async function adminIntegrationHealth(): Promise<AdminIntegrationRow[]> {
 
 // ---------------------------------------------------------------
 // Onboarding pipeline (/admin/onboarding)
-// Per-clinic: signup → integration → first request → training → active.
+// Per-clinic: signup → integration → first request → active.
 // ---------------------------------------------------------------
 
 export type OnboardingStage =
   | "registriert"
   | "integration_verbunden"
   | "erste_anfrage"
-  | "schulung_bestanden"
   | "aktiv";
 
 export interface AdminOnboardingRow {
@@ -1856,9 +1855,6 @@ export interface AdminOnboardingRow {
   createdAt: Date;
   hasIntegration: boolean;
   hasFirstRequest: boolean;
-  quizPassed: boolean;
-  latestQuizScore: number | null;
-  latestQuizTotal: number | null;
   timelineCount: number;
   lastActivityAt: Date | null;
   stage: OnboardingStage;
@@ -1873,13 +1869,11 @@ const STUCK_DAYS = 14;
 function deriveOnboardingStage(r: {
   hasIntegration: boolean;
   hasFirstRequest: boolean;
-  quizPassed: boolean;
   recentlyActive: boolean;
 }): OnboardingStage {
-  if (r.hasIntegration && r.hasFirstRequest && r.quizPassed && r.recentlyActive) {
+  if (r.hasIntegration && r.hasFirstRequest && r.recentlyActive) {
     return "aktiv";
   }
-  if (r.quizPassed) return "schulung_bestanden";
   if (r.hasFirstRequest) return "erste_anfrage";
   if (r.hasIntegration) return "integration_verbunden";
   return "registriert";
@@ -1892,7 +1886,6 @@ export async function adminOnboardingStatus(): Promise<AdminOnboardingRow[]> {
     requestRows,
     timelineRows,
     loginRows,
-    quizRows,
   ] = await Promise.all([
     db
       .select({
@@ -1935,17 +1928,6 @@ export async function adminOnboardingStatus(): Promise<AdminOnboardingRow[]> {
       .from(schema.clinicUsers)
       .where(isNull(schema.clinicUsers.archivedAt))
       .groupBy(schema.clinicUsers.clinicId),
-    db.execute<{
-      clinic_id: string;
-      passed: boolean;
-      score: number;
-      total: number;
-    }>(sql`
-      SELECT DISTINCT ON (clinic_id)
-        clinic_id, passed, score, total
-      FROM ${schema.leitfadenQuizAttempts}
-      ORDER BY clinic_id, created_at DESC
-    `),
   ]);
 
   const credSet = new Set(credRows.map((r) => r.clinicId));
@@ -1962,30 +1944,19 @@ export async function adminOnboardingStatus(): Promise<AdminOnboardingRow[]> {
   for (const r of loginRows) {
     loginMap.set(r.clinicId, r.lastLogin ? new Date(r.lastLogin) : null);
   }
-  const quizMap = new Map<string, { passed: boolean; score: number; total: number }>();
-  for (const r of quizRows) {
-    quizMap.set(r.clinic_id, {
-      passed: r.passed,
-      score: Number(r.score),
-      total: Number(r.total),
-    });
-  }
 
   const now = Date.now();
   return clinicRows.map((c) => {
     const req = reqMap.get(c.id);
-    const quiz = quizMap.get(c.id);
     const lastLogin = loginMap.get(c.id) ?? null;
     const lastActivityAt = pickLatest(req?.lastAt ?? null, lastLogin);
     const hasIntegration = credSet.has(c.id);
     const hasFirstRequest = (req?.total ?? 0) > 0;
-    const quizPassed = quiz?.passed ?? false;
     const recentlyActive =
       lastActivityAt != null && now - lastActivityAt.getTime() < 30 * 86_400_000;
     const stage = deriveOnboardingStage({
       hasIntegration,
       hasFirstRequest,
-      quizPassed,
       recentlyActive,
     });
     const daysSinceSignup = Math.max(
@@ -2004,9 +1975,6 @@ export async function adminOnboardingStatus(): Promise<AdminOnboardingRow[]> {
       createdAt: new Date(c.createdAt),
       hasIntegration,
       hasFirstRequest,
-      quizPassed,
-      latestQuizScore: quiz ? quiz.score : null,
-      latestQuizTotal: quiz ? quiz.total : null,
       timelineCount: timelineMap.get(c.id) ?? 0,
       lastActivityAt,
       stage,

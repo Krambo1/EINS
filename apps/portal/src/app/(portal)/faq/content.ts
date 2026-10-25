@@ -2,10 +2,7 @@
  * FAQ content for the clinic-facing portal.
  *
  * Plain data, grouped by category. The /faq page renders this with its own
- * local search (see ./_components/FaqBrowser). This list is intentionally NOT
- * added to the global search index (src/lib/search/staticIndex.ts): the FAQ
- * tab is exempt from the global palette by design and only searchable from its
- * own search bar.
+ * local search (see ./_components/FaqBrowser).
  *
  * Editing rules (same as the rest of the portal): formal Sie, no em-dashes,
  * "Praxis" never "Klinik", anti-anglicism (Anfrage not Lead, bezahlte Anzeigen
@@ -85,7 +82,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "hilfe-bei-problemen",
         q: "An wen wende ich mich bei Fragen oder Problemen?",
-        a: "Schreiben Sie uns über den Bereich Feedback in der Seitenleiste. Dort landet Ihre Nachricht direkt bei uns. Ihre persönlichen Ansprechpartner und die Kontaktmöglichkeiten finden Sie außerdem in der Kontaktkarte unten in der Seitenleiste.",
+        a: "Schreiben Sie uns über den Bereich Nachrichten an EINS in der Seitenleiste. Dort landet Ihre Nachricht direkt bei uns. Ihre persönlichen Ansprechpartner und die Kontaktmöglichkeiten finden Sie außerdem in der Kontaktkarte unten in der Seitenleiste.",
         keywords: ["kontakt", "support", "ansprechpartner", "hilfe", "erreichen"],
       },
     ],
@@ -247,7 +244,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "budget-aendern",
         q: "Kann ich mein Budget ändern?",
-        a: "Ihr Werbebudget legen wir gemeinsam fest. Wenn Sie es anpassen möchten, sprechen Sie uns einfach an, zum Beispiel über den Bereich Feedback. Wir setzen die Änderung dann für Sie um.",
+        a: "Ihr Werbebudget legen wir gemeinsam fest. Wenn Sie es anpassen möchten, sprechen Sie uns einfach an, zum Beispiel über den Bereich Nachrichten an EINS. Wir setzen die Änderung dann für Sie um.",
         keywords: ["budget ändern", "erhöhen", "senken", "anpassen", "mehr ausgeben"],
       },
       {
@@ -398,7 +395,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
   },
   {
     id: "leitfaden",
-    label: "Leitfaden und Prüfung",
+    label: "Leitfaden",
     items: [
       {
         id: "was-ist-leitfaden",
@@ -411,30 +408,6 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         q: "Wer sollte den Leitfaden lesen?",
         a: "Alle, die in Ihrer Praxis Anrufe und Anfragen von Patienten annehmen, also vor allem Empfang und Sekretariat. Der Leitfaden sorgt dafür, dass jedes Gespräch souverän und einheitlich läuft.",
         keywords: ["wer", "empfang", "sekretariat", "mfa", "team", "mitarbeiter"],
-      },
-      {
-        id: "was-ist-pruefung",
-        q: "Was ist die Leitfaden-Prüfung?",
-        a: "Die Prüfung ist ein kurzes Quiz mit Fragen aus dem Leitfaden und eine Schulung für Ihr Praxisteam. Damit stellen Sie sicher, dass Ihr Team die wichtigsten Inhalte wirklich verinnerlicht hat. Sie können sie beliebig oft wiederholen.",
-        keywords: ["prüfung", "quiz", "test", "schulung", "wiederholen"],
-      },
-      {
-        id: "wer-pruefung-bestehen",
-        q: "Wer sollte die Prüfung bestehen?",
-        a: "Wir empfehlen, dass mindestens eine Person pro Praxis die Prüfung besteht, am besten aus dem Empfang. Das ist eine Empfehlung und keine Bedingung. Sie hilft Ihrem Team, Anfragen bestmöglich in Termine umzuwandeln.",
-        keywords: ["wer muss", "bestehen", "empfehlung", "mindestens", "schulung", "empfang"],
-      },
-      {
-        id: "pruefung-umfang",
-        q: "Wie viele Fragen hat die Prüfung und wie oft darf ich sie machen?",
-        a: "Die Prüfung besteht aus mehreren Fragen aus dem Leitfaden, von denen Sie einen Großteil richtig beantworten müssen. Die Zahl der Versuche ist nicht begrenzt: Sie können die Prüfung so oft wiederholen, wie Sie möchten.",
-        keywords: ["anzahl fragen", "versuche", "wie oft", "bestehensgrenze", "punkte"],
-      },
-      {
-        id: "pruefung-garantie",
-        q: "Ist die Prüfung eine Bedingung der Garantie?",
-        a: "Nein. Sie zahlen nichts, bis die erste qualifizierte Anfrage über EINS in Ihrem Portal liegt, und kommt in 90 Tagen keine, endet die Zusammenarbeit ohne Kosten. Ob Ihr Team die Prüfung besteht, ändert daran nichts. Sie ist eine Schulung, die wir Ihnen für Ihr Praxisteam empfehlen.",
-        keywords: ["garantie", "bedingung", "voraussetzung", "pflicht", "vertrag", "schulung"],
       },
     ],
   },
@@ -625,7 +598,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "garantie-bedingungen",
         q: "Was muss ich dafür beitragen?",
-        a: "Die 90 Tage bis zur ersten qualifizierten Anfrage über EINS laufen ab Unterschrift. Dafür brauchen wir von Ihnen:\n1. Innerhalb von 3 Werktagen nach Unterschrift: die Klon-Aufnahme (wenige Minuten Video und Stimme am Handy, nach unserer Anleitung), die unterschriebene Einwilligung für KI-Abbild und Stimme und die Zugänge (Instagram, Facebook, Meta Business, Domain für die Zielseite).\n2. Innerhalb von 2 Werktagen: Beiträge freigeben oder konkret ändern. Wir schicken sie einmal pro Woche gesammelt, das ist in wenigen Minuten erledigt: ansehen, ja oder nein.\n3. Dauerhaft: den Profil-Link zur Zielseite und die Tracking-Nummer nicht entfernen.\n\nJeder Tag, an dem Sie mit einem dieser Punkte in Verzug sind, verlängert die Frist von 90 Tagen bis zur ersten qualifizierten Anfrage über EINS um einen Tag. Wir teilen Ihnen jeden Verzug per E-Mail mit. Ein Verzug verlängert die Frist nur, wenn wir ihn Ihnen mitgeteilt haben.\n\nAntwortzeit: Bitte versuchen Sie, jede Anfrage innerhalb von 48 Werkstunden zu kontaktieren. Das ist keine Bedingung der Garantie. Schaffen Sie es nicht, hat das drei Folgen: Sie können bei dieser Anfrage nicht mehr einwenden, die Person sei nicht echt oder nicht erreichbar gewesen. Die Anfrage steht in Ihrer Auswertung als \"von der Praxis nicht beantwortet\". Und liegen drei oder mehr solcher Anfragen offen, dürfen wir nach einer Warnung die bezahlten Anzeigen pausieren, bis Sie die Anfragen kontaktiert haben.\n\nKeine Bedingung, aber unsere Empfehlung: Nehmen Sie mit Ihrem Praxisteam an der Schulung teil.",
+        a: "Die 90 Tage bis zur ersten qualifizierten Anfrage über EINS laufen ab Unterschrift. Dafür brauchen wir von Ihnen:\n1. Innerhalb von 3 Werktagen nach Unterschrift: die Klon-Aufnahme (wenige Minuten Video und Stimme am Handy, nach unserer Anleitung), die unterschriebene Einwilligung für KI-Abbild und Stimme und die Zugänge (Instagram, Facebook, Meta Business, Domain für die Zielseite).\n2. Innerhalb von 2 Werktagen: Beiträge freigeben oder konkret ändern. Wir schicken sie einmal pro Woche gesammelt, das ist in wenigen Minuten erledigt: ansehen, ja oder nein.\n3. Dauerhaft: den Profil-Link zur Zielseite und die Tracking-Nummer nicht entfernen.\n\nJeder Tag, an dem Sie mit einem dieser Punkte in Verzug sind, verlängert die Frist von 90 Tagen bis zur ersten qualifizierten Anfrage über EINS um einen Tag. Wir teilen Ihnen jeden Verzug per E-Mail mit. Ein Verzug verlängert die Frist nur, wenn wir ihn Ihnen mitgeteilt haben.\n\nAntwortzeit: Bitte versuchen Sie, jede Anfrage innerhalb von 48 Werkstunden zu kontaktieren. Das ist keine Bedingung der Garantie. Schaffen Sie es nicht, hat das Folgen: Die Anfrage steht in Ihrer Auswertung als \"von der Praxis nicht beantwortet\". Und liegen drei oder mehr solcher Anfragen offen, dürfen wir nach einer Warnung die bezahlten Anzeigen pausieren, bis Sie die Anfragen kontaktiert haben.\n\nKeine Bedingung, aber unsere Empfehlung: Nehmen Sie mit Ihrem Praxisteam an der Schulung teil.",
         keywords: ["bedingungen", "voraussetzung", "mitwirkung", "beitragen", "verzug", "frist", "garantie"],
       },
       {
@@ -667,13 +640,13 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "eins-erreichen",
         q: "Wie erreiche ich EINS?",
-        a: "Am schnellsten über den Bereich Feedback in der Seitenleiste: Dort schreiben Sie uns direkt. Ihre persönlichen Ansprechpartner und weitere Kontaktmöglichkeiten finden Sie in der Kontaktkarte unten in der Seitenleiste.",
+        a: "Am schnellsten über den Bereich Nachrichten an EINS in der Seitenleiste: Dort schreiben Sie uns direkt. Ihre persönlichen Ansprechpartner und weitere Kontaktmöglichkeiten finden Sie in der Kontaktkarte unten in der Seitenleiste.",
         keywords: ["kontakt", "erreichen", "support", "ansprechpartner", "telefon", "email"],
       },
       {
         id: "fehler-melden",
         q: "Wie melde ich einen Fehler oder einen Wunsch?",
-        a: "Nutzen Sie den Bereich Feedback. Egal ob etwas hakt oder Sie sich eine Funktion wünschen: Schreiben Sie es uns dort. Wir lesen jede Nachricht.",
+        a: "Nutzen Sie den Bereich Nachrichten an EINS. Egal ob etwas hakt oder Sie sich eine Funktion wünschen: Schreiben Sie es uns dort. Wir lesen jede Nachricht.",
         keywords: ["fehler", "bug", "wunsch", "feature", "vorschlag", "melden", "feedback"],
       },
       {

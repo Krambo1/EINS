@@ -110,7 +110,6 @@ async function listReviewsUncached(
     periodStart: string | null;
     periodEnd: string | null;
     recordedAt: Date;
-    notes: string | null;
   }>
 > {
   return withClinicContext(clinicId, userId, async (tx) => {
@@ -127,7 +126,6 @@ async function listReviewsUncached(
       periodStart: r.periodStart,
       periodEnd: r.periodEnd,
       recordedAt: r.recordedAt,
-      notes: r.notes,
     }));
   });
 }

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, MessageSquare, Star } from "lucide-react";
+import { Star } from "lucide-react";
 import {
   Accordion,
   AccordionContent,
@@ -16,7 +16,7 @@ import { requirePermissionOrRedirect } from "@/auth/guards";
 import { db, schema } from "@/db/client";
 import { eq } from "drizzle-orm";
 import { can } from "@/lib/roles";
-import { formatDate, formatDateTime, formatNumber } from "@/lib/formatting";
+import { formatDate, formatNumber } from "@/lib/formatting";
 import {
   bewertungenPageData,
   type ReviewSnapshot,
@@ -40,13 +40,11 @@ import {
   templatesByBucket,
 } from "./_lib/reply-templates";
 import { BewertungenSectionTabs } from "./_components/BewertungenSectionTabs";
-import { ChapterLaunchLink } from "@/app/(portal)/_components/tour/ChapterLaunchLink";
 
 export const metadata = { title: "Bewertungen" };
 
 export default async function BewertungenPage() {
   const session = await requirePermissionOrRedirect("reviews.view");
-  const isInhaber = session.role === "inhaber";
 
   // The /bewertungen sidebar badge counts new patient feedback rows, but
   // until now the index itself didn't surface them — users would see "1 neu"
@@ -102,7 +100,6 @@ export default async function BewertungenPage() {
             Ihre Bewertungen auf Google, Jameda und weiteren Portalen an einem Ort.
           </p>
         </div>
-        {isInhaber && <ChapterLaunchLink chapter="bewertungen" />}
       </header>
 
       <BewertungenSectionTabs />
@@ -111,9 +108,6 @@ export default async function BewertungenPage() {
         <Card className="!border-[var(--tone-warn-border)] !bg-[var(--tone-warn-bg)]">
           <CardContent className="flex flex-col gap-4 pt-6 md:flex-row md:items-center md:justify-between">
             <div className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--tone-warn-bg)] text-tone-warn">
-                <MessageSquare className="h-4 w-4" aria-hidden />
-              </span>
               <div className="space-y-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <h2 className="text-base font-semibold">
@@ -157,7 +151,6 @@ export default async function BewertungenPage() {
               className="inline-flex shrink-0 items-center gap-1 self-start text-sm text-fg-secondary hover:text-accent md:self-center"
             >
               Alle ansehen
-              <ArrowRight className="h-3.5 w-3.5" aria-hidden />
             </Link>
           </CardContent>
         </Card>
@@ -165,11 +158,10 @@ export default async function BewertungenPage() {
 
       {/* Per-platform tiles */}
       <section
-        data-tour="bewertungen-platforms"
         aria-label="Bewertungen pro Plattform"
         className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
       >
-        {TRACKED_PLATFORMS.filter((p) => p !== "manual" || byPlatform.has(p)).map((p) => (
+        {TRACKED_PLATFORMS.map((p) => (
           <PlatformTile
             key={p}
             platform={p}
@@ -182,7 +174,7 @@ export default async function BewertungenPage() {
       </section>
 
       {/* Antwortvorlagen */}
-      <Card data-tour="bewertungen-templates">
+      <Card>
         <CardHeader>
           <CardTitle>Antwortvorlagen</CardTitle>
         </CardHeader>
@@ -252,9 +244,6 @@ function HistoryTable({
 }: {
   rows: Awaited<ReturnType<typeof listReviews>>;
 }) {
-  // Only show the note column when notes actually differ between rows.
-  const notes = new Set(rows.map((r) => r.notes ?? ""));
-  const showNotes = notes.size > 1;
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -264,7 +253,6 @@ function HistoryTable({
             <Th>Plattform</Th>
             <Th align="right">Bewertung</Th>
             <Th align="right">Anzahl</Th>
-            {showNotes && <Th>Notiz</Th>}
           </tr>
         </thead>
         <tbody className="divide-y divide-border">
@@ -279,13 +267,6 @@ function HistoryTable({
                 </span>
               </Td>
               <Td align="right">{formatNumber(r.totalCount)}</Td>
-              {showNotes && (
-                <Td>
-                  {r.notes && (
-                    <span className="text-fg-secondary">{r.notes}</span>
-                  )}
-                </Td>
-              )}
             </tr>
           ))}
         </tbody>

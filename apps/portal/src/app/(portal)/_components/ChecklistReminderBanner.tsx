@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { ClipboardCheck, ArrowRight } from "lucide-react";
 
 /**
  * Slim, persistent nudge shown on the data tabs once the access gate is open
@@ -14,9 +13,6 @@ export function ChecklistReminderBanner({ remaining }: { remaining: number }) {
       href="/onboarding/checkliste"
       className="mb-6 flex items-center gap-3 rounded-xl border border-[var(--accent-glow)] bg-bg-secondary px-4 py-3 text-sm transition-colors hover:border-accent"
     >
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--accent-glow)] text-accent">
-        <ClipboardCheck className="h-4 w-4" />
-      </span>
       <span className="min-w-0 flex-1 text-fg-primary">
         <span className="font-semibold">
           Noch {remaining} {remaining === 1 ? "Pflichtpunkt" : "Pflichtpunkte"} in
@@ -26,7 +22,6 @@ export function ChecklistReminderBanner({ remaining }: { remaining: number }) {
           Damit wir Ihren KI-Klon, Ihre Zielseite und Ihre ersten Beiträge fertig aufsetzen können.
         </span>
       </span>
-      <ArrowRight className="h-4 w-4 shrink-0 text-fg-secondary" />
     </Link>
   );
 }

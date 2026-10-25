@@ -9,6 +9,7 @@ import {
   inArray,
   isNull,
   lte,
+  ne,
   or,
   sql,
   type SQL,
@@ -16,8 +17,6 @@ import {
 import { withClinicContext, schema } from "@/db/client";
 import type { AnyRequestStatus, RequestStatus, RequestSort } from "@/lib/constants";
 import { responseDeadline } from "@/lib/werkstunden";
-import { avatarUrlForKey } from "@/server/avatars";
-import { invalidateNavBadges } from "./navBadgesCache";
 import { cacheClinicQuery, SHORT_REVALIDATE_S } from "./_cache";
 import { firstAttemptAtSql, toAttemptDate } from "./response-time";
 import { openCountsAtPoints, openQueuePoints } from "./requests-open-queue";
@@ -37,8 +36,6 @@ export interface RequestListItem {
   treatmentName: string | null;
   source: string;
   status: RequestStatus;
-  aiScore: number | null;
-  aiCategory: string | null;
   slaRespondBy: Date | null;
   firstContactedAt: Date | null;
   /** First contact attempt per the 48-Werkstunden rule (queries/response-time.ts). */
@@ -52,17 +49,12 @@ export interface RequestListItem {
 /**
  * ORDER BY expressions per sort key. Every non-default sort appends
  * `createdAt DESC` as the final tiebreaker so rows that tie on the primary
- * key (the many LTV-0 or noch-nicht-bewerteten leads) still read newest-first.
+ * key (the many LTV-0 leads) still read newest-first.
  */
 function requestSortOrderBy(sort: RequestSort): SQL[] {
   switch (sort) {
     case "aelteste":
       return [asc(schema.requests.createdAt)];
-    case "ki":
-      return [
-        sql`${schema.requests.aiScore} desc nulls last`,
-        desc(schema.requests.createdAt),
-      ];
     case "ltv":
       return [
         sql`${schema.patients.lifetimeRevenueEur} desc nulls last`,
@@ -87,7 +79,6 @@ function requestSortOrderBy(sort: RequestSort): SQL[] {
 export interface RequestListFilters {
   status?: AnyRequestStatus[];
   source?: string[];
-  aiCategory?: ("hot" | "warm" | "cold")[];
   treatmentId?: string[];
   search?: string;
   assignedTo?: string | "unassigned" | null;
@@ -125,9 +116,6 @@ function requestListWhere(clinicId: string, filters: RequestListFilters): SQL {
     }
     if (filters.source?.length) {
       predicates.push(inArray(schema.requests.source, filters.source));
-    }
-    if (filters.aiCategory?.length) {
-      predicates.push(inArray(schema.requests.aiCategory, filters.aiCategory));
     }
     if (filters.treatmentId?.length) {
       predicates.push(inArray(schema.requests.treatmentId, filters.treatmentId));
@@ -188,7 +176,6 @@ function requestListWhere(clinicId: string, filters: RequestListFilters): SQL {
  * Paginated list for the inbox. Sort orders (see `requestSortOrderBy`):
  *   - `neueste` (default): newest first
  *   - `aelteste`: oldest first (FIFO, nichts fällt hinten runter)
- *   - `ki`: highest KI-Score first (hottest leads), unscored last
  *   - `ltv`: highest Patienten-Lifetime-Wert first, unlinked/0 last
  *   - `dringlichkeit`: overdue-uncontacted first, then earliest SLA deadline
  */
@@ -217,8 +204,6 @@ export async function listRequests(
           treatmentName: schema.treatments.name,
           source: schema.requests.source,
           status: schema.requests.status,
-          aiScore: schema.requests.aiScore,
-          aiCategory: schema.requests.aiCategory,
           slaRespondBy: schema.requests.slaRespondBy,
           firstContactedAt: schema.requests.firstContactedAt,
           firstAttemptAt: firstAttemptAtSql(),
@@ -257,44 +242,6 @@ export async function listRequests(
   });
 }
 
-export interface RequestSearchHit {
-  id: string;
-  contactName: string | null;
-  contactEmail: string | null;
-  contactPhone: string | null;
-  treatmentWish: string | null;
-}
-
-/**
- * Typeahead for the command palette (D-20): same search predicate as the
- * inbox, but no count, no joins and no per-row attempt subquery.
- */
-export async function searchRequestsLite(
-  clinicId: string,
-  userId: string,
-  search: string,
-  limit = 6
-): Promise<RequestSearchHit[]> {
-  return withClinicContext(
-    clinicId,
-    userId,
-    (tx) =>
-      tx
-        .select({
-          id: schema.requests.id,
-          contactName: schema.requests.contactName,
-          contactEmail: schema.requests.contactEmail,
-          contactPhone: schema.requests.contactPhone,
-          treatmentWish: schema.requests.treatmentWish,
-        })
-        .from(schema.requests)
-        .where(requestListWhere(clinicId, { search }))
-        .orderBy(desc(schema.requests.createdAt))
-        .limit(limit),
-    "requests:search-lite"
-  );
-}
-
 export interface RequestExportRow {
   id: string;
   createdAt: Date;
@@ -305,7 +252,6 @@ export interface RequestExportRow {
   treatmentWish: string | null;
   source: string;
   status: string;
-  aiCategory: string | null;
   firstContactedAt: Date | null;
   message: string | null;
   utmCampaign: string | null;
@@ -340,7 +286,6 @@ export async function exportRequests(
           treatmentWish: schema.requests.treatmentWish,
           source: schema.requests.source,
           status: schema.requests.status,
-          aiCategory: schema.requests.aiCategory,
           firstContactedAt: schema.requests.firstContactedAt,
           message: schema.requests.message,
           utmCampaign: sql<string | null>`${schema.requests.utm}->>'utm_campaign'`,
@@ -364,38 +309,6 @@ export async function exportRequests(
       };
     },
     "requests:export"
-  );
-}
-
-/**
- * Count of unread new leads — drives the sidebar Anfragen badge.
- *
- * "Unread" = status still 'neu' AND no clinic user has opened the detail
- * page yet (`firstViewedAt IS NULL`). The badge drops the moment someone
- * actually interacts with the lead, not just when they land on the inbox.
- * Backed by the partial index `requests_unread_idx`.
- */
-export async function countNewRequests(
-  clinicId: string,
-  userId: string
-): Promise<number> {
-  return withClinicContext(
-    clinicId,
-    userId,
-    async (tx) => {
-      const [row] = await tx
-        .select({ c: sql<number>`count(*)::int` })
-        .from(schema.requests)
-        .where(
-          and(
-            eq(schema.requests.clinicId, clinicId),
-            eq(schema.requests.status, "neu"),
-            isNull(schema.requests.firstViewedAt)
-          )
-        );
-      return Number(row?.c ?? 0);
-    },
-    "requests:count-new"
   );
 }
 
@@ -427,9 +340,6 @@ export async function markRequestViewed(
           ),
       "requests:mark-viewed"
     );
-    // Sidebar Anfragen badge counts unviewed leads — flush so the pill
-    // updates on the next render instead of waiting for the 30 s TTL.
-    invalidateNavBadges(clinicId, userId);
   } catch {
     // Non-critical — silently drop.
   }
@@ -453,8 +363,6 @@ export interface CallQueueLead {
   treatmentName: string | null;
   source: string;
   status: RequestStatus;
-  aiScore: number | null;
-  aiCategory: string | null;
   message: string | null;
   /** Patient answers from the Zielseiten-Quiz (`ai_signals.quiz`), C-26. */
   quiz: Record<string, unknown> | null;
@@ -479,8 +387,7 @@ export interface CallQueueLead {
  * `nicht_erreicht` keep worked-but-unbooked leads visible so they don't
  * vanish the moment the MFA logs a first call. Sort order is the order the
  * MFA/Sekretariat should actually pick up the phone in (C-17: the
- * 48-Werkstunden deadline leads, the KI category only breaks ties, so a cold
- * Anfrage cannot be pushed back by newer hot ones until its deadline is lost):
+ * 48-Werkstunden deadline leads):
  *   1. Fällige Wiedervorlage (pending, due_at <= now): selbst gesetzter
  *      Rückruf-Termin, der jetzt ansteht
  *   2. Noch kein Kontaktversuch und die 48-Werkstunden-Frist läuft noch:
@@ -488,8 +395,7 @@ export interface CallQueueLead {
  *      dem Eingang)
  *   3. Noch kein Kontaktversuch, Frist schon verstrichen
  *   4. Bereits angefasst (kontaktiert, nicht erreicht, Termin)
- *   Innerhalb 3 und 4: KI-Kategorie hot → warm → kalt/unbekannt, dann
- *   älteste zuerst.
+ *   Innerhalb 3 und 4: älteste zuerst.
  *
  * The earliest pending Wiedervorlage is pulled per lead via a correlated
  * subquery so the "fällig zuerst" ordering happens BEFORE the LIMIT — a lead
@@ -528,8 +434,6 @@ export async function nextCallQueueLeads(
         treatmentName: schema.treatments.name,
         source: schema.requests.source,
         status: schema.requests.status,
-        aiScore: schema.requests.aiScore,
-        aiCategory: schema.requests.aiCategory,
         aiSignals: schema.requests.aiSignals,
         message: schema.requests.message,
         slaRespondBy: schema.requests.slaRespondBy,
@@ -573,12 +477,6 @@ export async function nextCallQueueLeads(
         sql`${deadlineRunning} DESC`,
         sql`${noAttempt} DESC`,
         sql`CASE WHEN ${deadlineRunning} THEN ${q.createdAt} END ASC NULLS LAST`,
-        sql`CASE ${q.aiCategory}
-              WHEN 'hot' THEN 0
-              WHEN 'warm' THEN 1
-              WHEN 'cold' THEN 2
-              ELSE 3
-            END`,
         q.createdAt
       )
       .limit(limit);
@@ -726,8 +624,6 @@ export async function getRequestWithActivities(
           actorId: schema.requestActivities.actorId,
           actorName: schema.clinicUsers.fullName,
           actorEmail: schema.clinicUsers.email,
-          actorAvatarKey: schema.clinicUsers.avatarKey,
-          actorAvatarUpdatedAt: schema.clinicUsers.avatarUpdatedAt,
           kind: schema.requestActivities.kind,
           body: schema.requestActivities.body,
           meta: schema.requestActivities.meta,
@@ -738,7 +634,12 @@ export async function getRequestWithActivities(
           schema.clinicUsers,
           eq(schema.requestActivities.actorId, schema.clinicUsers.id)
         )
-        .where(eq(schema.requestActivities.requestId, requestId))
+        .where(
+          and(
+            eq(schema.requestActivities.requestId, requestId),
+            ne(schema.requestActivities.kind, "ai_rescore")
+          )
+        )
         .orderBy(desc(schema.requestActivities.createdAt))
         .limit(REQUEST_ACTIVITY_LIMIT),
       request.treatmentId
@@ -763,10 +664,7 @@ export async function getRequestWithActivities(
       request,
       /** First contact attempt per the 48-Werkstunden rule. */
       firstAttemptAt: toAttemptDate(firstAttemptAt),
-      activities: activities.map((a) => ({
-        ...a,
-        actorAvatarUrl: avatarUrlForKey(a.actorAvatarKey, a.actorAvatarUpdatedAt),
-      })),
+      activities,
       treatmentName: treatmentRow?.name ?? null,
       locationName: locationRow?.name ?? null,
     };
@@ -799,39 +697,6 @@ async function requestStatusCountsUncached(clinicId: string, userId: string) {
 export const requestStatusCounts = cacheClinicQuery(
   "requestStatusCounts",
   requestStatusCountsUncached,
-  { revalidate: SHORT_REVALIDATE_S }
-);
-
-/**
- * Count of requests bucketed by KI category (hot/warm/cold) — drives the
- * count pills on the Anfragen "KI-Bewertung" filter. Clinic-wide totals,
- * independent of the other active filters, so the number answers "how many
- * are actually marked Kalt" rather than shifting as you click around.
- * Rows with no aiCategory yet are dropped (no bucket to land in).
- */
-async function aiCategoryCountsUncached(clinicId: string, userId: string) {
-  return withClinicContext(clinicId, userId, async (tx) => {
-    const rows = await tx
-      .select({
-        category: schema.requests.aiCategory,
-        count: sql<number>`count(*)::int`,
-      })
-      .from(schema.requests)
-      .where(eq(schema.requests.clinicId, clinicId))
-      .groupBy(schema.requests.aiCategory);
-    const map: Record<string, number> = {};
-    for (const r of rows) if (r.category) map[r.category] = Number(r.count);
-    return map;
-  });
-}
-
-/**
- * Cached for SHORT_REVALIDATE_S (D-19): independent of the list filters, so
- * typing in the search box no longer re-counts every Anfrage of the Praxis.
- */
-export const aiCategoryCounts = cacheClinicQuery(
-  "aiCategoryCounts",
-  aiCategoryCountsUncached,
   { revalidate: SHORT_REVALIDATE_S }
 );
 

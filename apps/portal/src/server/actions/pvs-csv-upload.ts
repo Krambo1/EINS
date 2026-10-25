@@ -60,14 +60,12 @@ async function requireIntegrationsSession() {
 export interface UploadResult {
   ok: boolean;
   uploadId?: string;
-  storageKey?: string;
   headers?: string[];
   previewRows?: Record<string, string>[];
   totalRows?: number;
   /** Detection results, shown to the user in the wizard. */
   delimiter?: string;
   encoding?: string;
-  headerRowNumber?: number;
   skippedPreambleLines?: number;
   skippedFooterLines?: number;
   error?: string;
@@ -84,13 +82,6 @@ export async function uploadCsv(formData: FormData): Promise<UploadResult> {
 
   const file = formData.get("file");
   const streamRaw = formData.get("stream");
-  const uploadGroupRaw = formData.get("uploadGroupId");
-  let uploadGroupId: string | null = null;
-  if (typeof uploadGroupRaw === "string" && uploadGroupRaw.length > 0) {
-    const parsedGroup = UuidSchema.safeParse(uploadGroupRaw);
-    if (!parsedGroup.success) return { ok: false, error: "invalid_upload_group" };
-    uploadGroupId = parsedGroup.data;
-  }
 
   if (!(file instanceof File)) {
     return { ok: false, error: "no_file" };
@@ -134,7 +125,6 @@ export async function uploadCsv(formData: FormData): Promise<UploadResult> {
       mappingJson: {},
       status: "pending",
       totalRows,
-      uploadGroupId: uploadGroupId ?? null,
       createdBy: session.userId,
     })
     .returning({ id: schema.pvsCsvUploads.id });
@@ -151,13 +141,11 @@ export async function uploadCsv(formData: FormData): Promise<UploadResult> {
   return {
     ok: true,
     uploadId: row!.id,
-    storageKey,
     headers,
     previewRows,
     totalRows,
     delimiter: csv.delimiter,
     encoding: csv.encoding,
-    headerRowNumber: csv.headerRowNumber,
     skippedPreambleLines: csv.skippedPreambleLines,
     skippedFooterLines: csv.skippedFooterLines,
   };

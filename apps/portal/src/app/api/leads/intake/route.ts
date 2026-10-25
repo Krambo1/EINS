@@ -95,9 +95,8 @@ const QuizBody = z.object({
 
 /**
  * Closed-loop attribution envelope, sent by clinic-landing's
- * `portal-intake.mapToIntake()`. Persisted onto the requests row so the
- * capi-purchase / oci-purchase workers can join InvoicePaid events back
- * to the original click. All fields optional — most rows have nothing.
+ * `portal-intake.mapToIntake()`. Persisted onto the requests row. All
+ * fields optional — most rows have nothing.
  *
  * IP is already anonymised by the sender (last octet / 4 hextets zeroed);
  * never accept a raw IP here. We cap each string at 256 chars: longer
@@ -345,7 +344,7 @@ export async function POST(request: NextRequest) {
     // falling back to the legacy quiz.fbc/fbp for older landings that
     // predate the `attribution` field. Browser hints (UA, anonymised IP)
     // fall back to the request-level values when the sender didn't pass
-    // them, so older landings still produce CAPI-viable user_data.
+    // them.
     const attribution = {
       fbclid: parsed.attribution?.fbclid ?? null,
       gclid: parsed.attribution?.gclid ?? null,

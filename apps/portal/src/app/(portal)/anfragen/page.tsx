@@ -3,7 +3,6 @@ import Link from "next/link";
 import { requireSession } from "@/auth/guards";
 import type { ResolvedSession } from "@/auth/session";
 import {
-  aiCategoryCounts,
   listRequests,
   nextCallQueueLeads,
 } from "@/server/queries/requests";
@@ -17,7 +16,6 @@ import {
   StatusPill,
   EmptyState,
   Button,
-  ExplainerPopover,
 } from "@eins/ui";
 import { SOURCE_LABELS } from "@/lib/constants";
 import { formatMoney, formatRelative } from "@/lib/formatting";
@@ -25,11 +23,9 @@ import { Download, Inbox, UserPlus } from "lucide-react";
 import { AnfragenFilters } from "./_components/AnfragenFilters";
 import { CallQueue } from "./_components/CallQueue";
 import { TimingLine } from "./_components/TimingLine";
-import { AI_SCORE_EXPLANATION, aiCategoryWord, aiScoreText } from "./_lib/ai-score";
 import { rowTiming } from "./_lib/row-timing";
 import { responseRuleStartForClinic } from "@/server/guarantee-clock";
 import { RequestListSkeleton } from "./_components/RequestListSkeleton";
-import { ChapterLaunchLink } from "@/app/(portal)/_components/tour/ChapterLaunchLink";
 import {
   hasListFilter,
   listQueryString,
@@ -52,8 +48,8 @@ const listTreatmentsCached = cacheClinicQuery("anfragenTreatments", listTreatmen
 // list render with that page size.
 const PAGE_SIZE = 25;
 
-/** Desktop columns: Anfrage, Status, KI-Bewertung, Umsatz. Header and rows share it. */
-const LIST_COLUMNS = "lg:grid-cols-[minmax(0,1fr)_10rem_7.5rem_6.5rem]";
+/** Desktop columns: Anfrage, Status, Umsatz. Header and rows share it. */
+const LIST_COLUMNS = "lg:grid-cols-[minmax(0,1fr)_10rem_6.5rem]";
 
 const LTV_HINT = "Gesamtumsatz dieses Patienten über alle Behandlungen";
 
@@ -66,14 +62,12 @@ export default async function AnfragenPage({
   const params = await searchParams;
 
   const isFrontdesk = session.role === "frontdesk";
-  const isInhaber = session.role === "inhaber";
   // "Anfrage anlegen" (Empfang): everyone who works Anfragen.
   const canCreate = can(session.role, "requests.update");
 
   return (
     <div className="space-y-6">
       <header
-        data-tour="anfragen-header"
         className="flex flex-wrap items-start justify-between gap-4"
       >
         <div>
@@ -85,7 +79,6 @@ export default async function AnfragenPage({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {isInhaber && <ChapterLaunchLink chapter="anfragen" />}
           {canCreate && (
             <Button asChild size="sm">
               <Link href="/anfragen/neu">
@@ -109,20 +102,14 @@ export default async function AnfragenPage({
 }
 
 /**
- * Filter-Chrome streamt unabhängig von der schweren Liste: die Badge-Counts
- * (Behandlungen + KI-Kategorien) sind günstige Aggregat-Queries, deren
- * Latenz die Liste nicht blockieren soll.
+ * Filter-Chrome streamt unabhängig von der schweren Liste.
  */
 async function FiltersLoader({ session }: { session: ResolvedSession }) {
-  const [treatments, aiCounts] = await Promise.all([
-    listTreatmentsCached(session.clinicId, session.userId),
-    aiCategoryCounts(session.clinicId, session.userId),
-  ]);
+  const treatments = await listTreatmentsCached(session.clinicId, session.userId);
 
   return (
     <AnfragenFilters
       treatments={treatments.map((t) => ({ id: t.id, name: t.name }))}
-      aiCounts={aiCounts}
     />
   );
 }
@@ -165,7 +152,6 @@ async function RequestListLoader({
       {
         status: list.status,
         source: list.source,
-        aiCategory: list.aiCategory,
         treatmentId: list.treatmentId,
         search: list.search,
         slaBreachedOnly: list.slaBreachedOnly,
@@ -203,15 +189,6 @@ async function RequestListLoader({
               ? "Keine Einträge"
               : `${total} ${total === 1 ? "Eintrag" : "Einträge"}`}
           </span>
-          {/* Phones have no column header, so the score explanation sits here. */}
-          {total > 0 && (
-            <span className="inline-flex items-center text-sm text-fg-primary lg:hidden">
-              Was heißt die KI-Bewertung?
-              <ExplainerPopover term="KI-Bewertung" ariaLabel="Erklärung zur KI-Bewertung">
-                {AI_SCORE_EXPLANATION}
-              </ExplainerPopover>
-            </span>
-          )}
         </div>
         {canExport && total > 0 && (
           <Button asChild variant="outline" size="sm">
@@ -239,20 +216,14 @@ async function RequestListLoader({
           }
         />
       ) : (
-        <Card data-tour="anfragen-list">
+        <Card>
           <CardContent className="p-0">
-            {/* Desktop: one fixed grid, so status, score and Umsatz line up
+            {/* Desktop: one fixed grid, so status and Umsatz line up
                 in their own columns on every row. Phones: the same facts
                 sit in one line under the name, status first. */}
             <div className={`hidden border-b border-border px-5 py-3 text-sm font-medium text-fg-primary lg:grid lg:items-center lg:gap-x-4 ${LIST_COLUMNS}`}>
               <div>Anfrage</div>
               <div>Status</div>
-              <div className="inline-flex items-center justify-end gap-1 whitespace-nowrap">
-                KI-Bewertung
-                <ExplainerPopover term="KI-Bewertung" ariaLabel="Erklärung zur KI-Bewertung">
-                  {AI_SCORE_EXPLANATION}
-                </ExplainerPopover>
-              </div>
               <div className="text-right" title={LTV_HINT}>Umsatz</div>
             </div>
 
@@ -269,8 +240,6 @@ async function RequestListLoader({
                   },
                   now
                 );
-                const score =
-                  r.aiScore != null ? aiScoreText(r.aiScore) : aiCategoryWord(r.aiCategory);
                 const ltv =
                   r.patientLtv != null && r.patientLtv > 0
                     ? formatMoney(r.patientLtv, session.currency)
@@ -290,9 +259,6 @@ async function RequestListLoader({
                         {/* Phones only: status and facts in one line. */}
                         <div className="flex min-w-0 items-center gap-x-1.5 text-sm text-fg-secondary lg:hidden">
                           <StatusPill status={r.status} />
-                          {score && (
-                            <span className="whitespace-nowrap tabular-nums">· KI {score}</span>
-                          )}
                           {ltv && <span className="whitespace-nowrap tabular-nums">· {ltv}</span>}
                         </div>
                         <div className="truncate text-sm text-fg-secondary">
@@ -307,13 +273,6 @@ async function RequestListLoader({
 
                       <div className="hidden lg:block">
                         <StatusPill status={r.status} />
-                      </div>
-
-                      <div
-                        className="hidden whitespace-nowrap text-right text-sm tabular-nums text-fg-primary lg:block"
-                        title={score ? AI_SCORE_EXPLANATION : undefined}
-                      >
-                        {score}
                       </div>
 
                       <div

@@ -15,7 +15,6 @@ import {
   type MetricTileTone,
 } from "@eins/ui";
 import type {
-  currentGoals,
   KpiSparklines,
   openQueueDaily,
 } from "@/server/queries/kpis";
@@ -28,25 +27,18 @@ import {
   formatMoney,
   formatNumber,
   formatRelative,
-  toneForGoalRatio,
   type CurrencyCode,
 } from "@/lib/formatting";
 import { zipSeries } from "@/lib/chart-data";
 import { SLA_HOURS } from "@/lib/constants";
 import type { KpiSummary } from "@/server/queries/kpis";
-import {
-  dashboardRangeWindow,
-  effectiveScalingDays,
-  formatRelationshipDurationDe,
-  type DashboardRange,
-} from "@/lib/dashboard-range";
+import type { DashboardRange } from "@/lib/dashboard-range";
 import { BreakdownStackChart } from "./BreakdownStackChart";
-import { CardEmptyNote, CardRangeLabel } from "./card-notes";
+import { CardEmptyNote } from "./card-notes";
 import { FIRST_INQUIRY_NOTE, RANGE_SENTENCE_START } from "./range-text";
 import type { BreakdownTone } from "./detail-helpers";
 import { reportingChannelLabel } from "@/lib/sources";
 
-type Goal = Awaited<ReturnType<typeof currentGoals>>[number];
 type SourceBreakdown = Awaited<ReturnType<typeof bySource>>;
 type OpenQueueSeries = Awaited<ReturnType<typeof openQueueDaily>>;
 
@@ -70,17 +62,12 @@ export function DashboardTopMetricsEnhanced({
   sourceBreakdown,
   slaBreaches,
   openRequests,
-  leadsGoal,
-  revenueGoal,
   leadsRange,
-  revenueRange,
   openRange,
   sourcesRange,
-  relationshipStartedAt,
   openLeads,
   emptyWindowHint,
   hasAnyRequest,
-  showRangeLabels,
   leadsSpark,
   leadsPriorSpark,
   revenueSpark,
@@ -96,20 +83,9 @@ export function DashboardTopMetricsEnhanced({
   sourceBreakdown: SourceBreakdown;
   slaBreaches: number;
   openRequests: number;
-  leadsGoal: Goal | undefined;
-  revenueGoal: Goal | undefined;
   leadsRange: DashboardRange;
-  revenueRange: DashboardRange;
   openRange: DashboardRange;
   sourcesRange: DashboardRange;
-  /**
-   * Earliest evidence the Praxis has been working with EINS — used to cap
-   * monthly-goal scaling so a clinic that's only been live 3 months on a
-   * Jahr window isn't compared against a full year's target. Sourced from
-   * the minimum of (clinic.createdAt, earliest request, earliest kpi_daily
-   * row) so demo / backfilled data is honoured.
-   */
-  relationshipStartedAt: Date | null;
   /**
    * Top-N open Anfragen (status='neu'), prioritised SLA-überfällig first.
    * Rendered inside the Offene-Anfragen tile, *below* the trend chart, as
@@ -131,9 +107,6 @@ export function DashboardTopMetricsEnhanced({
    * Anfrage eingeht.") vs. a quiet window in an active Praxis.
    */
   hasAnyRequest: boolean;
-  /** Only true when the per-card ranges differ from each other (deep link):
-   *  then each card names its own period. Otherwise the page switch says it. */
-  showRangeLabels: boolean;
   /** Dense Berlin-day series for the current / prior Anfragen window. */
   leadsSpark: KpiSparklines;
   leadsPriorSpark: KpiSparklines;
@@ -146,38 +119,6 @@ export function DashboardTopMetricsEnhanced({
   /** Lifetime value per source (not window-scoped). */
   ltvMap: Map<string, number>;
 }) {
-  const leadsWin = dashboardRangeWindow(leadsRange);
-  const revenueWin = dashboardRangeWindow(revenueRange);
-
-  // Goals are stored monthly. Scale them linearly to whatever window the
-  // user picked: 30 leads/month → 7 leads/week, 90 leads/quarter, etc.
-  // For Praxen that joined EINS partway through the window, cap the
-  // effective scaling at the relationship length — otherwise a 3-month-old
-  // Praxis viewing "Jahr" gets compared against a full year's target and
-  // is unfairly flagged "Redebedarf".
-  const leadsScaling = effectiveScalingDays(leadsWin, relationshipStartedAt);
-  const revenueScaling = effectiveScalingDays(revenueWin, relationshipStartedAt);
-  const leadsScaledTarget = leadsGoal
-    ? (Number(leadsGoal.targetValue) * leadsScaling.days) / 30
-    : null;
-  const revenueScaledTarget = revenueGoal
-    ? (Number(revenueGoal.targetValue) * revenueScaling.days) / 30
-    : null;
-  const leadsCappedLabel = leadsScaling.capped
-    ? formatRelationshipDurationDe(leadsScaling.days)
-    : null;
-  const revenueCappedLabel = revenueScaling.capped
-    ? formatRelationshipDurationDe(revenueScaling.days)
-    : null;
-  const leadsTone: MetricTileTone =
-    leadsScaledTarget != null && leadsScaledTarget > 0
-      ? toneForGoalRatio(leadsBreakdown.leads / leadsScaledTarget)
-      : "accent";
-  const revenueTone: MetricTileTone =
-    revenueScaledTarget != null && revenueScaledTarget > 0
-      ? toneForGoalRatio(revenueSummary.revenueEur / revenueScaledTarget)
-      : "accent";
-
   // "Offene Anfragen" status mirrors the headline tone: any SLA breach is bad,
   // any open queue is a soft warn, otherwise the queue is clean.
   const openTone: MetricTileTone =
@@ -216,7 +157,6 @@ export function DashboardTopMetricsEnhanced({
       )}
       <section
         aria-label="Kennzahlen"
-        data-tour="dashboard-metrics"
         className="grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-6"
       >
       <MetricTile
@@ -230,37 +170,11 @@ export function DashboardTopMetricsEnhanced({
                 was nicht als Spam markiert wurde. Was im Portal landet, ist
                 durch das Formular der Zielseite bereits vorqualifiziert.
               </p>
-              <p className="mt-2">
-                Sobald ein Monatsziel hinterlegt ist, zeigt ein Balken, wie
-                weit Sie sind. Er passt sich automatisch an den gewählten
-                Zeitraum an.
-              </p>
             </ExplainerPopover>
-            {showRangeLabels && (
-              <CardRangeLabel range={leadsRange} className="ml-auto" />
-            )}
           </>
         }
         value={formatNumber(leadsBreakdown.leads)}
-        statusBadge={
-          <MetricStatusBadge status={metricStatusFromTone(leadsTone)} />
-        }
-        tone={leadsTone}
-        progress={
-          leadsScaledTarget != null && leadsScaledTarget > 0
-            ? {
-                current: leadsBreakdown.leads,
-                target: leadsScaledTarget,
-              }
-            : undefined
-        }
-        hint={
-          leadsCappedLabel ? (
-            <span className="text-sm text-fg-primary">
-              Ziel auf Laufzeit der Praxis angepasst ({leadsCappedLabel})
-            </span>
-          ) : undefined
-        }
+        tone="accent"
         chartSlot={
           leadsBreakdown.leads === 0 ? (
             <CardEmptyNote>
@@ -301,38 +215,11 @@ export function DashboardTopMetricsEnhanced({
                 <strong>Werbeertrag</strong> sagt: für jeden 1 €
                 Werbebudget kommen X € Umsatz zurück.
               </p>
-              <p className="mt-2">
-                Sobald ein Monatsziel hinterlegt ist, zeigt ein Balken, wie
-                weit Sie sind. Er passt sich automatisch an den gewählten
-                Zeitraum an.
-              </p>
             </ExplainerPopover>
-            {showRangeLabels && (
-              <CardRangeLabel range={revenueRange} className="ml-auto" />
-            )}
           </>
         }
         value={formatMoney(revenueSummary.revenueEur, currency)}
-        statusBadge={
-          <MetricStatusBadge status={metricStatusFromTone(revenueTone)} />
-        }
-        tone={revenueTone}
-        progress={
-          revenueScaledTarget != null && revenueScaledTarget > 0
-            ? {
-                current: revenueSummary.revenueEur,
-                target: revenueScaledTarget,
-                formatTarget: (v) => formatMoney(v, currency),
-              }
-            : undefined
-        }
-        hint={
-          revenueCappedLabel ? (
-            <span className="text-sm text-fg-primary">
-              Ziel auf Laufzeit der Praxis angepasst ({revenueCappedLabel})
-            </span>
-          ) : undefined
-        }
+        tone="accent"
         chartSlot={
           revenueSummary.revenueEur === 0 ? (
             <CardEmptyNote>
@@ -378,9 +265,6 @@ export function DashboardTopMetricsEnhanced({
                 ändern.
               </p>
             </ExplainerPopover>
-            {showRangeLabels && (
-              <CardRangeLabel range={openRange} className="ml-auto" />
-            )}
           </>
         }
         value={formatNumber(openRequests)}
@@ -443,7 +327,6 @@ export function DashboardTopMetricsEnhanced({
               </p>
             </ExplainerPopover>
           </div>
-          {showRangeLabels && <CardRangeLabel range={sourcesRange} />}
         </CardHeader>
         <CardContent>
           {sourceRows.length === 0 ? (

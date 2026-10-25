@@ -1,7 +1,6 @@
 import { Suspense } from "react";
 import { requireSession } from "@/auth/guards";
 import {
-  currentGoals,
   dashboardLiveDays,
   noShowForWindow,
   openQueueDaily,
@@ -15,7 +14,6 @@ import {
 } from "@/server/queries/requests";
 import { bySource } from "@/server/queries/attribution";
 import { ltvBySource } from "@/server/queries/patients";
-import { getClinicRelationshipStart } from "@/server/queries/clinic";
 import {
   DASHBOARD_RANGE_KEYS,
   berlinDay,
@@ -32,7 +30,6 @@ import {
   DashboardRangeSwitch,
   DashboardRangeSwitchSkeleton,
 } from "./_components/DashboardRangeSwitch";
-import { ForecastStrip } from "./_components/ForecastStrip";
 import {
   AnomalyAlertsWidget,
   AnomalyAlertsSkeleton,
@@ -99,13 +96,6 @@ export default function DashboardPage({
         <DashboardTopMetricsLoader searchParams={searchParams} />
       </Suspense>
 
-      {/* Forecast strip — three numbers (Pipeline-Wert, 30d, 90d).
-          Hidden during cold-start (sample < MIN_SAMPLE_WON). Suspense so
-          the snapshot read doesn't block the shell. */}
-      <Suspense fallback={null}>
-        <ForecastLoader />
-      </Suspense>
-
       {/* Anomaly alerts: rule-based detection with optional KI-sauce on the
           rare extreme/multi-signal cases. Own Suspense so a slow alerts
           read never blocks the deep-dive bundle and vice versa. */}
@@ -134,7 +124,6 @@ async function DashboardGreeting() {
   const greeting = germanGreeting(now);
   return (
     <div
-      data-tour="dashboard-header"
       className="flex flex-wrap items-end justify-between gap-4"
     >
       <div>
@@ -159,18 +148,6 @@ async function DashboardGreeting() {
   );
 }
 
-/** Forecast strip wrapped so it sources the session itself (cached). */
-async function ForecastLoader() {
-  const session = await requireSession();
-  return (
-    <ForecastStrip
-      clinicId={session.clinicId}
-      userId={session.userId}
-      currency={session.currency}
-    />
-  );
-}
-
 /** Anomaly alerts wrapped so it sources the session itself (cached). */
 async function AnomalyAlertsLoader() {
   const session = await requireSession();
@@ -191,18 +168,6 @@ function earliestDashboardDay(sp: Record<string, string | undefined>): string {
     if (prior.fromDate < earliest) earliest = prior.fromDate;
   }
   return earliest;
-}
-
-/**
- * True when every card shows the window picked on the page-level switch. Then
- * the cards stay silent about the period; only a deep link with differing
- * per-card params makes each card name its own.
- */
-function cardsShowOwnRange(sp: Record<string, string | undefined>): boolean {
-  // Same eight params the switch writes (no `total`, it has no card here).
-  const { total: _total, ...cardKeys } = DASHBOARD_RANGE_KEYS;
-  const ranges = Object.values(cardKeys).map((k) => parseDashboardRange(sp[k]));
-  return !ranges.every((r) => r === ranges[0]);
 }
 
 async function DashboardTopMetricsLoader({
@@ -235,10 +200,8 @@ async function DashboardTopMetricsLoader({
   const [
     liveDays,
     sourceBreakdown,
-    goals,
     statusCounts,
     slaBreaches,
-    relationshipStartedAt,
     openLeads,
     openQueue,
     openPriorQueue,
@@ -246,10 +209,8 @@ async function DashboardTopMetricsLoader({
   ] = await Promise.all([
     dashboardLiveDays(clinicId, userId, earliestDashboardDay(sp), berlinDay()),
     bySource(clinicId, userId, sourcesWindow.from, sourcesWindow.to),
-    currentGoals(clinicId, userId),
     requestStatusCounts(clinicId, userId),
     slaBreachedCount(clinicId, userId),
-    getClinicRelationshipStart(clinicId),
     // Top-N open Anfragen for the footer of the Offene-Anfragen tile.
     // Same source-of-truth as the headline count (status='neu'), sorted by
     // SLA-überfällig → oldest. Capped at 3; OpenLeadsList renders a "+N
@@ -278,8 +239,6 @@ async function DashboardTopMetricsLoader({
   };
   const revenueSummary = summaryForWindow(liveDays, revenueWindow);
 
-  const leadsGoal = goals.find((g) => g.metric === "leads");
-  const revenueGoal = goals.find((g) => g.metric === "revenue");
   const openRequests = statusCounts.neu ?? 0;
 
   // Empty-window hint: the selected Anfragen window has zero leads, yet the
@@ -326,14 +285,9 @@ async function DashboardTopMetricsLoader({
       sourceBreakdown={sourceBreakdown}
       slaBreaches={slaBreaches}
       openRequests={openRequests}
-      leadsGoal={leadsGoal}
-      revenueGoal={revenueGoal}
-      showRangeLabels={cardsShowOwnRange(sp)}
       leadsRange={leadsRange}
-      revenueRange={revenueRange}
       openRange={openRange}
       sourcesRange={sourcesRange}
-      relationshipStartedAt={relationshipStartedAt}
       openLeads={openLeads}
       emptyWindowHint={emptyWindowHint}
       hasAnyRequest={totalRequestsAllTime > 0}
@@ -384,11 +338,9 @@ async function DashboardDetailLoader({
       noShow={noShowForWindow(liveDays, noShowWin)}
       noShowPrior={noShowForWindow(liveDays, priorDashboardWindow(noShowWin))}
       canManageReviews={session.role === "inhaber"}
-      showRangeLabels={cardsShowOwnRange(sp)}
       funnelRange={funnelRange}
       locationsRange={locationsRange}
       treatmentsRange={treatmentsRange}
-      noShowRange={noShowRange}
     />
   );
 }

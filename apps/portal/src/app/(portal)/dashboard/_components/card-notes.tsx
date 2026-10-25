@@ -1,32 +1,5 @@
 import type { ReactNode } from "react";
 import { cn } from "@eins/ui";
-import type { DashboardRange } from "@/lib/dashboard-range";
-import { RANGE_HEADER_TEXT } from "./range-text";
-
-/**
- * Active time window of one card, as readable text in the card header. The
- * single page-level switch (DashboardRangeSwitch) sets every card; this label
- * keeps each card honest about which period its numbers cover, also for deep
- * links that still carry different per-card params.
- */
-export function CardRangeLabel({
-  range,
-  className,
-}: {
-  range: DashboardRange;
-  className?: string;
-}) {
-  return (
-    <span
-      className={cn(
-        "whitespace-nowrap text-sm font-medium text-fg-primary md:text-base",
-        className
-      )}
-    >
-      {RANGE_HEADER_TEXT[range]}
-    </span>
-  );
-}
 
 /**
  * One plain sentence in place of an empty chart. Keeps roughly the chart's

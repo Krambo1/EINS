@@ -157,9 +157,8 @@ export default async function ChecklistePage() {
           <p className="text-sm text-fg-primary">
             <span className="font-medium">So funktioniert es:</span> Sie liefern
             jeden Punkt direkt hier im Portal (Häkchen, Datei hochladen, Link oder
-            kurze Angabe). Wir prüfen jede Lieferung und bestätigen sie. Sie
-            müssen nichts per E-Mail schicken. Bitte geben Sie niemals Passwörter
-            weiter, wir fragen auch nie danach.
+            kurze Angabe). Wir prüfen jede Lieferung und bestätigen sie. Bitte
+            geben Sie niemals Passwörter weiter, wir fragen auch nie danach.
           </p>
         </CardContent>
       </Card>

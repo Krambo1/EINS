@@ -20,13 +20,11 @@ describe("parseAnfragenParams", () => {
     const p = parseAnfragenParams({
       status: "neu,quatsch,spam",
       source: "meta,evil",
-      aiCategory: "hot,lukewarm",
       treatment: "not-a-uuid,0b0e2c4e-1f1a-4c1b-9a4e-2b9a3f1d7c11",
       sort: "drop table",
     });
     expect(p.status).toEqual(["neu", "spam"]);
     expect(p.source).toEqual(["meta"]);
-    expect(p.aiCategory).toEqual(["hot"]);
     expect(p.treatmentId).toEqual(["0b0e2c4e-1f1a-4c1b-9a4e-2b9a3f1d7c11"]);
     expect(p.sort).toBe("neueste");
   });

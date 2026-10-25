@@ -5,7 +5,6 @@ import { processRefreshOauth } from "@/worker/processors/refresh-oauth";
 import { processSyncMeta } from "@/worker/processors/sync-meta";
 import { processSyncGoogle } from "@/worker/processors/sync-google";
 import { processKpiRebuild } from "@/worker/processors/kpi-rebuild";
-import { processForecastSnapshot } from "@/worker/processors/forecast-snapshot";
 import { processSyncReviewsGoogle } from "@/worker/processors/sync-reviews-google";
 import { processSyncReviewsJameda } from "@/worker/processors/sync-reviews-jameda";
 import { processAnomalyScan } from "@/worker/processors/anomaly-scan";
@@ -25,7 +24,7 @@ import { CronRun, activeClinicIds, checkCronAuth } from "../_lib/run";
  *   2. Meta / Google spend for Berlin "gestern"
  *   3. kpi_daily rebuild for today and the 7 days before (Berlin days):
  *      covers yesterday + today and heals late status changes (E-01)
- *   4. forecast snapshot, review-score syncs, anomaly scan
+ *   4. review-score syncs, anomaly scan
  *   5. Retention (L-4, lib/retention.ts): spam, click ids, archived
  *      Praxen, old unbooked Anfragen, sessions, tokens, send log. Daily.
  *   6. Sunday (Berlin): audit / token purge
@@ -70,10 +69,6 @@ export async function GET(request: NextRequest) {
   const from = addDaysIso(today, -KPI_BACKFILL_DAYS);
   await run.perClinic("kpi-rebuild", clinics, (clinicId) =>
     processKpiRebuild({ clinicId, from, to: today })
-  );
-
-  await run.perClinic("forecast-snapshot", clinics, (clinicId) =>
-    processForecastSnapshot({ clinicId })
   );
 
   // Review-score syncs append a snapshot row; skip a platform that already

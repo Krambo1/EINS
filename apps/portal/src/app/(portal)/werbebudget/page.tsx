@@ -34,7 +34,6 @@ import { AlertTriangle, ChevronDown, Info, Link as LinkIcon, Plug } from "lucide
 import { META_PAGE_ERRORS, metaPageErrorText } from "@/server/meta-pages";
 import { DataTable } from "../dashboard/_components/detail-helpers";
 import { Brand } from "@/app/_components/Brand";
-import { ChapterLaunchLink } from "@/app/(portal)/_components/tour/ChapterLaunchLink";
 
 export const metadata = { title: "Werbebudget" };
 
@@ -60,8 +59,8 @@ const PLATFORM_LABELS: Record<"meta" | "google", React.ReactNode> = {
 };
 
 /**
- * Shared elevated-card surface. Matches the dashboard's MetricTile /
- * ForecastStrip look (soft off-white fill that lifts via shadow) so the
+ * Shared elevated-card surface. Matches the dashboard's MetricTile
+ * look (soft off-white fill that lifts via shadow) so the
  * Werbebudget tab reads as the same product instead of flat grey boxes.
  */
 const CARD_SURFACE = {
@@ -77,7 +76,6 @@ export default async function WerbebudgetPage({
   const session = await requirePermissionOrRedirect("campaigns.live");
   const params = await searchParams;
   const days = parseDays(params.days);
-  const isInhaber = session.role === "inhaber";
 
   // Credentials first (one statement): a Praxis without Meta/Google (the
   // organic start) renders the empty state without running any of the
@@ -109,7 +107,6 @@ export default async function WerbebudgetPage({
   return (
     <div className="space-y-10">
       <header
-        data-tour="werbebudget-header"
         className="flex flex-wrap items-end justify-between gap-4"
       >
         <div>
@@ -119,11 +116,6 @@ export default async function WerbebudgetPage({
             Werbebudget kommt direkt aus Meta und Google, die Anfragen aus
             Ihrem Portal.
           </p>
-          {isInhaber && (
-            <div className="mt-3">
-              <ChapterLaunchLink chapter="werbebudget" />
-            </div>
-          )}
         </div>
         <div
           role="tablist"
@@ -181,7 +173,6 @@ export default async function WerbebudgetPage({
           <StatStrip
             size="lg"
             title="Insgesamt"
-            dataTour="werbebudget-totals"
             stats={[
               {
                 label: "Werbebudget",
@@ -210,34 +201,12 @@ export default async function WerbebudgetPage({
                   label: "Hochrechnung Monatsende",
                   value: formatEuro(detail.pace.projectedMonthSpend),
                 },
-                {
-                  label: "Monatsziel",
-                  value:
-                    detail.pace.goalTargetEur != null
-                      ? formatEuro(detail.pace.goalTargetEur)
-                      : "Kein Ziel",
-                },
-                {
-                  label: "Anteil am Monatsziel",
-                  value:
-                    detail.pace.pacePct != null
-                      ? formatPercent(detail.pace.pacePct)
-                      : "",
-                  tone:
-                    detail.pace.pacePct == null
-                      ? "neutral"
-                      : detail.pace.pacePct > 1.1
-                        ? "bad"
-                        : detail.pace.pacePct < 0.85
-                          ? "warn"
-                          : "good",
-                },
               ]}
             />
           )}
 
           {/* Per-platform cards */}
-          <section data-tour="werbebudget-platforms" className="grid gap-6 md:grid-cols-2">
+          <section className="grid gap-6 md:grid-cols-2">
             <PlatformCard
               platform="meta"
               data={live.find((l) => l.platform === "meta")}
@@ -316,7 +285,6 @@ export default async function WerbebudgetPage({
       )}
 
       <Card
-        data-tour="werbebudget-method"
         className="print:break-inside-avoid"
         style={CARD_SURFACE}
       >
@@ -410,48 +378,32 @@ function isPageSelectionPending(lastSyncError: string): boolean {
   return PAGE_SELECTION_PENDING.has(lastSyncError.trim());
 }
 
-type StatTone = "good" | "warn" | "bad" | "neutral";
-
-const statToneClass: Record<StatTone, string> = {
-  good: "text-tone-good",
-  warn: "text-tone-warn",
-  bad: "text-tone-bad",
-  neutral: "text-fg-primary",
-};
-
 interface StatItem {
   label: string;
   value: string;
-  /** Optional sub-line under the value, e.g. "letzte 30 Tage". */
-  hint?: string;
-  tone?: StatTone;
 }
 
 /**
  * A group of related numbers sharing ONE elevated card, separated by hairline
  * dividers on wide viewports and stacked with spacing on narrow ones. Replaces
  * the old "one bordered box per value" grid and mirrors the dashboard's
- * MetricTile / ForecastStrip surface so the two tabs read as one product.
+ * MetricTile surface so the two tabs read as one product.
  *
  * `size="lg"` is the three hero numbers (one row from `sm` up); the default
- * `md` is the four Pace numbers (2x2 on small, one row from `lg` up).
+ * `md` is the Pace numbers (2x2 on small, one row from `lg` up).
  */
 function StatStrip({
   title,
   stats,
   size = "md",
-  dataTour,
 }: {
   title?: string;
   stats: StatItem[];
   size?: "md" | "lg";
-  /** Optional `data-tour` anchor for the product-tour spotlight. */
-  dataTour?: string;
 }) {
   const isHero = size === "lg";
   return (
     <section
-      data-tour={dataTour}
       className="rounded-2xl border border-border p-6 md:p-8 print:break-inside-avoid"
       style={CARD_SURFACE}
     >
@@ -489,14 +441,11 @@ function StatStrip({
                 isHero
                   ? "text-3xl sm:text-2xl md:text-3xl lg:text-4xl"
                   : "text-2xl lg:text-3xl",
-                statToneClass[s.tone ?? "neutral"]
+                "text-fg-primary"
               )}
             >
               {s.value}
             </dd>
-            {s.hint && (
-              <dd className="mt-1 text-sm text-fg-secondary">{s.hint}</dd>
-            )}
           </div>
         ))}
       </dl>

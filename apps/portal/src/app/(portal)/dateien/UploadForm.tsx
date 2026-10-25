@@ -295,7 +295,7 @@ export function UploadForm() {
                   {s.status === "uploading" && (
                     <Loader2 className="h-4 w-4 shrink-0 animate-spin text-accent" />
                   )}
-                  {(s.status === "done" || s.status === "uploaded") && (
+                  {s.status === "uploaded" && (
                     <CheckCircle2 className="h-4 w-4 shrink-0 text-tone-good" />
                   )}
                   {s.status === "error" && !sending && (
@@ -310,8 +310,7 @@ export function UploadForm() {
                   )}
                 </div>
                 {(s.status === "uploading" ||
-                  s.status === "uploaded" ||
-                  s.status === "done") && (
+                  s.status === "uploaded") && (
                   <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-bg-secondary">
                     <div
                       className={cn(

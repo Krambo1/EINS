@@ -12,7 +12,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@eins/ui";
-import { UserPlus } from "lucide-react";
 import { SELF_REPORTED_SOURCES, SELF_REPORTED_SOURCE_LABELS } from "@/lib/sources";
 import { TREATMENT_OPEN } from "@/lib/manual-entry";
 import { createManualRequestAction, type ManualEntryState } from "./actions";
@@ -21,7 +20,6 @@ function SubmitButton() {
   const { pending } = useFormStatus();
   return (
     <Button type="submit" disabled={pending} className="w-full sm:w-auto">
-      <UserPlus className="h-4 w-4" aria-hidden />
       {pending ? "Wird angelegt …" : "Anfrage anlegen"}
     </Button>
   );

@@ -355,7 +355,6 @@ export async function ruleRevenueDrop(
               "Wenn Anfragen okay: Beratungs-Show-Rate und Angebote prüfen",
             ]
           : [
-              "Pipeline-Vorhersage in der Übersicht prüfen: ist die Lücke schon im Forecast?",
               "Top-Behandlungen Vorjahr vs. aktuell: welche fehlt?",
               "Anfragen-Reaktionszeit prüfen: gibt es Verzögerungen, die Abschlüsse kosten?",
             ],

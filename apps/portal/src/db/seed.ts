@@ -652,8 +652,7 @@ async function main() {
     // --- clinic_timeline_entries (Fortschritt page) ---
     // Praxisinhaber:innen sind keine Marketing-Profis. Titel und Beschreibungen
     // werden bewusst in einfachem Deutsch ohne Anglizismen geschrieben.
-    // Admin-authored: created_by_email = team@eins.ag (das EINS-Team-Postfach,
-    // identisch mit dem Empfänger in feedback/actions.ts).
+    // Admin-authored: created_by_email = team@eins.ag (das EINS-Team-Postfach).
     const reportEventDate = new Date();
     reportEventDate.setDate(reportEventDate.getDate() + 6);
     const reportMonthLabel = new Intl.DateTimeFormat("de-DE", {

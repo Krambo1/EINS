@@ -103,15 +103,6 @@ export function enqueueAiScore(requestId: string): Promise<string | null> {
   return safeAdd(QUEUES.aiScore, { requestId });
 }
 
-/** Sync campaign snapshots for one clinic+platform. */
-export function enqueueCampaignSync(
-  clinicId: string,
-  platform: "meta" | "google"
-): Promise<string | null> {
-  const q = platform === "meta" ? QUEUES.syncMeta : QUEUES.syncGoogle;
-  return safeAdd(q, { clinicId });
-}
-
 /** Recompute kpi_daily rows from raw sources for a date range. */
 export function enqueueKpiRebuild(
   clinicId: string,
@@ -119,14 +110,6 @@ export function enqueueKpiRebuild(
   to: string
 ): Promise<string | null> {
   return safeAdd(QUEUES.kpiRebuild, { clinicId, from, to });
-}
-
-/** Produce + email the monthly report PDF for one clinic. */
-export function enqueueMonthlyReport(
-  clinicId: string,
-  periodYyyyMm: string
-): Promise<string | null> {
-  return safeAdd(QUEUES.monthlyReport, { clinicId, period: periodYyyyMm });
 }
 
 /**
@@ -216,39 +199,6 @@ export function enqueuePvsLeadTokenWrite(
   requestId: string
 ): Promise<string | null> {
   return safeAdd(QUEUES.pvsLeadTokenWrite, { requestId });
-}
-
-// ---------------------------------------------------------------
-// Closed-loop attribution producers
-// ---------------------------------------------------------------
-
-/**
- * Fire a Meta CAPI Purchase event for one outbox row. The queue uses the
- * `short` policy and `singletonKey = capi-purchase__${outboxId}` so a manual
- * retry from the admin UI coalesces with an enqueue already pending for the
- * same outbox row. The real duplicate-suppression guard is the outbox
- * `UNIQUE(clinic_id, channel, pvs_event_log_id)` plus the processor's
- * status check — the singletonKey only trims redundant pending enqueues.
- */
-export function enqueueCapiPurchase(outboxId: string): Promise<string | null> {
-  return safeAdd(
-    QUEUES.capiPurchase,
-    { outboxId },
-    { singletonKey: `capi-purchase__${outboxId}` }
-  );
-}
-
-/**
- * Upload a Google Ads offline conversion for one outbox row. Same dedup story
- * as the Meta side: `short` policy + `singletonKey = oci-purchase__${outboxId}`,
- * with the outbox UNIQUE constraint as the real guard.
- */
-export function enqueueOciPurchase(outboxId: string): Promise<string | null> {
-  return safeAdd(
-    QUEUES.ociPurchase,
-    { outboxId },
-    { singletonKey: `oci-purchase__${outboxId}` }
-  );
 }
 
 /**

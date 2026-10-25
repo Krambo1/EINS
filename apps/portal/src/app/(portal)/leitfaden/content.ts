@@ -106,7 +106,6 @@ export interface PrepStep {
 }
 
 export const PREP_STEPS: PrepStep[] = [
-  { id: "p1", text: "Anrufer-Profil aus der KI-Bewertung öffnen (Heiß, Warm, Kalt).", core: true },
   { id: "p2", text: "Behandlungswunsch und Budget-Indikation lesen, falls vorhanden.", core: true },
   {
     id: "p3",

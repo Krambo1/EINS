@@ -25,7 +25,6 @@ import { requireSession } from "@/auth/guards";
 import { schema, withClinicContext } from "@/db/client";
 import { writeAudit } from "@/server/audit";
 import { invalidateClinicKpiCache } from "@/server/queries/_cache";
-import { invalidateNavBadges } from "@/server/queries/navBadgesCache";
 import { can, ForbiddenError } from "@/lib/roles";
 import {
   CALL_OUTCOMES,
@@ -98,13 +97,12 @@ function optStr(formData: FormData, key: string): string | undefined {
   return s === "" ? undefined : s;
 }
 
-function revalidateLead(id: string, clinicId: string, userId: string) {
+function revalidateLead(id: string, clinicId: string) {
   revalidatePath(`/anfragen/${id}`);
   revalidatePath("/anfragen");
   // The dashboard renders dynamically; only its cached aggregates (tag
-  // kpi:<clinic>) and the sidebar badges need busting (D-6).
+  // kpi:<clinic>) need busting (D-6).
   void invalidateClinicKpiCache(clinicId);
-  invalidateNavBadges(clinicId, userId);
 }
 
 /**
@@ -257,7 +255,7 @@ async function logCallImpl(formData: FormData): Promise<void> {
     },
   });
 
-  revalidateLead(input.id, session.clinicId, session.userId);
+  revalidateLead(input.id, session.clinicId);
 }
 
 /** Channels a sent message can be logged for (K-20). */
@@ -334,7 +332,7 @@ async function logMessageImpl(formData: FormData): Promise<void> {
     diff: { message: input.channel },
   });
 
-  revalidateLead(input.id, session.clinicId, session.userId);
+  revalidateLead(input.id, session.clinicId);
 }
 
 /** Add a free-text note to the Verlauf. Does not count as contact. */
@@ -382,7 +380,7 @@ async function addNoteImpl(formData: FormData): Promise<void> {
     diff: { note: true },
   });
 
-  revalidateLead(input.id, session.clinicId, session.userId);
+  revalidateLead(input.id, session.clinicId);
 }
 
 /**
@@ -476,7 +474,7 @@ async function changeStatusImpl(formData: FormData): Promise<void> {
     diff: { to: input.status },
   });
 
-  revalidateLead(input.id, session.clinicId, session.userId);
+  revalidateLead(input.id, session.clinicId);
 }
 
 /** Schedule a Wiedervorlage (pending callback) + a Verlauf note. */
@@ -545,7 +543,7 @@ async function scheduleFollowupImpl(formData: FormData): Promise<void> {
     diff: { dueAt: input.dueAt.toISOString() },
   });
 
-  revalidateLead(input.id, session.clinicId, session.userId);
+  revalidateLead(input.id, session.clinicId);
 }
 
 /** Resolve a pending Wiedervorlage: 'done' (erledigt) or 'cancelled' (abgebrochen). */
@@ -578,7 +576,7 @@ async function resolveFollowup(
       .returning({ id: schema.requestFollowups.id })
   );
   if (updated.length === 0) {
-    revalidateLead(input.requestId, session.clinicId, session.userId);
+    revalidateLead(input.requestId, session.clinicId);
     throw new UserFacingError(
       "Diese Wiedervorlage wurde bereits erledigt oder abgebrochen."
     );
@@ -594,7 +592,7 @@ async function resolveFollowup(
     diff: { status },
   });
 
-  revalidateLead(input.requestId, session.clinicId, session.userId);
+  revalidateLead(input.requestId, session.clinicId);
 }
 
 export async function completeFollowup(formData: FormData): Promise<ActionResult> {
@@ -607,9 +605,8 @@ export async function cancelFollowup(formData: FormData): Promise<ActionResult> 
 
 /**
  * Record that the person withdrew the separate consent to report this
- * inquiry and a later treatment to Meta and Google (migration 0077). The
- * purchase workers check consent at send time, so any not-yet-sent report
- * is stopped. Only touches an ACTIVE consent of the session's clinic.
+ * inquiry and a later treatment to Meta and Google (migration 0077). Only
+ * touches an ACTIVE consent of the session's clinic.
  *
  * Audit log only, deliberately no call/email/whatsapp/status_change activity:
  * those count as a contact attempt for the 48-Werkstunden rule.
@@ -658,5 +655,5 @@ async function revokeAdsConsentImpl(formData: FormData): Promise<void> {
 
   // Already revoked (e.g. by a colleague): the wanted state holds, so this
   // stays a success and the re-render shows "widerrufen am".
-  revalidateLead(input.id, session.clinicId, session.userId);
+  revalidateLead(input.id, session.clinicId);
 }

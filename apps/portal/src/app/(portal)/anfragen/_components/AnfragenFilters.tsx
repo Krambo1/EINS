@@ -4,18 +4,10 @@ import Link from "next/link";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  ArrowDownWideNarrow,
   Check,
-  CheckCircle2,
   ChevronDown,
-  Flame,
   Loader2,
-  Radio,
   Search,
-  Snowflake,
-  Sparkles,
-  Sun,
-  Tag,
   X,
 } from "lucide-react";
 import {
@@ -31,23 +23,18 @@ import {
 } from "@eins/ui";
 import { withBrandLogos } from "@/app/_components/Brand";
 import {
-  AI_CATEGORIES,
-  AI_CATEGORY_LABELS,
   ALL_REQUEST_STATUSES,
   ALL_REQUEST_STATUS_LABELS,
   REQUEST_SORTS,
   REQUEST_SORT_LABELS,
   REQUEST_SOURCES,
   SOURCE_LABELS,
-  type AiCategory,
   type RequestSort,
   type RequestSource,
 } from "@/lib/constants";
 
 interface Props {
   treatments: { id: string; name: string }[];
-  /** Clinic-wide count per KI-Kategorie (hot/warm/cold) for the count pills. */
-  aiCounts: Record<string, number>;
 }
 
 // Every status incl. the PVS-set "Nicht erschienen" / "Behandelt" (C-29).
@@ -55,7 +42,7 @@ const STATUSES = ALL_REQUEST_STATUSES;
 
 const SEARCH_DEBOUNCE_MS = 200;
 
-export function AnfragenFilters({ treatments, aiCounts }: Props) {
+export function AnfragenFilters({ treatments }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -146,7 +133,6 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
     params.get("search") ||
       params.get("status") ||
       params.get("source") ||
-      params.get("aiCategory") ||
       params.get("treatment") ||
       params.get("slaBreached") ||
       params.get("stale")
@@ -154,7 +140,6 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
 
   return (
     <div
-      data-tour="anfragen-filters"
       className={cn("transition-opacity", isPending && "opacity-70")}
       aria-busy={isPending}
     >
@@ -192,7 +177,6 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
 
       <div className="flex flex-wrap items-center gap-2">
         <FilterDropdown
-          icon={ArrowDownWideNarrow}
           label="Sortierung"
           summaryText={REQUEST_SORT_LABELS[currentSort]}
           active={currentSort !== "neueste"}
@@ -212,7 +196,6 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
         </FilterDropdown>
 
         <FilterDropdown
-          icon={CheckCircle2}
           label="Status"
           activeCount={countSet("status") + (isFlag("stale") ? 1 : 0)}
         >
@@ -236,7 +219,7 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
           </DropdownMenuCheckboxItem>
         </FilterDropdown>
 
-        <FilterDropdown icon={Radio} label="Quelle" activeCount={countSet("source")}>
+        <FilterDropdown label="Quelle" activeCount={countSet("source")}>
           {REQUEST_SOURCES.map((s) => (
             <DropdownMenuCheckboxItem
               key={s}
@@ -249,51 +232,8 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
           ))}
         </FilterDropdown>
 
-        <FilterDropdown
-          icon={Sparkles}
-          label="KI-Bewertung"
-          activeCount={countSet("aiCategory")}
-          dataTour="anfragen-ki"
-        >
-          {AI_CATEGORIES.every((c) => !aiCounts[c]) && (
-            // C-7: without the background worker no Anfrage is scored yet;
-            // say so instead of offering three empty filters silently.
-            <p className="max-w-[16rem] px-2 py-1.5 text-sm text-fg-secondary">
-              Noch keine Anfrage bewertet. Die KI-Bewertung erscheint hier,
-              sobald sie vorliegt.
-            </p>
-          )}
-          {AI_CATEGORIES.map((c) => {
-            const Icon = c === "hot" ? Flame : c === "warm" ? Sun : Snowflake;
-            const tone =
-              c === "hot"
-                ? "text-tone-bad"
-                : c === "warm"
-                  ? "text-tone-warn"
-                  : "text-accent";
-            return (
-              <DropdownMenuCheckboxItem
-                key={c}
-                checked={isSetMember("aiCategory", c)}
-                onCheckedChange={() => toggleMulti("aiCategory", c)}
-                onSelect={(e) => e.preventDefault()}
-              >
-                <Icon className={cn("mr-2 h-3.5 w-3.5 shrink-0", tone)} aria-hidden />
-                <span>{AI_CATEGORY_LABELS[c as AiCategory]}</span>
-                <span
-                  className="ml-auto rounded-full bg-bg-tertiary px-2 py-0.5 text-sm font-semibold leading-none tabular-nums text-fg-primary"
-                  aria-label={`${aiCounts[c] ?? 0} Anfragen`}
-                >
-                  {aiCounts[c] ?? 0}
-                </span>
-              </DropdownMenuCheckboxItem>
-            );
-          })}
-        </FilterDropdown>
-
         {treatments.length > 0 && (
           <FilterDropdown
-            icon={Tag}
             label="Behandlung"
             activeCount={countSet("treatment")}
           >
@@ -324,21 +264,18 @@ export function AnfragenFilters({ treatments, aiCounts }: Props) {
 }
 
 /**
- * One filter category rendered as a dropdown-menu pill. All five sit in a
+ * One filter category rendered as a dropdown-menu pill. All sit in a
  * single wrapping row (was five stacked chip rows). The trigger shows the
  * category label plus a `· N` suffix for active multi-selects, or `· value`
  * for the single-select sort. Mirrors the admin-side AdminUrlMultiSelect.
  */
 function FilterDropdown({
-  icon: Icon,
   label,
   activeCount = 0,
   summaryText,
   active,
-  dataTour,
   children,
 }: {
-  icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
   label: string;
   /** Number of active selections, shown as a `· N` suffix on the trigger. */
   activeCount?: number;
@@ -346,8 +283,6 @@ function FilterDropdown({
   summaryText?: string;
   /** Force the active/highlighted trigger style (sort uses this; multi derives it). */
   active?: boolean;
-  /** Optional `data-tour` anchor on the trigger pill (product-tour spotlight). */
-  dataTour?: string;
   children: React.ReactNode;
 }) {
   const isActive = active ?? activeCount > 0;
@@ -362,7 +297,6 @@ function FilterDropdown({
         Trigger directly instead.
       */}
       <DropdownMenuTrigger
-        data-tour={dataTour}
         className={cn(
           "inline-flex h-10 items-center gap-1.5 rounded-full border px-3.5 text-sm font-medium transition-colors",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
@@ -371,7 +305,6 @@ function FilterDropdown({
             : "border-border text-fg-secondary hover:border-accent hover:text-fg-primary"
         )}
       >
-        <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
         <span className="whitespace-nowrap">
           {label}
           {summaryText

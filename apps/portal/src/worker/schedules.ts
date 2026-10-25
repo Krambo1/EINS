@@ -43,13 +43,10 @@ export const PLATFORM_SCHEDULES: readonly PlatformSchedule[] = [
   { queue: QUEUES.pvsPartitionRotate, cron: "0 4 * * *" },
   // PVS Bridge — reconciliation every 4 hours (stale-bridge alert latency).
   { queue: QUEUES.pvsReconcile, cron: "15 */4 * * *" },
-  // PVS Bridge — daily treatment auto-mapping suggestions 04:30.
-  { queue: QUEUES.pvsTreatmentSuggest, cron: "30 4 * * *" },
   // PVS Bridge: agent liveness scan hourly at :05, offset from the top of the
   // hour so it does not queue behind the per-clinic syncs.
   { queue: QUEUES.pvsAgentHealthScan, cron: "5 * * * *" },
-  // PVS Bridge: re-apply events stuck unapplied + re-enqueue lost ads-conversion
-  // outbox rows. Cron mirrors PVS_APPLY_SWEEP_CRON in the processor (kept as a
+  // PVS Bridge: re-apply events stuck unapplied. Cron mirrors PVS_APPLY_SWEEP_CRON in the processor (kept as a
   // literal here: this registry must stay free of processor imports).
   { queue: QUEUES.pvsApplySweep, cron: "*/10 * * * *" },
   // Anomaly scan every 6h at :30, offset from the top-of-hour per-clinic syncs.
@@ -97,13 +94,6 @@ export const CLINIC_DISPATCHERS: readonly ClinicDispatcher[] = [
     // Placeholder range — the processor derives yesterday itself if needed; we
     // include it for auditability, computed fresh at each fan-out.
     data: (clinicId) => ({ clinicId, from: yesterdayIso(), to: yesterdayIso() }),
-  },
-  {
-    // Forecast snapshot — 03:15 UTC, after kpi-rebuild (03:00) so the engine
-    // sees yesterday's rates fully aggregated.
-    dispatchQueue: dispatcherQueueName(QUEUES.forecastSnapshot),
-    target: QUEUES.forecastSnapshot,
-    cron: "15 3 * * *",
   },
   {
     dispatchQueue: dispatcherQueueName(QUEUES.syncReviewsGoogle),

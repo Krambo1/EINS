@@ -211,17 +211,6 @@ export function formatRelativeDay(
   return { label: `in ${diffDays} Tagen`, diffDays, overdue: false };
 }
 
-/** Traffic-light tone from a goal ratio (current/target). */
-export function toneForGoalRatio(
-  ratio: number
-): "good" | "warn" | "bad" | "neutral" {
-  if (!Number.isFinite(ratio)) return "neutral";
-  if (ratio >= 0.9) return "good";
-  if (ratio >= 0.6) return "warn";
-  if (ratio >= 0.3) return "neutral";
-  return "bad";
-}
-
 /** Tone for a period-over-period delta. `inverse` flips good/bad (e.g. spend, where lower is better). */
 export function deltaTone(
   pct: number | null,

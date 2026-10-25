@@ -50,7 +50,7 @@ export default async function PatientenfeedbackPage({
 
   return (
     <div className="space-y-8">
-      <header data-tour="feedback-header">
+      <header>
         <h1 className="text-3xl font-semibold md:text-4xl">Bewertungen.</h1>
         <p className="mt-2 text-base text-fg-primary md:text-lg">
           Alle Rückmeldungen Ihrer Patienten: vertrauliche Nachrichten

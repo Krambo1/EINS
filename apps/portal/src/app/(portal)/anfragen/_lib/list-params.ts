@@ -1,9 +1,7 @@
 import {
-  AI_CATEGORIES,
   ALL_REQUEST_STATUSES,
   REQUEST_SORTS,
   REQUEST_SOURCES,
-  type AiCategory,
   type AnyRequestStatus,
   type RequestSort,
 } from "@/lib/constants";
@@ -21,7 +19,6 @@ export interface AnfragenListParams {
   page: number;
   status?: AnyRequestStatus[];
   source?: string[];
-  aiCategory?: AiCategory[];
   treatmentId?: string[];
   search?: string;
   slaBreachedOnly: boolean;
@@ -34,7 +31,6 @@ export const SEARCH_MAX_LENGTH = 200;
 export const LIST_PARAM_KEYS = [
   "status",
   "source",
-  "aiCategory",
   "treatment",
   "search",
   "slaBreached",
@@ -77,7 +73,6 @@ export function parseAnfragenParams(params: AnfragenSearchParams): AnfragenListP
     page,
     status: csv(first(params.status), inSet(ALL_REQUEST_STATUSES)),
     source: csv(first(params.source), inSet(REQUEST_SOURCES)),
-    aiCategory: csv(first(params.aiCategory), inSet(AI_CATEGORIES)),
     treatmentId: csv(first(params.treatment), (s): s is string => isUuid(s)),
     search,
     slaBreachedOnly: first(params.slaBreached) === "1",
@@ -91,7 +86,6 @@ export function hasListFilter(p: AnfragenListParams): boolean {
   return Boolean(
     p.status?.length ||
       p.source?.length ||
-      p.aiCategory?.length ||
       p.treatmentId?.length ||
       p.search ||
       p.slaBreachedOnly ||

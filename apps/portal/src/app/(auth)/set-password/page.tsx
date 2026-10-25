@@ -63,7 +63,7 @@ export default async function SetPasswordPage({ searchParams }: PageProps) {
           <span className="truncate">{user.email}</span>
         </p>
       </AuthHeader>
-      <SetPasswordForm mode={setup.intent} email={user.email} />
+      <SetPasswordForm email={user.email} />
     </div>
   );
 }

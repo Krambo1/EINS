@@ -5,11 +5,8 @@ import {
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
-  Button,
 } from "@eins/ui";
 import { requirePermissionOrRedirect } from "@/auth/guards";
-import { hasUserPassedLeitfadenQuiz } from "@/server/queries/leitfaden";
-import { PASS_THRESHOLD, TOTAL_QUESTIONS } from "./pruefung/questions";
 import {
   PRINCIPLES,
   KPIS,
@@ -63,11 +60,7 @@ const PRINCIPLE_ICONS: Record<PrincipleIcon, ComponentType<{ className?: string 
 };
 
 export default async function LeitfadenPage() {
-  const session = await requirePermissionOrRedirect("leitfaden.view");
-  const hasPassedQuiz = await hasUserPassedLeitfadenQuiz(
-    session.clinicId,
-    session.userId
-  );
+  await requirePermissionOrRedirect("leitfaden.view");
 
   const corePrinciples = PRINCIPLES.filter((p) => p.core);
   const coreKpis = KPIS.filter((k) => k.core);
@@ -293,39 +286,6 @@ export default async function LeitfadenPage() {
           <p className="text-sm text-fg-secondary">
             Alle 13 Vorlagen (Bestätigung, Erinnerungen, No-Show-Nachfass, Reaktivierung, Storno) finden Sie in der PDF unter Dokumente.
           </p>
-        </div>
-      </section>
-
-      {/* 10. Prüfung-CTA */}
-      <section className="print:hidden">
-        <div
-          className={`rounded-2xl border p-6 ${
-            hasPassedQuiz
-              ? "border-[var(--tone-good-border)] bg-[var(--tone-good-bg)]"
-              : "border-[var(--accent-glow)] bg-accent-soft"
-          }`}
-        >
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="space-y-2">
-              <h3 className="flex items-center gap-2 text-xl font-semibold text-fg-primary">
-                <ShieldCheck className="h-5 w-5" />
-                {hasPassedQuiz
-                  ? "Sie haben die Leitfaden-Prüfung bestanden."
-                  : "Leitfaden-Prüfung: Schulung für Ihr Praxisteam"}
-              </h3>
-              <p className="text-sm text-fg-primary">
-                {hasPassedQuiz
-                  ? "Wenn Sie möchten, können Sie die Prüfung jederzeit erneut versuchen."
-                  : `${TOTAL_QUESTIONS} Fragen aus diesem Leitfaden, ${PASS_THRESHOLD} richtig zum Bestehen, Versuche unbegrenzt. Wir empfehlen, dass mindestens ein:e Mitarbeiter:in pro Praxis besteht. Die Prüfung ist eine Schulung und keine Bedingung.`}
-              </p>
-            </div>
-            <Button asChild variant={hasPassedQuiz ? "outline" : "default"}>
-              <Link href="/leitfaden/pruefung">
-                {hasPassedQuiz ? "Erneut versuchen" : "Prüfung starten"}
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </Button>
-          </div>
         </div>
       </section>
     </div>

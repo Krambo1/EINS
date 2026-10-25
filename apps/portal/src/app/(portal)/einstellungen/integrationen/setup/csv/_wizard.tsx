@@ -25,7 +25,7 @@ import {
 } from "@/server/actions/pvs-csv-upload";
 import type { CsvMapping, CsvStream } from "@/server/pvs-csv-mapper";
 import { autoMatchHeader } from "@/server/pvs-csv-aliases";
-import { CheckCircle2, Loader2, UploadCloud, AlertTriangle } from "lucide-react";
+import { CheckCircle2, Loader2, AlertTriangle } from "lucide-react";
 
 /**
  * 3-step CSV upload wizard for the integrations page.
@@ -86,7 +86,7 @@ function csvErrorMessage(code: string | undefined, fallback: string): string {
   }
   if (code === "invalid_stream") return "Bitte wählen Sie, welche Daten die Datei enthält.";
   if (code === "csv_empty") return "Die Datei enthält keine Datenzeilen.";
-  if (code === "invalid_upload_group" || code === "upload_not_found") {
+  if (code === "upload_not_found") {
     return "Dieser Upload wurde nicht gefunden. Bitte laden Sie die Datei erneut hoch.";
   }
   if (code.startsWith("upload_already_")) return "Dieser Upload wird bereits verarbeitet.";
@@ -399,8 +399,7 @@ export function CsvUploadWizard() {
                 }
               />
               <p className="text-sm text-fg-secondary">
-                Eine CSV-Datei ist eine einfache Tabelle, die fast jede
-                Praxis-Software ausgeben kann. Höchstens 4 MB. Zeichensatz,
+                Höchstens 4 MB. Zeichensatz,
                 Trennzeichen sowie Titel- und Summenzeilen erkennen wir
                 automatisch.
               </p>
@@ -419,7 +418,6 @@ export function CsvUploadWizard() {
               disabled={pickState.busy || !pickState.file}
             >
               {pickState.busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              <UploadCloud className="mr-2 h-4 w-4" />
               Hochladen und Vorschau zeigen
             </Button>
           </form>

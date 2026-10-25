@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Brand } from "@/app/_components/Brand";
 
-export const TRACKED_PLATFORMS = ["google", "jameda", "manual"] as const;
+export const TRACKED_PLATFORMS = ["google", "jameda"] as const;
 
 export type Platform = (typeof TRACKED_PLATFORMS)[number];
 
@@ -58,8 +58,6 @@ export function publicProfileUrl(
       return `https://www.google.com/maps/search/?api=1&query=${q}`;
     case "jameda":
       return `https://www.jameda.de/suche?q=${q}`;
-    case "manual":
-      return null;
     default:
       return null;
   }

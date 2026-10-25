@@ -14,23 +14,15 @@ import { requireSession } from "@/auth/guards";
 import { db, schema } from "@/db/client";
 import { formatDateTime, formatRelative } from "@/lib/formatting";
 import { listUnresolvedHealth } from "@/server/pvs-health";
-import {
-  Plug,
-  AlertTriangle,
-  Database,
-  FileSpreadsheet,
-  Wand2,
-  Target,
-  ShieldAlert,
-} from "lucide-react";
+import { ShieldAlert } from "lucide-react";
 
 /**
  * /einstellungen/integrationen
  *
  * Overview of the clinic's PVS Bridge state:
  *   • Current pvs_link record (vendor, status, last event).
- *   • Counts of open linking failures + unmapped treatments/locations.
- *   • Links to the per-vendor setup wizard + inbox + mapping pages.
+ *   • Counts of open linking failures.
+ *   • Links to the per-vendor setup wizard + inbox.
  */
 
 export const metadata = { title: "PVS-Integration" };
@@ -178,26 +170,10 @@ const STATUS_LABELS: Record<
 export default async function IntegrationenPage() {
   const session = await requireSession();
 
-  const [clinicAds] = await db
-    .select({
-      metaPixelId: schema.clinics.metaPixelId,
-      googleAdsCustomerId: schema.clinics.googleAdsCustomerId,
-      googleAdsConversionAction: schema.clinics.googleAdsConversionAction,
-    })
-    .from(schema.clinics)
-    .where(eq(schema.clinics.id, session.clinicId))
-    .limit(1);
-  const adsConversionReady = Boolean(
-    clinicAds?.metaPixelId ||
-      (clinicAds?.googleAdsCustomerId && clinicAds?.googleAdsConversionAction)
-  );
-
   const [link] = await db
     .select({
-      id: schema.pvsLink.id,
       vendor: schema.pvsLink.pvsVendor,
       status: schema.pvsLink.status,
-      preferredPath: schema.pvsLink.preferredPath,
       lastEventAt: schema.pvsLink.lastEventAt,
       updatedAt: schema.pvsLink.updatedAt,
     })
@@ -216,28 +192,6 @@ export default async function IntegrationenPage() {
     );
   const openFailureCount = openFailures?.n ?? 0;
 
-  const [unmappedTreatments] = await db
-    .select({ n: count() })
-    .from(schema.pvsTreatmentMapping)
-    .where(
-      and(
-        eq(schema.pvsTreatmentMapping.clinicId, session.clinicId),
-        eq(schema.pvsTreatmentMapping.status, "unmapped")
-      )
-    );
-  const unmappedTreatmentCount = unmappedTreatments?.n ?? 0;
-
-  const [unmappedLocations] = await db
-    .select({ n: count() })
-    .from(schema.pvsLocationMapping)
-    .where(
-      and(
-        eq(schema.pvsLocationMapping.clinicId, session.clinicId),
-        eq(schema.pvsLocationMapping.status, "unmapped")
-      )
-    );
-  const unmappedLocationCount = unmappedLocations?.n ?? 0;
-
   // Phase 4: unresolved health signals from the bridge. Renders a warning
   // card directly under the link state so the Praxis IT contact sees drift
   // before they wonder why a stream went quiet.
@@ -245,21 +199,8 @@ export default async function IntegrationenPage() {
 
   const vendor = link?.vendor ?? "none";
   const status = link?.status ?? "unconfigured";
-  const preferredPath = link?.preferredPath ?? "auto";
   const vendorLabel = VENDOR_LABELS[vendor] ?? vendor;
   const statusInfo = STATUS_LABELS[status] ?? { label: status, tone: "neutral" as const };
-  // Tomedo is the only vendor today with both a cloud REST path and an
-  // on-prem DB-read path. For any other vendor the choice is degenerate,
-  // so the badge stays hidden.
-  const isMultiPathVendor = vendor === "tomedo";
-  const pathLabel: { label: string; tone: "neutral" | "good" } | null =
-    isMultiPathVendor
-      ? preferredPath === "db_read"
-        ? { label: "Lesepfad: Datenbank (lokal)", tone: "good" }
-        : preferredPath === "rest"
-          ? { label: "Lesepfad: Cloud (REST)", tone: "good" }
-          : { label: "Lesepfad: automatisch", tone: "neutral" }
-      : null;
 
   return (
     <div className="space-y-6">
@@ -283,7 +224,6 @@ export default async function IntegrationenPage() {
         <CardHeader className="flex flex-row items-start justify-between space-y-0">
           <div>
             <CardTitle className="flex items-center gap-2">
-              <Plug className="h-5 w-5" />
               {vendorLabel}
             </CardTitle>
             <CardDescription>
@@ -294,9 +234,6 @@ export default async function IntegrationenPage() {
           </div>
           <div className="flex flex-col items-end gap-1">
             <Badge tone={statusInfo.tone}>{statusInfo.label}</Badge>
-            {pathLabel && (
-              <Badge tone={pathLabel.tone}>{pathLabel.label}</Badge>
-            )}
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -318,7 +255,6 @@ export default async function IntegrationenPage() {
             {vendor !== "none" && (
               <Button asChild variant="outline">
                 <Link href="/einstellungen/integrationen/setup/csv">
-                  <FileSpreadsheet className="mr-2 h-4 w-4" />
                   CSV-Datei nachladen
                 </Link>
               </Button>
@@ -395,91 +331,36 @@ export default async function IntegrationenPage() {
       )}
 
       {/* Operational signals */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <AlertTriangle className="h-4 w-4" />
-              Nicht zuordenbare Patienten
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-semibold">{openFailureCount}</div>
-            <p className="mt-1 text-sm text-fg-secondary">
-              Meldungen aus der Praxis-Software, bei denen wir die Person nicht
-              sicher einer Anfrage im Portal zuordnen konnten.
-            </p>
-            <Button asChild variant="outline" size="sm" className="mt-3">
-              <Link href="/einstellungen/integrationen/links">Liste öffnen</Link>
-            </Button>
-          </CardContent>
-        </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            Nicht zuordenbare Patienten
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-3xl font-semibold">{openFailureCount}</div>
+          <p className="mt-1 text-sm text-fg-secondary">
+            Meldungen aus der Praxis-Software, bei denen wir die Person nicht
+            sicher einer Anfrage im Portal zuordnen konnten.
+          </p>
+          <Button asChild variant="outline" size="sm" className="mt-3">
+            <Link href="/einstellungen/integrationen/links">Liste öffnen</Link>
+          </Button>
+        </CardContent>
+      </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Wand2 className="h-4 w-4" />
-              Offene Behandlungs-Zuordnungen
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-semibold">{unmappedTreatmentCount}</div>
-            <p className="mt-1 text-sm text-fg-secondary">
-              Behandlungen aus Ihrer Praxis-Software, die noch keiner
-              Behandlung im Portal zugeordnet sind.
-            </p>
-            <Button asChild variant="outline" size="sm" className="mt-3">
-              <Link href="/einstellungen/integrationen/mapping/treatments">
-                Zuordnen
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Database className="h-4 w-4" />
-              Offene Standort-Zuordnungen
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-semibold">{unmappedLocationCount}</div>
-            <p className="mt-1 text-sm text-fg-secondary">
-              Standorte aus Ihrer Praxis-Software, die noch keinem Standort im
-              Portal zugeordnet sind.
-            </p>
-            <Button asChild variant="outline" size="sm" className="mt-3">
-              <Link href="/einstellungen/integrationen/mapping/locations">
-                Zuordnen
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Closed-loop attribution config (Meta CAPI + Google OCI) */}
       <Card>
         <CardHeader className="flex flex-row items-start justify-between space-y-0">
           <div>
             <CardTitle className="flex items-center gap-2">
-              <Target className="h-5 w-5" />
-              Abschluss-Meldungen an Meta und Google
+              Google Ads
             </CardTitle>
-            <CardDescription>
-              Meldet Meta und Google, welche Anzeigen zu echten Anfragen
-              geführt haben, nur mit Einwilligung der Person. Meta erfährt nur
-              die Anfrage, Google zusätzlich den Rechnungsbetrag.
-            </CardDescription>
           </div>
-          <Badge tone={adsConversionReady ? "good" : "neutral"}>
-            {adsConversionReady ? "Aktiv" : "Nicht eingerichtet"}
-          </Badge>
         </CardHeader>
         <CardContent>
           <Button asChild variant="outline" className="h-auto min-h-11 whitespace-normal py-2 text-left">
             <Link href="/einstellungen/integrationen/ads-conversion">
-              Einstellungen für Abschluss-Meldungen öffnen
+              Einstellungen für Google Ads öffnen
             </Link>
           </Button>
         </CardContent>
