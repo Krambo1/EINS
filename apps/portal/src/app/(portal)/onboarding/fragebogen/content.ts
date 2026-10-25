@@ -217,7 +217,7 @@ export const DISCOVERY_BLOCKS: readonly DiscoveryBlock[] = [
     key: "D",
     title: "Anfragen-Annahme und Beratung heute",
     why:
-      "Bitte versuchen Sie, jede Anfrage innerhalb von 48 Werkstunden zu kontaktieren. Das ist keine Bedingung der Garantie. Schaffen Sie es nicht, hat das drei Folgen: Sie können bei dieser Anfrage nicht mehr einwenden, die Person sei nicht echt oder nicht erreichbar gewesen. Die Anfrage steht in Ihrer Auswertung als \"von der Praxis nicht beantwortet\". Und liegen drei oder mehr solcher Anfragen offen, dürfen wir nach einer Warnung die bezahlten Anzeigen pausieren, bis Sie die Anfragen kontaktiert haben. " +
+      "Bitte versuchen Sie, jede Anfrage innerhalb von 48 Werkstunden zu kontaktieren. Das ist keine Bedingung der Garantie. Schaffen Sie es nicht, hat das Folgen: Die Anfrage steht in Ihrer Auswertung als \"von der Praxis nicht beantwortet\". Und liegen drei oder mehr solcher Anfragen offen, dürfen wir nach einer Warnung die bezahlten Anzeigen pausieren, bis Sie die Anfragen kontaktiert haben. " +
       "Wir müssen wissen, wie das heute läuft, damit wir die Weiterleitung richtig bauen.",
     questions: [
       {

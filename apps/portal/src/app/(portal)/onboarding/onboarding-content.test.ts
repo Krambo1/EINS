@@ -137,12 +137,10 @@ describe("Discovery-Fragebogen catalog", () => {
     expect(customBudgetError({ F1: "kein Werbebudget zu Beginn" })).toBeNull();
   });
 
-  it("Block D states the 48 Werkstunden rule: no guarantee condition, three consequences", () => {
+  it("Block D states the 48 Werkstunden rule: no guarantee condition", () => {
     const d = DISCOVERY_BLOCKS.find((b) => b.key === "D");
     expect(d?.why).toContain("48 Werkstunden");
     expect(d?.why).toContain("keine Bedingung der Garantie");
-    expect(d?.why).toContain("drei Folgen");
-    expect(d?.why).toContain("nicht mehr einwenden");
     expect(d?.why).toContain("von der Praxis nicht beantwortet");
     expect(d?.why).toContain("bezahlten Anzeigen pausieren");
     expect(d?.why).not.toMatch(/Garantie (entfällt|verfällt)|Pflicht/);
