@@ -15,6 +15,7 @@
 
 import { berlinDate, formatIsoDate, isIsoDate, type IsoDate } from "./guarantee-clock";
 import { berlinMidnight, endOfNextWerktag, responseDeadline } from "./werkstunden";
+import type { Bundesland } from "./bundesland";
 
 /**
  * The rule took effect with the contract documents of 06.10.2026. Inquiries
@@ -33,6 +34,16 @@ export function responseRuleStartFor(signedOn: IsoDate | null | undefined): Date
   if (!signedOn || !isIsoDate(signedOn)) return RESPONSE_RULE_START;
   const signed = berlinMidnight(signedOn);
   return signed.getTime() > RESPONSE_RULE_START.getTime() ? signed : RESPONSE_RULE_START;
+}
+
+/**
+ * Per-Praxis facts the 48-Werkstunden rule needs: rule start (K-3) and the
+ * Land whose holidays count (clinics.bundesland, null = union of all Länder).
+ * Spread into a ResponseInput: `{ ...row, ...rule }`.
+ */
+export interface PraxisResponseRule {
+  ruleStart: Date;
+  bundesland: Bundesland | null;
 }
 
 function ruleStartOf(input: { ruleStart?: Date | null }): Date {
@@ -76,6 +87,8 @@ export interface ResponseInput {
    * global RESPONSE_RULE_START. An inquiry before it has no deadline.
    */
   ruleStart?: Date | null;
+  /** Land of the Praxis for the holidays. Omitted or null = union of all Länder. */
+  bundesland?: Bundesland | null;
 }
 
 export interface ResponseInfo {
@@ -90,13 +103,13 @@ export interface ResponseInfo {
  * answered. "ausgenommen" here only means "arrived before the rule".
  */
 export function attemptInfo(
-  input: Pick<ResponseInput, "createdAt" | "firstAttemptAt" | "ruleStart">,
+  input: Pick<ResponseInput, "createdAt" | "firstAttemptAt" | "ruleStart" | "bundesland">,
   now: Date
 ): ResponseInfo {
   if (input.createdAt.getTime() < ruleStartOf(input).getTime()) {
     return { state: "ausgenommen", deadline: null };
   }
-  const deadline = responseDeadline(input.createdAt);
+  const deadline = responseDeadline(input.createdAt, input.bundesland);
   if (input.firstAttemptAt) {
     return {
       state: input.firstAttemptAt.getTime() <= deadline.getTime() ? "rechtzeitig" : "zu_spaet",
@@ -200,7 +213,11 @@ export function toDeadlineRow(
 ): DeadlineRow | null {
   if (input.status === "spam") return null;
   if (input.createdAt.getTime() < ruleStartOf(input).getTime()) return null;
-  return { id: input.id, deadline: responseDeadline(input.createdAt), firstAttemptAt: input.firstAttemptAt };
+  return {
+    id: input.id,
+    deadline: responseDeadline(input.createdAt, input.bundesland),
+    firstAttemptAt: input.firstAttemptAt,
+  };
 }
 
 export interface EnforcementState {

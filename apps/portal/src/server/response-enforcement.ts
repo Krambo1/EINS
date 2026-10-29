@@ -10,9 +10,10 @@ import {
   type EnforcementEvent,
   type EnforcementKind,
   type EnforcementState,
+  type PraxisResponseRule,
 } from "@/lib/response-time";
 import { firstAttemptAtSql, toAttemptDate } from "@/server/queries/response-time";
-import { responseRuleStartsByClinic } from "@/server/guarantee-clock";
+import { responseRulesByClinic } from "@/server/guarantee-clock";
 
 /**
  * Admin-only reads for the Rückruf-Lage (Folge 3 of the 48-Werkstunden rule,
@@ -35,7 +36,7 @@ function toEvent(e: EventRow): EnforcementEvent {
 
 /**
  * Inquiries that can matter for Folge 3: spam excluded, arrived after the
- * rule started (K-3: and after the Praxis signed, see `ruleStarts`), not
+ * rule started (K-3: and after the Praxis signed, see `rules`), not
  * rejected on the Garantie-Uhr as a test entry (K-3), and either still
  * without attempt or attempted after `since` (needed to rebuild the overdue
  * count at a past cure deadline).
@@ -43,7 +44,7 @@ function toEvent(e: EventRow): EnforcementEvent {
 async function deadlineRows(
   clinicIds: string[],
   since: Date,
-  ruleStarts: Map<string, Date>
+  rules: Map<string, PraxisResponseRule>
 ): Promise<Map<string, DeadlineRow[]>> {
   const out = new Map<string, DeadlineRow[]>();
   if (clinicIds.length === 0) return out;
@@ -71,7 +72,7 @@ async function deadlineRows(
     const d = toDeadlineRow({
       ...row,
       firstAttemptAt: toAttemptDate(row.firstAttemptAt),
-      ruleStart: ruleStarts.get(row.clinicId) ?? null,
+      ...rules.get(row.clinicId),
     });
     if (!d) continue;
     const list = out.get(row.clinicId) ?? [];
@@ -106,7 +107,7 @@ async function load(clinicFilter: string | null, now: Date): Promise<RueckrufRow
   // The earliest warning is the furthest back a past count is ever rebuilt.
   const warnings = events.filter((e) => e.kind === "warnung").map((e) => e.occurredAt.getTime());
   const since = new Date(Math.min(now.getTime(), ...warnings));
-  const rowsBy = await deadlineRows(ids, since, await responseRuleStartsByClinic(ids));
+  const rowsBy = await deadlineRows(ids, since, await responseRulesByClinic(ids));
 
   return clinics.map((c) => {
     const clinicEvents = eventsBy.get(c.id) ?? [];

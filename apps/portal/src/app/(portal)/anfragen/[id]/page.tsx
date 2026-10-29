@@ -20,7 +20,7 @@ import {
 import { requireSession } from "@/auth/guards";
 import { db, schema } from "@/db/client";
 import { writeAudit } from "@/server/audit";
-import { responseRuleStartForClinic } from "@/server/guarantee-clock";
+import { responseRuleForClinic } from "@/server/guarantee-clock";
 import { getRequestWithActivities, markRequestViewed } from "@/server/queries/requests";
 import { listFollowupsForRequest } from "@/server/queries/followups";
 import { leadTokenForRequestId } from "@/server/pvs-token";
@@ -128,8 +128,9 @@ export default async function AnfrageDetailPage({
       .limit(1)
       .then((rows) => rows[0] ?? null),
     listFollowupsForRequest(session.clinicId, session.userId, id),
-    // K-3: rule start of this Praxis (signing date) for the response badge.
-    responseRuleStartForClinic(session.clinicId),
+    // K-3: rule start of this Praxis (signing date) and its Land (holidays)
+    // for the response badge.
+    responseRuleForClinic(session.clinicId),
   ]);
   // Not awaited on the 404 path; keep a failure there from becoming an
   // unhandled rejection. The real await below still sees the error.
@@ -162,7 +163,7 @@ export default async function AnfrageDetailPage({
     after(() => markRequestViewed(session.clinicId, session.userId, id));
   }
 
-  const [[siblings, auditTrail, pvsLinkRow, followups, responseRuleStart], patientLtv] = await Promise.all([
+  const [[siblings, auditTrail, pvsLinkRow, followups, responseRule], patientLtv] = await Promise.all([
     sidePromise,
     request.patientId
       ? patientLifetimeRevenue(session.clinicId, session.userId, request.patientId)
@@ -197,7 +198,7 @@ export default async function AnfrageDetailPage({
       createdAt: request.createdAt,
       firstAttemptAt,
       status: request.status,
-      ruleStart: responseRuleStart,
+      ...responseRule,
     },
     new Date()
   );

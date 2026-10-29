@@ -27,7 +27,7 @@ import { CallQueue } from "./_components/CallQueue";
 import { TimingLine } from "./_components/TimingLine";
 import { AI_SCORE_EXPLANATION, aiCategoryWord, aiScoreText } from "./_lib/ai-score";
 import { rowTiming } from "./_lib/row-timing";
-import { responseRuleStartForClinic } from "@/server/guarantee-clock";
+import { responseRuleForClinic } from "@/server/guarantee-clock";
 import { RequestListSkeleton } from "./_components/RequestListSkeleton";
 import { ChapterLaunchLink } from "@/app/(portal)/_components/tour/ChapterLaunchLink";
 import {
@@ -158,7 +158,7 @@ async function RequestListLoader({
     can(session.role, "requests.update") && page === 1 && !filtered;
   const canExport = can(session.role, "requests.view");
 
-  const [{ items, total }, callQueue, dueList, ruleStart] = await Promise.all([
+  const [{ items, total }, callQueue, dueList, responseRule] = await Promise.all([
     listRequests(
       session.clinicId,
       session.userId,
@@ -179,8 +179,9 @@ async function RequestListLoader({
     showCallQueue
       ? dueFollowups(session.clinicId, session.userId)
       : Promise.resolve([]),
-    // K-3: no "nicht beantwortet" for inquiries before the signing date.
-    responseRuleStartForClinic(session.clinicId),
+    // K-3: no "nicht beantwortet" for inquiries before the signing date;
+    // holidays of the Praxis's Land.
+    responseRuleForClinic(session.clinicId),
   ]);
   const now = new Date();
 
@@ -192,7 +193,7 @@ async function RequestListLoader({
           dueCount={dueList.length}
           // No country column on clinics; CHF billing means a Swiss Praxis.
           countryCode={session.currency === "CHF" ? "41" : "49"}
-          ruleStart={ruleStart}
+          responseRule={responseRule}
         />
       )}
 
@@ -263,7 +264,7 @@ async function RequestListLoader({
                     createdAt: r.createdAt,
                     firstAttemptAt: r.firstAttemptAt,
                     status: r.status,
-                    ruleStart,
+                    ...responseRule,
                     firstContactedAt: r.firstContactedAt,
                     slaRespondBy: r.slaRespondBy,
                   },

@@ -11,6 +11,7 @@ import {
 } from "@eins/ui";
 import { requireAdmin } from "@/auth/admin-guards";
 import { AdminPageHeader } from "../../_components/AdminPageHeader";
+import { BundeslandSelect } from "../../_components/BundeslandSelect";
 import { PendingSubmitButton } from "../../_components/PendingSubmitButton";
 import { createClinicAction } from "../actions";
 
@@ -95,6 +96,9 @@ export default async function AdminNewClinicPage({ searchParams }: PageProps) {
               <p className="mt-1 text-xs text-fg-secondary">
                 Startet die Garantie-Uhr. Lässt sich später unter Garantie setzen.
               </p>
+            </div>
+            <div className="md:col-span-1">
+              <BundeslandSelect />
             </div>
 
             <Separator className="md:col-span-2" />

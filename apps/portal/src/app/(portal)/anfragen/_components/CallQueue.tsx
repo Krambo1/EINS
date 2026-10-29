@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { SOURCE_LABELS } from "@/lib/constants";
 import { formatRelative } from "@/lib/formatting";
+import type { PraxisResponseRule } from "@/lib/response-time";
 import type { CallQueueLead } from "@/server/queries/requests";
 import { CallOutcomeActions } from "./CallOutcomeActions";
 import { TimingLine } from "./TimingLine";
@@ -44,11 +45,11 @@ export function CallQueue({
   leads,
   dueCount = 0,
   countryCode = "49",
-  ruleStart,
+  responseRule,
 }: {
   leads: CallQueueLead[];
-  /** K-3: 48-Werkstunden rule start of the Praxis (signing date). */
-  ruleStart?: Date | null;
+  /** 48-Werkstunden rule of the Praxis (K-3 signing date, Land). */
+  responseRule?: PraxisResponseRule | null;
   /** Clinic-wide count of Wiedervorlagen due now — may exceed the visible rows. */
   dueCount?: number;
   /** Country calling code for national numbers ("0170 ...") in WhatsApp links. */
@@ -87,7 +88,7 @@ export function CallQueue({
         </Link>
       </header>
 
-      {hero && <HeroCard lead={hero} countryCode={countryCode} ruleStart={ruleStart} />}
+      {hero && <HeroCard lead={hero} countryCode={countryCode} responseRule={responseRule} />}
 
       {queue.length > 0 && (
         <div>
@@ -96,7 +97,7 @@ export function CallQueue({
           </div>
           <ul className="divide-y divide-border overflow-hidden rounded-xl border border-border bg-bg-primary">
             {queue.map((l) => (
-              <QueueRow key={l.id} lead={l} ruleStart={ruleStart} />
+              <QueueRow key={l.id} lead={l} responseRule={responseRule} />
             ))}
           </ul>
         </div>
@@ -108,11 +109,11 @@ export function CallQueue({
 function HeroCard({
   lead,
   countryCode,
-  ruleStart,
+  responseRule,
 }: {
   lead: CallQueueLead;
   countryCode: string;
-  ruleStart?: Date | null;
+  responseRule?: PraxisResponseRule | null;
 }) {
   const phoneHref = lead.contactPhone ? `tel:${lead.contactPhone}` : null;
   const whatsappHref = waMeHref(lead.contactPhone, countryCode);
@@ -137,7 +138,7 @@ function HeroCard({
                 .filter(Boolean)
                 .join(" · ")}
             </div>
-            <TimingLine timing={timingOf(lead, ruleStart)} explain className="text-base" />
+            <TimingLine timing={timingOf(lead, responseRule)} explain className="text-base" />
           </div>
 
           {answers.length > 0 && (
@@ -228,7 +229,13 @@ function HeroCard({
   );
 }
 
-function QueueRow({ lead, ruleStart }: { lead: CallQueueLead; ruleStart?: Date | null }) {
+function QueueRow({
+  lead,
+  responseRule,
+}: {
+  lead: CallQueueLead;
+  responseRule?: PraxisResponseRule | null;
+}) {
   const phoneHref = lead.contactPhone ? `tel:${lead.contactPhone}` : null;
 
   return (
@@ -252,7 +259,7 @@ function QueueRow({ lead, ruleStart }: { lead: CallQueueLead; ruleStart?: Date |
               .filter(Boolean)
               .join(" · ")}
           </div>
-          <TimingLine timing={timingOf(lead, ruleStart)} className="max-w-full" />
+          <TimingLine timing={timingOf(lead, responseRule)} className="max-w-full" />
         </Link>
 
         <div className="absolute right-4 top-3 shrink-0 md:static">
@@ -305,13 +312,13 @@ function FactsLine({ lead, explain = false }: { lead: CallQueueLead; explain?: b
 }
 
 /** The one timing line (Frist, Rückruf-Ziel, flags), shared with the list. */
-function timingOf(lead: CallQueueLead, ruleStart?: Date | null) {
+function timingOf(lead: CallQueueLead, responseRule?: PraxisResponseRule | null) {
   return rowTiming(
     {
       createdAt: lead.createdAt,
       firstAttemptAt: lead.firstAttemptAt,
       status: lead.status,
-      ruleStart,
+      ...responseRule,
       firstContactedAt: lead.firstContactedAt,
       slaRespondBy: lead.slaRespondBy,
     },

@@ -116,17 +116,17 @@ export async function responseCountsForPeriod(
 ): Promise<ResponseCounts> {
   // K-3: inquiries before the Praxis's signing date are outside the rule.
   // Dynamic import: server/guarantee-clock imports this module.
-  const { responseRuleStartForClinic } = await import("@/server/guarantee-clock");
-  const [rows, ruleStart] = await Promise.all([
+  const { responseRuleForClinic } = await import("@/server/guarantee-clock");
+  const [rows, rule] = await Promise.all([
     responseRowsInPeriodQuery(clinicId, from, before),
-    responseRuleStartForClinic(clinicId),
+    responseRuleForClinic(clinicId),
   ]);
   return countResponseStates(
     rows.map((row) => ({
       createdAt: row.createdAt,
       status: row.status,
       firstAttemptAt: toAttemptDate(row.firstAttemptAt),
-      ruleStart,
+      ...rule,
     })),
     now
   );

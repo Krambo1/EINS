@@ -18,7 +18,12 @@ vi.mock("@/server/guarantee-clock", async () => {
   const { responseRuleStartFor } = await vi.importActual<typeof import("@/lib/response-time")>(
     "@/lib/response-time"
   );
-  return { responseRuleStartForClinic: vi.fn(async () => responseRuleStartFor("2026-11-02")) };
+  return {
+    responseRuleForClinic: vi.fn(async () => ({
+      ruleStart: responseRuleStartFor("2026-11-02"),
+      bundesland: null,
+    })),
+  };
 });
 
 const { responseCountsForPeriod } = await import("./response-time");

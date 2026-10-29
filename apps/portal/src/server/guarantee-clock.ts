@@ -17,7 +17,8 @@ import {
   type RejectionReason,
 } from "@/lib/guarantee-clock";
 import { classifyAttribution, type Attribution } from "@/lib/sources";
-import { responseRuleStartFor } from "@/lib/response-time";
+import { responseRuleStartFor, type PraxisResponseRule } from "@/lib/response-time";
+import { toBundesland } from "@/lib/bundesland";
 import { firstAttemptAtSql, toAttemptDate } from "@/server/queries/response-time";
 
 /**
@@ -31,26 +32,46 @@ export function todayBerlin(): IsoDate {
   return berlinDate(new Date());
 }
 
+/** Rule for a Praxis the loader found nothing for: global start, all Länder. */
+const DEFAULT_RESPONSE_RULE: PraxisResponseRule = {
+  ruleStart: responseRuleStartFor(null),
+  bundesland: null,
+};
+
 /**
- * K-3: start of the 48-Werkstunden rule per Praxis (Berlin midnight of the
- * signing date, never before 06.10.2026). Praxen without a clock get the
- * global start. For readers outside the admin (Anfragen, monthly report)
- * that need `ruleStart` on lib/response-time inputs.
+ * The 48-Werkstunden rule per Praxis. K-3 start: Berlin midnight of the
+ * signing date, never before 06.10.2026; Praxen without a clock get the
+ * global start. Land: clinics.bundesland, null = union of all Länder. For
+ * readers outside the admin (Anfragen, monthly report) that spread the rule
+ * into lib/response-time inputs.
  */
-export async function responseRuleStartsByClinic(clinicIds: string[]): Promise<Map<string, Date>> {
-  const out = new Map<string, Date>();
+export async function responseRulesByClinic(
+  clinicIds: string[]
+): Promise<Map<string, PraxisResponseRule>> {
+  const out = new Map<string, PraxisResponseRule>();
   if (clinicIds.length === 0) return out;
   const rows = await db
-    .select({ clinicId: schema.guaranteeClocks.clinicId, signedOn: schema.guaranteeClocks.signedOn })
-    .from(schema.guaranteeClocks)
-    .where(inArray(schema.guaranteeClocks.clinicId, clinicIds));
-  const signed = new Map(rows.map((r) => [r.clinicId, r.signedOn]));
-  for (const id of clinicIds) out.set(id, responseRuleStartFor(signed.get(id) ?? null));
+    .select({
+      clinicId: schema.clinics.id,
+      bundesland: schema.clinics.bundesland,
+      signedOn: schema.guaranteeClocks.signedOn,
+    })
+    .from(schema.clinics)
+    .leftJoin(schema.guaranteeClocks, eq(schema.guaranteeClocks.clinicId, schema.clinics.id))
+    .where(inArray(schema.clinics.id, clinicIds));
+  const byId = new Map(rows.map((r) => [r.clinicId, r]));
+  for (const id of clinicIds) {
+    const row = byId.get(id);
+    out.set(id, {
+      ruleStart: responseRuleStartFor(row?.signedOn ?? null),
+      bundesland: toBundesland(row?.bundesland),
+    });
+  }
   return out;
 }
 
-export async function responseRuleStartForClinic(clinicId: string): Promise<Date> {
-  return (await responseRuleStartsByClinic([clinicId])).get(clinicId) ?? responseRuleStartFor(null);
+export async function responseRuleForClinic(clinicId: string): Promise<PraxisResponseRule> {
+  return (await responseRulesByClinic([clinicId])).get(clinicId) ?? DEFAULT_RESPONSE_RULE;
 }
 
 type ClockRow = typeof schema.guaranteeClocks.$inferSelect;
@@ -293,13 +314,17 @@ export interface ClinicGuarantee {
   eligible: EligibleInquiry<InquirySummary>[];
   rejected: RejectedInquiry[];
   confirmed: { inquiry: InquirySummary | null; attribution: Attribution | null } | null;
-  /** K-3: 48-Werkstunden rule start of this Praxis, for attemptInfo. */
-  responseRuleStart: Date;
+  /** 48-Werkstunden rule of this Praxis (K-3 start, Land), for attemptInfo. */
+  responseRule: PraxisResponseRule;
 }
 
 export async function getClinicGuarantee(clinicId: string): Promise<ClinicGuarantee | null> {
   const [clinic] = await db
-    .select({ id: schema.clinics.id, name: schema.clinics.displayName })
+    .select({
+      id: schema.clinics.id,
+      name: schema.clinics.displayName,
+      bundesland: schema.clinics.bundesland,
+    })
     .from(schema.clinics)
     .where(eq(schema.clinics.id, clinicId))
     .limit(1);
@@ -382,7 +407,10 @@ export async function getClinicGuarantee(clinicId: string): Promise<ClinicGuaran
       attribution: classifyAttribution({ source: r.inquiry.source, utm: r.inquiry.utm }),
     })),
     confirmed,
-    responseRuleStart: responseRuleStartFor(clockRow?.signedOn ?? null),
+    responseRule: {
+      ruleStart: responseRuleStartFor(clockRow?.signedOn ?? null),
+      bundesland: toBundesland(clinic.bundesland),
+    },
   };
 }
 

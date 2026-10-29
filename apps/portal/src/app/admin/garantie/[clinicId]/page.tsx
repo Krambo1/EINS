@@ -26,7 +26,7 @@ import {
   toDayNumber,
   type DelayKind,
 } from "@/lib/guarantee-clock";
-import { attemptInfo } from "@/lib/response-time";
+import { attemptInfo, type PraxisResponseRule } from "@/lib/response-time";
 import { formatBerlinDateTime } from "@/lib/werkstunden";
 import {
   ATTRIBUTION_CHANNEL_LABELS,
@@ -208,7 +208,7 @@ export default async function AdminGuaranteeClinicPage({ params, searchParams }:
                   <InquiryDetails
                     inquiry={g.confirmed.inquiry}
                     attribution={g.confirmed.attribution}
-                    ruleStart={g.responseRuleStart}
+                    rule={g.responseRule}
                   />
                 ) : (
                   <p className="text-sm text-fg-secondary">Die Anfrage selbst wurde inzwischen gelöscht.</p>
@@ -284,9 +284,9 @@ export default async function AdminGuaranteeClinicPage({ params, searchParams }:
                   inquiry={candidate.row}
                   attribution={candidate.attribution}
                   inquiryOn={candidate.inquiryOn}
-                  ruleStart={g.responseRuleStart}
+                  rule={g.responseRule}
                 />
-                <InquiryDecision clinicId={g.clinicId} inquiry={candidate.row} ruleStart={g.responseRuleStart} />
+                <InquiryDecision clinicId={g.clinicId} inquiry={candidate.row} rule={g.responseRule} />
               </div>
             ) : (
               <p className="text-base text-fg-primary">
@@ -306,9 +306,9 @@ export default async function AdminGuaranteeClinicPage({ params, searchParams }:
                         inquiry={e.row}
                         attribution={e.attribution}
                         inquiryOn={e.inquiryOn}
-                        ruleStart={g.responseRuleStart}
+                        rule={g.responseRule}
                       />
-                      <InquiryDecision clinicId={g.clinicId} inquiry={e.row} ruleStart={g.responseRuleStart} earlier />
+                      <InquiryDecision clinicId={g.clinicId} inquiry={e.row} rule={g.responseRule} earlier />
                     </div>
                   ))}
                   {hiddenOthers > 0 && (
@@ -652,12 +652,12 @@ function InquiryDetails({
   inquiry,
   attribution,
   inquiryOn,
-  ruleStart,
+  rule,
 }: {
   inquiry: InquirySummary;
   attribution: Attribution | null;
   inquiryOn?: string;
-  ruleStart: Date;
+  rule: PraxisResponseRule;
 }) {
   const noContact = !hasContactData(inquiry);
   return (
@@ -707,14 +707,14 @@ function InquiryDetails({
         )}
       </dd>
       <dt className="font-medium text-fg-primary">Kontaktversuch</dt>
-      <dd className="min-w-0 break-words [overflow-wrap:anywhere]">{attemptLine(inquiry, ruleStart)}</dd>
+      <dd className="min-w-0 break-words [overflow-wrap:anywhere]">{attemptLine(inquiry, rule)}</dd>
     </dl>
   );
 }
 
 /** 48-Werkstunden state of the Praxis' first contact attempt (Kanon 6a). */
-function attemptLine(inquiry: InquirySummary, ruleStart: Date): React.ReactNode {
-  const { state, deadline } = attemptInfo({ ...inquiry, ruleStart }, new Date());
+function attemptLine(inquiry: InquirySummary, rule: PraxisResponseRule): React.ReactNode {
+  const { state, deadline } = attemptInfo({ ...inquiry, ...rule }, new Date());
   const frist = formatBerlinDateTime(deadline);
   const at = formatBerlinDateTime(inquiry.firstAttemptAt);
   switch (state) {
@@ -732,10 +732,10 @@ function attemptLine(inquiry: InquirySummary, ruleStart: Date): React.ReactNode 
 }
 
 /** Why "Keine erreichbaren Kontaktdaten" is locked for this inquiry, or null. */
-function contactObjectionLock(inquiry: InquirySummary, ruleStart: Date): string | null {
+function contactObjectionLock(inquiry: InquirySummary, rule: PraxisResponseRule): string | null {
   const check = rejectionAllowed("keine_kontaktdaten", {
     hasContactData: hasContactData(inquiry),
-    responseState: attemptInfo({ ...inquiry, ruleStart }, new Date()).state,
+    responseState: attemptInfo({ ...inquiry, ...rule }, new Date()).state,
   });
   return check.ok ? null : check.reason;
 }
@@ -743,17 +743,17 @@ function contactObjectionLock(inquiry: InquirySummary, ruleStart: Date): string 
 function InquiryDecision({
   clinicId,
   inquiry,
-  ruleStart,
+  rule,
   earlier = false,
 }: {
   clinicId: string;
   inquiry: InquirySummary;
-  ruleStart: Date;
+  rule: PraxisResponseRule;
   /** K-2: an earlier possible inquiry exists (shown above). */
   earlier?: boolean;
 }) {
   const requestId = inquiry.id;
-  const lock = contactObjectionLock(inquiry, ruleStart);
+  const lock = contactObjectionLock(inquiry, rule);
   const block = confirmBlockReason(
     { hasContactData: hasContactData(inquiry), isSpamMarked: inquiry.status === "spam" },
     { earlierOpen: false, skipEarlier: false }

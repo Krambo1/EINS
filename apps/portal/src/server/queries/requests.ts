@@ -16,6 +16,7 @@ import {
 import { withClinicContext, schema } from "@/db/client";
 import type { AnyRequestStatus, RequestStatus, RequestSort } from "@/lib/constants";
 import { responseDeadline } from "@/lib/werkstunden";
+import { toBundesland, type Bundesland } from "@/lib/bundesland";
 import { avatarUrlForKey } from "@/server/avatars";
 import { invalidateNavBadges } from "./navBadgesCache";
 import { cacheClinicQuery, SHORT_REVALIDATE_S } from "./_cache";
@@ -561,7 +562,13 @@ export async function nextCallQueueLeads(
       .offset(sql`0` as unknown as number)
       .as("call_queue");
 
-    const runningSince = responseDeadlineRunningSince(new Date());
+    // The Frist skips the holidays of the Praxis's Land (null = all Länder).
+    const [clinic] = await tx
+      .select({ bundesland: schema.clinics.bundesland })
+      .from(schema.clinics)
+      .where(eq(schema.clinics.id, clinicId))
+      .limit(1);
+    const runningSince = responseDeadlineRunningSince(new Date(), toBundesland(clinic?.bundesland));
     const noAttempt = sql`${q.firstAttemptAt} IS NULL`;
     const deadlineRunning = sql`(${noAttempt} AND ${q.createdAt} >= ${runningSince.toISOString()}::timestamptz)`;
 
@@ -595,16 +602,17 @@ export async function nextCallQueueLeads(
 }
 
 /**
- * Earliest `createdAt` whose 48-Werkstunden deadline is still in the future
- * at `now`. The deadline grows monotonically with the arrival time, so a
- * binary search over the last 30 days finds the cut (to ~1 s).
+ * Earliest `createdAt` whose 48-Werkstunden deadline (holidays of `land`,
+ * null = all Länder) is still in the future at `now`. The deadline grows
+ * monotonically with the arrival time, so a binary search over the last 30
+ * days finds the cut (to ~1 s).
  */
-export function responseDeadlineRunningSince(now: Date): Date {
+export function responseDeadlineRunningSince(now: Date, land?: Bundesland | null): Date {
   let lo = now.getTime() - 30 * 86_400_000; // deadline long gone
   let hi = now.getTime(); // just arrived, deadline ahead
   while (hi - lo > 1000) {
     const mid = Math.floor((lo + hi) / 2);
-    if (responseDeadline(new Date(mid)).getTime() > now.getTime()) hi = mid;
+    if (responseDeadline(new Date(mid), land).getTime() > now.getTime()) hi = mid;
     else lo = mid;
   }
   return new Date(hi);

@@ -6,10 +6,12 @@ import {
   formatBerlinDateTime,
   isAnyStatutoryHoliday,
   isNrwHoliday,
+  isStatutoryHolidayIn,
   isWerktag,
   nextWerktag,
   responseDeadline,
 } from "./werkstunden";
+import { BUNDESLAENDER, type Bundesland } from "./bundesland";
 
 /** Berlin wall time "YYYY-MM-DD HH:MM" in CEST/CET via an explicit offset. */
 const at = (iso: string) => new Date(iso);
@@ -168,5 +170,69 @@ describe("Werkstunden across the 25-hour day 2026-10-25", () => {
     expect(isWerktag("2026-11-02")).toBe(true);
     expect(isWerktag("2027-03-08")).toBe(true);
     expect(isAnyStatutoryHoliday("2027-03-08")).toBe(true);
+  });
+});
+
+describe("holidays at the seat of the Praxis (Vertrag 01 Ziffer 1.7)", () => {
+  const holidayIn = (day: string) =>
+    BUNDESLAENDER.filter((land) => isStatutoryHolidayIn(day, land)).sort();
+  const sorted = (lands: Bundesland[]) => [...lands].sort();
+
+  it("puts each regional holiday in exactly its Länder", () => {
+    expect(holidayIn("2028-01-06")).toEqual(sorted(["BW", "BY", "ST"])); // Heilige Drei Könige
+    expect(holidayIn("2028-03-08")).toEqual(sorted(["BE", "MV"])); // Frauentag
+    // Fronleichnam 2028: 15.06. SN and TH only in some Gemeinden, counted for the whole Land.
+    expect(holidayIn("2028-06-15")).toEqual(sorted(["BW", "BY", "HE", "NW", "RP", "SL", "SN", "TH"]));
+    expect(holidayIn("2028-08-08")).toEqual(["BY"]); // Augsburger Friedensfest
+    expect(holidayIn("2028-08-15")).toEqual(sorted(["BY", "SL"])); // Mariä Himmelfahrt
+    expect(holidayIn("2028-09-20")).toEqual(["TH"]); // Weltkindertag
+    expect(holidayIn("2028-10-31")).toEqual(
+      sorted(["BB", "HB", "HH", "MV", "NI", "SN", "ST", "SH", "TH"])
+    ); // Reformationstag
+    expect(holidayIn("2028-11-01")).toEqual(sorted(["BW", "BY", "NW", "RP", "SL"])); // Allerheiligen
+    expect(holidayIn("2028-11-22")).toEqual(["SN"]); // Buß- und Bettag
+  });
+
+  it("keeps the nationwide holidays in every Land", () => {
+    for (const day of ["2028-01-01", "2028-04-14", "2028-05-25", "2028-10-03", "2028-12-26"]) {
+      expect(holidayIn(day), day).toEqual(sorted([...BUNDESLAENDER]));
+    }
+    expect(holidayIn("2028-12-27")).toEqual([]);
+  });
+
+  it("falls back to the union of all Länder without a stored Land", () => {
+    for (const day of ["2028-01-06", "2028-08-08", "2028-10-31", "2028-11-01", "2028-11-22"]) {
+      expect(isStatutoryHolidayIn(day, null), day).toBe(true);
+      expect(isStatutoryHolidayIn(day, undefined), day).toBe(true);
+      expect(isAnyStatutoryHoliday(day), day).toBe(true);
+    }
+  });
+
+  // Mon 30.10.2028 10:00. Tue 31.10. Reformationstag, Wed 01.11. Allerheiligen.
+  const arrival = at("2028-10-30T10:00:00+01:00");
+
+  it("Berlin skips neither 31.10. nor 01.11.", () => {
+    expect(responseDeadline(arrival, "BE")).toEqual(at("2028-11-06T13:00:00+01:00"));
+  });
+
+  it("NRW skips Allerheiligen, not the Reformationstag", () => {
+    expect(responseDeadline(arrival, "NW")).toEqual(at("2028-11-07T13:00:00+01:00"));
+  });
+
+  it("Niedersachsen skips the Reformationstag, not Allerheiligen", () => {
+    expect(responseDeadline(arrival, "NI")).toEqual(at("2028-11-07T13:00:00+01:00"));
+  });
+
+  it("an unset Land skips both, as before", () => {
+    expect(responseDeadline(arrival, null)).toEqual(at("2028-11-08T13:00:00+01:00"));
+    expect(responseDeadline(arrival)).toEqual(at("2028-11-08T13:00:00+01:00"));
+  });
+
+  it("never ends earlier than the deadline at the Praxis's own seat", () => {
+    for (const land of BUNDESLAENDER) {
+      expect(responseDeadline(arrival, null).getTime()).toBeGreaterThanOrEqual(
+        responseDeadline(arrival, land).getTime()
+      );
+    }
   });
 });

@@ -57,6 +57,7 @@ export function rowTiming(input: RowTimingInput, now: Date): RowTiming | null {
       firstAttemptAt: input.firstAttemptAt,
       status: input.status,
       ruleStart: input.ruleStart,
+      bundesland: input.bundesland,
     },
     now
   );

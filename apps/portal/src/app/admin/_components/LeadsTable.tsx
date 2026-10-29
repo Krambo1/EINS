@@ -14,12 +14,13 @@ import {
   type RequestSource,
 } from "@/lib/constants";
 import type { AdminLeadRow } from "@/server/queries/admin";
-import { responseRuleStartsByClinic } from "@/server/guarantee-clock";
+import { responseRulesByClinic } from "@/server/guarantee-clock";
 import { withBrandLogos } from "@/app/_components/Brand";
 import {
   RESPONSE_STATE_LABELS,
   isPraxisResponseFlag,
   responseState,
+  type PraxisResponseRule,
 } from "@/lib/response-time";
 
 interface Props {
@@ -45,8 +46,9 @@ export async function LeadsTable({
   hideClinic,
 }: Props) {
   // K-3: per-Praxis rule start (signing date), so inquiries before the
-  // signature never show "nicht beantwortet". One query for the page.
-  const ruleStarts = await responseRuleStartsByClinic([...new Set(rows.map((r) => r.clinicId))]);
+  // signature never show "nicht beantwortet", and the holidays of the
+  // Praxis's Land. One query for the page.
+  const rules = await responseRulesByClinic([...new Set(rows.map((r) => r.clinicId))]);
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   // Bookmark to a page that no longer exists (G-23): offer the last page
   // instead of a dead end showing "Seite 99 von 3".
@@ -130,7 +132,7 @@ export async function LeadsTable({
                     <Badge tone={statusTone(r.status)}>
                       {REQUEST_STATUS_LABELS[r.status] ?? r.status}
                     </Badge>
-                    <ResponseFlag row={r} ruleStart={ruleStarts.get(r.clinicId) ?? null} />
+                    <ResponseFlag row={r} rule={rules.get(r.clinicId) ?? null} />
                   </td>
                   <td className="px-4 py-2 text-right">
                     {r.aiScore == null ? (
@@ -211,8 +213,8 @@ export async function LeadsTable({
 }
 
 /** Folge 2 of the 48-Werkstunden rule: only the two Praxis flags show. */
-function ResponseFlag({ row, ruleStart }: { row: AdminLeadRow; ruleStart: Date | null }) {
-  const state = responseState({ ...row, ruleStart }, new Date());
+function ResponseFlag({ row, rule }: { row: AdminLeadRow; rule: PraxisResponseRule | null }) {
+  const state = responseState({ ...row, ...rule }, new Date());
   if (!isPraxisResponseFlag(state)) return null;
   return (
     <div className={`mt-1 text-[11px] ${state === "nicht_beantwortet" ? "text-tone-bad" : "text-tone-warn"}`}>
