@@ -165,9 +165,8 @@ export default function Datenschutz() {
         </p>
         <p>
           Eingehende E-Mails an {CONTACT_EMAIL} verarbeitet unser E-Mail-Anbieter
-          Migadu (Migadu-Mail GmbH, Schachen, Schweiz) auf Servern in
-          Frankreich (EU). Für Zugriffe aus der Schweiz gilt der
-          Angemessenheitsbeschluss der EU-Kommission (Art. 45 DSGVO). Ihre Daten werden
+          Purelymail (Add Rabbit LLC, USA) auf Servern von Amazon Web Services in
+          den USA (zur Übermittlung siehe „Datenübermittlung in Drittländer“). Ihre Daten werden
           gelöscht, sobald der Zweck der Verarbeitung entfallen ist und keine
           gesetzlichen Aufbewahrungspflichten entgegenstehen.
         </p>
@@ -356,9 +355,15 @@ export default function Datenschutz() {
           </li>
         </ul>
         <p>
-          Eingehende E-Mails verarbeitet Migadu (Migadu-Mail GmbH, Schweiz) auf
-          Servern in Frankreich (EU); für die Schweiz besteht ein
-          Angemessenheitsbeschluss.
+          E-Mails an {CONTACT_EMAIL} speichert Purelymail (Add Rabbit LLC, USA)
+          auf Servern von Amazon Web Services in den USA. Purelymail ist nicht
+          unter dem Data Privacy Framework zertifiziert, für diesen Empfänger
+          besteht also kein Angemessenheitsbeschluss. US-Behörden können unter
+          Umständen auf die Daten zugreifen, ohne dass Ihnen dagegen gleichwertige
+          Rechtsbehelfe wie in der EU zustehen. Die Übermittlung stützt sich auf
+          Art. 49 Abs. 1 lit. b DSGVO: Wenn Sie uns schreiben, ist die Ablage Ihrer
+          Nachricht in unserem Postfach nötig, um Ihre Anfrage zu beantworten oder
+          einen Vertrag mit Ihnen vorzubereiten oder durchzuführen.
         </p>
         <p>
           Eine aktuelle Übersicht der unter dem Data Privacy Framework
@@ -381,7 +386,7 @@ export default function Datenschutz() {
           Rahmenbedingungen oder die auf unserer Website eingesetzten Dienste
           ändern. Die jeweils aktuelle Fassung finden Sie auf dieser Seite.
         </p>
-        <p className="font-mono text-sm text-fg-secondary">Stand: 13.10.2026</p>
+        <p className="font-mono text-sm text-fg-secondary">Stand: 30.10.2026</p>
       </Section>
 
       {/*
