@@ -15,6 +15,7 @@ import { processPurgeRetention } from "@/worker/processors/purge-retention";
 import { addDaysIso, berlinToday, berlinYesterday } from "@/worker/processors/berlin-days";
 import { catchUpPvsCsvIngest } from "@/worker/processors/pvs-csv-ingest";
 import { CronRun, activeClinicIds, checkCronAuth } from "../_lib/run";
+import { mailDeletionFailures } from "../_lib/deletion-alert";
 
 /**
  * GET /api/cron/daily — nightly work without the pg-boss worker.
@@ -30,6 +31,9 @@ import { CronRun, activeClinicIds, checkCronAuth } from "../_lib/run";
  *      Praxen, old unbooked Anfragen, sessions, tokens, send log. Daily.
  *   6. Sunday (Berlin): audit / token purge
  *   7. PVS CSV imports confirmed but not processed (C8, also in morning)
+ *   8. A failed deletion step (5, 6) mails team@eins.ag, once per run
+ *      (_lib/deletion-alert.ts). Outside the time budget, so a purge skipped
+ *      for lack of time is reported too.
  * Patient and owner mails run in /api/cron/morning (daytime send window).
  *
  * Every step and every clinic is isolated; the JSON summary lists failures.
@@ -103,6 +107,9 @@ export async function GET(request: NextRequest) {
   await run.step("pvs-csv-catch-up", () =>
     catchUpPvsCsvIngest({ budgetMs: Math.min(120_000, run.remainingMs()) })
   );
+
+  const alert = await mailDeletionFailures(run.results);
+  if (alert) run.record(alert);
 
   return run.response();
 }

@@ -74,6 +74,12 @@ export class CronRun {
     console.log(JSON.stringify({ cron: this.name, ...r }));
   }
 
+  /** Add a result produced outside `step` (not bound by the time budget). */
+  record(r: StepResult): void {
+    this.results.push(r);
+    this.log(r);
+  }
+
   /** One platform-wide step in its own try/catch. */
   async step(name: string, fn: () => Promise<unknown>): Promise<void> {
     if (this.outOfTime(name)) return;
