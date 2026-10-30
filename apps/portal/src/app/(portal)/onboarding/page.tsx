@@ -19,7 +19,9 @@ import {
   FileText,
   CheckCircle2,
   Circle,
+  CalendarClock,
 } from "lucide-react";
+import { REMINDER_LEAD_DAYS } from "@/lib/retreatment";
 import { getOnboardingGateStatus } from "@/server/queries/onboardingGate";
 
 export const metadata = { title: "Erste Schritte" };
@@ -49,6 +51,8 @@ export default async function OnboardingPage() {
       .select({
         hwgContactEmail: schema.clinics.hwgContactEmail,
         defaultDoctorEmail: schema.clinics.defaultDoctorEmail,
+        retreatmentRemindersEnabled: schema.clinics.retreatmentRemindersEnabled,
+        retreatmentConsentAttested: schema.clinics.retreatmentConsentAttested,
       })
       .from(schema.clinics)
       .where(eq(schema.clinics.id, session.clinicId))
@@ -141,10 +145,22 @@ export default async function OnboardingPage() {
       icon: <Users className="h-5 w-5" />,
     },
     {
+      key: "retreatment",
+      title: "Erinnerungen an Folgebehandlungen einrichten",
+      description: `Wer über EINS kam und bei Ihnen behandelt wurde, bekommt ${REMINDER_LEAD_DAYS} Tage vor der nächsten fälligen Behandlung eine kurze E-Mail mit Ihrem Buchungslink. Sagen Sie Ihren Patientinnen und Patienten ab jetzt bei der Terminvereinbarung, dass diese Erinnerung kommen kann.`,
+      done: Boolean(clinic?.retreatmentRemindersEnabled),
+      hint: clinic?.retreatmentConsentAttested
+        ? "Patientinnen und Patienten werden informiert. Die E-Mails sind noch aus."
+        : undefined,
+      action: { label: "Erinnerungen einrichten", href: "/einstellungen#wiederbehandlungen" },
+      icon: <CalendarClock className="h-5 w-5" />,
+    },
+    {
       key: "integrations",
       title: "Meta und Google Ads verbinden",
       description:
-        "Einmal zustimmen, danach holen wir Werbezahlen und Anfragen täglich ab. Werbebudget brauchen Sie zu Beginn nicht: Wir starten organisch.",
+        "Einmal zustimmen, danach holen wir Werbezahlen und Anfragen täglich ab. Nötig erst, wenn bezahlte Anzeigen laufen: Wir starten organisch.",
+      later: true,
       done: credentials.length >= 1,
       hint: credentials.length === 1
         ? "Eine Plattform verbunden. Zweite fehlt noch."
@@ -153,7 +169,7 @@ export default async function OnboardingPage() {
         : "Beide Plattformen verbunden.",
       action: {
         label: "Jetzt verbinden",
-        href: "/einstellungen#integrationen",
+        href: "/einstellungen#werbekonten",
       },
       icon: <LinkIcon className="h-5 w-5" />,
     },
@@ -163,16 +179,20 @@ export default async function OnboardingPage() {
       description:
         "Ihre ersten Beiträge entstehen in Woche 1 bis 2. Sobald sie fertig sind, erscheinen sie im Portal. Veröffentlicht wird erst nach Ihrer Freigabe.",
       done: assetRows.length > 0,
-      action: { label: "Medien ansehen", href: "/medien" },
+      action: { label: "Inhalte ansehen", href: "/inhalte" },
       icon: <Camera className="h-5 w-5" />,
     },
   ];
 
-  const completed = steps.filter((s) => s.done).length;
-  const total = steps.length;
+  // Organisch zuerst: the ad accounts only matter once bezahlte Anzeigen run,
+  // so their step stands apart ("Erst für Anzeigen") and outside the count.
+  const nowSteps = steps.filter((s) => !s.later);
+  const laterSteps = steps.filter((s) => s.later);
+  const completed = nowSteps.filter((s) => s.done).length;
+  const total = nowSteps.length;
   const pct = Math.round((completed / total) * 100);
   // Only the first open step with an action gets the primary button.
-  const primaryKey = steps.find((s) => !s.done && s.action)?.key;
+  const primaryKey = nowSteps.find((s) => !s.done && s.action)?.key;
 
   return (
     <div className="space-y-8">
@@ -257,58 +277,33 @@ export default async function OnboardingPage() {
 
       {/* Steps */}
       <ol className="space-y-4">
-        {steps.map((s, i) => (
+        {nowSteps.map((s, i) => (
           <li key={s.key}>
-            <Card className="p-5 md:p-6">
-              <CardContent
-                className={`flex flex-wrap gap-4 ${s.done ? "items-center" : "items-start"}`}
-              >
-                <div
-                  className={`grid h-12 w-12 shrink-0 place-items-center rounded-full border ${
-                    s.done
-                      ? "border-[var(--tone-good-border)] bg-[var(--tone-good-bg)] text-tone-good"
-                      : "border-border bg-bg-secondary text-fg-primary"
-                  }`}
-                >
-                  {s.done ? (
-                    <CheckCircle2 className="h-6 w-6" />
-                  ) : (
-                    s.icon ?? <Circle className="h-6 w-6" />
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-sm text-fg-secondary">
-                      Schritt {i + 1}
-                    </span>
-                    <span className="font-semibold text-fg-primary md:text-lg">
-                      {s.title}
-                    </span>
-                    {s.done && <Badge tone="good">Erledigt</Badge>}
-                  </div>
-                  {!s.done && (
-                    <p className="mt-1 text-base text-fg-primary">
-                      {s.description}
-                    </p>
-                  )}
-                  {s.hint && (
-                    <p className="mt-1 text-sm text-fg-secondary">{s.hint}</p>
-                  )}
-                </div>
-                {!s.done && s.action && (
-                  <Button
-                    asChild
-                    variant={s.key === primaryKey ? "default" : "outline"}
-                    className="w-full md:w-auto"
-                  >
-                    <Link href={s.action.href}>{s.action.label}</Link>
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
+            <StepCard s={s} label={`Schritt ${i + 1}`} primary={s.key === primaryKey} />
           </li>
         ))}
       </ol>
+
+      {laterSteps.length > 0 && (
+        <section aria-labelledby="onboarding-later" className="space-y-4">
+          <div>
+            <h2 id="onboarding-later" className="text-lg font-semibold text-fg-primary">
+              Erst für Anzeigen
+            </h2>
+            <p className="mt-1 text-base text-fg-primary">
+              Sobald sichtbar ist, welche Beiträge Anfragen bringen, schlagen wir
+              vor, wie viel Werbebudget dahinter kommt. Erst dann brauchen Sie das.
+            </p>
+          </div>
+          <ul className="space-y-4">
+            {laterSteps.map((s) => (
+              <li key={s.key}>
+                <StepCard s={s} label="Später" primary={false} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {pct === 100 && (
         <Card className="p-5 md:p-6">
@@ -332,6 +327,59 @@ export default async function OnboardingPage() {
   );
 }
 
+/** One onboarding step: icon, title, what to do, and its button. */
+function StepCard({ s, label, primary }: { s: Step; label: string; primary: boolean }) {
+  return (
+    <Card className="p-5 md:p-6">
+      <CardContent
+        className={`flex flex-wrap gap-4 ${s.done ? "items-center" : "items-start"}`}
+      >
+        <div
+          className={`grid h-12 w-12 shrink-0 place-items-center rounded-full border ${
+            s.done
+              ? "border-[var(--tone-good-border)] bg-[var(--tone-good-bg)] text-tone-good"
+              : "border-border bg-bg-secondary text-fg-primary"
+          }`}
+        >
+          {s.done ? (
+            <CheckCircle2 className="h-6 w-6" />
+          ) : (
+            s.icon ?? <Circle className="h-6 w-6" />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm text-fg-secondary">
+              {label}
+            </span>
+            <span className="font-semibold text-fg-primary md:text-lg">
+              {s.title}
+            </span>
+            {s.done && <Badge tone="good">Erledigt</Badge>}
+          </div>
+          {!s.done && (
+            <p className="mt-1 text-base text-fg-primary">
+              {s.description}
+            </p>
+          )}
+          {s.hint && (
+            <p className="mt-1 text-sm text-fg-secondary">{s.hint}</p>
+          )}
+        </div>
+        {!s.done && s.action && (
+          <Button
+            asChild
+            variant={primary ? "default" : "outline"}
+            className="w-full md:w-auto"
+          >
+            <Link href={s.action.href}>{s.action.label}</Link>
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 interface Step {
   key: string;
   title: React.ReactNode;
@@ -340,4 +388,6 @@ interface Step {
   hint?: string;
   action?: { label: string; href: string };
   icon?: React.ReactNode;
+  /** Only needed once bezahlte Anzeigen run: listed apart, not counted. */
+  later?: boolean;
 }

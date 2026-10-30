@@ -16,11 +16,15 @@ import {
 import type { AdminLeadRow } from "@/server/queries/admin";
 import { responseRuleStartsByClinic } from "@/server/guarantee-clock";
 import { withBrandLogos } from "@/app/_components/Brand";
+import { PendingLink } from "@/app/_components/instant-views";
 import {
   RESPONSE_STATE_LABELS,
   isPraxisResponseFlag,
   responseState,
 } from "@/lib/response-time";
+
+const PAGER = "rounded-md border border-border px-3 py-1 hover:bg-bg-secondary";
+const PAGER_OFF = "rounded-md border border-border px-3 py-1 text-fg-tertiary";
 
 interface Props {
   rows: AdminLeadRow[];
@@ -52,10 +56,15 @@ export async function LeadsTable({
   // instead of a dead end showing "Seite 99 von 3".
   const outOfRange = page > totalPages && total > 0;
 
-  const linkFor = (p: number) => ({
-    pathname: basePath,
-    query: { ...queryWithoutPage, page: String(p) },
-  });
+  const linkFor = (p: number) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(queryWithoutPage)) {
+      for (const one of v == null ? [] : Array.isArray(v) ? v : [v]) q.append(k, one);
+    }
+    if (p > 1) q.set("page", String(p));
+    const qs = q.toString();
+    return qs ? `${basePath}?${qs}` : basePath;
+  };
 
   return (
     <Card className="!p-0 overflow-hidden">
@@ -185,22 +194,25 @@ export async function LeadsTable({
             <div className="text-fg-secondary">
               Seite {page} von {totalPages} · {formatNumber(total)} Anfragen
             </div>
+            {/* Both on every page, greyed out at the ends, so neither moves. */}
             <div className="flex gap-2">
-              {page > 1 && (
-                <Link
-                  href={linkFor(page - 1)}
-                  className="rounded-md border border-border px-3 py-1 hover:bg-bg-secondary"
-                >
+              {page > 1 ? (
+                <PendingLink href={linkFor(page - 1)} className={PAGER}>
                   Zurück
-                </Link>
+                </PendingLink>
+              ) : (
+                <span aria-disabled className={`${PAGER_OFF}`}>
+                  Zurück
+                </span>
               )}
-              {page < totalPages && (
-                <Link
-                  href={linkFor(page + 1)}
-                  className="rounded-md border border-border px-3 py-1 hover:bg-bg-secondary"
-                >
+              {page < totalPages ? (
+                <PendingLink href={linkFor(page + 1)} className={PAGER}>
                   Weiter
-                </Link>
+                </PendingLink>
+              ) : (
+                <span aria-disabled className={`${PAGER_OFF}`}>
+                  Weiter
+                </span>
               )}
             </div>
           </nav>

@@ -7,7 +7,8 @@ import { getTrustedClientIp } from "@/lib/client-ip";
 import { APPROVAL_DECISION_LABELS, CHANGE_TEXT_MAX, LINK_EXPIRED_MESSAGE, formatApprovalDue } from "@/lib/content-approval";
 import { KI_LABEL, hasKiLabel } from "@/lib/content-gate";
 import { formatDateTime } from "@/lib/formatting";
-import { DecisionSubmitButton } from "@/app/(portal)/beitraege/DecisionSubmitButton";
+import { DecisionSubmitButton } from "@/app/(portal)/inhalte/_components/DecisionSubmitButton";
+import { ScrollHint } from "@/app/_components/ScrollHint";
 
 /**
  * Public one-click approval page (D7, D8): /freigabe/<token> from the batch
@@ -72,7 +73,7 @@ export default async function FreigabePage({ params, searchParams }: PageProps) 
     return (
       <Notice
         title="Link nicht gefunden"
-        text="Diesen Freigabe-Link gibt es nicht oder nicht mehr. Bitte entscheiden Sie im Portal unter Beiträge."
+        text="Diesen Freigabe-Link gibt es nicht oder nicht mehr. Bitte entscheiden Sie im Portal unter Inhalte."
       />
     );
   }
@@ -166,20 +167,22 @@ export default async function FreigabePage({ params, searchParams }: PageProps) 
             <form method="post" action={`/api/freigabe/${token}`} className="space-y-2">
               <input type="hidden" name="decision" value="aenderung" />
               <Label htmlFor="changeText">Änderung wünschen</Label>
-              <Textarea
-                id="changeText"
-                name="changeText"
-                rows={4}
-                required
-                maxLength={CHANGE_TEXT_MAX}
-                placeholder="Was sollen wir ändern?"
-              />
+              <ScrollHint>
+                <Textarea
+                  id="changeText"
+                  name="changeText"
+                  rows={4}
+                  required
+                  maxLength={CHANGE_TEXT_MAX}
+                  placeholder="Was sollen wir ändern?"
+                />
+              </ScrollHint>
               <DecisionSubmitButton size="md" variant="outline">
                 Änderung wünschen
               </DecisionSubmitButton>
             </form>
             <p className="text-sm text-fg-secondary">
-              Es gilt die erste Entscheidung, hier oder im Portal unter Beiträge.
+              Es gilt die erste Entscheidung, hier oder im Portal unter Inhalte.
             </p>
           </section>
         ) : null}

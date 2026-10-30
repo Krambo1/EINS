@@ -35,6 +35,32 @@ export const REMINDER_MAX_OVERDUE_DAYS = 60;
 export const REMINDER_COOLDOWN_DAYS = 30;
 /** Window of the "Fällig in den nächsten 90 Tagen" forecast. */
 export const FORECAST_WINDOW_DAYS = 90;
+/**
+ * After "Termin vereinbart" on the phone the cycle leaves the call cards for
+ * this long, waiting for the date to arrive from the PVS (0104).
+ */
+export const CALLED_TERMIN_HOLD_DAYS = 21;
+
+/** Result of a call from the call cards, stored on the cycle (0104). */
+export type RetreatmentCallOutcome = "termin_vereinbart" | "nicht_erreicht";
+export const RETREATMENT_CALL_OUTCOMES: readonly RetreatmentCallOutcome[] = [
+  "termin_vereinbart",
+  "nicht_erreicht",
+];
+/**
+ * The list statuses an Anfrage is still worked in (the call cards' own
+ * Anfragen). A cycle whose Anfrage is in one of them is called as that
+ * Anfrage, not a second time as a Wiederbehandlung.
+ */
+export const WORKING_REQUEST_STATUSES = ["neu", "kontaktiert", "nicht_erreicht", "termin_vereinbart"] as const;
+
+/**
+ * The list filter `wb` on /anfragen: "offen" = everyone the old calendar
+ * listed (open or booked, due within FORECAST_WINDOW_DAYS or earlier),
+ * "ausgeblendet" = taken off the calendar by the team.
+ */
+export const RETREATMENT_LIST_FILTERS = ["offen", "ausgeblendet"] as const;
+export type RetreatmentListFilter = (typeof RETREATMENT_LIST_FILTERS)[number];
 
 export type RetreatmentMode = "auto" | "fixed" | "off";
 export const RETREATMENT_MODES: readonly RetreatmentMode[] = ["auto", "fixed", "off"];
@@ -366,100 +392,4 @@ export function intervalLabel(days: number): string {
   if (days < 60) return `ca. ${Math.round(days / 7)} Wochen`;
   const months = Math.round(days / 30.44);
   return months === 1 ? "ca. 1 Monat" : `ca. ${months} Monate`;
-}
-
-// ---------------------------------------------------------------------------
-// Portal summaries
-// ---------------------------------------------------------------------------
-
-export interface SummaryRow {
-  patientId: string;
-  status: CycleStatus;
-  dueOn: string;
-  cycleRevenueCents: number | null;
-  reminderSentAt: Date | null;
-  returnedOn: string | null;
-}
-
-export interface ForecastSummary {
-  /** Distinct patients with an open or booked row due in the next FORECAST_WINDOW_DAYS. */
-  duePatients: number;
-  dueRows: number;
-  /** Sum of each row's last paid amount (what she paid for the same treatment last time). */
-  dueValueCents: number;
-  /** Due rows without a known last amount (not in dueValueCents). */
-  dueRowsWithoutValue: number;
-  /** Open rows already past their due date (not booked): the call list. */
-  overduePatients: number;
-}
-
-export function summarizeForecast(rows: readonly SummaryRow[], today: string): ForecastSummary {
-  const horizon = addDays(today, FORECAST_WINDOW_DAYS);
-  const duePatients = new Set<string>();
-  const overduePatients = new Set<string>();
-  let dueRows = 0;
-  let dueValueCents = 0;
-  let dueRowsWithoutValue = 0;
-  for (const r of rows) {
-    if (r.status === "open" && r.dueOn < today) overduePatients.add(r.patientId);
-    if ((r.status === "open" || r.status === "booked") && r.dueOn >= today && r.dueOn <= horizon) {
-      duePatients.add(r.patientId);
-      dueRows += 1;
-      if (r.cycleRevenueCents && r.cycleRevenueCents > 0) dueValueCents += r.cycleRevenueCents;
-      else dueRowsWithoutValue += 1;
-    }
-  }
-  return {
-    duePatients: duePatients.size,
-    dueRows,
-    dueValueCents,
-    dueRowsWithoutValue,
-    overduePatients: overduePatients.size,
-  };
-}
-
-export interface ReminderSummary {
-  /** Patients reminded on or after `monthStartDay` (Berlin calendar). */
-  remindedThisMonth: number;
-  /** Of those: now booked or already back. */
-  bookedThisMonth: number;
-  /** All time: patients reminded. */
-  remindedTotal: number;
-  /** All time: patients who came back for the treatment after their reminder. */
-  returnedAfterReminder: number;
-  /** All time: what those returns were paid, where the PVS sent an invoice. */
-  returnedAfterReminderCents: number;
-}
-
-export function summarizeReminders(
-  rows: readonly (SummaryRow & { returnedRevenueCents: number | null })[],
-  /** First day of the current month, 'YYYY-MM-01', Europe/Berlin. */
-  monthStartDay: string
-): ReminderSummary {
-  const remindedMonth = new Set<string>();
-  const bookedMonth = new Set<string>();
-  const remindedAll = new Set<string>();
-  const returnedAll = new Set<string>();
-  let returnedCents = 0;
-  for (const r of rows) {
-    if (!r.reminderSentAt) continue;
-    remindedAll.add(r.patientId);
-    const sentDay = berlinDay(r.reminderSentAt);
-    const cameBack = r.status === "returned" && !!r.returnedOn && r.returnedOn >= sentDay;
-    if (cameBack) {
-      returnedAll.add(r.patientId);
-      if (r.returnedRevenueCents && r.returnedRevenueCents > 0) returnedCents += r.returnedRevenueCents;
-    }
-    if (sentDay >= monthStartDay) {
-      remindedMonth.add(r.patientId);
-      if (r.status === "booked" || cameBack) bookedMonth.add(r.patientId);
-    }
-  }
-  return {
-    remindedThisMonth: remindedMonth.size,
-    bookedThisMonth: bookedMonth.size,
-    remindedTotal: remindedAll.size,
-    returnedAfterReminder: returnedAll.size,
-    returnedAfterReminderCents: returnedCents,
-  };
 }

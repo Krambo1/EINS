@@ -17,9 +17,10 @@ import { CronRun, activeClinicIds, checkCronAuth } from "../_lib/run";
  * patient mail window (Mon-Fri 09-18 Berlin, enforced again in the review
  * processor). Second and last cron entry, so it works on every Vercel plan.
  *   1. review-request mails due today (EINS Bewertungen)
- *   2. monthly report for the previous Berlin month: built once, owners
- *      mailed once (email_send_log ledger); later days of the month only
- *      retry recipients whose mail failed
+ *   2. monthly mail with the Übersicht's 30-Tage figures (the portal is the
+ *      monthly Auswertung, no PDF): owners mailed once per month
+ *      (email_send_log ledger); later days only retry recipients whose mail
+ *      failed
  *   3. SLA bell for open requests past their deadline (last 7 days)
  *   4. catch-up for "Neue Anfrage" mails not delivered yet: every send
  *      failed (claim released, `new_request_notified_at` NULL again) or the

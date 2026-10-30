@@ -1,30 +1,38 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Card, CardHeader, CardTitle, CardContent, Button } from "@eins/ui";
-import { Check, X, Loader2, AlarmClock } from "lucide-react";
+import { startTransition } from "react";
+import { Card, CardHeader, CardTitle, CardContent, Button, cn } from "@eins/ui";
+import { Check, X, AlarmClock } from "lucide-react";
 import { formatDateTime } from "@/lib/formatting";
 import type { FollowupStatus } from "@/lib/constants";
 import type { FollowupRow } from "@/server/queries/followups";
+import { showActionFlash } from "../../_components/flash-event";
 import { completeFollowup, cancelFollowup, type ActionResult } from "./actions";
+import { isPendingId, useFollowups, usePending } from "./_pending";
 
 const RESOLVED_LABEL: Record<Exclude<FollowupStatus, "pending">, string> = {
   done: "Erledigt",
   cancelled: "Abgebrochen",
 };
 
+const OFFLINE = "Keine Verbindung. Bitte versuchen Sie es noch einmal.";
+
 /**
  * Wiedervorlagen-Liste auf der Anfrage-Detailseite. Offene Rückrufe oben mit
  * Erledigt/Abbrechen-Aktionen, darunter die abgeschlossene Historie als
  * read-only. Für alle Praxis-Rollen sichtbar (reuse `requests.update`).
+ * Optimistisch: eine neu geplante Wiedervorlage steht sofort da, ein Tipp auf
+ * Erledigt/Abbrechen schiebt die Zeile sofort in die Historie (_pending.tsx).
  */
 export function Followups({
   requestId,
-  followups,
+  followups: fromServer,
 }: {
   requestId: string;
   followups: FollowupRow[];
 }) {
+  const followups = useFollowups(requestId, fromServer);
+
   // Always shown (DS3): before the first Wiedervorlage the card explains
   // how to set one, otherwise nobody knows the feature exists.
   if (followups.length === 0) {
@@ -97,32 +105,46 @@ function PendingRow({
   requestId: string;
   followup: FollowupRow;
 }) {
-  const [isPending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
+  const { add } = usePending();
   const overdue = followup.dueAt.getTime() <= Date.now();
+  // Planned a moment ago and not confirmed yet: no id to resolve on the server.
+  const saving = isPendingId(followup.id);
 
-  const resolve = (action: (fd: FormData) => Promise<ActionResult>) => {
+  // The row moves to the finished ones at once. If the server says no, the
+  // change drops away (the row comes back) and a toast says why. The row is
+  // gone while this runs, so the transition is not tied to this component.
+  const resolve = (
+    action: (fd: FormData) => Promise<ActionResult>,
+    to: "done" | "cancelled",
+    savedTitle: string
+  ) => {
     const fd = new FormData();
     fd.set("followupId", followup.id);
     fd.set("requestId", requestId);
-    setError(null);
     startTransition(async () => {
+      add({ at: new Date(), resolve: { followupId: followup.id, to } });
       try {
         const res = await action(fd);
-        if (!res.ok) setError(res.message);
+        showActionFlash(
+          res.ok
+            ? { tone: "good", title: savedTitle }
+            : { tone: "bad", title: "Nicht gespeichert", description: res.message }
+        );
       } catch {
-        setError("Keine Verbindung. Bitte versuchen Sie es noch einmal.");
+        showActionFlash({ tone: "bad", title: "Nicht gespeichert", description: OFFLINE });
       }
     });
   };
 
   return (
     <li
-      className={`flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2.5 ${
+      className={cn(
+        "flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2.5 transition-opacity duration-300",
         overdue
           ? "border-[var(--tone-warn-border)] bg-[var(--tone-warn-bg)]"
-          : "border-border bg-bg-secondary"
-      }`}
+          : "border-border bg-bg-secondary",
+        saving && "opacity-60"
+      )}
     >
       <div className="min-w-0">
         <div className="flex items-center gap-1.5 text-sm font-medium text-fg-primary tabular-nums">
@@ -142,27 +164,22 @@ function PendingRow({
             gesetzt von {followup.createdByName}
           </p>
         )}
-        {error && <p className="mt-0.5 text-sm text-tone-bad">{error}</p>}
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
         <Button
           size="sm"
           variant="outline"
-          disabled={isPending}
-          onClick={() => resolve(completeFollowup)}
+          disabled={saving}
+          onClick={() => resolve(completeFollowup, "done", "Wiedervorlage erledigt")}
         >
-          {isPending ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Check className="h-4 w-4" />
-          )}
+          <Check className="h-4 w-4" />
           Erledigt
         </Button>
         <Button
           size="sm"
           variant="ghost"
-          disabled={isPending}
-          onClick={() => resolve(cancelFollowup)}
+          disabled={saving}
+          onClick={() => resolve(cancelFollowup, "cancelled", "Wiedervorlage abgebrochen")}
           className="text-fg-secondary"
         >
           <X className="h-4 w-4" />

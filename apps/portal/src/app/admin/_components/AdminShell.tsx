@@ -213,33 +213,52 @@ export function AdminShell({ email, pendingCounts, attention, children }: AdminS
     return () => window.removeEventListener("keydown", onKey);
   }, [mobileNavOpen]);
 
-  // Global search keyboard shortcuts. ⌘/Ctrl-K toggles the palette; "/" opens
-  // it but only when the user isn't typing into a form control.
+  // Global keyboard shortcuts. ⌘/Ctrl-K toggles the palette; "/" opens it;
+  // J/K move through the rows of the current page (every element marked
+  // `data-row` inside <main>) and Enter opens the focused row (native link
+  // activation). "/" and J/K are ignored while typing into a form control,
+  // which also covers the open palette (its input has focus).
   useEffect(() => {
+    const isTyping = (t: HTMLElement | null) =>
+      !!t &&
+      (t.tagName === "INPUT" ||
+        t.tagName === "TEXTAREA" ||
+        t.tagName === "SELECT" ||
+        t.isContentEditable);
     const onKey = (e: KeyboardEvent) => {
-      if (e.repeat) return;
       const isPalette = (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k";
       if (isPalette) {
+        if (e.repeat) return;
         e.preventDefault();
         setSearchLoaded(true);
         setSearchOpen((v) => !v);
         return;
       }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isTyping(e.target as HTMLElement | null)) return;
       if (e.key === "/") {
-        const t = e.target as HTMLElement | null;
-        if (!t) return;
-        const tag = t.tagName;
-        if (
-          tag === "INPUT" ||
-          tag === "TEXTAREA" ||
-          tag === "SELECT" ||
-          t.isContentEditable
-        ) {
-          return;
-        }
+        if (e.repeat) return;
         e.preventDefault();
         setSearchLoaded(true);
         setSearchOpen(true);
+        return;
+      }
+      if (e.key === "j" || e.key === "k") {
+        const rows = Array.from(
+          document.querySelectorAll<HTMLElement>("main [data-row]")
+        ).filter((el) => el.offsetParent !== null);
+        if (rows.length === 0) return;
+        e.preventDefault();
+        const step = e.key === "j" ? 1 : -1;
+        const at = rows.indexOf(document.activeElement as HTMLElement);
+        const next =
+          at === -1
+            ? step === 1
+              ? 0
+              : rows.length - 1
+            : Math.min(rows.length - 1, Math.max(0, at + step));
+        rows[next].focus({ preventScroll: true });
+        rows[next].scrollIntoView({ block: "nearest" });
       }
     };
     window.addEventListener("keydown", onKey);
@@ -336,11 +355,11 @@ export function AdminShell({ email, pendingCounts, attention, children }: AdminS
       <div
         key={group.label}
         className={cn(
-          "flex flex-col gap-0.5",
+          "flex flex-col gap-px",
           group.label === BOTTOM_ANCHORED_GROUP && "mt-auto"
         )}
       >
-        <h3 className="px-3 pb-1 text-sm font-medium text-fg-primary">
+        <h3 className="px-2 pb-1 text-xs font-medium text-fg-secondary">
           {group.label}
         </h3>
         {group.items.map((item) => {
@@ -363,24 +382,18 @@ export function AdminShell({ email, pendingCounts, attention, children }: AdminS
                 onClick={active ? undefined : () => setPendingHref(item.href)}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "relative z-10 flex items-center gap-3 rounded-xl px-3 py-1.5 text-base transition-colors duration-300",
+                  "relative z-10 flex items-center gap-2.5 rounded px-2 py-1.5 text-sm transition-colors duration-150",
                   active
-                    ? "font-semibold text-bg-primary"
-                    : "font-medium text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
-                  active && !desktopPill &&
-                    "bg-fg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
+                    ? "font-medium text-fg-primary"
+                    : "text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
+                  active && !desktopPill && "bg-bg-secondary"
                 )}
               >
-                <Icon className="h-5 w-5 shrink-0" />
+                <Icon className="h-4 w-4 shrink-0" />
                 <span>{item.label}</span>
                 {badge && (
                   <span
-                    className={cn(
-                      "ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums text-tone-good",
-                      active
-                        ? "bg-bg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
-                        : "bg-[var(--tone-good-bg)]"
-                    )}
+                    className="ml-auto text-xs font-medium tabular-nums text-fg-secondary"
                     aria-label={`${badge} offen`}
                   >
                     {badge}
@@ -402,22 +415,17 @@ export function AdminShell({ email, pendingCounts, attention, children }: AdminS
               }
               aria-current={active ? "page" : undefined}
               className={cn(
-                "relative flex items-center gap-3 rounded-xl px-3 py-2 text-base transition-colors",
+                "relative flex min-h-11 items-center gap-3 rounded px-3 py-2 text-[15px] transition-colors",
                 active
-                  ? "bg-fg-primary font-semibold text-bg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
-                  : "font-medium text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary"
+                  ? "bg-bg-secondary font-medium text-fg-primary"
+                  : "text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary"
               )}
             >
-              <Icon className="h-5 w-5 shrink-0" />
+              <Icon className="h-[18px] w-[18px] shrink-0" />
               <span>{item.label}</span>
               {badge && (
                 <span
-                  className={cn(
-                    "ml-auto inline-flex min-w-[1.25rem] items-center justify-center rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums text-tone-good",
-                    active
-                      ? "bg-bg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
-                      : "bg-[var(--tone-good-bg)]"
-                  )}
+                  className="ml-auto text-[13px] font-medium tabular-nums text-fg-secondary"
                   aria-label={`${badge} offen`}
                 >
                   {badge}
@@ -438,28 +446,28 @@ export function AdminShell({ email, pendingCounts, attention, children }: AdminS
         className="sticky top-0 z-40 border-b border-border backdrop-blur"
         style={{ backgroundColor: "color-mix(in srgb, var(--bg-primary) 95%, transparent)" }}
       >
-        <div className="mx-auto flex max-w-screen-2xl items-center gap-4 px-4 py-3 md:px-6">
+        <div className="mx-auto flex h-14 max-w-screen-2xl items-center gap-3 px-4 md:h-12 md:px-6">
           <button
             type="button"
             onClick={() => setMobileNavOpen(true)}
             aria-label="Menü öffnen"
             aria-expanded={mobileNavOpen}
             aria-controls="admin-nav-drawer"
-            className="-ml-1 inline-flex h-10 w-10 items-center justify-center rounded-lg text-fg-primary hover:bg-bg-secondary md:hidden"
+            className="-ml-1 inline-flex h-10 w-10 items-center justify-center rounded text-fg-primary hover:bg-bg-secondary md:hidden"
           >
             <Menu className="h-6 w-6" />
           </button>
-          <Link href="/admin" className="flex items-center gap-3 md:pl-3" aria-label="EINS Admin">
-            <EinsLogo className="h-9 w-auto md:h-10" />
-            <span aria-hidden="true" className="hidden h-7 w-px bg-border md:block" />
-            <span className="hidden text-base font-semibold sm:inline">
+          <Link href="/admin" className="flex items-center gap-2.5 md:pl-2" aria-label="EINS Admin">
+            <EinsLogo className="h-7 w-auto" />
+            <span aria-hidden="true" className="hidden h-5 w-px bg-border md:block" />
+            <span className="hidden text-sm font-semibold sm:inline">
               Admin
             </span>
           </Link>
 
           <div className="flex-1" />
 
-          <span className="hidden text-sm text-fg-secondary md:inline">{email}</span>
+          <span className="hidden text-[13px] text-fg-secondary md:inline">{email}</span>
           <ThemeToggle />
           <form action="/admin/logout" method="post">
             <Button type="submit" variant="outline" size="sm">
@@ -469,15 +477,15 @@ export function AdminShell({ email, pendingCounts, attention, children }: AdminS
         </div>
       </header>
 
-      <div className="mx-auto flex w-full max-w-screen-2xl flex-1 gap-8 px-4 py-6 md:px-6">
+      <div className="mx-auto flex w-full max-w-screen-2xl flex-1 gap-6 px-4 py-4 md:px-6 md:py-5">
         {/* Desktop side rail */}
-        <div className="sticky top-20 hidden h-[calc(100dvh-6rem)] w-56 shrink-0 flex-col gap-3 self-start overflow-y-auto pr-1 md:flex">
+        <div className="sticky top-16 hidden h-[calc(100dvh-5rem)] w-52 shrink-0 flex-col gap-3 self-start overflow-y-auto pr-1 md:flex">
           <GlobalSearch onOpen={openSearchPalette} />
           <nav aria-label="Hauptnavigation" className="relative flex flex-1 flex-col gap-4">
             {desktopPill && (
               <div
                 aria-hidden
-                className="pointer-events-none absolute left-0 top-0 rounded-xl bg-fg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)] transition-[transform,width,height] duration-300 ease-out will-change-transform"
+                className="pointer-events-none absolute left-0 top-0 rounded bg-bg-secondary transition-[transform,width,height] duration-200 ease-out will-change-transform"
                 style={{
                   transform: `translate3d(${desktopPill.left}px, ${desktopPill.top}px, 0)`,
                   width: desktopPill.width,
@@ -521,7 +529,7 @@ export function AdminShell({ email, pendingCounts, attention, children }: AdminS
               </span>
             </div>
             <GlobalSearch onOpen={openSearchPalette} />
-            <nav aria-label="Hauptnavigation" className="flex flex-1 flex-col gap-4">
+            <nav aria-label="Hauptnavigation" className="flex flex-1 flex-col gap-3">
               {renderNav("mobile")}
             </nav>
           </aside>

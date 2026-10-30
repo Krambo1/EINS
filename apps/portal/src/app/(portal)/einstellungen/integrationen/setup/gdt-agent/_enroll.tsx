@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button, Input, Label } from "@eins/ui";
 import { issueAgentEnrollmentAction } from "../../actions";
-import { Copy, Loader2, Check } from "lucide-react";
+import { Copy, Check } from "lucide-react";
 
 export function GdtAgentEnroll() {
   const [busy, setBusy] = useState(false);
@@ -16,15 +16,20 @@ export function GdtAgentEnroll() {
     setBusy(true);
     setError(null);
     setToken(null);
-    const r = await issueAgentEnrollmentAction({
-      expectedFingerprint: fingerprint.trim() || undefined,
-    });
-    if (!r.ok) {
-      setError(r.error);
-    } else {
-      setToken(r.token);
+    try {
+      const r = await issueAgentEnrollmentAction({
+        expectedFingerprint: fingerprint.trim() || undefined,
+      });
+      if (!r.ok) {
+        setError(r.error);
+      } else {
+        setToken(r.token);
+      }
+    } catch {
+      setError("Keine Verbindung. Bitte versuchen Sie es noch einmal.");
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   async function copy() {
@@ -54,7 +59,6 @@ export function GdtAgentEnroll() {
       </div>
 
       <Button onClick={generate} disabled={busy}>
-        {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
         Einrichtungs-Code erzeugen
       </Button>
 

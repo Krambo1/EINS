@@ -40,11 +40,16 @@ import {
 } from "lucide-react";
 import { listTreatments } from "@/server/queries/treatments";
 import { listLocations } from "@/server/queries/locations";
+import { getRetreatmentSettings } from "@/server/queries/retreatments";
+import { RetreatmentSettings } from "./_components/RetreatmentSettings";
 import { Brand } from "@/app/_components/Brand";
 import { ConfirmSubmitButton } from "./_components/ConfirmSubmitButton";
 import { ReviewSyncButton } from "./_components/ReviewSyncButton";
+import { ScrollToHash } from "./_components/ScrollToHash";
+import { PendingSubmit } from "../_components/PendingSubmit";
 import { Avatar } from "@eins/ui";
 import { auditLabel } from "./_audit-label";
+import { ActionForm } from "../_components/ActionForm";
 
 export const metadata = { title: "Einstellungen" };
 
@@ -57,7 +62,7 @@ export default async function EinstellungenPage() {
   // D-10: every query below is independent, so they run in parallel, and
   // each selects only the columns this page renders (no encrypted tokens,
   // no password hashes in the render).
-  const [clinicRows, teamRows, credentials, treatments, locations, recentAudit] =
+  const [clinicRows, teamRows, credentials, treatments, locations, recentAudit, retreatment] =
     await Promise.all([
       db
         .select({
@@ -132,6 +137,7 @@ export default async function EinstellungenPage() {
             .orderBy(desc(schema.auditLog.createdAt))
             .limit(20)
         : Promise.resolve([]),
+      getRetreatmentSettings(session.clinicId, session.userId),
     ]);
   const clinic = clinicRows[0];
 
@@ -140,6 +146,7 @@ export default async function EinstellungenPage() {
 
   return (
     <div className="space-y-10">
+      <ScrollToHash />
       <header>
         <h1 className="text-3xl font-semibold md:text-4xl">Einstellungen.</h1>
         <p className="mt-2 text-base text-fg-primary md:text-lg">
@@ -165,7 +172,7 @@ export default async function EinstellungenPage() {
           <CardTitle>Mein Profil</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          <form
+          <ActionForm
             action={updateOwnProfileAction}
             className="grid gap-4 md:grid-cols-[1fr_auto]"
           >
@@ -194,9 +201,9 @@ export default async function EinstellungenPage() {
               >
                 &nbsp;
               </span>
-              <Button type="submit">Speichern</Button>
+              <PendingSubmit>Speichern</PendingSubmit>
             </div>
-          </form>
+          </ActionForm>
           <div className="flex flex-wrap items-center gap-3 border-t border-border pt-4 text-sm">
             <span className="font-medium text-fg-primary">Rolle:</span>
             <Badge tone="neutral">
@@ -268,7 +275,7 @@ export default async function EinstellungenPage() {
             <CardTitle>Praxis-Angaben</CardTitle>
           </CardHeader>
           <CardContent>
-            <form
+            <ActionForm
               action={updateClinicSettingsAction}
               className="grid gap-4 md:grid-cols-2"
             >
@@ -317,9 +324,9 @@ export default async function EinstellungenPage() {
                 />
               </div>
               <div className="md:col-span-2 flex justify-end">
-                <Button type="submit">Speichern</Button>
+                <PendingSubmit>Speichern</PendingSubmit>
               </div>
-            </form>
+            </ActionForm>
           </CardContent>
         </Card>
       )}
@@ -344,7 +351,7 @@ export default async function EinstellungenPage() {
               .
             </p>
 
-            <form
+            <ActionForm
               action={updateReviewSettingsAction}
               className="grid gap-4 md:grid-cols-2"
             >
@@ -527,9 +534,9 @@ export default async function EinstellungenPage() {
               </div>
 
               <div className="md:col-span-2 flex justify-end">
-                <Button type="submit">Speichern</Button>
+                <PendingSubmit>Speichern</PendingSubmit>
               </div>
-            </form>
+            </ActionForm>
 
             {/* Manual sync trigger + last-run flash */}
             <div className="rounded-xl border border-border bg-bg-secondary p-4">
@@ -559,7 +566,7 @@ export default async function EinstellungenPage() {
           </CardHeader>
           <CardContent className="space-y-6">
             {/* Invite form */}
-            <form
+            <ActionForm
               action={inviteTeamMemberAction}
               className="grid gap-3 rounded-xl border border-border bg-bg-secondary p-4 md:grid-cols-[1fr_1fr_auto_auto]"
             >
@@ -592,12 +599,12 @@ export default async function EinstellungenPage() {
                 </select>
               </div>
               <div className="flex items-end">
-                <Button type="submit" className="w-full md:w-auto">
+                <PendingSubmit className="w-full md:w-auto">
                   <UserPlus className="h-4 w-4" />
                   Einladen
-                </Button>
+                </PendingSubmit>
               </div>
-            </form>
+            </ActionForm>
 
             <Separator />
 
@@ -646,15 +653,15 @@ export default async function EinstellungenPage() {
                     {!isSelf && (
                       <div className="flex flex-wrap gap-2">
                         {!m.lastLoginAt && !m.passwordSetAt && (
-                          <form action={resendInviteAction}>
+                          <ActionForm action={resendInviteAction}>
                             <input type="hidden" name="userId" value={m.id} />
-                            <Button type="submit" variant="outline" size="sm">
+                            <PendingSubmit variant="outline" size="sm">
                               <Send className="h-4 w-4" />
                               Einladung erneut senden
-                            </Button>
-                          </form>
+                            </PendingSubmit>
+                          </ActionForm>
                         )}
-                        <form action={removeTeamMemberAction}>
+                        <ActionForm action={removeTeamMemberAction}>
                           <input type="hidden" name="userId" value={m.id} />
                           <ConfirmSubmitButton
                             variant="outline"
@@ -664,7 +671,7 @@ export default async function EinstellungenPage() {
                             <Trash2 className="h-4 w-4" />
                             Entfernen
                           </ConfirmSubmitButton>
-                        </form>
+                        </ActionForm>
                       </div>
                     )}
                   </li>
@@ -682,6 +689,11 @@ export default async function EinstellungenPage() {
             <CardTitle>Werbekonten verbinden</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Organisch zuerst: nothing here is needed to start. */}
+            <p className="text-sm text-fg-secondary">
+              Erst nötig, wenn bezahlte Anzeigen laufen. Bis dahin bringen Ihre
+              Beiträge die Anfragen, ohne Werbekonto.
+            </p>
             <IntegrationRow
               platform="meta"
               label={<Brand brand="meta">Meta · Facebook & Instagram</Brand>}
@@ -717,7 +729,7 @@ export default async function EinstellungenPage() {
                   Behandlungsart. Der Name und die Stichwörter werden im
                   Anfrage-Text gesucht.
                 </p>
-                <form
+                <ActionForm
                   action={createTreatmentAction}
                   className="grid gap-3 rounded-xl border border-border bg-bg-secondary p-4 md:grid-cols-[1fr_1.5fr_auto]"
                 >
@@ -734,11 +746,11 @@ export default async function EinstellungenPage() {
                     <Input name="keywords" maxLength={500} placeholder="needling, skinpen" />
                   </div>
                   <div className="flex items-end">
-                    <Button type="submit" className="w-full md:w-auto">
+                    <PendingSubmit className="w-full md:w-auto">
                       <Plus className="h-4 w-4" /> Hinzufügen
-                    </Button>
+                    </PendingSubmit>
                   </div>
-                </form>
+                </ActionForm>
 
                 <ul className="divide-y divide-border">
                   {treatments.map((t) => (
@@ -751,7 +763,7 @@ export default async function EinstellungenPage() {
                           </div>
                         )}
                       </div>
-                      <form action={archiveTreatmentAction} className="shrink-0">
+                      <ActionForm action={archiveTreatmentAction} className="shrink-0">
                         <input type="hidden" name="treatmentId" value={t.id} />
                         <ConfirmSubmitButton
                           variant="outline"
@@ -761,13 +773,29 @@ export default async function EinstellungenPage() {
                           <Trash2 className="h-4 w-4" />
                           Archivieren
                         </ConfirmSubmitButton>
-                      </form>
+                      </ActionForm>
                     </li>
                   ))}
                 </ul>
               </CardContent>
             </Card>
           )}
+
+          {/* Wiederbehandlungen: reminder e-mails + interval per treatment. Everyone
+              sees it, only the Inhaber:in edits. */}
+          <Card id="wiederbehandlungen" className="scroll-mt-24">
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <CardTitle>Erinnerungen an Folgebehandlungen</CardTitle>
+                <Badge tone={retreatment.remindersEnabled ? "good" : "neutral"}>
+                  {retreatment.remindersEnabled ? "An" : "Aus"}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <RetreatmentSettings data={retreatment} isInhaber={can(session.role, "settings.team")} />
+            </CardContent>
+          </Card>
 
           {/* Locations CRUD */}
           {can(session.role, "settings.team") && (
@@ -776,7 +804,7 @@ export default async function EinstellungenPage() {
                 <CardTitle>Standorte</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <form
+                <ActionForm
                   action={createLocationAction}
                   className="grid gap-3 rounded-xl border border-border bg-bg-secondary p-4 md:grid-cols-[1fr_2fr_auto]"
                 >
@@ -793,12 +821,12 @@ export default async function EinstellungenPage() {
                     <Input name="address" maxLength={500} />
                   </div>
                   <div className="flex items-end">
-                    <Button type="submit" className="w-full md:w-auto">
+                    <PendingSubmit className="w-full md:w-auto">
                       <MapPin className="h-4 w-4" />
                       Hinzufügen
-                    </Button>
+                    </PendingSubmit>
                   </div>
-                </form>
+                </ActionForm>
                 <ul className="divide-y divide-border">
                   {locations.map((l) => (
                     <li key={l.id} className="flex items-center justify-between gap-3 py-2">
@@ -811,7 +839,7 @@ export default async function EinstellungenPage() {
                           </div>
                         )}
                       </div>
-                      <form action={archiveLocationAction} className="shrink-0">
+                      <ActionForm action={archiveLocationAction} className="shrink-0">
                         <input type="hidden" name="locationId" value={l.id} />
                         <ConfirmSubmitButton
                           variant="outline"
@@ -821,7 +849,7 @@ export default async function EinstellungenPage() {
                           <Trash2 className="h-4 w-4" />
                           Archivieren
                         </ConfirmSubmitButton>
-                      </form>
+                      </ActionForm>
                     </li>
                   ))}
                 </ul>
@@ -961,7 +989,7 @@ function IntegrationRow({
         )}
       </div>
       {connected ? (
-        <form action={disconnectIntegrationAction}>
+        <ActionForm action={disconnectIntegrationAction}>
           <input type="hidden" name="platform" value={platform} />
           <ConfirmSubmitButton
             variant="outline"
@@ -971,7 +999,7 @@ function IntegrationRow({
             <Unplug className="h-4 w-4" />
             Trennen
           </ConfirmSubmitButton>
-        </form>
+        </ActionForm>
       ) : available ? (
         <Button asChild size="sm">
           {/* Plain <a>: a prefetched Link would hit the OAuth start route. */}

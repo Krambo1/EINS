@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@eins/ui";
 import { rotatePvsSecretAction } from "../../actions";
-import { Copy, Loader2, Check, AlertTriangle } from "lucide-react";
+import { Copy, Check, AlertTriangle } from "lucide-react";
 
 export function N8nSecretReveal() {
   const [busy, setBusy] = useState(false);
@@ -22,13 +22,18 @@ export function N8nSecretReveal() {
     }
     setBusy(true);
     setError(null);
-    const r = await rotatePvsSecretAction();
-    if (!r.ok) {
-      setError(r.error);
-    } else {
-      setSecret(r.secretHex);
+    try {
+      const r = await rotatePvsSecretAction();
+      if (!r.ok) {
+        setError(r.error);
+      } else {
+        setSecret(r.secretHex);
+      }
+    } catch {
+      setError("Keine Verbindung. Bitte versuchen Sie es noch einmal.");
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   async function copy() {
@@ -41,7 +46,6 @@ export function N8nSecretReveal() {
   return (
     <div className="space-y-3">
       <Button onClick={rotate} disabled={busy}>
-        {busy && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
         {secret ? "Neuen Schlüssel erzeugen" : "Schlüssel erzeugen"}
       </Button>
 

@@ -100,13 +100,13 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.redirect(
-      new URL("/einstellungen?connected=google#integrationen", env.APP_ORIGIN)
+      new URL(payload.returnTo ?? "/einstellungen?connected=google#werbekonten", env.APP_ORIGIN)
     );
   } catch (err) {
     console.error("[oauth/google] exchange failed:", err);
     await clearStateCookie();
     return NextResponse.redirect(
-      new URL("/einstellungen?error=oauth_exchange#integrationen", env.APP_ORIGIN)
+      new URL("/einstellungen?error=oauth_exchange#werbekonten", env.APP_ORIGIN)
     );
   }
 }

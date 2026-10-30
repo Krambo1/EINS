@@ -97,6 +97,160 @@ export const KPIS: Kpi[] = [
 ];
 
 // ---------------------------------------------------------------
+// 2b. Neue Anfragen beantworten: Ablauf und Vorlagen für Telefon,
+// E-Mail und WhatsApp (Vertrag 2.11, Frist 6.1). Alle core.
+// ---------------------------------------------------------------
+export const ANFRAGE_INTRO =
+  "Für jede neue Anfrage im Portal, für die noch kein Termin online gebucht ist. Rufen Sie so schnell wie möglich zurück, am besten in den ersten 5 Minuten: Dann hat die Person ihre Anfrage noch vor Augen. Spätestens nach 48 Werkstunden (Montag bis Freitag, 9 bis 18 Uhr) muss der erste Kontaktversuch im Portal stehen.";
+
+export const ANFRAGE_RULES: string[] = [
+  "Erst den Namen bestätigen, dann die Behandlung nennen. Auf der Mailbox und in schriftlichen Nachrichten nennen Sie die Behandlung nie, weil dort leicht jemand anderes mithört oder mitliest.",
+  "Jeden Versuch im Portal vermerken. Nach einem Anruf tippen Sie auf „Erreicht“, „Nicht erreicht“ oder „Termin vereinbart“. Eine E-Mail oder WhatsApp-Nachricht halten Sie über „Nachricht vermerken“ fest. So sieht Ihr Team, welche Anfrage noch offen ist.",
+  "WhatsApp nur, wenn die Person Ihnen selbst per WhatsApp geschrieben oder WhatsApp als Kontaktweg angegeben hat. Und nur über Ihr WhatsApp-Business-API-Konto mit Auftragsverarbeitungsvertrag, nie vom privaten Handy.",
+  "Nach der letzten Nachricht am siebten Tag hören Sie auf. Wer bis dahin nicht antwortet, möchte gerade nicht. Weitere Nachrichten zählen schnell als Werbung, und dafür bräuchten Sie eine Einwilligung.",
+];
+
+export const ANFRAGE_CADENCE: CadenceRow[] = [
+  { time: "Sofort, am besten in 5 Minuten", channel: "Anruf", purpose: "Zurückrufen. Erreicht: Bedarf klären, zwei Termine zur Wahl anbieten." },
+  { time: "Direkt nach dem verpassten Anruf", channel: "Mailbox, dann E-Mail oder WhatsApp", purpose: "Kurz melden, Rückrufnummer und Erreichbarkeit nennen." },
+  { time: "Nächster Werktag", channel: "Anruf", purpose: "Zweiter Versuch zu einer anderen Tageszeit, etwa nachmittags statt vormittags." },
+  { time: "Nach dem zweiten verpassten Anruf", channel: "E-Mail oder WhatsApp", purpose: "Um eine Uhrzeit bitten, die der Person passt." },
+  { time: "7 Tage nach der Anfrage", channel: "E-Mail", purpose: "Letzte Nachricht. Danach Status „Verloren“ und keine weitere Nachricht." },
+];
+
+export type AnfrageChannel = "telefon" | "email" | "whatsapp";
+
+export const ANFRAGE_CHANNELS: { id: AnfrageChannel; label: string }[] = [
+  { id: "telefon", label: "Telefon" },
+  { id: "email", label: "E-Mail" },
+  { id: "whatsapp", label: "WhatsApp" },
+];
+
+export interface AnfrageTemplate {
+  id: string;
+  channel: AnfrageChannel;
+  title: string;
+  text: string;
+  /** Hinweis für das Team unter der Vorlage, nicht für die Person. */
+  note?: string;
+  core: boolean;
+}
+
+export const ANFRAGE_TEMPLATES: AnfrageTemplate[] = [
+  {
+    id: "rueckruf",
+    channel: "telefon",
+    title: "Rückruf auf eine neue Anfrage",
+    core: true,
+    text: `Sie: „Guten Tag, hier ist [Vorname Nachname] von der [Praxisname]. Spreche ich mit Frau / Herrn [Nachname]?“
+
+Person: „Ja.“
+
+Sie: „Sie hatten uns ja [heute / gestern] wegen [Behandlung] geschrieben. Passt es gerade kurz?“
+
+Wenn es gerade nicht passt:
+Sie: „Kein Problem. Wann erreiche ich Sie denn besser?“
+
+Wenn es passt:
+Sie: „Schön. Erzählen Sie mal, worum geht es Ihnen genau?“
+
+Wenn jemand anderes abnimmt:
+Sie: „Dann versuche ich es einfach später noch mal. Danke Ihnen.“`,
+    note: "Die Behandlung nennen Sie erst, wenn die richtige Person am Telefon ist. Passt es, geht es weiter mit „Bedarf klären“ und zum Schluss mit zwei Terminen zur Wahl. Eine Wunschzeit für den Rückruf halten Sie als Notiz an der Anfrage fest.",
+  },
+  {
+    id: "mailbox",
+    channel: "telefon",
+    title: "Nachricht auf der Mailbox",
+    core: true,
+    text: `„Guten Tag, hier ist [Vorname] von der [Praxisname]. Ich melde mich wegen Ihrer Anfrage. Rufen Sie uns gern zurück unter [Telefonnummer], wir sind Montag bis Freitag von [Uhrzeit] bis [Uhrzeit] Uhr da. Ich schicke Ihnen gleich noch eine kurze Nachricht. Bis bald.“`,
+    note: "Langsam sprechen und die Nummer zweimal sagen. Keine Behandlung nennen, die Mailbox hört vielleicht jemand anderes ab.",
+  },
+  {
+    id: "mail-erste",
+    channel: "email",
+    title: "Erste E-Mail nach dem verpassten Anruf",
+    core: true,
+    text: `Betreff: Ihre Anfrage bei der [Praxisname]
+
+Guten Tag Frau / Herr [Nachname],
+
+danke für Ihre Anfrage. Ich habe eben versucht, Sie anzurufen, und Sie leider nicht erreicht.
+
+Am einfachsten klären wir Ihre Fragen in einem kurzen Telefonat, das dauert etwa 10 Minuten. Antworten Sie einfach mit einer Uhrzeit, die Ihnen passt, dann rufe ich Sie an. Sie können uns auch selbst anrufen: [Telefonnummer], Montag bis Freitag von [Uhrzeit] bis [Uhrzeit] Uhr.
+
+Lieber gleich einen Beratungstermin? Freie Zeiten sehen Sie hier: [Link zur Online-Buchung]
+
+Viele Grüße
+[Vorname Nachname]
+[Praxisname]
+[Telefonnummer]`,
+    note: "Die Zeile mit dem Buchungslink streichen Sie, wenn Ihre Praxis keine Online-Buchung hat.",
+  },
+  {
+    id: "mail-zweite",
+    channel: "email",
+    title: "E-Mail nach dem zweiten verpassten Anruf",
+    core: true,
+    text: `Betreff: Wir haben Sie leider nicht erreicht
+
+Guten Tag Frau / Herr [Nachname],
+
+wir haben Sie am [Wochentag] und heute angerufen, beide Male ohne Glück. Telefonieren passt ja nicht immer in den Tag.
+
+Schreiben Sie mir doch kurz zurück, wann ich Sie am besten erreiche; zwei Uhrzeiten reichen. Wenn Ihnen Schreiben lieber ist, beantworte ich Ihre Fragen zum Ablauf auch gern per E-Mail.
+
+Falls sich Ihre Anfrage inzwischen erledigt hat, genügt ein kurzes „Erledigt“. Dann melden wir uns nicht mehr.
+
+Viele Grüße
+[Vorname Nachname]
+[Praxisname]
+[Telefonnummer]`,
+  },
+  {
+    id: "mail-letzte",
+    channel: "email",
+    title: "Letzte E-Mail nach 7 Tagen ohne Antwort",
+    core: true,
+    text: `Betreff: Ihre Anfrage vom [Datum]
+
+Guten Tag Frau / Herr [Nachname],
+
+auf Ihre Anfrage vom [Datum] haben wir bisher nichts von Ihnen gehört. Das ist unsere letzte Nachricht dazu, wir möchten Sie nicht drängen.
+
+Wenn Sie später doch noch Fragen haben, melden Sie sich einfach unter [Telefonnummer] oder antworten Sie auf diese E-Mail.
+
+Alles Gute
+[Vorname Nachname]
+[Praxisname]`,
+    note: "Danach keine weitere Nachricht. Setzen Sie im Portal den Status auf „Verloren“. Meldet sich die Person später doch, machen Sie dort einfach weiter.",
+  },
+  {
+    id: "wa-erste",
+    channel: "whatsapp",
+    title: "Erste WhatsApp-Nachricht",
+    core: true,
+    text: `Guten Tag Frau / Herr [Nachname], hier ist [Vorname] von der [Praxisname]. Danke für Ihre Anfrage.
+
+Am besten besprechen wir alles kurz am Telefon, das dauert etwa 10 Minuten. Wann passt es Ihnen heute oder morgen? Dann rufe ich Sie an.
+
+Viele Grüße
+[Vorname], [Praxisname]`,
+    note: "In WhatsApp schreiben Sie nie die Behandlung und geben keine Einschätzung zu Fotos. Schickt die Person Fotos, bitten Sie darum, sie zur Beratung mitzubringen; die Einschätzung gibt dort die Ärztin oder der Arzt.",
+  },
+  {
+    id: "wa-zweite",
+    channel: "whatsapp",
+    title: "WhatsApp nach dem zweiten verpassten Anruf",
+    core: true,
+    text: `Guten Tag Frau / Herr [Nachname], ich habe heute noch mal versucht, Sie anzurufen. Schreiben Sie mir einfach eine Uhrzeit, die Ihnen passt, dann melde ich mich. Oder Sie rufen selbst an: [Telefonnummer].
+
+Viele Grüße
+[Vorname], [Praxisname]`,
+  },
+];
+
+// ---------------------------------------------------------------
 // 3. Vor jedem Anruf in 30 Sekunden (Prep, alle core)
 // ---------------------------------------------------------------
 export interface PrepStep {
@@ -139,7 +293,7 @@ export const OPENING_SCRIPTS: OpeningScript[] = [
   {
     id: "behandlung",
     title: "Patient nennt sofort eine Behandlung",
-    patientLine: "Patient: „Ich habe Ihre Anzeige gesehen, ich interessiere mich für [Behandlung].“",
+    patientLine: "Patient: „Ich habe Ihr Video auf Instagram gesehen, ich interessiere mich für [Behandlung].“",
     quote: "Schön, dass Sie sich melden, Frau / Herr [Nachname]. Ich nehme mir gerne fünf Minuten für Sie, damit ich verstehe, worum es Ihnen geht und Ihnen den passenden Termin anbieten kann. Ist das in Ordnung?",
     note: "Gesprächsführung übernehmen, Zustimmung holen, die Bedarfsfragen ankündigen.",
     core: false,
@@ -226,7 +380,7 @@ export const DISCOVERY_BLOCKS: DiscoveryBlock[] = [
     start: 11,
     items: [
       "„Wo wohnen Sie ungefähr? Ist [Praxisstadt] gut für Sie zu erreichen?“",
-      "„Gab es einen Grund, warum Sie sich gerade für unsere Praxis interessieren? Empfehlung, Anzeige, Recherche?“",
+      "„Gab es einen Grund, warum Sie sich gerade für unsere Praxis interessieren? Empfehlung, ein Beitrag auf Instagram, eine Anzeige, eigene Recherche?“",
       "„Haben Sie aktuell gesundheitliche Themen, die wir vor dem Termin wissen sollten? Medikamente, Allergien, Vor-Operationen?“",
       "„Haben Sie Vorbehalte oder etwas, das Sie nervös macht beim Gedanken an die Behandlung? Das klären wir gern offen.“",
     ],

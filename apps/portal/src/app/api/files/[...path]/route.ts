@@ -6,6 +6,7 @@ import { getSession } from "@/auth/session";
 import { documentByStorageKey } from "@/server/queries/documents";
 import { documentVisibleToRole } from "@/lib/roles";
 import { hasR2 } from "@/lib/env";
+import { attachmentDisposition } from "@/server/storage";
 
 /**
  * Dev-only passthrough for locally stored assets.
@@ -25,7 +26,7 @@ import { hasR2 } from "@/lib/env";
 const STORAGE_ROOT = resolve(process.cwd(), "storage");
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   if (hasR2() || process.env.NODE_ENV === "production") {
@@ -88,6 +89,7 @@ export async function GET(
     }
     // Guess a content type from extension — good enough for the dev path.
     const ct = contentTypeFor(real);
+    const downloadName = req.nextUrl.searchParams.get("download");
     const stream = createReadStream(real);
     return new NextResponse(stream as unknown as ReadableStream, {
       status: 200,
@@ -97,6 +99,9 @@ export async function GET(
         "Cache-Control": "private, max-age=60",
         // Strip the path from referrers to avoid leaking key structure.
         "Referrer-Policy": "no-referrer",
+        // `?download=<name>` saves the file under its name, as the presigned
+        // R2 URL does with ResponseContentDisposition (storage.urlFor).
+        ...(downloadName ? { "Content-Disposition": attachmentDisposition(downloadName) } : {}),
       },
     });
   } catch {

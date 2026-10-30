@@ -152,7 +152,7 @@ export const CHECKLIST_BLOCKS: ChecklistBlock[] = [
         blocker: true,
         role: "inhaber",
         anleitung:
-          'Den AVV stellt EINS bereit: Sie finden ihn im Portal unter Dokumente, Kategorie "Auftragsverarbeitungsvertrag". Bitte ausdrucken oder digital signieren, von der vertretungsberechtigten Person unterschreiben lassen und die unterschriebene Fassung hier als PDF hochladen.',
+          'Den AVV stellt EINS bereit: Sie finden ihn im Portal unter Dateien, bei den Dateien von EINS. Bitte ausdrucken oder digital signieren, von der vertretungsberechtigten Person unterschreiben lassen und die unterschriebene Fassung hier als PDF hochladen.',
         warum:
           "Ohne unterschriebenen AVV dürfen wir keine personenbezogenen Daten für Sie verarbeiten; die Leistungserbringung startet erst danach (Hauptvertrag § 3 Abs. 3).",
       },
@@ -235,9 +235,9 @@ export const CHECKLIST_BLOCKS: ChecklistBlock[] = [
   },
   {
     key: "B",
-    title: "Zugänge zu Werbekonten und Plattformen",
+    title: "Zugänge zu Ihren Kanälen und Werbekonten",
     intro:
-      "Alle Zugänge per Einladung oder Partnerfreigabe an EINS. Bitte niemals Passwörter per E-Mail oder Telefon weitergeben, wir fragen auch nie danach. Frist für Instagram, Facebook, Meta Business Manager und die Domain: 3 Werktage nach Unterschrift.",
+      "Alle Zugänge per Einladung oder Partnerfreigabe an EINS. Bitte niemals Passwörter per E-Mail oder Telefon weitergeben, wir fragen auch nie danach. Frist für Instagram, Facebook, Meta Business Manager und die Domain: 3 Werktage nach Unterschrift. Die Werbekonten brauchen wir erst, wenn Anzeigen dazukommen.",
     items: [
       {
         id: "B1",
@@ -264,31 +264,35 @@ Falls Ihre Praxis keinen Business Manager hat: Wählen Sie "Nicht vorhanden". Wi
         blocker: false,
         role: "team",
         anleitung:
-          'Im selben Bereich ("Unternehmenseinstellungen" im Business Manager): Ordnen Sie EINS als Partner Ihre Facebook-Seite und Ihr Instagram-Konto mit voller Kontrolle bzw. Admin-Zugriff zu ("Konten" → "Seiten" / "Instagram-Konten" → Asset auswählen → "Partner zuweisen"). Falls Ihr Instagram-Konto noch nicht mit dem Business Manager verbunden ist, verbinden Sie es dort unter "Konten" → "Instagram-Konten" → "Hinzufügen".',
+          'Im selben Bereich ("Unternehmenseinstellungen" im Business Manager): Ordnen Sie EINS als Partner Ihre Facebook-Seite und Ihr Instagram-Konto mit voller Kontrolle bzw. Admin-Zugriff zu ("Konten" → "Seiten" / "Instagram-Konten" → Asset auswählen → "Partner zuweisen"). Falls Ihr Instagram-Konto noch nicht mit dem Business Manager verbunden ist, verbinden Sie es dort unter "Konten" → "Instagram-Konten" → "Hinzufügen". Dafür muss es ein professionelles Konto sein: in der Instagram-App unter "Einstellungen" → "Kontotyp und Tools" → "Zu professionellem Konto wechseln".',
+        warum:
+          "Ihre Beiträge erscheinen zuerst organisch auf Instagram und Facebook. Über diese Konten veröffentlichen wir sie und sehen, welche Beiträge Anfragen bringen.",
       },
       {
         id: "B3",
-        title: "Meta-Werbekonto: Zugriff und Zahlungsmittel",
+        title: "Meta-Werbekonto: Zugriff und Zahlungsmittel (erst für Anzeigen)",
         deliveryType: "einladung",
-        required: true,
+        required: false,
         blocker: false,
         role: "team",
         allowNichtVorhanden: true,
-        anleitung: `1. Weisen Sie EINS Ihr Werbekonto als Partner zu ("Konten" → "Werbekonten" → "Partner zuweisen", Zugriff "Werbekonto verwalten").
-2. Hinterlegen Sie ein Zahlungsmittel der Praxis (Kreditkarte oder Lastschrift) unter "Abrechnung und Zahlungen". Das Werbebudget zahlen Sie direkt an Meta, nicht an EINS. Zu Beginn brauchen Sie kein Werbebudget, wir starten organisch.
+        anleitung: `Zu Beginn brauchen Sie kein Werbebudget, wir starten organisch. Diesen Punkt brauchen wir erst, wenn Anzeigen dazukommen. Wenn Sie schon ein Werbekonto haben, können Sie den Zugriff gern jetzt freigeben:
+1. Weisen Sie EINS Ihr Werbekonto als Partner zu ("Konten" → "Werbekonten" → "Partner zuweisen", Zugriff "Werbekonto verwalten").
+2. Hinterlegen Sie ein Zahlungsmittel der Praxis (Kreditkarte oder Lastschrift) unter "Abrechnung und Zahlungen". Das Werbebudget zahlen Sie direkt an Meta, nicht an EINS.
 3. Haken Sie ab, wenn beides erledigt ist.
 
 Falls kein Werbekonto existiert: "Nicht vorhanden" wählen, wir legen es gemeinsam an, sobald Anzeigen dazukommen.`,
       },
       {
         id: "B4",
-        title: "Google Ads-Konto: Zugriff",
+        title: "Google Ads-Konto: Zugriff (erst für Anzeigen)",
         deliveryType: "einladung",
-        required: true,
+        required: false,
         blocker: false,
         role: "team",
         allowNichtVorhanden: true,
-        anleitung: `1. Öffnen Sie ads.google.com und melden Sie sich an.
+        anleitung: `Diesen Punkt brauchen wir erst, wenn Anzeigen bei Google dazukommen. Wenn Sie schon ein Konto haben, können Sie den Zugriff gern jetzt freigeben:
+1. Öffnen Sie ads.google.com und melden Sie sich an.
 2. Klicken Sie oben rechts auf "Verwaltung" (Werkzeug-Symbol), dann "Zugriff und Sicherheit".
 3. Klicken Sie auf das Plus und laden Sie diese E-Mail-Adresse mit Zugriffsebene "Administrator" ein: ${EINS_CONTACT.adsEmail}
 4. Haken Sie "Einladung verschickt" ab.

@@ -53,9 +53,9 @@ Frist für die Klon-Aufnahme und die Einwilligung: 3 Werktage nach Unterschrift.
 
 ---
 
-## Block B: Zugänge zu Werbekonten und Plattformen
+## Block B: Zugänge zu Ihren Kanälen und Werbekonten
 
-Grundsatz, steht über dem Block: **Alle Zugänge per Einladung oder Partnerfreigabe an EINS. Bitte niemals Passwörter per E-Mail oder Telefon weitergeben, wir fragen auch nie danach.** Frist für Instagram, Facebook, Meta Business Manager und die Domain: 3 Werktage nach Unterschrift.
+Grundsatz, steht über dem Block: **Alle Zugänge per Einladung oder Partnerfreigabe an EINS. Bitte niemals Passwörter per E-Mail oder Telefon weitergeben, wir fragen auch nie danach.** Frist für Instagram, Facebook, Meta Business Manager und die Domain: 3 Werktage nach Unterschrift. Die Werbekonten brauchen wir erst, wenn Anzeigen dazukommen.
 
 ### B1 · Meta Business Manager: Partnerzugriff · `einladung` · Pflicht · team · "nicht vorhanden" erlaubt
 **Anleitung:**
@@ -69,18 +69,19 @@ Grundsatz, steht über dem Block: **Alle Zugänge per Einladung oder Partnerfrei
 Falls Ihre Praxis keinen Business Manager hat: Wählen Sie "Nicht vorhanden". Wir legen ihn im Onboarding-Gespräch gemeinsam an, das dauert etwa 15 Minuten.
 
 ### B2 · Facebook-Seite und Instagram-Konto: Vollzugriff · `einladung` · Pflicht · team
-**Anleitung:** Im selben Bereich ("Unternehmenseinstellungen" im Business Manager): Ordnen Sie EINS als Partner Ihre Facebook-Seite und Ihr Instagram-Konto mit voller Kontrolle bzw. Admin-Zugriff zu ("Konten" → "Seiten" / "Instagram-Konten" → Asset auswählen → "Partner zuweisen"). Falls Ihr Instagram-Konto noch nicht mit dem Business Manager verbunden ist, verbinden Sie es dort unter "Konten" → "Instagram-Konten" → "Hinzufügen".
+**Anleitung:** Im selben Bereich ("Unternehmenseinstellungen" im Business Manager): Ordnen Sie EINS als Partner Ihre Facebook-Seite und Ihr Instagram-Konto mit voller Kontrolle bzw. Admin-Zugriff zu ("Konten" → "Seiten" / "Instagram-Konten" → Asset auswählen → "Partner zuweisen"). Falls Ihr Instagram-Konto noch nicht mit dem Business Manager verbunden ist, verbinden Sie es dort unter "Konten" → "Instagram-Konten" → "Hinzufügen". Dafür muss es ein professionelles Konto sein: in der Instagram-App unter "Einstellungen" → "Kontotyp und Tools" → "Zu professionellem Konto wechseln".
+**Warum:** Ihre Beiträge erscheinen zuerst organisch auf Instagram und Facebook. Über diese Konten veröffentlichen wir sie und sehen, welche Beiträge Anfragen bringen.
 
-### B3 · Meta-Werbekonto: Zugriff und Zahlungsmittel · `einladung` · Pflicht · team
-**Anleitung:**
+### B3 · Meta-Werbekonto: Zugriff und Zahlungsmittel (erst für Anzeigen) · `einladung` · Optional · team · "nicht vorhanden" erlaubt
+**Anleitung:** Zu Beginn brauchen Sie kein Werbebudget, wir starten organisch. Diesen Punkt brauchen wir erst, wenn Anzeigen dazukommen. Wenn Sie schon ein Werbekonto haben, können Sie den Zugriff gern jetzt freigeben:
 1. Weisen Sie EINS Ihr Werbekonto als Partner zu ("Konten" → "Werbekonten" → "Partner zuweisen", Zugriff "Werbekonto verwalten").
-2. Hinterlegen Sie ein Zahlungsmittel der Praxis (Kreditkarte oder Lastschrift) unter "Abrechnung und Zahlungen". Das Werbebudget zahlen Sie direkt an Meta, nicht an EINS. Zu Beginn brauchen Sie kein Werbebudget, wir starten organisch.
+2. Hinterlegen Sie ein Zahlungsmittel der Praxis (Kreditkarte oder Lastschrift) unter "Abrechnung und Zahlungen". Das Werbebudget zahlen Sie direkt an Meta, nicht an EINS.
 3. Haken Sie ab, wenn beides erledigt ist.
 
 Falls kein Werbekonto existiert: "Nicht vorhanden" wählen, wir legen es gemeinsam an, sobald Anzeigen dazukommen.
 
-### B4 · Google Ads-Konto: Zugriff · `einladung` · Pflicht · team · "nicht vorhanden" erlaubt
-**Anleitung:**
+### B4 · Google Ads-Konto: Zugriff (erst für Anzeigen) · `einladung` · Optional · team · "nicht vorhanden" erlaubt
+**Anleitung:** Diesen Punkt brauchen wir erst, wenn Anzeigen bei Google dazukommen. Wenn Sie schon ein Konto haben, können Sie den Zugriff gern jetzt freigeben:
 1. Öffnen Sie ads.google.com und melden Sie sich an.
 2. Klicken Sie oben rechts auf "Verwaltung" (Werkzeug-Symbol), dann "Zugriff und Sicherheit".
 3. Klicken Sie auf das Plus und laden Sie diese E-Mail-Adresse mit Zugriffsebene "Administrator" ein: **{{EINS_ADS_EMAIL}}**

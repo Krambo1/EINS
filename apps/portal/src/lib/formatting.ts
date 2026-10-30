@@ -129,6 +129,12 @@ export function formatNumber(value: number | null | undefined): string {
   return numberFormatter.format(value);
 }
 
+/** Werbeertrag (ROAS) the way the clinic dashboard shows it: "6,1×". */
+export function formatRoas(value: number | null | undefined): string {
+  if (value == null || Number.isNaN(value)) return "–";
+  return `${value.toFixed(1).replace(".", ",")}×`;
+}
+
 export function formatPercent(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value)) return "–";
   return percentFormatter.format(value);

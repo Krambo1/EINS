@@ -5,6 +5,8 @@ import {
   templatesByBucket,
   bucketForRating,
   REPLY_BUCKET_ORDER,
+  fillTemplate,
+  templateParts,
 } from "./reply-templates";
 
 describe("reply-templates", () => {
@@ -43,5 +45,31 @@ describe("reply-templates", () => {
     expect(bucketForRating(2)).toBe("kritisch");
     expect(bucketForRating(1)).toBe("kritisch");
     expect(bucketForRating(null)).toBe("neutral");
+  });
+});
+
+describe("fillTemplate", () => {
+  it("fills the Praxis name and leaves [Vorname] without one", () => {
+    expect(fillTemplate("Danke, [Vorname]. Ihr Team der Praxis [Praxisname].", { praxisname: "Hautzentrum Mitte" })).toBe(
+      "Danke, [Vorname]. Ihr Team der Praxis Hautzentrum Mitte."
+    );
+  });
+  it("does not double the word Praxis", () => {
+    expect(fillTemplate("in der Praxis [Praxisname] und [Praxisname]", { praxisname: "Praxis Dr. Demo" })).toBe(
+      "in der Praxis Dr. Demo und Praxis Dr. Demo"
+    );
+  });
+  it("keeps the text when nothing is known", () => {
+    expect(fillTemplate("[Vorname] [Praxisname]", { praxisname: "  " })).toBe("[Vorname] [Praxisname]");
+  });
+});
+
+describe("templateParts", () => {
+  it("marks the placeholders left", () => {
+    expect(templateParts("Liebe/r [Vorname], danke.")).toEqual([
+      { text: "Liebe/r ", placeholder: false },
+      { text: "[Vorname]", placeholder: true },
+      { text: ", danke.", placeholder: false },
+    ]);
   });
 });

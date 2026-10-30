@@ -1,11 +1,12 @@
-import { Card, CardContent, CardHeader, CardTitle } from "@eins/ui";
 import { REQUEST_STATUS_LABELS } from "@/lib/constants";
 import { formatNumber } from "@/lib/formatting";
 import { SegmentedShareBar } from "@/app/_components/SegmentedShareBar";
 import { SHARE_TONE_VAR, type ShareTone } from "@/lib/share-tone";
 import { TimeRangeToggle } from "@/app/_components/TimeRangeToggle";
 import { ADMIN_RANGE_KEYS, type DashboardRange } from "@/lib/dashboard-range";
-import type { FunnelBucket } from "@/server/queries/admin";
+import type { AiCategoryDistribution, FunnelBucket } from "@/server/queries/admin";
+import { AiScoreList } from "./AiScoreSection";
+import { Panel } from "./Panel";
 
 const STATUS_TONE: Record<string, ShareTone> = {
   neu: "neutral",
@@ -17,18 +18,23 @@ const STATUS_TONE: Record<string, ShareTone> = {
 };
 
 /**
- * Anfragen-Pipeline: the status distribution rendered through the shared segmented
- * share bar (the same visual as the clinic's Quellen-Aufschlüsselung), directly
- * on the card surface (no inner boxes). Owns its own time window via the
- * rPipeline switcher. The KI-Bewertung lives in its own card alongside this one
- * (see AiScoreSection).
+ * Anfragen im gewählten Zeitraum, two ways: by status (the shared segmented
+ * share bar, the same visual as the clinic's Quellen) and by KI-Bewertung.
+ * Both describe the same Anfragen, so they share one panel, one count and one
+ * time switch (rPipeline).
+ *
+ * lg: the two lists sit on thirds. With the panel's px-4, gap-x-12 puts each
+ * column's text exactly on the text edge of the thirds panels above (Garantie-
+ * Uhr | Rückruf-Lage, the number tiles), so the page reads as one grid.
  */
 export function PipelineSection({
   funnel,
-  funnelRange,
+  ai,
+  range,
 }: {
   funnel: FunnelBucket[];
-  funnelRange: DashboardRange;
+  ai: AiCategoryDistribution;
+  range: DashboardRange;
 }) {
   const totalLeads = funnel.reduce((s, b) => s + b.count, 0);
   const segments = funnel
@@ -41,63 +47,52 @@ export function PipelineSection({
     }));
 
   return (
-    <Card
-      className="flex h-full flex-col print:break-inside-avoid"
-      style={{
-        backgroundColor: "var(--bg-card)",
-        boxShadow: "var(--shadow-card)",
-      }}
+    <Panel
+      title="Anfragen"
+      count={totalLeads}
+      action={
+        <TimeRangeToggle
+          value={range}
+          paramKey={ADMIN_RANGE_KEYS.pipeline}
+          ariaLabel="Zeitraum für Anfragen"
+        />
+      }
+      bodyClassName="px-4 pb-4 pt-2"
     >
-      <CardHeader>
-        <CardTitle className="!text-xl !font-medium md:!text-2xl">
-          Anfragen nach Status
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-8">
-        <section className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-baseline gap-2">
-              <span className="text-sm font-medium text-fg-primary">
-                Status-Verteilung
-              </span>
-              <span className="font-display text-lg font-semibold tabular-nums text-fg-primary">
-                {formatNumber(totalLeads)}
-              </span>
-            </div>
-            <TimeRangeToggle
-              value={funnelRange}
-              paramKey={ADMIN_RANGE_KEYS.pipeline}
-              ariaLabel="Zeitraum für Status-Verteilung"
+      {segments.length === 0 ? (
+        // No empty bar outline and no rows of 0: one sentence says it.
+        <p className="text-sm text-fg-secondary">Keine Anfragen im Zeitraum.</p>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-3 lg:gap-x-12">
+          <section className="min-w-0 space-y-3 lg:col-span-2">
+            <h3 className="text-sm font-medium text-fg-primary">Status</h3>
+            <SegmentedShareBar
+              segments={segments}
+              ariaLabel={`Status-Verteilung: ${formatNumber(totalLeads)} Anfragen`}
+              valueFormat="number"
             />
-          </div>
-          <SegmentedShareBar
-            segments={segments}
-            ariaLabel={`Status-Verteilung: ${formatNumber(totalLeads)} Anfragen`}
-            valueFormat="number"
-          />
-          {segments.length > 0 ? (
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+            <ul className="divide-y divide-border">
               {segments.map((s) => (
-                <span key={s.key} className="inline-flex items-center gap-1.5">
+                <li key={s.key} className="flex items-center gap-2 py-2 text-sm">
                   <span
-                    className="inline-block h-2.5 w-2.5 rounded-sm"
+                    className="inline-block h-2 w-2 shrink-0 rounded-sm"
                     style={{ background: SHARE_TONE_VAR[s.tone] }}
                     aria-hidden
                   />
-                  <span className="text-fg-primary">{s.label}</span>
-                  <span className="tabular-nums text-fg-secondary">
+                  <span className="min-w-0 flex-1 text-fg-primary">{s.label}</span>
+                  <span className="w-10 text-right font-medium tabular-nums text-fg-primary">
                     {formatNumber(s.value)}
                   </span>
-                </span>
+                </li>
               ))}
-            </div>
-          ) : (
-            <p className="text-sm text-fg-primary">
-              Keine Anfragen im Zeitraum.
-            </p>
-          )}
-        </section>
-      </CardContent>
-    </Card>
+            </ul>
+          </section>
+          <section className="min-w-0 space-y-3">
+            <h3 className="text-sm font-medium text-fg-primary">KI-Bewertung</h3>
+            <AiScoreList ai={ai} />
+          </section>
+        </div>
+      )}
+    </Panel>
   );
 }

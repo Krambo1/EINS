@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { assertDeletablePrefix, isPublicKey } from "./storage";
+import { assertDeletablePrefix, attachmentDisposition, isPublicKey } from "./storage";
 
 describe("public keys (L-11)", () => {
   it("only avatars may be served without a signature", () => {
@@ -12,6 +12,19 @@ describe("public keys (L-11)", () => {
     expect(isPublicKey("c1/reports/2026-09.pdf")).toBe(false);
     expect(isPublicKey("pvs-csv-uploads/c1/x.csv")).toBe(false);
     expect(isPublicKey("avatars/../backups/x")).toBe(false);
+  });
+});
+
+describe("download names", () => {
+  it("keeps the exact name and gives old clients a plain one", () => {
+    expect(attachmentDisposition("Prüfbericht Oktober 2026.pdf")).toBe(
+      `attachment; filename="Pr_fbericht Oktober 2026.pdf"; filename*=UTF-8''Pr%C3%BCfbericht%20Oktober%202026.pdf`
+    );
+  });
+  it("cannot break out of the header", () => {
+    const h = attachmentDisposition('a"b\\c\r\nSet-Cookie: x.pdf');
+    expect(h).not.toMatch(/[\r\n]/);
+    expect(h.split('filename="')[1]!.split('"')[0]).toBe("a_b_c__Set-Cookie: x.pdf");
   });
 });
 

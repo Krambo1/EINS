@@ -10,6 +10,13 @@ import { requirePermissionOrRedirect } from "@/auth/guards";
 import {
   PRINCIPLES,
   KPIS,
+  ANFRAGE_INTRO,
+  ANFRAGE_RULES,
+  ANFRAGE_CADENCE,
+  ANFRAGE_CHANNELS,
+  ANFRAGE_TEMPLATES,
+  type AnfrageChannel,
+  type CadenceRow,
   PREP_STEPS,
   OPENING_SCRIPTS,
   DISCOVERY_INTRO,
@@ -33,22 +40,31 @@ import {
   Users,
   ArrowRight,
   FileText,
+  Phone,
+  Mail,
 } from "lucide-react";
 
 export const metadata = { title: "Vertriebsleitfaden" };
 
 /**
- * Staff-facing playbook for clinic reception/sales handling inbound calls from
- * Meta/Google ad leads. HWG-konform, Sie-Form.
+ * Staff-facing playbook for clinic reception/sales handling inbound Anfragen
+ * from organic posts and ads. HWG-konform, Sie-Form.
  *
  * This is the KURZFASSUNG: it renders only the `core` items from
  * `./content.ts`, reordered so the richest, most-referenced material leads
- * (Prinzipien → KPI → Eröffnung → Einwände → HWG → Close). The COMPLETE
+ * (Prinzipien → KPI → Anfragen beantworten → Eröffnung → Einwände → HWG →
+ * Close). The COMPLETE
  * playbook (all 23 Einwände, all 7 HWG-Tabellen, every No-Show-Vorlage, plus
  * the Vermeiden-Liste, Cheat-Sheet and Rechtsgrundlagen) is generated from the
- * SAME `content.ts` into a downloadable PDF under /dokumente, so the page and
+ * SAME `content.ts` into a downloadable PDF on the Dateien page (/dateien), so the page and
  * the PDF can never drift. Edit copy in `content.ts`, not here.
  */
+
+const CHANNEL_ICONS: Record<AnfrageChannel, ComponentType<{ className?: string }>> = {
+  telefon: Phone,
+  email: Mail,
+  whatsapp: MessageCircle,
+};
 
 const PRINCIPLE_ICONS: Record<PrincipleIcon, ComponentType<{ className?: string }>> = {
   HeartHandshake,
@@ -76,13 +92,13 @@ export default async function LeitfadenPage() {
       <header>
         <h1 className="text-3xl font-semibold md:text-4xl">Vertriebsleitfaden.</h1>
         <p className="mt-2 text-base text-fg-primary md:text-lg">
-          So verwandeln Sie eine Anfrage in einen Beratungstermin, ohne gegen HWG, MBO-Ä oder DSGVO zu verstoßen. Bewährte Abläufe für eingehende Anrufe aus Meta- und Google-Anzeigen.
+          So verwandeln Sie eine Anfrage in einen Beratungstermin, ohne gegen HWG, MBO-Ä oder DSGVO zu verstoßen. Bewährte Abläufe für Anfragen aus Ihren Beiträgen und Anzeigen.
         </p>
       </header>
 
-      {/* Kurzfassung-Banner → vollständige PDF unter Dokumente */}
+      {/* Kurzfassung-Banner → vollständige PDF unter Dateien */}
       <Link
-        href="/dokumente?kind=vertriebsleitfaden"
+        href="/dateien?kind=vertriebsleitfaden"
         className="flex items-center gap-4 rounded-2xl border border-[var(--accent-glow)] bg-accent-soft p-4 transition hover:border-accent md:p-5"
       >
         <div className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-accent-soft text-accent">
@@ -93,7 +109,7 @@ export default async function LeitfadenPage() {
             Dies ist die Kurzfassung.
           </div>
           <p className="text-sm text-fg-primary">
-            Die vollständige Version mit allen Einwänden, HWG-Tabellen und Vorlagen finden Sie als PDF unter Dokumente.
+            Die vollständige Version mit allen Einwänden, HWG-Tabellen und Vorlagen finden Sie als PDF unter Dateien.
           </p>
         </div>
         <ArrowRight className="h-5 w-5 shrink-0 text-accent" />
@@ -121,6 +137,36 @@ export default async function LeitfadenPage() {
           {coreKpis.map((k) => (
             <Kpi key={k.id} label={k.label} value={k.value} hint={k.hint} />
           ))}
+        </div>
+      </section>
+
+      {/* 2b. Neue Anfragen beantworten (Vertrag 2.11) */}
+      <section id="anfragen" className="scroll-mt-24">
+        <h3 className="opa-h3 mb-4 text-fg-primary">
+          Neue Anfragen beantworten: Telefon, E-Mail, WhatsApp
+        </h3>
+        <div className="space-y-6">
+          <p className="text-base text-fg-primary">{ANFRAGE_INTRO}</p>
+          <ul className="ml-5 list-disc space-y-2 text-base text-fg-primary">
+            {ANFRAGE_RULES.map((r, i) => (
+              <li key={i}>{r}</li>
+            ))}
+          </ul>
+          <CadenceTable rows={ANFRAGE_CADENCE} />
+          {ANFRAGE_CHANNELS.map((c) => {
+            const items = ANFRAGE_TEMPLATES.filter((t) => t.channel === c.id && t.core);
+            if (items.length === 0) return null;
+            const Icon = CHANNEL_ICONS[c.id];
+            return (
+              <ObjectionGroup key={c.id} label={c.label} icon={<Icon className="h-4 w-4 text-accent" />}>
+                <Accordion type="multiple" className="space-y-2">
+                  {items.map((t) => (
+                    <Template key={t.id} value={t.id} title={t.title} text={t.text} note={t.note} />
+                  ))}
+                </Accordion>
+              </ObjectionGroup>
+            );
+          })}
         </div>
       </section>
 
@@ -152,7 +198,7 @@ export default async function LeitfadenPage() {
         <h3 className="opa-h3 mb-4 text-fg-primary">Einwandbehandlung: die häufigsten Einwände</h3>
         <div className="space-y-6">
           <p className="text-sm text-fg-secondary">
-            Pro Eintrag: eigentliche Sorge, HWG-konforme Antwort wortwörtlich, was zu vermeiden ist. Sie können die Antworten direkt vorlesen. Alle 23 Einwände stehen in der PDF unter Dokumente.
+            Pro Eintrag: eigentliche Sorge, HWG-konforme Antwort wortwörtlich, was zu vermeiden ist. Sie können die Antworten direkt vorlesen. Alle 23 Einwände stehen in der PDF unter Dateien.
           </p>
           {OBJECTION_GROUPS.map((g) => {
             const items = OBJECTIONS.filter((o) => o.group === g.id && o.core);
@@ -277,14 +323,14 @@ export default async function LeitfadenPage() {
         </h3>
         <div className="space-y-4">
           <p className="text-sm text-fg-secondary">{NO_SHOW_INTRO}</p>
-          <CadenceTable />
+          <CadenceTable rows={NO_SHOW_CADENCE} />
           <Accordion type="multiple" className="space-y-2">
             {coreTemplates.map((t) => (
               <Template key={t.id} value={t.id} title={t.title} text={t.text} />
             ))}
           </Accordion>
           <p className="text-sm text-fg-secondary">
-            Alle 13 Vorlagen (Bestätigung, Erinnerungen, No-Show-Nachfass, Reaktivierung, Storno) finden Sie in der PDF unter Dokumente.
+            Alle 13 Vorlagen (Bestätigung, Erinnerungen, No-Show-Nachfass, Reaktivierung, Storno) finden Sie in der PDF unter Dateien.
           </p>
         </div>
       </section>
@@ -365,15 +411,17 @@ function Kpi({
 
 function ObjectionGroup({
   label,
+  icon,
   children,
 }: {
   label: string;
+  icon?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <div>
       <div className="mb-3 flex items-center gap-2">
-        <Users className="h-4 w-4 text-accent" />
+        {icon ?? <Users className="h-4 w-4 text-accent" />}
         <h3 className="text-base font-semibold text-fg-primary">{label}</h3>
       </div>
       {children}
@@ -469,7 +517,7 @@ function SagSoBlock({
   );
 }
 
-function CadenceTable() {
+function CadenceTable({ rows }: { rows: CadenceRow[] }) {
   return (
     <div className="overflow-x-auto rounded-xl border border-border">
       <table className="w-full text-sm">
@@ -487,7 +535,7 @@ function CadenceTable() {
           </tr>
         </thead>
         <tbody>
-          {NO_SHOW_CADENCE.map((r, i) => (
+          {rows.map((r, i) => (
             <tr key={i} className="border-b border-border last:border-0">
               <td className="py-3 px-3 align-top font-medium text-fg-primary">
                 {r.time}
@@ -506,10 +554,12 @@ function Template({
   value,
   title,
   text,
+  note,
 }: {
   value: string;
   title: string;
   text: string;
+  note?: string;
 }) {
   return (
     <AccordionItem value={value} className="rounded-xl border border-border px-4">
@@ -520,6 +570,7 @@ function Template({
         <pre className="overflow-x-auto whitespace-pre-wrap rounded-xl border border-border bg-bg-secondary p-4 font-mono text-sm leading-relaxed text-fg-primary">
 {text}
         </pre>
+        {note && <p className="mt-3 text-sm text-fg-primary">{note}</p>}
       </AccordionContent>
     </AccordionItem>
   );

@@ -30,8 +30,10 @@ import { can } from "@/lib/roles";
  */
 const PATHNAME_TO_SECTION: Record<string, NavSection> = {
   fortschritt: "fortschritt",
-  medien: "medien",
-  dokumente: "dokumente",
+  // The Medien live on the Inhalte page (/medien redirects there).
+  inhalte: "medien",
+  // The documents live on the Dateien page (/dokumente redirects there).
+  dateien: "dokumente",
 };
 
 function currentSection(pathname: string | null): NavSection | null {
@@ -112,16 +114,18 @@ export default async function PortalLayout({ children }: { children: ReactNode }
           // response (see `after` above), so the badges read in this render
           // still count it as new. Override its pill to 0 here.
           "/fortschritt": section !== "fortschritt" && timelineHasUpdate ? "Neu" : 0,
-          "/medien": section !== "medien" && medienHasUpdate ? "Neu" : 0,
-          "/dokumente": section !== "dokumente" && dokumenteHasUpdate ? "Neu" : 0,
+          "/inhalte": section !== "medien" && medienHasUpdate ? "Neu" : 0,
+          "/dateien": section !== "dokumente" && dokumenteHasUpdate ? "Neu" : 0,
         }}
+        notice={
+          showChecklistBanner && gate ? (
+            <ChecklistReminderBanner
+              remaining={gate.requiredTotal - gate.requiredDelivered}
+            />
+          ) : null
+        }
       >
         <OnboardingGateGuard gateClosed={gate != null && !gate.gateComplete} />
-        {showChecklistBanner && gate && (
-          <ChecklistReminderBanner
-            remaining={gate.requiredTotal - gate.requiredDelivered}
-          />
-        )}
         {children}
       </PortalShell>
       <ActionFlashToast flash={actionFlash} />

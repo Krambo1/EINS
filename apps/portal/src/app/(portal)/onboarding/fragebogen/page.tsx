@@ -12,6 +12,7 @@ import {
 import { FragebogenForm } from "./FragebogenForm";
 import { reopenDiscoveryAction } from "./actions";
 import { DISPLAY_TIME_ZONE } from "@/lib/formatting";
+import { ActionForm } from "@/app/(portal)/_components/ActionForm";
 
 export const metadata = { title: "Fragebogen zum Start" };
 
@@ -96,12 +97,12 @@ export default async function DiscoveryFragebogenPage() {
                     .
                   </p>
                 )}
-                <form action={reopenDiscoveryAction} className="mt-4">
+                <ActionForm action={reopenDiscoveryAction} className="mt-4">
                   <Button type="submit" variant="outline" size="sm">
                     <Pencil className="h-4 w-4" />
                     Antworten anpassen
                   </Button>
-                </form>
+                </ActionForm>
               </div>
             </CardContent>
           </Card>

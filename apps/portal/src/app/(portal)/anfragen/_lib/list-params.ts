@@ -1,11 +1,12 @@
 import {
   ALL_REQUEST_STATUSES,
   REQUEST_SORTS,
-  REQUEST_SOURCES,
   type AnyRequestStatus,
   type RequestSort,
 } from "@/lib/constants";
 import { isUuid } from "@/lib/ids";
+import { REPORTING_CHANNELS, type ReportingChannel } from "@/lib/sources";
+import { RETREATMENT_LIST_FILTERS, type RetreatmentListFilter } from "@/lib/retreatment";
 
 /**
  * URL parameters of the Anfragen list (/anfragen and the CSV export). Values
@@ -18,11 +19,14 @@ export type AnfragenSearchParams = Record<string, string | string[] | undefined>
 export interface AnfragenListParams {
   page: number;
   status?: AnyRequestStatus[];
-  source?: string[];
+  /** `source`: the Quelle filter, as reporting channels (the Quellen card's buckets). */
+  channel?: ReportingChannel[];
   treatmentId?: string[];
   search?: string;
   slaBreachedOnly: boolean;
   staleOnly: boolean;
+  /** `wb`: Anfragen with a Wiederbehandlung (offen, ausgeblendet). */
+  retreatment?: RetreatmentListFilter[];
   sort: RequestSort;
 }
 export const SEARCH_MAX_LENGTH = 200;
@@ -35,6 +39,7 @@ export const LIST_PARAM_KEYS = [
   "search",
   "slaBreached",
   "stale",
+  "wb",
   "sort",
 ] as const;
 
@@ -72,11 +77,12 @@ export function parseAnfragenParams(params: AnfragenSearchParams): AnfragenListP
   return {
     page,
     status: csv(first(params.status), inSet(ALL_REQUEST_STATUSES)),
-    source: csv(first(params.source), inSet(REQUEST_SOURCES)),
+    channel: csv(first(params.source), inSet(REPORTING_CHANNELS)),
     treatmentId: csv(first(params.treatment), (s): s is string => isUuid(s)),
     search,
     slaBreachedOnly: first(params.slaBreached) === "1",
     staleOnly: first(params.stale) === "1",
+    retreatment: csv(first(params.wb), inSet(RETREATMENT_LIST_FILTERS)),
     sort: inSet(REQUEST_SORTS)(sortRaw) ? sortRaw : "neueste",
   };
 }
@@ -85,11 +91,12 @@ export function parseAnfragenParams(params: AnfragenSearchParams): AnfragenListP
 export function hasListFilter(p: AnfragenListParams): boolean {
   return Boolean(
     p.status?.length ||
-      p.source?.length ||
+      p.channel?.length ||
       p.treatmentId?.length ||
       p.search ||
       p.slaBreachedOnly ||
-      p.staleOnly
+      p.staleOnly ||
+      p.retreatment?.length
   );
 }
 

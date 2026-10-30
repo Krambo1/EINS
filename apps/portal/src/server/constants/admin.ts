@@ -45,15 +45,17 @@ export function toneForHigherBetter(
 
 /**
  * Composite clinic-health tone from the dimensions the leaderboard cares
- * about. ROAS is the dominant signal; CPL is the secondary screen.
+ * about. ROAS is the dominant signal; CPL is the secondary screen. Without
+ * Werbebudget there is no ROAS to judge: an organic-only Praxis (the start
+ * for every Praxis) stays neutral instead of reading as a failed ad account.
  */
 export function clinicHealthTone(args: {
   spend: number;
   revenue: number;
   cpl: number | null;
 }): ToneKey {
-  if (args.spend <= 0 && args.revenue <= 0) return "neutral";
-  const roas = args.spend > 0 ? args.revenue / args.spend : 0;
+  if (args.spend <= 0) return "neutral";
+  const roas = args.revenue / args.spend;
   if (roas >= KPI_THRESHOLDS.roas.good) return "good";
   if (roas >= KPI_THRESHOLDS.roas.warn) return "warn";
   return "bad";

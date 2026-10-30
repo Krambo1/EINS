@@ -186,7 +186,7 @@ export function BeitragCreateForm({ clinicId, options }: { clinicId: string; opt
           className="block w-full text-sm file:mr-3 file:rounded-md file:border file:border-border file:bg-bg-secondary file:px-3 file:py-2 file:text-sm"
         />
         <p className="mt-1 text-xs text-fg-secondary">
-          Videos bis 2 GB, Bilder bis 100 MB. Die Datei erscheint danach unter Medien der Praxis.
+          Videos bis 2 GB, Bilder bis 100 MB. Die Datei erscheint danach unter Inhalte der Praxis.
         </p>
       </div>
 

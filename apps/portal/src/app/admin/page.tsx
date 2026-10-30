@@ -1,7 +1,6 @@
 import { requireAdmin } from "@/auth/admin-guards";
 import {
   DEMO_CLINIC_SLUG,
-  adminAttentionCounts,
   aiScoreDistribution,
   clinicLeaderboard,
   pendingOperationCounts,
@@ -14,17 +13,18 @@ import {
 } from "@/server/queries/admin";
 import {
   ADMIN_RANGE_KEYS,
+  DASHBOARD_RANGES,
+  DEFAULT_DASHBOARD_RANGE,
   dashboardRangeDays,
   parseDashboardRange,
 } from "@/lib/dashboard-range";
-import { AdminPageHeader } from "./_components/AdminPageHeader";
+import { ParamViews, ParamViewsSlot } from "@/app/_components/instant-views";
+import { loadAdminPerformance, loadAdminPipeline } from "./range-actions";
 import { MetricStrip } from "./_components/MetricStrip";
 import { PerformanceSection } from "./_components/PerformanceSection";
 import { PipelineSection } from "./_components/PipelineSection";
-import { AiScoreSection } from "./_components/AiScoreSection";
 import { ClinicLeaderboard } from "./_components/ClinicLeaderboard";
 import { OperationsSection } from "./_components/OperationsSection";
-import { AttentionCard } from "./_components/AttentionCard";
 import { HomeGuaranteeSection } from "./_components/HomeGuaranteeSection";
 import { listGuaranteeOverview, loadInvoiceDates } from "@/server/guarantee-clock";
 import { listRueckrufLage } from "@/server/response-enforcement";
@@ -50,10 +50,12 @@ async function soft<T>(label: string, p: Promise<T>, fallback: T): Promise<T> {
 
 /**
  * Admin home (DS5): built around the guarantee situation of the organic start.
- * Top: "Heute wichtig", then per Praxis the Garantie-Uhr (Tag X von 90, open
- * candidates, Verzug) and the Rückruf-Lage, read from the same functions as
- * /admin/garantie and /admin/rueckruf. Below: Anfragen and, only once ad data
- * exists, the paid-ads numbers (no tiles full of dashes before that).
+ * Top: open KI-Klon tasks, then per Praxis the Garantie-Uhr (Tag X von 90,
+ * open candidates, Verzug, next step) and the Rückruf-Lage, read from the same
+ * functions as /admin/garantie and /admin/rueckruf. The open counts also sit
+ * as badges in the nav, so there is no separate digest card repeating them.
+ * Below: Anfragen and, only once ad data exists, the paid-ads numbers (no
+ * tiles full of dashes before that).
  */
 export default async function AdminHome({
   searchParams,
@@ -63,8 +65,9 @@ export default async function AdminHome({
   await requireAdmin();
   const sp = await searchParams;
   const perfRange = parseDashboardRange(sp[ADMIN_RANGE_KEYS.perf]);
+  // Status and KI-Bewertung describe the same Anfragen, so one window (and
+  // one switch) drives both.
   const pipelineRange = parseDashboardRange(sp[ADMIN_RANGE_KEYS.pipeline]);
-  const aiRange = parseDashboardRange(sp[ADMIN_RANGE_KEYS.ai]);
 
   const perfDays = dashboardRangeDays(perfRange);
 
@@ -78,20 +81,18 @@ export default async function AdminHome({
     response,
     leaderboard,
     operations,
-    attention,
   ] = await Promise.all([
     platformOverviewMetrics(),
     spendRevenueSeries(perfDays),
     platformMix(perfDays),
     pipelineFunnel(dashboardRangeDays(pipelineRange)),
-    aiScoreDistribution(dashboardRangeDays(aiRange)),
+    aiScoreDistribution(dashboardRangeDays(pipelineRange)),
     slaBreachLeaderboard(5),
     // Generous limit so every leaderboard clinic can receive its median; the
     // query already filters to clinics with requests in the window.
     responseTimeRanking(LEADERBOARD_DAYS, 1000),
     clinicLeaderboard({ periodDays: LEADERBOARD_DAYS, realOnly: true }),
     pendingOperationCounts(),
-    adminAttentionCounts().catch(() => null),
   ]);
 
   const [guaranteeAll, rueckruf, stopTasksAll, deletionTasksAll] = await Promise.all([
@@ -101,7 +102,7 @@ export default async function AdminHome({
     soft("klon-loeschen", listCloneDeletionTasks(), []),
   ]);
   // One clinic filter for every count and list on this page: the demo/template
-  // Praxis (`_template`) is left out of both "Heute wichtig" and the cards.
+  // Praxis (`_template`) is left out of the cards.
   const demoIds = new Set(
     guaranteeAll.filter((g) => g.clinicSlug === DEMO_CLINIC_SLUG).map((g) => g.clinicId)
   );
@@ -137,36 +138,48 @@ export default async function AdminHome({
   }));
 
   return (
-    <div className="space-y-8">
-      <AdminPageHeader
-        title="Übersicht"
-        subtitle="Garantie-Uhr und Rückruf-Lage aller Praxen, darunter Anfragen und Werbezahlen."
-      />
+    <>
+      {/* The nav already marks the page; the heading stays for screen readers.
+          Outside the stack so it does not push the first panel down. */}
+      <h1 className="sr-only">Übersicht</h1>
+      {/* One grid for the whole page: every row is full width or split into
+          thirds with the same gap-4, so column edges line up top to bottom. */}
+      <div className="space-y-4">
+        <HomeKlonTasks stopTasks={stopTasks} deletionTasks={deletionTasks} today={berlinDate(new Date())} />
 
-      <AttentionCard data={attention} />
+        <HomeGuaranteeSection guarantee={guarantee} invoiceUnsent={invoiceUnsent} rueckruf={rueckrufReal} />
 
-      <HomeKlonTasks stopTasks={stopTasks} deletionTasks={deletionTasks} today={berlinDate(new Date())} />
+        <MetricStrip data={overview} showAds={hasAdData} />
 
-      <HomeGuaranteeSection guarantee={guarantee} invoiceUnsent={invoiceUnsent} rueckruf={rueckrufReal} />
+        {/* Each period switch swaps kept views (instant-views.tsx). */}
+        {hasAdData && (
+          <ParamViews
+            param={ADMIN_RANGE_KEYS.perf}
+            values={DASHBOARD_RANGES}
+            defaultValue={DEFAULT_DASHBOARD_RANGE}
+            load={loadAdminPerformance}
+          >
+            <ParamViewsSlot param={ADMIN_RANGE_KEYS.perf} value={perfRange}>
+              <PerformanceSection daily={daily} mix={mix} range={perfRange} />
+            </ParamViewsSlot>
+          </ParamViews>
+        )}
 
-      <h2 className="pt-4 text-2xl font-semibold">{hasAdData ? "Anfragen und Werbung" : "Anfragen"}</h2>
+        <ParamViews
+          param={ADMIN_RANGE_KEYS.pipeline}
+          values={DASHBOARD_RANGES}
+          defaultValue={DEFAULT_DASHBOARD_RANGE}
+          load={loadAdminPipeline}
+        >
+          <ParamViewsSlot param={ADMIN_RANGE_KEYS.pipeline} value={pipelineRange}>
+            <PipelineSection funnel={funnel} ai={ai} range={pipelineRange} />
+          </ParamViewsSlot>
+        </ParamViews>
 
-      <MetricStrip data={overview} showAds={hasAdData} />
+        <ClinicLeaderboard rows={leaderboardRows} showAds={hasAdData} />
 
-      {hasAdData && <PerformanceSection daily={daily} mix={mix} range={perfRange} />}
-
-      <div className="grid gap-8 lg:grid-cols-3">
-        <div className="min-w-0 lg:col-span-2">
-          <PipelineSection funnel={funnel} funnelRange={pipelineRange} />
-        </div>
-        <div className="min-w-0 lg:col-span-1">
-          <AiScoreSection ai={ai} aiRange={aiRange} />
-        </div>
+        <OperationsSection sla={sla} operations={operations} />
       </div>
-
-      <ClinicLeaderboard rows={leaderboardRows} showAds={hasAdData} />
-
-      <OperationsSection sla={sla} operations={operations} />
-    </div>
+    </>
   );
 }

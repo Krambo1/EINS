@@ -1,55 +1,36 @@
-import { Card, CardContent, CardHeader, CardTitle, Donut } from "@eins/ui";
-import { TimeRangeToggle } from "@/app/_components/TimeRangeToggle";
-import { ADMIN_RANGE_KEYS, type DashboardRange } from "@/lib/dashboard-range";
+import { formatNumber } from "@/lib/formatting";
 import type { AiCategoryDistribution } from "@/server/queries/admin";
 
 /**
- * KI-Bewertung: the AI lead-score distribution as a donut on its own card so
- * it sits beside the Anfragen-Pipeline instead of stacked inside it. Owns its own
- * time window via the rAi switcher.
+ * KI-Bewertung: the AI lead-score distribution as one bar per category (one
+ * hue each, same scale). Rendered inside the Anfragen panel next to the
+ * status breakdown (see PipelineSection), which owns the time window.
  */
-export function AiScoreSection({
-  ai,
-  aiRange,
-}: {
-  ai: AiCategoryDistribution;
-  aiRange: DashboardRange;
-}) {
-  const aiSlices = [
+export function AiScoreList({ ai }: { ai: AiCategoryDistribution }) {
+  const rows = [
     { name: "Sehr heiß", value: ai.hot, color: "var(--tone-bad)" },
     { name: "Warm", value: ai.warm, color: "var(--tone-warn)" },
     { name: "Kalt", value: ai.cold, color: "var(--tone-neutral)" },
-    { name: "Ohne Bewertung", value: ai.unscored, color: "var(--bg-tertiary)" },
-  ].filter((s) => s.value > 0);
-  const aiTotal = ai.hot + ai.warm + ai.cold + ai.unscored;
+    { name: "Ohne Bewertung", value: ai.unscored, color: "var(--fg-tertiary)" },
+  ];
+  const max = Math.max(1, ...rows.map((r) => r.value));
 
   return (
-    <Card
-      className="flex h-full flex-col print:break-inside-avoid"
-      style={{
-        backgroundColor: "var(--bg-card)",
-        boxShadow: "var(--shadow-card)",
-      }}
-    >
-      <CardHeader className="flex-row flex-wrap items-start justify-between gap-4 space-y-0">
-        <CardTitle className="!text-xl !font-medium md:!text-2xl">
-          KI-Bewertung
-        </CardTitle>
-        <TimeRangeToggle
-          value={aiRange}
-          paramKey={ADMIN_RANGE_KEYS.ai}
-          ariaLabel="Zeitraum für KI-Bewertung"
-        />
-      </CardHeader>
-      <CardContent className="flex flex-1 items-center justify-center">
-        <Donut
-          slices={aiSlices}
-          centerLabel={aiTotal}
-          centerSubLabel="Anfragen"
-          height={200}
-          ariaLabel="KI-Bewertung der Anfragen"
-        />
-      </CardContent>
-    </Card>
+    <ul className="space-y-3" aria-label="KI-Bewertung der Anfragen">
+      {rows.map((r) => (
+        <li key={r.name}>
+          <div className="flex items-baseline justify-between gap-2 text-sm">
+            <span className="text-fg-primary">{r.name}</span>
+            <span className="font-medium tabular-nums text-fg-primary">{formatNumber(r.value)}</span>
+          </div>
+          <div className="mt-1.5 h-1.5 rounded-full bg-bg-secondary">
+            <div
+              className="h-full rounded-full"
+              style={{ width: `${(r.value / max) * 100}%`, background: r.color }}
+            />
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }

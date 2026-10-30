@@ -3,6 +3,8 @@ import { cache } from "react";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { withClinicContext, schema, db, type dbApp } from "@/db/client";
 import { cacheClinicQuery, SHORT_REVALIDATE_S } from "./_cache";
+import { adInquiriesByDay } from "./_ad-inquiries";
+import { costPerQualified } from "./_qualified";
 import { openQueueDailyInRangeWithComparison } from "./requests";
 import {
   addIsoDays,
@@ -28,8 +30,14 @@ export interface KpiSummary {
   casesWon: number;
   spendEur: number;
   revenueEur: number;
+  /** Umsatz of the Anfragen that came in through a Meta or Google ad. */
+  adRevenueEur: number;
+  /** Werbeertrag: adRevenueEur ÷ spendEur. Umsatz from posts or Empfehlungen used no Werbebudget. */
   roas: number | null;
-  costPerLead: number | null;
+  /** Qualifizierte Anfragen from Meta or Google ads (_qualified.ts, _ad-inquiries.ts). */
+  qualifiedAdLeads: number;
+  /** Werbebudget ÷ qualifiedAdLeads (contract 2.11); null without Werbebudget or without one. */
+  costPerQualifiedLead: number | null;
 }
 
 const emptySummary = (): KpiSummary => ({
@@ -39,8 +47,10 @@ const emptySummary = (): KpiSummary => ({
   casesWon: 0,
   spendEur: 0,
   revenueEur: 0,
+  adRevenueEur: 0,
   roas: null,
-  costPerLead: null,
+  qualifiedAdLeads: 0,
+  costPerQualifiedLead: null,
 });
 
 // ---------------------------------------------------------------
@@ -68,13 +78,15 @@ export interface LiveKpiDay {
   casesWon: number;
   revenueEur: number;
   spendEur: number;
+  /** Qualifizierte Anfragen from Meta or Google ads that day. */
+  qualifiedAdLeads: number;
+  /** Umsatz of that day's Anfragen from Meta or Google ads. */
+  adRevenueEur: number;
 }
-
-type SqlRunner = { execute: (q: ReturnType<typeof sql>) => Promise<unknown> };
 
 /** Sparse per-day rows (only days with requests or spend), ascending. */
 async function selectLiveKpiDays(
-  runner: SqlRunner,
+  runner: typeof dbApp,
   clinicId: string,
   from: Date,
   to: Date
@@ -82,9 +94,15 @@ async function selectLiveKpiDays(
   const fromDate = berlinDay(from);
   const toDate = berlinDay(to);
   if (fromDate > toDate) return [];
-  const fromTs = berlinStartOfDay(fromDate).toISOString();
-  const endTs = berlinStartOfDay(addIsoDays(toDate, 1)).toISOString();
-  const rows = (await runner.execute(sql`
+  const start = berlinStartOfDay(fromDate);
+  const endExclusive = berlinStartOfDay(addIsoDays(toDate, 1));
+  const fromTs = start.toISOString();
+  const endTs = endExclusive.toISOString();
+  // The ad channel is decided by reportingChannel() in JS, so the qualified
+  // ad Anfragen and their Umsatz come from their own grouped read
+  // (_ad-inquiries.ts).
+  const [result, adDays] = await Promise.all([
+    runner.execute(sql`
     WITH r AS (
       SELECT
         (created_at AT TIME ZONE 'Europe/Berlin')::date AS d,
@@ -119,7 +137,16 @@ async function selectLiveKpiDays(
       coalesce(s.spend, 0) AS spend
     FROM r FULL OUTER JOIN s ON s.d = r.d
     ORDER BY 1
-  `)) as unknown as Array<Record<string, string | number>>;
+  `),
+    adInquiriesByDay(runner, clinicId, start, endExclusive),
+  ]);
+  const rows = result as unknown as Array<Record<string, string | number>>;
+  const qualifiedByDate = new Map<string, number>();
+  const adRevenueByDate = new Map<string, number>();
+  for (const a of adDays) {
+    qualifiedByDate.set(a.date, (qualifiedByDate.get(a.date) ?? 0) + a.qualified);
+    adRevenueByDate.set(a.date, (adRevenueByDate.get(a.date) ?? 0) + a.revenueEur);
+  }
   return rows.map((r) => ({
     date: String(r.date),
     leads: Number(r.leads),
@@ -129,6 +156,8 @@ async function selectLiveKpiDays(
     casesWon: Number(r.cases_won),
     revenueEur: Number(r.revenue),
     spendEur: Number(r.spend),
+    qualifiedAdLeads: qualifiedByDate.get(String(r.date)) ?? 0,
+    adRevenueEur: adRevenueByDate.get(String(r.date)) ?? 0,
   }));
 }
 
@@ -142,7 +171,7 @@ export async function liveKpiDays(
   return withClinicContext(
     clinicId,
     userId,
-    (tx) => selectLiveKpiDays(tx as unknown as SqlRunner, clinicId, from, to),
+    (tx) => selectLiveKpiDays(tx, clinicId, from, to),
     "kpis:live-days"
   );
 }
@@ -155,6 +184,8 @@ function summarize(days: LiveKpiDay[]): KpiSummary {
   let casesWon = 0;
   let spend = 0;
   let revenue = 0;
+  let adRevenue = 0;
+  let qualifiedAdLeads = 0;
   for (const d of days) {
     leads += d.leads;
     appointments += d.appointments;
@@ -162,9 +193,12 @@ function summarize(days: LiveKpiDay[]): KpiSummary {
     casesWon += d.casesWon;
     spend += d.spendEur;
     revenue += d.revenueEur;
+    adRevenue += d.adRevenueEur;
+    qualifiedAdLeads += d.qualifiedAdLeads;
   }
   spend = Number(spend.toFixed(2));
   revenue = Number(revenue.toFixed(2));
+  adRevenue = Number(adRevenue.toFixed(2));
   return {
     leads,
     appointments,
@@ -172,10 +206,14 @@ function summarize(days: LiveKpiDay[]): KpiSummary {
     casesWon,
     spendEur: spend,
     revenueEur: revenue,
-    roas: spend > 0 ? Number((revenue / spend).toFixed(2)) : null,
-    // Organic start: no Werbebudget means "no cost per Anfrage", not 0 €.
-    costPerLead:
-      spend > 0 && leads > 0 ? Number((spend / leads).toFixed(2)) : null,
+    adRevenueEur: adRevenue,
+    // Only the Umsatz the ads brought: Umsatz from posts or Empfehlungen
+    // used no Werbebudget and would make the ads look better than they are.
+    roas: spend > 0 ? Number((adRevenue / spend).toFixed(2)) : null,
+    qualifiedAdLeads,
+    // Organic Anfragen use no Werbebudget, so they never lower the cost; an
+    // organic start (no Werbebudget) has no cost per Anfrage, not 0 €.
+    costPerQualifiedLead: costPerQualified(spend, qualifiedAdLeads),
   };
 }
 
@@ -230,9 +268,11 @@ export function sparklinesForWindow(days: LiveKpiDay[], win: DayWindow): KpiSpar
   const byDate = new Map(daysIn(days, win).map((d) => [d.date, d]));
   const out: KpiSparklines = {
     leads: [],
+    appointments: [],
     casesWon: [],
     spendEur: [],
     revenueEur: [],
+    adRevenueEur: [],
     roas: [],
     noShowRate: [],
     dates: [],
@@ -241,11 +281,13 @@ export function sparklinesForWindow(days: LiveKpiDay[], win: DayWindow): KpiSpar
     const r = byDate.get(key);
     out.dates.push(key);
     out.leads.push(r?.leads ?? 0);
+    out.appointments.push(r?.appointments ?? 0);
     out.casesWon.push(r?.casesWon ?? 0);
     out.spendEur.push(r?.spendEur ?? 0);
     out.revenueEur.push(r?.revenueEur ?? 0);
+    out.adRevenueEur.push(r?.adRevenueEur ?? 0);
     out.roas.push(
-      r && r.spendEur > 0 ? Number((r.revenueEur / r.spendEur).toFixed(2)) : 0
+      r && r.spendEur > 0 ? Number((r.adRevenueEur / r.spendEur).toFixed(2)) : 0
     );
     out.noShowRate.push(r ? (noShowRateOf(r) ?? 0) : 0);
   }
@@ -423,9 +465,12 @@ export const kpiSummaryWithComparison = cacheClinicQuery(
 
 export interface KpiSparklines {
   leads: number[];
+  appointments: number[];
   casesWon: number[];
   spendEur: number[];
   revenueEur: number[];
+  /** Umsatz from Anfragen over Meta or Google ads, the Werbeertrag's numerator. */
+  adRevenueEur: number[];
   roas: number[];
   noShowRate: number[];
   /** Parallel array of ISO date strings (YYYY-MM-DD), aligned with each metric. */
@@ -460,7 +505,5 @@ export async function kpiSummaryAdmin(
   from: Date,
   to: Date
 ): Promise<KpiSummary> {
-  return summarize(
-    await selectLiveKpiDays(db as unknown as SqlRunner, clinicId, from, to)
-  );
+  return summarize(await selectLiveKpiDays(db, clinicId, from, to));
 }

@@ -202,9 +202,9 @@ export async function ruleCplSurge(
         severity === "info"
           ? []
           : [
-              "Creatives prüfen: Top-Performer der letzten 30 Tage als Referenz vergleichen",
-              "Audience-Saturation prüfen (Frequency > 3 ist Warnsignal)",
-              "Bid-Strategie oder Budget kurzfristig anpassen, nicht beide gleichzeitig",
+              "Anzeigenmotive prüfen: mit den stärksten Anzeigen der letzten 30 Tage vergleichen",
+              "Zielgruppe prüfen: sieht dieselbe Person eine Anzeige im Schnitt mehr als 3-mal, ist sie gesättigt",
+              "Gebot oder Budget kurzfristig anpassen, nicht beides gleichzeitig",
             ],
       aiEnrich: severity === "extreme",
       metric: `cpl:${platform}`,
@@ -273,10 +273,12 @@ export async function ruleLeadDrought(
       severity,
       title: "14 Tage ohne neue Anfrage",
       body: `In den 30 Tagen davor: ${base} Anfragen. Aktuell: 0.`,
+      // Organic first: most Praxen run no ads yet, so the posts and the
+      // profile link come before the ad accounts.
       defaultActionSteps: [
-        "Anzeigen-Auslieferung prüfen: läuft Meta + Google aktuell?",
-        "Zielseite testen: Formular erreichbar, kein 4xx auf der Tracking-URL?",
-        "Letzte Änderungen rückwärts laufen lassen (Audience, Bid, Creative der letzten 14 Tage)",
+        "Beiträge prüfen: ist in den letzten 14 Tagen ein neuer Beitrag erschienen?",
+        "Zielseite testen: führen der Profil-Link und die Links in den Beiträgen auf ein funktionierendes Formular?",
+        "Falls Anzeigen laufen: Auslieferung bei Meta und Google prüfen und die Änderungen der letzten 14 Tage durchgehen (Zielgruppe, Gebot, Motiv)",
       ],
       aiEnrich: severity === "extreme",
       metric: "leads_14d",
@@ -428,11 +430,11 @@ export async function ruleSlaBreachTrend(
       kind: "sla_breach_trend",
       severity,
       title: `${recent} Reaktions-Überschreitungen in 7 Tagen`,
-      body: `Vorwoche: ${base}. SLA-Frist (Reaktionszeit) wurde wiederholt verpasst.`,
+      body: `Vorwoche: ${base}. Die Frist für die erste Rückmeldung wurde wiederholt verpasst.`,
       defaultActionSteps: [
-        "Posteingang aufräumen: offene Anfragen unter /anfragen?status=neu zuerst",
-        "Zuweisungs-Regeln in /einstellungen prüfen: bekommt jede Anfrage einen Owner?",
-        "Wenn Volumen unerwartet hoch: Frontdesk-Kapazität auf der Woche verstärken",
+        "Offene Anfragen abarbeiten: unter Anfragen zuerst die neuen",
+        "Unter Einstellungen prüfen, ob jede Anfrage einer Person im Team zugewiesen wird",
+        "Bei ungewöhnlich vielen Anfragen: am Empfang diese Woche mehr Zeit dafür einplanen",
       ],
       aiEnrich: severity === "extreme",
       metric: "sla_breaches_7d",

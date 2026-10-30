@@ -3,11 +3,12 @@ import { eq } from "drizzle-orm";
 import {
   Card,
   CardContent,
-  Button,
 } from "@eins/ui";
 import { requireSession } from "@/auth/guards";
 import { db, schema } from "@/db/client";
+import { PendingSubmit } from "@/app/(portal)/_components/PendingSubmit";
 import { updateAdsConversionConfigAction } from "../../actions";
+import { ActionForm } from "@/app/(portal)/_components/ActionForm";
 
 /**
  * /einstellungen/integrationen/ads-conversion
@@ -47,7 +48,7 @@ export default async function AdsConversionConfigPage() {
         </h1>
       </header>
 
-      <form action={updateAdsConversionConfigAction} className="space-y-6">
+      <ActionForm action={updateAdsConversionConfigAction} className="space-y-6">
         <Card>
           <CardContent className="space-y-4">
             <div>
@@ -95,11 +96,11 @@ export default async function AdsConversionConfigPage() {
         </Card>
 
         <div className="flex justify-end">
-          <Button type="submit" className="h-auto min-h-11 whitespace-normal py-2 text-left">
+          <PendingSubmit className="h-auto min-h-11 whitespace-normal py-2 text-left">
             Einstellungen für Google Ads speichern
-          </Button>
+          </PendingSubmit>
         </div>
-      </form>
+      </ActionForm>
     </div>
   );
 }

@@ -1,30 +1,25 @@
+/**
+ * Shape of the admin Übersicht (no page header, the thirds grid): Garantie-
+ * Uhr | Rückruf-Lage, three number tiles, the Anfragen panel, the Praxen
+ * table. Same radius and gap as the real panels so nothing jumps on load.
+ */
 export default function Loading() {
+  const block = "animate-pulse rounded-md border border-border bg-bg-secondary";
   return (
-    <div className="space-y-10" aria-busy="true" aria-live="polite">
-      <div className="space-y-2">
-        <div className="h-9 w-72 max-w-full animate-pulse rounded bg-bg-secondary" />
-        <div className="h-4 w-96 max-w-full rounded bg-bg-secondary" />
-      </div>
+    <div className="space-y-4" aria-busy="true" aria-live="polite">
+      <section className="grid gap-4 lg:grid-cols-3">
+        <div className={`h-28 lg:col-span-2 ${block}`} />
+        <div className={`h-28 ${block}`} />
+      </section>
 
-      <section className="grid gap-4 md:grid-cols-4">
-        {[0, 1, 2, 3].map((i) => (
-          <div
-            key={i}
-            className="h-24 animate-pulse rounded-xl border border-border bg-bg-secondary"
-          />
+      <section className="grid gap-4 sm:grid-cols-3">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className={`h-20 ${block}`} />
         ))}
       </section>
 
-      <div className="h-72 animate-pulse rounded-xl border border-border bg-bg-secondary" />
-
-      <section className="grid gap-4 md:grid-cols-2">
-        {[0, 1].map((i) => (
-          <div
-            key={i}
-            className="h-56 animate-pulse rounded-xl border border-border bg-bg-secondary"
-          />
-        ))}
-      </section>
+      <div className={`h-64 ${block}`} />
+      <div className={`h-40 ${block}`} />
     </div>
   );
 }

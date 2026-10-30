@@ -145,3 +145,33 @@ export function templatesByBucket(bucket: ReplyBucket): ReplyTemplate[] {
 export function allReplyTemplates(): ReplyTemplate[] {
   return TEMPLATES;
 }
+
+/**
+ * Fills the placeholders the portal knows (Help Scout's saved-reply
+ * variables): [Praxisname] always, [Vorname] only when a caller passes one.
+ * Whatever stays in brackets is left for the team to replace and is marked
+ * where the text is shown (`templateParts`).
+ */
+export function fillTemplate(
+  text: string,
+  vars: { praxisname?: string | null; vorname?: string | null }
+): string {
+  let out = text;
+  const praxis = vars.praxisname?.trim();
+  const vorname = vars.vorname?.trim();
+  if (praxis) {
+    // "Praxis Dr. Demo" already says Praxis: no "der Praxis Praxis Dr. Demo".
+    if (/^praxis\b/i.test(praxis)) out = out.replaceAll("Praxis [Praxisname]", praxis);
+    out = out.replaceAll("[Praxisname]", praxis);
+  }
+  if (vorname) out = out.replaceAll("[Vorname]", vorname);
+  return out;
+}
+
+/** The text split into plain parts and the placeholders still to replace. */
+export function templateParts(text: string): Array<{ text: string; placeholder: boolean }> {
+  return text
+    .split(/(\[[^\]]+\])/)
+    .filter(Boolean)
+    .map((part) => ({ text: part, placeholder: /^\[[^\]]+\]$/.test(part) }));
+}

@@ -98,3 +98,18 @@ export function replyLinkUrl(
       return null;
   }
 }
+
+/**
+ * The link patients get to write a review (the same one the review e-mail
+ * uses), for handing on by hand. Null until it is set under /einstellungen.
+ */
+export function reviewShareUrl(platform: Platform, links: ClinicReviewLinks): string | null {
+  switch (platform) {
+    case "google":
+      return links.googleReviewUrl?.trim() || null;
+    case "jameda":
+      return links.jamedaReviewUrl?.trim() || links.jamedaProfileUrl?.trim() || null;
+    default:
+      return null;
+  }
+}

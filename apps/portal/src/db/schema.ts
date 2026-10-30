@@ -2368,6 +2368,10 @@ export const retreatmentCycles = pgTable(
     dismissedBy: uuid("dismissed_by").references((): AnyPgColumn => clinicUsers.id, {
       onDelete: "set null",
     }),
+    /** Last call from the call cards about this cycle (0104). */
+    lastCallAt: timestamp("last_call_at", { withTimezone: true }),
+    /** 'termin_vereinbart' | 'nicht_erreicht', NULL = not called yet. */
+    lastCallOutcome: text("last_call_outcome"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -2390,6 +2394,10 @@ export const retreatmentCycles = pgTable(
     intervalSourceCheck: check(
       "retreatment_cycles_interval_source_check",
       sql`${t.intervalSource} IN ('fixed','pvs')`
+    ),
+    lastCallOutcomeCheck: check(
+      "retreatment_cycles_last_call_outcome_check",
+      sql`${t.lastCallOutcome} IS NULL OR ${t.lastCallOutcome} IN ('termin_vereinbart','nicht_erreicht')`
     ),
     clinicDueIdx: index("retreatment_cycles_clinic_due_idx").on(t.clinicId, t.dueOn),
     reminderDueIdx: index("retreatment_cycles_reminder_due_idx").on(

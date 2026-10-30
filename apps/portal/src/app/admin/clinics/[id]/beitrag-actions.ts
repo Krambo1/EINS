@@ -59,8 +59,7 @@ function formClinicId(formData: FormData): string | undefined {
 function revalidate(clinicId: string) {
   revalidatePath(`/admin/clinics/${clinicId}`);
   revalidatePath("/admin/beitraege");
-  revalidatePath("/beitraege");
-  revalidatePath("/medien");
+  revalidatePath("/inhalte");
 }
 
 const optionalUuid = z
@@ -330,7 +329,7 @@ export async function sendApprovalBatchAction(formData: FormData) {
     );
   }
   if (mail.failed.length + mail.suppressed.length + mail.postsWithoutRecipient.length > 0) {
-    parts.push("Die Praxis kann im Portal unter Beiträge entscheiden.");
+    parts.push("Die Praxis kann im Portal unter Inhalte entscheiden.");
   }
   revalidate(clinicId);
   redirect(tabUrl(clinicId, "hinweis", parts.join(" ")));

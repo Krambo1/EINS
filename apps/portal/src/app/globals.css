@@ -1,1 +1,314 @@
 @import "@eins/ui/styles.css";
+
+/* Portal layers, back to front. The page canvas is the floor; cards stand on
+   it with a soft shadow; whatever is "on" (the active nav entry, the selected
+   period) is raised above its card; tracks are pressed into it. Derived from
+   the brand tokens, which stay untouched. Admin panels use --surface-tile on
+   their own white canvas, so only the clinic shell gets the grey floor. The
+   clinic shell has no dark design. */
+:root {
+  --surface-canvas: #f0f0f3;
+  --surface-tile: var(--bg-primary);
+  --surface-tile-hover: var(--bg-card);
+  --surface-raised: #ffffff;
+  --surface-inset: #e6e6eb;
+  --hover-wash: rgba(16, 16, 26, 0.05);
+
+  --elev-card:
+    0 0 0 1px rgba(16, 16, 26, 0.06),
+    0 1px 2px rgba(16, 16, 26, 0.05),
+    0 4px 10px -4px rgba(16, 16, 26, 0.06),
+    0 18px 36px -18px rgba(16, 16, 26, 0.16);
+  --elev-card-hover:
+    0 0 0 1px rgba(16, 16, 26, 0.08),
+    0 2px 4px rgba(16, 16, 26, 0.06),
+    0 10px 20px -8px rgba(16, 16, 26, 0.1),
+    0 30px 56px -24px rgba(16, 16, 26, 0.24);
+  --elev-raised:
+    0 0 0 1px rgba(16, 16, 26, 0.07),
+    0 1px 2px rgba(16, 16, 26, 0.1),
+    0 4px 8px -4px rgba(16, 16, 26, 0.14),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --elev-inset:
+    inset 0 1px 3px rgba(16, 16, 26, 0.1),
+    inset 0 0 0 1px rgba(16, 16, 26, 0.04);
+  /* Hover cards, menus and dialogs floating over a card: a hairline, a close
+     contact shadow and a wide soft drop, a step above --elev-card-hover. */
+  --elev-popover:
+    0 0 0 1px rgba(16, 16, 26, 0.08),
+    0 2px 4px rgba(16, 16, 26, 0.08),
+    0 12px 24px -8px rgba(16, 16, 26, 0.18),
+    0 28px 48px -20px rgba(16, 16, 26, 0.28);
+  /* Light grey of a well pressed into a card, and of value chips. */
+  --well: color-mix(in srgb, var(--surface-inset) 45%, var(--surface-tile));
+
+  /* Data bars: lit from above, standing on the card. */
+  --bar-fill: linear-gradient(180deg, #74cfca 0%, var(--accent) 60%, #4faca7 100%);
+  --bar-edge:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    0 1px 2px rgba(16, 16, 26, 0.12),
+    0 8px 16px -10px rgba(16, 16, 26, 0.35);
+  /* The lighter bar of a pair (Anfragen beside Gewonnen), lit the same way. */
+  --bar-light: linear-gradient(180deg, #c6e9e6 0%, #a9dcd8 60%, #9ad3cf 100%);
+  --bar-ghost: color-mix(in srgb, var(--accent) 18%, transparent);
+  --bar-ghost-edge: inset 0 1px 3px rgba(16, 16, 26, 0.08);
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Corner radius by size (DESIGN.md section 5, "Radius by size"). The same
+     number looks rounder on a small button than on a big card, so the radius
+     grows with the element's short side (a bar: its width), about with its
+     square root: 8 px at a 40 px control, a fifth of the side up to rows.
+     A container that hugs controls with a small gap (a track, a menu) takes
+     their radius plus the gap instead, so the corners share a centre: 8
+     inside 12, 4 px apart. */
+  --r-mark: 3px; /* up to 12 px: legend squares */
+  --r-small: 6px; /* 13-31 px: badges, value chips, sub-entries, thin bars, skeleton text */
+  --r-control: 8px; /* 32-63 px: buttons, inputs, chips, nav entries, one-line rows, bars */
+  --r-panel: 12px; /* 64-159 px: two-line rows, wells, banners, hover cards, tracks, menus */
+  --r-card: 20px; /* 160 px and up: cards, wide funnel bars */
+
+  /* One height for every control (button, input, filter chip, icon button,
+     menu trigger, segment): 44 px on the phone, 40 px from sm. A track that
+     holds controls (the period switch, the call outcome) is 4 px larger on
+     every side. */
+  --control-h: 2.75rem;
+  --track-h: calc(var(--control-h) + 0.5rem);
+
+  /* Height of a page's first row from md: a track (the period switch on the
+     Übersicht) fits, a control sits centred. The sidebar's account row uses
+     it too, so both line up without a header bar. */
+  --shell-row: 3rem;
+
+  /* Chart lines, coloured by height like Triple Whale's tile lines, in
+     EINS mint: light mint at the peaks, deep mint in the valleys. */
+  --line-top: #64cec9;
+  --line-bottom: #3f938f;
+}
+@media (min-width: 640px) {
+  :root {
+    --control-h: 2.5rem;
+  }
+}
+:root[data-theme="dark"] {
+  /* Dark design exists on the admin host only (see app/layout.tsx); the
+     admin panels use these two. The Praxis side is always light. */
+  --surface-tile: #16171e;
+  --surface-tile-hover: #1d1e28;
+}
+
+/* Elevation (shadow only; the background comes from the surface tokens). */
+.elev-card {
+  box-shadow: var(--elev-card);
+}
+.elev-raised {
+  box-shadow: var(--elev-raised);
+}
+.elev-inset {
+  box-shadow: var(--elev-inset);
+}
+/* A class, not the shadow-[…] utility with the token: Tailwind reads a
+   var() in shadow-[…] as a shadow colour, so that drew no shadow at all. */
+.elev-popover {
+  box-shadow: var(--elev-popover);
+}
+/* A region of fixed height whose text may be longer than it (DESIGN.md
+   section 10, "Fixed size"): it scrolls, and a soft shadow at the top or
+   bottom edge shows there is more. The covers ride with the content
+   ("local"), the shadows stay at the edges ("scroll"), so a shadow only
+   shows where text is hidden. Set --scroll-bg to the region's fill.
+   No overscroll-behavior: contain. It made every region a dead end for the
+   wheel and the finger: with the pointer over a list that had nothing (left)
+   to scroll, the page stopped moving (Karam, 29.10.2026). The region scrolls
+   first, then the page takes over, as everywhere else on the web. */
+.scroll-shadows {
+  overflow-y: auto;
+  /* No scroll bar (Karam: "we aren't in 2005"); the shadow at the edge is
+     the hint, the wheel, touch and keyboard still scroll. */
+  scrollbar-width: none;
+  background:
+    linear-gradient(var(--scroll-bg, var(--well)) 30%, transparent) top / 100% 2rem no-repeat local,
+    linear-gradient(transparent, var(--scroll-bg, var(--well)) 70%) bottom / 100% 2rem no-repeat local,
+    radial-gradient(farthest-side at 50% 0, rgb(16 16 26 / 0.14), transparent) top / 100% 0.625rem no-repeat scroll,
+    radial-gradient(farthest-side at 50% 100%, rgb(16 16 26 / 0.14), transparent) bottom / 100% 0.625rem no-repeat scroll,
+    var(--scroll-bg, var(--well));
+}
+.scroll-shadows::-webkit-scrollbar {
+  display: none;
+}
+/* The same sideways, for one line that must not wrap (a long e-mail address
+   in a record row): it scrolls left and right, the shadow shows the rest. */
+.scroll-shadows-x {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  background:
+    linear-gradient(to right, var(--scroll-bg, var(--well)) 30%, transparent) left / 2rem 100% no-repeat local,
+    linear-gradient(to left, var(--scroll-bg, var(--well)) 30%, transparent) right / 2rem 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgb(16 16 26 / 0.14), transparent) left / 0.625rem 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgb(16 16 26 / 0.14), transparent) right / 0.625rem 100% no-repeat scroll,
+    var(--scroll-bg, var(--well));
+}
+.scroll-shadows-x::-webkit-scrollbar {
+  display: none;
+}
+/* Every card answers the pointer with a deeper shadow, the same way on
+   every card. It stays where it is (Karam, 2026-10-30: the shadow yes, the
+   card moving up no). Only where the pointer can hover: on the phone a tap
+   would leave it raised. Keyboard focus on a link inside raises it too. */
+.lift {
+  transition: box-shadow 250ms var(--ease-out);
+}
+@media (hover: hover) {
+  .lift:hover {
+    box-shadow: var(--elev-card-hover);
+  }
+}
+.lift:has(a:focus-visible) {
+  box-shadow: var(--elev-card-hover);
+}
+
+/* A Kennzahl with a shorter label ("Behandlungen gewonnen" → "Gewonnen")
+   shows it while its tile is too narrow for the long one at headline size
+   (the query reads the tile's width inside its padding). */
+.kpi-tile {
+  container-type: inline-size;
+}
+.kpi-label-short {
+  display: none;
+}
+@container (max-width: 12rem) {
+  .kpi-label-full {
+    display: none;
+  }
+  .kpi-label-short {
+    display: inline;
+  }
+}
+
+.bar-solid {
+  background: var(--bar-fill);
+  box-shadow: var(--bar-edge);
+}
+.bar-light {
+  background: var(--bar-light);
+  box-shadow: var(--bar-edge);
+}
+.bar-ghost {
+  background: var(--bar-ghost);
+  box-shadow: var(--bar-ghost-edge);
+}
+
+/* Motion. Short and eased out: cards rise in once, bars grow from their
+   baseline, lines draw from left to right, digits roll into place. When the
+   period changes, bars and digits ease to their new values instead of
+   jumping. Motion never keeps a number from being read: everything settles
+   within about half a second. The reduced-motion rule in @eins/ui turns all
+   of it off. Each element can carry its own --delay for a small stagger. */
+@keyframes portal-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@keyframes portal-fade {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes portal-grow-y {
+  from {
+    height: 0;
+  }
+}
+@keyframes portal-grow-x {
+  from {
+    width: 0;
+  }
+}
+/* The clip reaches 8 px past the box on every side: a line's stroke at the
+   top, the base or the ends spills over the chart box, and a clip flush with
+   the box would cut it off until the animation ends and the clip goes away. */
+@keyframes portal-wipe {
+  from {
+    clip-path: inset(-8px calc(100% + 8px) -8px -8px);
+  }
+  to {
+    clip-path: inset(-8px -8px -8px -8px);
+  }
+}
+@keyframes portal-roll {
+  from {
+    transform: translateY(0);
+  }
+}
+/* A row that just arrived (a file sent a moment ago) lights up once and
+   fades back to the card, like Drive's new-file wash. */
+@keyframes portal-fresh {
+  from {
+    background-color: var(--accent-glow);
+  }
+}
+
+.anim-rise {
+  animation: portal-rise 320ms var(--ease-out) backwards;
+  animation-delay: var(--delay, 0ms);
+}
+.anim-fresh {
+  animation: portal-fresh 2400ms var(--ease-out) backwards;
+}
+.anim-bar-y {
+  animation: portal-grow-y 520ms var(--ease-out) backwards;
+  animation-delay: var(--delay, 0ms);
+  transition: height 450ms var(--ease-out);
+}
+.anim-bar-x {
+  animation: portal-grow-x 520ms var(--ease-out) backwards;
+  animation-delay: var(--delay, 0ms);
+  transition: width 450ms var(--ease-out);
+}
+.anim-ghost {
+  animation: portal-fade 400ms ease-out backwards;
+  animation-delay: var(--delay, 0ms);
+  transition:
+    height 450ms var(--ease-out),
+    width 450ms var(--ease-out);
+}
+.anim-wipe {
+  animation: portal-wipe 650ms var(--ease-out) backwards;
+  animation-delay: var(--delay, 0ms);
+}
+
+/* Rolling digits (RollingNumber): the hidden digit holds width and baseline,
+   the strip of 0-9 behind it slides to the right one. */
+.roll-cell {
+  position: relative;
+  display: inline-block;
+  clip-path: inset(0 -0.25em);
+}
+.roll-ghost {
+  visibility: hidden;
+}
+.roll-strip {
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+  transform: translateY(calc(var(--d) * -1lh));
+  transition: transform 450ms var(--ease-out);
+  animation: portal-roll 500ms var(--ease-out) backwards;
+  animation-delay: var(--delay, 0ms);
+}
+.roll-strip > span {
+  height: 1lh;
+}
+@supports not (height: 1lh) {
+  .roll-strip {
+    display: none;
+  }
+  .roll-ghost {
+    visibility: visible;
+  }
+}

@@ -1,7 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, inArray, isNull } from "drizzle-orm";
+import { unstable_rethrow } from "next/navigation";
+import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { requireSession } from "@/auth/guards";
 import { schema, withClinicContext } from "@/db/client";
@@ -10,8 +11,7 @@ import { enqueueRetreatmentRefresh } from "@/server/jobs";
 import { can, ForbiddenError } from "@/lib/roles";
 import { flashError, flashMessageFromError, flashSuccess } from "@/lib/flash";
 import { RETREATMENT_MODES, type RetreatmentMode } from "@/lib/retreatment";
-
-const PATH = "/wiederbehandlungen";
+import type { ActionResult } from "../anfragen/[id]/actions";
 
 const checkbox = (v: FormDataEntryValue | null) => v === "on" || v === "true";
 
@@ -97,7 +97,10 @@ export async function updateRetreatmentSettingsAction(formData: FormData) {
   } catch (err) {
     await flashError("Speichern fehlgeschlagen", flashMessageFromError(err));
   } finally {
-    revalidatePath(PATH);
+    revalidatePath("/dashboard");
+    revalidatePath("/anfragen");
+    revalidatePath("/einstellungen");
+    revalidatePath("/onboarding");
   }
 }
 
@@ -157,22 +160,159 @@ export async function updateRetreatmentTreatmentsAction(formData: FormData) {
   } catch (err) {
     await flashError("Speichern fehlgeschlagen", flashMessageFromError(err));
   } finally {
-    revalidatePath(PATH);
+    revalidatePath("/dashboard");
+    revalidatePath("/anfragen");
+    revalidatePath("/einstellungen");
+    revalidatePath("/onboarding");
   }
 }
 
-/** Team: take a patient off the calendar for this cycle (no reminder, not in the lists). */
-export async function dismissRetreatmentAction(formData: FormData) {
+// ---------------------------------------------------------------------------
+// The team's work on one cycle: calls from the call cards of /anfragen, and
+// taking a patient off the calendar or back on (call cards, Anfrage page).
+// Each returns a result for the toast (one tap saves, the card keeps its
+// size), and each leaves a note in the Verlauf of the patient's Anfrage, so
+// the history of a Wiederbehandlung is where the team looks for it.
+// ---------------------------------------------------------------------------
+
+/** An error whose message is safe and meant for the Praxis team. */
+class UserFacingError extends Error {}
+
+const NOT_OPEN = "Diese Wiederbehandlung ist nicht mehr offen. Bitte laden Sie die Seite neu.";
+const NOT_DISMISSED = "Diese Wiederbehandlung ist nicht ausgeblendet. Bitte laden Sie die Seite neu.";
+
+async function toResult(run: () => Promise<void>): Promise<ActionResult> {
   try {
+    await run();
+    return { ok: true };
+  } catch (err) {
+    // Redirects (e.g. expired session in requireSession) must propagate.
+    unstable_rethrow(err);
+    if (err instanceof UserFacingError) return { ok: false, message: err.message };
+    if (err instanceof ForbiddenError) return { ok: false, message: "Dafür fehlt Ihnen die Berechtigung." };
+    console.error("[wiederbehandlungen] action failed:", err instanceof Error ? err.message : err);
+    return { ok: false, message: "Speichern hat nicht geklappt. Bitte versuchen Sie es noch einmal." };
+  }
+}
+
+type Tx = Parameters<Parameters<typeof withClinicContext>[2]>[0];
+
+/** The cycle, locked, with what the note on its Anfrage needs. */
+async function lockCycle(tx: Tx, clinicId: string, id: string) {
+  const t = schema.retreatmentCycles;
+  const [row] = await tx
+    .select({ status: t.status, requestId: t.requestId, treatmentName: schema.treatments.name })
+    .from(t)
+    .innerJoin(schema.treatments, eq(t.treatmentId, schema.treatments.id))
+    .where(and(eq(t.id, id), eq(t.clinicId, clinicId)))
+    .limit(1)
+    .for("update", { of: t });
+  return row ?? null;
+}
+
+async function noteOnAnfrage(
+  tx: Tx,
+  requestId: string | null,
+  actorId: string,
+  body: string,
+  meta: Record<string, string>
+) {
+  if (!requestId) return;
+  // A note, not a call: a call activity would count as the Anfrage's first
+  // contact attempt (response-time.ts) months after it came in.
+  await tx.insert(schema.requestActivities).values({ requestId, actorId, kind: "note", body, meta });
+}
+
+function revalidateRetreatment(requestId: string | null) {
+  revalidatePath("/anfragen");
+  if (requestId) revalidatePath(`/anfragen/${requestId}`);
+  revalidatePath("/dashboard");
+}
+
+const CallSchema = z.object({
+  id: z.string().uuid(),
+  outcome: z.enum(["termin_vereinbart", "nicht_erreicht", "kein_interesse"]),
+});
+
+const CALL_NOTES: Record<z.infer<typeof CallSchema>["outcome"], string> = {
+  termin_vereinbart: "Termin vereinbart",
+  nicht_erreicht: "nicht erreicht",
+  kein_interesse: "kein Interesse, ausgeblendet",
+};
+
+/**
+ * Team: the result of a call from the call cards. "Termin vereinbart" takes
+ * the patient out of the cards until the date arrives from the PVS
+ * (CALLED_TERMIN_HOLD_DAYS), "Nicht erreicht" puts them behind everyone not
+ * called yet, "Kein Interesse" takes them off the calendar for this cycle
+ * (undo: restoreRetreatmentAction).
+ */
+export async function logRetreatmentCall(formData: FormData): Promise<ActionResult> {
+  let requestId: string | null = null;
+  const result = await toResult(async () => {
+    const session = await requireSession();
+    if (!can(session.role, "requests.update")) throw new ForbiddenError("requests.update");
+    const input = CallSchema.safeParse({ id: formData.get("id"), outcome: formData.get("outcome") });
+    if (!input.success) throw new UserFacingError("Eintrag nicht gefunden.");
+    const { id, outcome } = input.data;
+    const t = schema.retreatmentCycles;
+    const now = new Date();
+    await withClinicContext(session.clinicId, session.userId, async (tx) => {
+      const cycle = await lockCycle(tx, session.clinicId, id);
+      if (!cycle || !["open", "booked"].includes(cycle.status)) throw new UserFacingError(NOT_OPEN);
+      requestId = cycle.requestId;
+      // "Kein Interesse" only hides the cycle, so "Rückgängig" puts the
+      // patient back exactly where they were; the call itself is the note.
+      await tx
+        .update(t)
+        .set(
+          outcome === "kein_interesse"
+            ? { status: "dismissed", dismissedAt: now, dismissedBy: session.userId, updatedAt: now }
+            : { lastCallAt: now, lastCallOutcome: outcome, updatedAt: now }
+        )
+        .where(eq(t.id, id));
+      await noteOnAnfrage(
+        tx,
+        cycle.requestId,
+        session.userId,
+        `Wiederbehandlung ${cycle.treatmentName}: angerufen, ${CALL_NOTES[outcome]}.`,
+        { retreatmentCycleId: id, outcome }
+      );
+    });
+    await writeAudit({
+      clinicId: session.clinicId,
+      actorId: session.userId,
+      actorEmail: session.email,
+      action: "update",
+      entityKind: "retreatment_cycle",
+      entityId: id,
+      diff: outcome === "kein_interesse" ? { status: "dismissed", call: outcome } : { call: outcome },
+    });
+  });
+  revalidateRetreatment(requestId);
+  return result;
+}
+
+/** Team: take a patient off the calendar for this cycle (no reminder, not in the call cards). */
+export async function dismissRetreatmentAction(formData: FormData): Promise<ActionResult> {
+  let requestId: string | null = null;
+  const result = await toResult(async () => {
     const session = await requireSession();
     if (!can(session.role, "requests.update")) throw new ForbiddenError("requests.update");
     const id = parseId(formData.get("id"));
     const t = schema.retreatmentCycles;
     await withClinicContext(session.clinicId, session.userId, async (tx) => {
+      const cycle = await lockCycle(tx, session.clinicId, id);
+      if (!cycle || !["open", "booked"].includes(cycle.status)) throw new UserFacingError(NOT_OPEN);
+      requestId = cycle.requestId;
       await tx
         .update(t)
         .set({ status: "dismissed", dismissedAt: new Date(), dismissedBy: session.userId, updatedAt: new Date() })
-        .where(and(eq(t.id, id), eq(t.clinicId, session.clinicId), inArray(t.status, ["open", "booked"])));
+        .where(eq(t.id, id));
+      await noteOnAnfrage(tx, cycle.requestId, session.userId, `Wiederbehandlung ${cycle.treatmentName}: ausgeblendet.`, {
+        retreatmentCycleId: id,
+        status: "dismissed",
+      });
     });
     await writeAudit({
       clinicId: session.clinicId,
@@ -183,26 +323,31 @@ export async function dismissRetreatmentAction(formData: FormData) {
       entityId: id,
       diff: { status: "dismissed" },
     });
-    await flashSuccess("Ausgeblendet", "Diese Person bekommt für diese Behandlung keine Erinnerung.");
-  } catch (err) {
-    await flashError("Aktion fehlgeschlagen", flashMessageFromError(err));
-  } finally {
-    revalidatePath(PATH);
-  }
+  });
+  revalidateRetreatment(requestId);
+  return result;
 }
 
 /** Team: undo a dismiss. The next rebuild sets 'booked' again if a date exists. */
-export async function restoreRetreatmentAction(formData: FormData) {
-  try {
+export async function restoreRetreatmentAction(formData: FormData): Promise<ActionResult> {
+  let requestId: string | null = null;
+  const result = await toResult(async () => {
     const session = await requireSession();
     if (!can(session.role, "requests.update")) throw new ForbiddenError("requests.update");
     const id = parseId(formData.get("id"));
     const t = schema.retreatmentCycles;
     await withClinicContext(session.clinicId, session.userId, async (tx) => {
+      const cycle = await lockCycle(tx, session.clinicId, id);
+      if (!cycle || cycle.status !== "dismissed") throw new UserFacingError(NOT_DISMISSED);
+      requestId = cycle.requestId;
       await tx
         .update(t)
         .set({ status: "open", dismissedAt: null, dismissedBy: null, updatedAt: new Date() })
-        .where(and(eq(t.id, id), eq(t.clinicId, session.clinicId), eq(t.status, "dismissed")));
+        .where(eq(t.id, id));
+      await noteOnAnfrage(tx, cycle.requestId, session.userId, `Wiederbehandlung ${cycle.treatmentName}: wieder aufgenommen.`, {
+        retreatmentCycleId: id,
+        status: "open",
+      });
     });
     await writeAudit({
       clinicId: session.clinicId,
@@ -214,10 +359,7 @@ export async function restoreRetreatmentAction(formData: FormData) {
       diff: { status: "open" },
     });
     await enqueueRetreatmentRefresh(session.clinicId);
-    await flashSuccess("Wieder im Kalender");
-  } catch (err) {
-    await flashError("Aktion fehlgeschlagen", flashMessageFromError(err));
-  } finally {
-    revalidatePath(PATH);
-  }
+  });
+  revalidateRetreatment(requestId);
+  return result;
 }

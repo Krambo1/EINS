@@ -1,5 +1,5 @@
-// NB: intentionally NO `import "server-only"` here. Unlike monthly-pdf.tsx,
-// this module is imported by Node entrypoints (the db seed + the
+// NB: intentionally NO `import "server-only"` here. This module is imported
+// by Node entrypoints (the db seed + the
 // generate-leitfaden-pdf CLI) that run under tsx, where `server-only`'s
 // index.js throws on import. It is never imported by a client component (the
 // page reads content.ts directly), so the guard would add risk without value.
@@ -15,6 +15,11 @@ import {
 import {
   PRINCIPLES,
   KPIS,
+  ANFRAGE_INTRO,
+  ANFRAGE_RULES,
+  ANFRAGE_CADENCE,
+  ANFRAGE_CHANNELS,
+  ANFRAGE_TEMPLATES,
   PREP_STEPS,
   OPENING_SCRIPTS,
   DISCOVERY_INTRO,
@@ -39,11 +44,12 @@ import { DISPLAY_TIME_ZONE } from "@/lib/formatting";
  * Full Vertriebsleitfaden as a downloadable, branded PDF.
  *
  * This is the COMPLETE playbook — every objection, every HWG table, every
- * No-Show template, plus the warnings, the cheat-sheet and the legal index.
+ * Anfrage and No-Show template, plus the warnings, the cheat-sheet and the
+ * legal index.
  * The staff-facing page (`leitfaden/page.tsx`) shows only the `core` subset;
  * both read from the same `content.ts`, so the page and the PDF never drift.
  *
- * Built with @react-pdf/renderer (already used by `monthly-pdf.tsx`). The
+ * Built with @react-pdf/renderer (also used by `checkliste-pdf.tsx`). The
  * built-in Helvetica covers German umlauts, §, € and the typographic quotes
  * via WinAnsi. The reception cheat-sheet uses box-drawing rules (U+2500) that
  * WinAnsi lacks, so those are down-converted to hyphens before rendering.
@@ -254,8 +260,8 @@ export async function generateLeitfadenPdf(): Promise<Buffer> {
         <Text style={styles.coverTitle}>Vertriebsleitfaden.</Text>
         <Text style={styles.coverLead}>
           So verwandeln Sie eine Anfrage in einen Beratungstermin, ohne gegen
-          HWG, MBO-Ä oder DSGVO zu verstoßen. Bewährte Abläufe für eingehende
-          Anrufe aus Meta- und Google-Anzeigen. Vollständige Fassung.
+          HWG, MBO-Ä oder DSGVO zu verstoßen. Bewährte Abläufe für Anfragen
+          aus Ihren Beiträgen und Anzeigen. Vollständige Fassung.
         </Text>
         <Text style={styles.coverMeta}>Stand: {today}</Text>
 
@@ -263,6 +269,7 @@ export async function generateLeitfadenPdf(): Promise<Buffer> {
           {[
             "Sechs goldene Prinzipien",
             "Zielwerte für jeden Anruf",
+            "Neue Anfragen beantworten: Telefon, E-Mail, WhatsApp",
             "Vor jedem Anruf in 30 Sekunden",
             "Gesprächs-Eröffnung, wortwörtlich",
             "Bedarf klären: 14 Fragen in vier Blöcken",
@@ -305,12 +312,42 @@ export async function generateLeitfadenPdf(): Promise<Buffer> {
           ))}
         </View>
 
+        {/* 3. Neue Anfragen beantworten (Vertrag 2.11) */}
+        <SectionHeading n={3} title="Neue Anfragen beantworten: Telefon, E-Mail, WhatsApp" intro={ANFRAGE_INTRO} />
+        <BulletList items={ANFRAGE_RULES} />
+        <View style={styles.table} wrap={false}>
+          <View style={styles.tHeadRow}>
+            <Text style={[styles.th, { width: "24%" }]}>Zeitpunkt</Text>
+            <Text style={[styles.th, { width: "36%" }]}>Kanal</Text>
+            <Text style={[styles.th, { width: "40%" }]}>Zweck</Text>
+          </View>
+          {ANFRAGE_CADENCE.map((r, i) => (
+            <View key={i} style={i === ANFRAGE_CADENCE.length - 1 ? styles.tRowLast : styles.tRow}>
+              <Text style={[styles.td, { width: "24%", fontWeight: 700 }]}>{r.time}</Text>
+              <Text style={[styles.td, { width: "36%" }]}>{r.channel}</Text>
+              <Text style={[styles.td, { width: "40%" }]}>{r.purpose}</Text>
+            </View>
+          ))}
+        </View>
+        {ANFRAGE_CHANNELS.map((c) => (
+          <View key={c.id}>
+            <Text style={styles.groupTitle}>{c.label}</Text>
+            {ANFRAGE_TEMPLATES.filter((t) => t.channel === c.id).map((t) => (
+              <View key={t.id} style={styles.card} wrap={false}>
+                <Text style={styles.itemTitle}>{t.title}</Text>
+                <Text style={styles.mono}>{t.text}</Text>
+                {t.note ? <Text style={styles.note}>{t.note}</Text> : null}
+              </View>
+            ))}
+          </View>
+        ))}
+
         {/* 3. Prep */}
-        <SectionHeading n={3} title="Vor jedem Anruf in 30 Sekunden" />
+        <SectionHeading n={4} title="Vor jedem Anruf in 30 Sekunden" />
         <NumberedList items={PREP_STEPS.map((s) => s.text)} />
 
         {/* 4. Eröffnung */}
-        <SectionHeading n={4} title="Gesprächs-Eröffnung, wortwörtlich" />
+        <SectionHeading n={5} title="Gesprächs-Eröffnung, wortwörtlich" />
         {OPENING_SCRIPTS.map((s) => (
           <View key={s.id} style={styles.card} wrap={false}>
             <Text style={styles.itemTitle}>{s.title}</Text>
@@ -321,7 +358,7 @@ export async function generateLeitfadenPdf(): Promise<Buffer> {
         ))}
 
         {/* 5. Discovery */}
-        <SectionHeading n={5} title="Bedarf klären: 14 Fragen in vier Blöcken" intro={DISCOVERY_INTRO} />
+        <SectionHeading n={6} title="Bedarf klären: 14 Fragen in vier Blöcken" intro={DISCOVERY_INTRO} />
         {DISCOVERY_BLOCKS.map((b) => (
           <View key={b.id} style={styles.card} wrap={false}>
             <Text style={styles.itemTitle}>{b.title}</Text>
@@ -336,7 +373,7 @@ export async function generateLeitfadenPdf(): Promise<Buffer> {
 
         {/* 6. Einwandbehandlung */}
         <SectionHeading
-          n={6}
+          n={7}
           title="Einwandbehandlung: 23 Patienten-Einwände"
           intro="Pro Eintrag: eigentliche Sorge, HWG-konforme Antwort wortwörtlich, was zu vermeiden ist."
         />
@@ -363,7 +400,7 @@ export async function generateLeitfadenPdf(): Promise<Buffer> {
 
         {/* 7. HWG tables */}
         <SectionHeading
-          n={7}
+          n={8}
           title="HWG-Quick-Reference: Sag-So, Sag-So-Nicht"
           intro="Sieben Tabellen mit konkreten Formulierungen. Jede Sag-So-Nicht-Zeile ist ein konkretes HWG-, MBO-Ä- oder UWG-Risiko."
         />
@@ -386,7 +423,7 @@ export async function generateLeitfadenPdf(): Promise<Buffer> {
         ))}
 
         {/* 8. Close + DSGVO */}
-        <SectionHeading n={8} title="Termin festmachen und DSGVO-Datenaufnahme" />
+        <SectionHeading n={9} title="Termin festmachen und DSGVO-Datenaufnahme" />
         {CLOSE_STEPS.map((s) => (
           <View key={s.id} style={styles.card} wrap={false}>
             <Text style={styles.itemTitle}>{s.title}</Text>
@@ -397,7 +434,7 @@ export async function generateLeitfadenPdf(): Promise<Buffer> {
         ))}
 
         {/* 9. No-Show */}
-        <SectionHeading n={9} title="No-Show-Prävention: Erinnerungsplan und Vorlagen" intro={NO_SHOW_INTRO} />
+        <SectionHeading n={10} title="No-Show-Prävention: Erinnerungsplan und Vorlagen" intro={NO_SHOW_INTRO} />
         <View style={styles.table} wrap={false}>
           <View style={styles.tHeadRow}>
             <Text style={[styles.th, { width: "25%" }]}>Zeitpunkt</Text>
@@ -423,19 +460,19 @@ export async function generateLeitfadenPdf(): Promise<Buffer> {
         ))}
 
         {/* 10. Vermeiden */}
-        <SectionHeading n={10} title="Was Sie unbedingt vermeiden" />
+        <SectionHeading n={11} title="Was Sie unbedingt vermeiden" />
         {VERMEIDEN_DONTS.map((d) => (
           <DontCard key={d.id} d={d} />
         ))}
 
         {/* 11. Cheat-Sheet */}
         <View break>
-          <SectionHeading n={11} title="Cheat-Sheet zum Ausdrucken" />
+          <SectionHeading n={12} title="Cheat-Sheet zum Ausdrucken" />
           <Text style={styles.mono}>{cheatSheet}</Text>
         </View>
 
         {/* 12. Rechtsgrundlagen */}
-        <SectionHeading n={12} title="Rechtsgrundlagen, kompakt" />
+        <SectionHeading n={13} title="Rechtsgrundlagen, kompakt" />
         <View style={styles.badgeWrap}>
           {RECHTSGRUNDLAGEN.map((r, i) => (
             <Text key={i} style={styles.badge}>

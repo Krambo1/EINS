@@ -85,7 +85,7 @@ export function SectionNav({ items, activeKey, onJump }: SectionNavProps) {
       {/* Phone and tablet: sticky bar that folds open. */}
       <nav
         aria-label="Abschnitte des Fragebogens"
-        className="sticky top-16 z-30 mb-6 rounded-xl border border-border bg-bg-primary shadow-sm xl:hidden"
+        className="sticky top-16 z-30 mb-6 md:top-4 rounded-xl border border-border bg-bg-primary shadow-sm xl:hidden"
       >
         <button
           type="button"
@@ -119,7 +119,7 @@ export function SectionNav({ items, activeKey, onJump }: SectionNavProps) {
       {/* Desktop: sticky column next to the form. */}
       <nav
         aria-label="Abschnitte des Fragebogens"
-        className="sticky top-20 hidden self-start xl:block"
+        className="sticky top-8 hidden self-start xl:block"
       >
         <p className="px-3 text-base font-semibold text-fg-primary">
           Abschnitt {activeIndex + 1} von {items.length}

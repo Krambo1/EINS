@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  ChevronDown,
+  ChevronsUpDown,
   LogOut,
   Settings,
 } from "lucide-react";
@@ -26,26 +26,36 @@ interface UserMenuProps {
     fullName: string | null;
     role: Role;
   };
+  /** The Praxis, under the e-mail at the top of the menu. */
+  clinicName: string;
+  className?: string;
 }
 
+// A two-line row across the sidebar's width (at least 48 px, control
+// radius), quiet until hovered or open, like the nav entries above it. A
+// long role ("Marketing-Verantwortlicher") wraps to a third line and the row
+// grows with it: a fixed height let it spill 2 px out of the sidebar, which
+// then scrolled.
 const TRIGGER_CLASSES = cn(
-  "group inline-flex h-10 items-center gap-2 rounded-xl border border-border bg-bg-primary py-1.5 pl-1.5 pr-2 text-left transition",
-  "hover:bg-bg-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-fg-primary",
-  "data-[state=open]:bg-bg-secondary"
+  "group flex min-h-12 w-full min-w-0 items-center gap-2.5 rounded-[var(--r-control)] px-2 py-1 text-left transition-colors",
+  "hover:bg-[var(--hover-wash)] focus:outline-none focus-visible:ring-2 focus-visible:ring-fg-primary",
+  "data-[state=open]:bg-[var(--hover-wash)]"
 );
 
 /**
- * Top-right account menu. The trigger doubles as the user-info chip: clicking
- * the name expands a Radix dropdown with account actions.
+ * The account at the foot of the sidebar, as in Claude, ChatGPT and Vercel:
+ * the person who is signed in (avatar, name, role), and a tap opens the menu
+ * upward with Einstellungen and Abmelden. A person reads as "my account"; a
+ * logo with the Praxis name at the top did not (Karam, 2026-10-29).
  *
  * Hydration: Radix's DropdownMenu generates `useId` values for aria linkage,
  * and under React 19 the SSR-produced id and the post-hydration id diverge
  * (React's "won't be patched up" warning, fires every paint). We render a
- * static chip on the server with the identical layout/styling, then mount
+ * static trigger on the server with the identical layout/styling, then mount
  * the real DropdownMenu only after the client has hydrated. The result is
  * no layout shift and no warning.
  */
-export function UserMenu({ user }: UserMenuProps) {
+export function UserMenu({ user, clinicName, className }: UserMenuProps) {
   const displayName = user.fullName ?? user.email;
   const showSettings = can(user.role, "settings.team");
 
@@ -56,20 +66,16 @@ export function UserMenu({ user }: UserMenuProps) {
     setMounted(true);
   }, []);
 
-  const chipInner = (
+  const triggerInner = (
     <>
-      <Avatar
-        name={displayName}
-        size="sm"
-        className="rounded-lg"
-      />
-      <span className="hidden flex-col leading-tight md:flex">
-        <span className="text-sm font-medium">{displayName}</span>
+      <Avatar name={displayName} size="md" aria-hidden />
+      <span className="min-w-0 flex-1">
+        <span className="block break-words text-sm font-semibold leading-5 text-fg-primary">
+          {displayName}
+        </span>
+        <span className="block text-[13px] leading-4 text-fg-secondary">{ROLE_LABELS[user.role]}</span>
       </span>
-      <ChevronDown
-        aria-hidden
-        className="h-4 w-4 shrink-0 text-fg-secondary transition-transform duration-200 group-data-[state=open]:rotate-180"
-      />
+      <ChevronsUpDown aria-hidden className="h-4 w-4 shrink-0 text-fg-secondary" />
     </>
   );
 
@@ -77,12 +83,12 @@ export function UserMenu({ user }: UserMenuProps) {
     return (
       <button
         type="button"
-        className={TRIGGER_CLASSES}
+        className={cn(TRIGGER_CLASSES, className)}
         aria-label="Konto-Menü öffnen"
         aria-haspopup="menu"
         aria-expanded={false}
       >
-        {chipInner}
+        {triggerInner}
       </button>
     );
   }
@@ -91,28 +97,23 @@ export function UserMenu({ user }: UserMenuProps) {
     <>
     <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
-        className={TRIGGER_CLASSES}
+        className={cn(TRIGGER_CLASSES, className)}
         aria-label="Konto-Menü öffnen"
       >
-        {chipInner}
+        {triggerInner}
       </DropdownMenuTrigger>
 
-      <DropdownMenuContent align="end" className="min-w-[16rem]">
-        <div className="flex items-center gap-3 px-3 py-2">
-          <Avatar name={displayName} size="lg" />
-          <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-fg-primary">
-              {displayName}
-            </div>
-            {user.fullName && (
-              <div className="truncate text-sm text-fg-secondary">
-                {user.email}
-              </div>
-            )}
-            <div className="mt-1 inline-flex items-center rounded-md bg-bg-secondary px-1.5 py-0.5 text-sm font-medium text-fg-primary">
-              {ROLE_LABELS[user.role]}
-            </div>
-          </div>
+      {/* Opens upward from the foot of the sidebar. A panel that hugs its
+          entries 4 px apart: panel radius outside, control radius inside
+          (DESIGN.md section 5, "Radius by size"). */}
+      <DropdownMenuContent
+        side="top"
+        align="start"
+        className="w-[var(--radix-dropdown-menu-trigger-width)] min-w-[15rem] max-w-[calc(100vw-2rem)] rounded-[var(--r-panel)] elev-popover [&_[role^=menuitem]]:rounded-[var(--r-control)]"
+      >
+        <div className="px-3 pb-2 pt-2 text-sm leading-5">
+          <p className="break-all text-fg-primary">{user.email}</p>
+          <p className="break-words text-fg-secondary">{clinicName}</p>
         </div>
 
         <DropdownMenuSeparator />
@@ -125,9 +126,6 @@ export function UserMenu({ user }: UserMenuProps) {
             </Link>
           </DropdownMenuItem>
         )}
-
-        <DropdownMenuSeparator />
-
         <DropdownMenuItem
           onSelect={(e) => {
             e.preventDefault();

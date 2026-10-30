@@ -1,5 +1,5 @@
-import { sql } from "drizzle-orm";
-import { schema } from "@/db/client";
+import { and, eq, or, sql, type SQL } from "drizzle-orm";
+import { schema, type dbApp } from "@/db/client";
 import { reportingChannel, type ReportingChannel } from "@/lib/sources";
 
 /**
@@ -42,4 +42,37 @@ export function channelOfGroup(r: ChannelGroup): ReportingChannel {
   // Any other utm_* key only decides "unbekannt" vs "direkt".
   if (r.anyUtm && !r.utmSource && !r.utmMedium) utm.utm_campaign = "1";
   return reportingChannel({ source: r.source, utm });
+}
+
+/**
+ * WHERE predicate for "the request's reportingChannel() is one of `channels`"
+ * (the Quelle filter of the Anfragen list). The Praxis's distinct channel
+ * groups are read first (a handful of rows) and classified here, so the list
+ * filters by exactly the buckets the Quellen card counts.
+ */
+export async function channelPredicate(
+  tx: typeof dbApp,
+  clinicId: string,
+  channels: readonly ReportingChannel[]
+): Promise<SQL> {
+  const groups = await tx
+    .select(channelKeys)
+    .from(schema.requests)
+    .where(eq(schema.requests.clinicId, clinicId))
+    .groupBy(...channelGroupBy);
+  const wanted = new Set<string>(channels);
+  const matching = groups.filter((g) => wanted.has(channelOfGroup(g)));
+  if (matching.length === 0) return sql`false`;
+  return or(
+    ...matching.map(
+      (g) =>
+        and(
+          eq(schema.requests.source, g.source),
+          sql`${channelKeys.utmSource} IS NOT DISTINCT FROM ${g.utmSource}`,
+          sql`${channelKeys.utmMedium} IS NOT DISTINCT FROM ${g.utmMedium}`,
+          sql`${channelKeys.googleClick} = ${g.googleClick}`,
+          sql`${channelKeys.anyUtm} = ${g.anyUtm}`
+        )!
+    )
+  )!;
 }

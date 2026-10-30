@@ -3,6 +3,8 @@ import withBundleAnalyzer from "@next/bundle-analyzer";
 
 const config: NextConfig = {
   reactStrictMode: true,
+  // The dev badge sat on the account row at the foot of the sidebar.
+  devIndicators: { position: "bottom-right" },
   // Per-instance build dir so parallel `next dev` servers (scripts/dev.js,
   // one per --port) don't share/clobber a single .next cache. Defaults to
   // .next for the normal single-instance case.

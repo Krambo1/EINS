@@ -84,13 +84,9 @@ async function computeNavBadges(
                     AND t.updated_at > ${threshold(userId, "fortschritt")}) AS timeline_update,
           ${
             can(role, "assets.view")
-              ? sql`(EXISTS (SELECT 1 FROM ${schema.assets} a
-                      WHERE a.clinic_id = ${clinicId}
-                        AND a.created_at > ${threshold(userId, "medien")})
-                     OR EXISTS (SELECT 1 FROM ${schema.animationInstances} ai
-                      WHERE ai.clinic_id = ${clinicId}
-                        AND ai.delivered_at IS NOT NULL
-                        AND ai.delivered_at > ${threshold(userId, "medien")}))`
+              ? sql`EXISTS (SELECT 1 FROM ${schema.assets} a
+                     WHERE a.clinic_id = ${clinicId}
+                       AND a.created_at > ${threshold(userId, "medien")})`
               : no
           } AS medien_update,
           ${

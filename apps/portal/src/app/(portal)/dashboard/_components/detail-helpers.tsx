@@ -9,7 +9,9 @@ import { cn } from "@eins/ui";
  */
 
 // ---------- Shared tone vocabulary ----------
-export type BreakdownTone = "neutral" | "accent" | "good" | "warn" | "bad";
+// "muted": the lightest grey, for "Unbekannt" so it never shares a colour
+// with the other neutral sources (e.g. Manueller Eintrag) in the share bar.
+export type BreakdownTone = "neutral" | "muted" | "accent" | "good" | "warn" | "bad";
 
 // ---------- DataTable: lightweight typed table ----------
 export interface DataTableColumn<T> {
@@ -43,7 +45,7 @@ export function DataTable<T>({
   return (
     <div className="overflow-x-auto">
       <table className={cn("w-full text-sm", fitPhone && "table-fixed md:table-auto")}>
-        <thead className="bg-bg-secondary text-left text-sm font-medium text-fg-primary">
+        <thead className="border-b border-border text-left text-sm font-medium text-fg-secondary">
           <tr>
             {columns.map((c) => (
               <th

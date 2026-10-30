@@ -88,12 +88,17 @@ async function seedClinic({ slug, name, n, big }) {
   for (let lo = 1; lo <= nPat; lo += 5000) {
     const hi = Math.min(nPat, lo + 4999);
     await sql`
-      INSERT INTO patients (clinic_id, email, phone, full_name, first_seen_at, last_seen_at, first_touch_source)
-      SELECT ${clinicId}, 'p' || g || '@' || ${slug} || '.invalid', '+4915' || lpad(g::text, 9, '0'),
-             'Patient Testmann ' || g,
+      INSERT INTO patients (clinic_id, email, phone, full_name, first_seen_at, last_seen_at, first_touch_source, first_touch_channel)
+      SELECT ${clinicId}, 'p' || o.g || '@' || ${slug} || '.invalid', '+4915' || lpad(o.g::text, 9, '0'),
+             'Patient Testmann ' || o.g,
              now() - (random() * interval '700 days'), now() - (random() * interval '100 days'),
-             (ARRAY['meta','google','formular','intake'])[1 + floor(random()*4)::int]
-      FROM generate_series(${lo}::int, ${hi}::int) g`;
+             CASE o.ch WHEN 'meta_anzeige' THEN 'meta' WHEN 'manuell' THEN 'manuell' ELSE 'formular' END,
+             o.ch
+      FROM (
+        SELECT g, (ARRAY['meta_anzeige','google_anzeige','instagram_organisch','instagram_organisch','profil_link',
+                         'dm_link','tiktok_organisch','facebook_organisch','manuell','direkt'])[1 + floor(random()*10)::int] AS ch
+        FROM generate_series(${lo}::int, ${hi}::int) g
+      ) o`;
   }
 
   // Anfragen, in chunks.
@@ -120,17 +125,25 @@ async function seedClinic({ slug, name, n, big }) {
                       WHEN r_status < 0.14 THEN 'termin_vereinbart' WHEN r_status < 0.20 THEN 'beratung_erschienen' WHEN r_status < 0.26 THEN 'no_show'
                       WHEN r_status < 0.40 THEN 'behandelt' WHEN r_status < 0.58 THEN 'gewonnen' WHEN r_status < 0.88 THEN 'verloren' ELSE 'spam' END
           END AS st,
-          (ARRAY['meta','meta','meta','google','google','formular','formular','intake','manuell','instagram'])[1 + floor(r_src*10)::int] AS src,
+          -- Organic-first origin slot: 1 Meta-Formular, 2-3 ads on a Zielseite,
+          -- 4-8 organic posts / profile link / DM link, 9 front desk, 10 no UTM.
+          1 + floor(r_src*10)::int AS org,
           CASE WHEN r_score < 0.15 THEN NULL ELSE floor(r_score * 118)::int END AS raw_score
         FROM g
+      ), o AS (
+        SELECT b.*,
+          CASE b.org WHEN 1 THEN 'meta' WHEN 9 THEN 'manuell' ELSE 'formular' END AS src,
+          (ARRAY['facebook','google','instagram','instagram','instagram','instagram','tiktok'])[b.org - 1] AS utm_src,
+          (ARRAY['anzeige','cpc','organisch','organisch','profil_link','dm','organisch'])[b.org - 1] AS utm_med
+        FROM b
       )
       INSERT INTO requests (clinic_id, source, source_campaign_id, utm, contact_name, contact_email, contact_phone,
                             treatment_wish, treatment_id, patient_id, location_id, budget_indication, message,
                             ai_score, ai_category, ai_reasoning, ai_signals, status, assigned_to, converted_revenue_eur,
                             sla_respond_by, created_at, first_contacted_at, first_viewed_at, won_at, raw_payload)
       SELECT ${clinicId}, b.src,
-             CASE WHEN b.src IN ('meta','google') THEN 'camp-' || (b.i % 12) END,
-             jsonb_build_object('utm_source', b.src, 'utm_campaign', 'kampagne-' || (b.i % 12), 'utm_medium', 'cpc'),
+             CASE WHEN b.org <= 3 THEN 'camp-' || (b.i % 12) END,
+             CASE WHEN b.utm_src IS NOT NULL THEN jsonb_build_object('utm_source', b.utm_src, 'utm_campaign', 'kampagne-' || (b.i % 12), 'utm_medium', b.utm_med) END,
              'Anfrage Kontakt ' || b.i, 'k' || b.i || '@' || ${slug} || '.invalid', '+4917' || lpad(b.i::text, 9, '0'),
              (ARRAY['Botox','Filler','Lippen','Brust','Nase','Falten','Fett','Laser'])[1 + (b.i % 8)],
              ctx.treats[1 + floor(b.r_tr * array_length(ctx.treats,1))::int],
@@ -151,7 +164,7 @@ async function seedClinic({ slug, name, n, big }) {
              CASE WHEN b.st <> 'neu' OR b.r_t1 < 0.3 THEN b.created + (b.r_t1 * interval '2 days') END,
              CASE WHEN b.st = 'gewonnen' THEN b.created + interval '10 days' END,
              jsonb_build_object('form', 'zielseite', 'fields', jsonb_build_object('name', 'x', 'consent', true, 'note', repeat('x', 300)))
-      FROM b CROSS JOIN ctx`;
+      FROM o AS b CROSS JOIN ctx`;
   }
 
   // Activities: status changes, calls, notes.

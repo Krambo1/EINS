@@ -101,7 +101,7 @@ describe("GET /api/integrations/meta/callback", () => {
   it("binds the page with the long-lived user token and audits a working leadgen subscription", async () => {
     mocks.discover.mockResolvedValue({ page: { id: "1", name: "Praxis Dr. Test" }, leadgenSubscribed: true });
     const res = await GET(callback());
-    expect(location(res)).toBe(`${ORIGIN}/einstellungen?connected=meta#integrationen`);
+    expect(location(res)).toBe(`${ORIGIN}/einstellungen?connected=meta#werbekonten`);
     expect(mocks.discover).toHaveBeenCalledWith("clinic-1", "long-user-token");
     // The stored connection: encrypted long-lived token, old error cleared.
     expect(mocks.updateSet).toHaveBeenCalledTimes(1);
@@ -122,10 +122,22 @@ describe("GET /api/integrations/meta/callback", () => {
     );
   });
 
+  it("returns to the page the connect started from (Werbebudget)", async () => {
+    mocks.verifyState.mockResolvedValue({
+      clinicId: "clinic-1",
+      userId: "user-1",
+      platform: "meta",
+      returnTo: "/werbebudget",
+    });
+    mocks.discover.mockResolvedValue({ page: { id: "1", name: "Praxis Dr. Test" }, leadgenSubscribed: true });
+    const res = await GET(callback());
+    expect(location(res)).toBe(`${ORIGIN}/werbebudget`);
+  });
+
   it("E6b: a failed leadgen subscription still completes the connection and is audited", async () => {
     mocks.discover.mockResolvedValue({ page: { id: "1", name: "Praxis Dr. Test" }, leadgenSubscribed: false });
     const res = await GET(callback());
-    expect(location(res)).toBe(`${ORIGIN}/einstellungen?connected=meta#integrationen`);
+    expect(location(res)).toBe(`${ORIGIN}/einstellungen?connected=meta#werbekonten`);
     expect(mocks.writeAudit.mock.calls[0]![0].diff).toMatchObject({ leadgenSubscribed: false });
     // The hint itself is written inside bindMetaPage, not by the route.
     expect(mocks.updateSet).toHaveBeenCalledTimes(1);
@@ -150,7 +162,7 @@ describe("GET /api/integrations/meta/callback", () => {
   it("a page bound to another Praxis is reported, the owner is not sent to the picker", async () => {
     mocks.discover.mockRejectedValue(new Error(META_PAGE_ERRORS.boundElsewhere));
     const res = await GET(callback());
-    expect(location(res)).toBe(`${ORIGIN}/einstellungen?connected=meta#integrationen`);
+    expect(location(res)).toBe(`${ORIGIN}/einstellungen?connected=meta#werbekonten`);
     expect(mocks.updateSet).toHaveBeenLastCalledWith({
       lastSyncError: metaPageErrorText(new Error(META_PAGE_ERRORS.boundElsewhere)),
     });

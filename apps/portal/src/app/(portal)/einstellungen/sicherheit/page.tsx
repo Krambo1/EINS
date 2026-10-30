@@ -15,6 +15,7 @@ import { db, schema } from "@/db/client";
 import { formatRelative } from "@/lib/formatting";
 import { ChangePasswordForm } from "./ChangePasswordForm";
 import { logoutAllDevicesAction } from "./actions";
+import { ActionForm } from "@/app/(portal)/_components/ActionForm";
 
 export const metadata = { title: "Sicherheit" };
 export const dynamic = "force-dynamic";
@@ -74,11 +75,11 @@ export default async function SicherheitPage() {
               {impersonationBlockedMessage("logout_all_devices")}
             </p>
           ) : (
-            <form action={logoutAllDevicesAction}>
+            <ActionForm action={logoutAllDevicesAction}>
               <Button variant="outline" type="submit">
                 Überall abmelden
               </Button>
-            </form>
+            </ActionForm>
           )}
         </CardContent>
       </Card>

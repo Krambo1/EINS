@@ -30,6 +30,7 @@ export {
   DialogClose,
   DialogOverlay,
   DialogContent,
+  DialogContentUnstyled,
   DialogHeader,
   DialogFooter,
   DialogTitle,

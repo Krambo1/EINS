@@ -5,6 +5,7 @@ import {
   formatMoney,
   formatNumber,
   formatPercent,
+  formatRoas,
 } from "@/lib/formatting";
 import {
   KPI_THRESHOLDS,
@@ -48,7 +49,7 @@ export function OverviewTab({
         />
         <MetricTile
           label="Werbeertrag"
-          value={summary.roas == null ? "–" : `${summary.roas.toFixed(2)}×`}
+          value={formatRoas(summary.roas)}
           sublabel={`Ziel ≥ ${KPI_THRESHOLDS.roas.good}×`}
           tone={roasTone}
         />

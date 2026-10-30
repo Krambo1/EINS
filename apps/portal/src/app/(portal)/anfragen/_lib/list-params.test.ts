@@ -19,12 +19,13 @@ describe("parseAnfragenParams", () => {
   it("drops unknown filter values instead of passing them to SQL", () => {
     const p = parseAnfragenParams({
       status: "neu,quatsch,spam",
-      source: "meta,evil",
+      source: "instagram_organisch,meta,evil",
       treatment: "not-a-uuid,0b0e2c4e-1f1a-4c1b-9a4e-2b9a3f1d7c11",
       sort: "drop table",
     });
     expect(p.status).toEqual(["neu", "spam"]);
-    expect(p.source).toEqual(["meta"]);
+    // The Quelle filter takes reporting channels; the old entry sources drop.
+    expect(p.channel).toEqual(["instagram_organisch"]);
     expect(p.treatmentId).toEqual(["0b0e2c4e-1f1a-4c1b-9a4e-2b9a3f1d7c11"]);
     expect(p.sort).toBe("neueste");
   });

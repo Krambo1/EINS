@@ -212,7 +212,7 @@ export async function revokeKlonAction(formData: FormData) {
     message = `Widerruf erfasst. ${postCountLabel(r.postsToStop)} zu stoppen. ${mailNote}`;
   });
   revalidate(d.clinicId);
-  revalidatePath("/beitraege");
+  revalidatePath("/inhalte");
   redirect(tabUrl(d.clinicId, "hinweis", message));
 }
 

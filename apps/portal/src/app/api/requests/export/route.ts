@@ -10,6 +10,7 @@ import {
   type RequestStatus,
 } from "@/lib/constants";
 import { berlinDateString, formatDateTime } from "@/lib/formatting";
+import { reportingChannel, reportingChannelLabel } from "@/lib/sources";
 import { parseAnfragenParams } from "@/app/(portal)/anfragen/_lib/list-params";
 import { buildCsv } from "./csv";
 
@@ -33,6 +34,7 @@ const HEADER = [
   "Telefon",
   "Behandlung",
   "Quelle",
+  "Eingang",
   "Kampagne",
   "Beitrag",
   "Status",
@@ -60,11 +62,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const params = parseAnfragenParams(Object.fromEntries(url.searchParams));
   const filters = {
     status: params.status,
-    source: params.source,
+    channel: params.channel,
     treatmentId: params.treatmentId,
     search: params.search,
     slaBreachedOnly: params.slaBreachedOnly,
     staleOnly: params.staleOnly,
+    retreatment: params.retreatment,
   };
 
   const { rows, truncated } = await exportRequests(
@@ -82,6 +85,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       r.contactEmail,
       r.contactPhone,
       r.treatmentName ?? r.treatmentWish,
+      // Quelle as in the list (the channel), then how it reached EINS.
+      reportingChannelLabel(reportingChannel({ source: r.source, utm: r.utm })),
       SOURCE_LABELS[r.source as RequestSource] ?? r.source,
       r.utmCampaign,
       r.utmContent,
@@ -106,7 +111,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       // patient name, so only whether one was used is logged.
       filters: {
         status: filters.status ?? null,
-        source: filters.source ?? null,
+        channel: filters.channel ?? null,
         treatmentCount: filters.treatmentId?.length ?? 0,
         search: Boolean(filters.search),
         slaBreachedOnly: filters.slaBreachedOnly,

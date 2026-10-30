@@ -297,17 +297,4 @@ export const AUDIT_RETENTION_MONTHS = 24;
 /** One day in milliseconds (fixed 24 h; for Berlin calendar days use the Berlin date helpers). */
 export const DAY_MS = 86_400_000;
 
-/**
- * Ansprechpartner surfaced in the sidebar contact card (SidebarContactCard).
- *
- * There is no per-clinic account-manager field in the data model yet, so this
- * is a single shared EINS-Team identity.
- *
- * `bookingUrl` is the same Calendly link the marketing site uses.
- */
-export const EINS_CONTACT = {
-  name: "Ihr EINS-Team",
-  bookingUrl: "https://calendly.com/karam8issa/30min",
-  email: "team@eins.ag",
-} as const;
 

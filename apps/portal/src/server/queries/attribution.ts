@@ -5,6 +5,7 @@ import { cacheClinicQuery, SHORT_REVALIDATE_S } from "./_cache";
 import { berlinDay } from "@/lib/dashboard-range";
 import { adPlatformFor } from "@/lib/sources";
 import { channelGroupBy, channelKeys, channelOfGroup } from "./_channel";
+import { costPerQualified, qualifiedCount } from "./_qualified";
 
 /**
  * Attribution helpers — break leads/revenue/spend down by source, channel,
@@ -27,12 +28,15 @@ const dateStr = (d: Date) => berlinDay(d);
 export interface SourceBreakdownRow {
   source: string;
   leads: number;
+  /** Qualifizierte Anfragen (_qualified.ts) among `leads`. */
+  qualifiedLeads: number;
   appointments: number;
   consultations: number;
   casesWon: number;
   revenueEur: number;
   spendEur: number | null;
-  cplEur: number | null;
+  /** Werbebudget ÷ qualifiedLeads (contract 2.11: Kosten je qualifizierter Anfrage). */
+  costPerQualifiedEur: number | null;
   cacEur: number | null;
   roas: number | null;
 }
@@ -41,6 +45,7 @@ function rollupRows(
   rows: Array<{
     source: string;
     leads: number;
+    qualifiedLeads: number;
     appointments: number;
     consultations: number;
     casesWon: number;
@@ -53,7 +58,7 @@ function rollupRows(
     return {
       ...r,
       spendEur: spend,
-      cplEur: spend != null && r.leads > 0 ? Number((spend / r.leads).toFixed(2)) : null,
+      costPerQualifiedEur: costPerQualified(spend, r.qualifiedLeads),
       cacEur:
         spend != null && r.casesWon > 0 ? Number((spend / r.casesWon).toFixed(2)) : null,
       roas:
@@ -76,6 +81,7 @@ async function bySourceUncached(
       .select({
         ...channelKeys,
         leads: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} <> 'spam')::int`,
+        qualifiedLeads: qualifiedCount,
         appointments: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} IN ('termin_vereinbart','beratung_erschienen','behandelt','gewonnen'))::int`,
         consultations: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} IN ('beratung_erschienen','behandelt','gewonnen'))::int`,
         casesWon: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} = 'gewonnen')::int`,
@@ -111,6 +117,7 @@ async function bySourceUncached(
       {
         source: string;
         leads: number;
+        qualifiedLeads: number;
         appointments: number;
         consultations: number;
         casesWon: number;
@@ -122,12 +129,14 @@ async function bySourceUncached(
       const row = byChannelKey.get(channel) ?? {
         source: channel,
         leads: 0,
+        qualifiedLeads: 0,
         appointments: 0,
         consultations: 0,
         casesWon: 0,
         revenueEur: 0,
       };
       row.leads += Number(r.leads);
+      row.qualifiedLeads += Number(r.qualifiedLeads);
       row.appointments += Number(r.appointments);
       row.consultations += Number(r.consultations);
       row.casesWon += Number(r.casesWon);
@@ -165,10 +174,11 @@ export interface TreatmentBreakdownRow {
   /** Average revenue per won case. */
   avgCaseValueEur: number | null;
   /**
-   * Werbeertrag (ROAS) for this treatment: revenue ÷ ad budget *allocated* to
-   * the treatment. Spend isn't tracked per Behandlung, so the window's total ad
-   * spend is split across treatments by their share of paid (meta/google)
-   * Anfragen — organic/referral leads consumed no budget. null when there is no
+   * Werbeertrag (ROAS) for this treatment: Umsatz of its paid (meta/google)
+   * Anfragen ÷ ad budget *allocated* to the treatment. Spend isn't tracked per
+   * Behandlung, so the window's total ad spend is split across treatments by
+   * their share of paid Anfragen. Organic/referral Anfragen consumed no budget,
+   * so neither their count nor their Umsatz enters it. null when there is no
    * spend, or no paid leads to attribute it to.
    */
   roas: number | null;
@@ -221,6 +231,7 @@ async function byTreatmentUncached(
         paidLeads: number;
         casesWon: number;
         revenueEur: number;
+        paidRevenueEur: number;
       }
     >();
     for (const r of groupRows) {
@@ -232,12 +243,17 @@ async function byTreatmentUncached(
         paidLeads: 0,
         casesWon: 0,
         revenueEur: 0,
+        paidRevenueEur: 0,
       };
       const leads = Number(r.leads);
+      const revenue = Number(r.revenueEur);
       row.leads += leads;
-      if (adPlatformFor(channelOfGroup(r))) row.paidLeads += leads;
+      if (adPlatformFor(channelOfGroup(r))) {
+        row.paidLeads += leads;
+        row.paidRevenueEur += revenue;
+      }
       row.casesWon += Number(r.casesWon);
-      row.revenueEur += Number(r.revenueEur);
+      row.revenueEur += revenue;
       perTreatment.set(key, row);
     }
     const rows = Array.from(perTreatment.values()).sort((a, b) => b.leads - a.leads);
@@ -266,7 +282,7 @@ async function byTreatmentUncached(
       const paidLeads = Number(r.paidLeads);
       // Split the window's ad spend by this treatment's share of paid Anfragen;
       // organic/referral leads cost no ad budget and so don't dilute it.
-      // Werbeertrag = Umsatz ÷ zugeordnetes Budget.
+      // Werbeertrag = Umsatz aus Anzeigen ÷ zugeordnetes Budget.
       const allocatedSpend =
         totalSpend > 0 && totalPaidLeads > 0
           ? totalSpend * (paidLeads / totalPaidLeads)
@@ -280,7 +296,7 @@ async function byTreatmentUncached(
         avgCaseValueEur: won > 0 ? Number((revenue / won).toFixed(2)) : null,
         roas:
           allocatedSpend > 0
-            ? Number((revenue / allocatedSpend).toFixed(2))
+            ? Number((r.paidRevenueEur / allocatedSpend).toFixed(2))
             : null,
       };
     });

@@ -17,30 +17,57 @@ import {
   DropdownMenuLabel,
   cn,
 } from "@eins/ui";
+import { useNavTransition } from "@/app/_components/instant-views";
 
 /**
  * URL-param-driven admin filter controls. Every change navigates (soft push) so
  * the filter state lives entirely in the query string — server components read
  * it via `searchParams`, exactly like the clinic-side `TimeRangeToggle`. Shared
  * across the clinics / leads / users / integrations pages.
+ *
+ * Two faster modes (DESIGN.md section 10, "A view switch is instant"):
+ *  - inside AdminFiltersInBrowser (bounded lists, the page has every row) a
+ *    change only rewrites the address with history.replaceState and the list
+ *    filters in the browser from useSearchParams;
+ *  - inside a NavTransition (server-filtered lists) a change navigates in the
+ *    transition: the controls show the new value at once, PendingDim dims the
+ *    old rows until the server render arrives.
  */
 
 const TRIGGER_CLASS =
   "flex h-10 w-full items-center justify-between gap-2 rounded-md border border-border bg-bg-primary px-3 text-sm text-fg-primary transition-colors hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
+const InBrowserContext = React.createContext(false);
+
+/** Filters inside switch the list in the browser (see the note above). */
+export function AdminFiltersInBrowser({ children }: { children: React.ReactNode }) {
+  return <InBrowserContext.Provider value>{children}</InBrowserContext.Provider>;
+}
+
 function useSetParam() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const inBrowser = React.useContext(InBrowserContext);
+  const nav = useNavTransition();
   return React.useCallback(
     (mutate: (params: URLSearchParams) => void) => {
-      const params = new URLSearchParams(searchParams.toString());
-      mutate(params);
-      params.delete("page"); // any filter change resets pagination
+      const apply = (params: URLSearchParams) => {
+        mutate(params);
+        params.delete("page"); // any filter change resets pagination
+      };
+      if (nav) {
+        nav.navigate(apply);
+        return;
+      }
+      const params = new URLSearchParams(inBrowser ? window.location.search : searchParams.toString());
+      apply(params);
       const qs = params.toString();
-      router.push(qs ? `${pathname}?${qs}` : pathname);
+      const url = qs ? `${pathname}?${qs}` : pathname;
+      if (inBrowser) window.history.replaceState(null, "", url);
+      else router.push(url);
     },
-    [router, pathname, searchParams]
+    [router, pathname, searchParams, inBrowser, nav]
   );
 }
 
@@ -55,21 +82,29 @@ export function AdminSearchInput({
 }) {
   const searchParams = useSearchParams();
   const setParam = useSetParam();
-  const current = searchParams.get(param) ?? "";
+  const inBrowser = React.useContext(InBrowserContext);
+  const nav = useNavTransition();
+  // Inside a NavTransition the target address counts, so a search still
+  // loading is not sent again.
+  const current = (nav ? nav.params.get(param) : searchParams.get(param)) ?? "";
   const [value, setValue] = React.useState(current);
 
-  // Debounced navigate. Skips when `value` already matches the URL (mount + the
-  // moment right after our own navigation lands), so it never loops.
+  // Debounced navigate (in the browser: at once). Skips when `value` already
+  // matches the URL (mount + the moment right after our own navigation
+  // lands), so it never loops.
   React.useEffect(() => {
     if (value === current) return;
-    const t = setTimeout(() => {
-      setParam((p) => {
-        if (value) p.set(param, value);
-        else p.delete(param);
-      });
-    }, 350);
+    const t = setTimeout(
+      () => {
+        setParam((p) => {
+          if (value) p.set(param, value);
+          else p.delete(param);
+        });
+      },
+      inBrowser ? 0 : 350
+    );
     return () => clearTimeout(t);
-  }, [value, current, param, setParam]);
+  }, [value, current, param, setParam, inBrowser]);
 
   return (
     <div className={cn("relative", className)}>
@@ -107,9 +142,10 @@ export function AdminUrlSelect({
   className?: string;
 }) {
   const setParam = useSetParam();
+  const nav = useNavTransition();
   return (
     <Select
-      value={value}
+      value={nav?.params.get(param) ?? value}
       onValueChange={(v) =>
         setParam((p) => {
           if (!v) p.delete(param);
@@ -145,6 +181,8 @@ export function AdminUrlMultiSelect({
   className?: string;
 }) {
   const setParam = useSetParam();
+  const nav = useNavTransition();
+  const picked = nav ? nav.params.getAll(param) : selected;
   const toggle = (val: string, checked: boolean) =>
     setParam((p) => {
       const next = p.getAll(param).filter((x) => x !== val);
@@ -152,7 +190,7 @@ export function AdminUrlMultiSelect({
       p.delete(param);
       for (const v of next) p.append(param, v);
     });
-  const count = selected.length;
+  const count = picked.length;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -169,7 +207,7 @@ export function AdminUrlMultiSelect({
         {options.map((o) => (
           <DropdownMenuCheckboxItem
             key={o.value}
-            checked={selected.includes(o.value)}
+            checked={picked.includes(o.value)}
             onCheckedChange={(c) => toggle(o.value, Boolean(c))}
             onSelect={(e) => e.preventDefault()}
           >
@@ -191,11 +229,13 @@ export function AdminUrlToggle({
   label: string;
 }) {
   const setParam = useSetParam();
+  const nav = useNavTransition();
+  const on = nav ? nav.params.get(param) === "1" : checked;
   return (
     <label className="flex h-10 cursor-pointer select-none items-center gap-2 rounded-md border border-border bg-bg-primary px-3 text-sm text-fg-secondary transition-colors hover:border-accent">
       <input
         type="checkbox"
-        checked={checked}
+        checked={on}
         onChange={(e) =>
           setParam((p) => {
             if (e.target.checked) p.set(param, "1");

@@ -1,9 +1,9 @@
 import "server-only";
-import { and, desc, eq, gte, lt, lte, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lt, lte, sql } from "drizzle-orm";
 import { schema, type dbApp } from "@/db/client";
 import { addIsoDays, berlinDay, berlinStartOfDay } from "@/lib/dashboard-range";
-import { adPlatformFor } from "@/lib/sources";
-import { channelGroupBy, channelKeys, channelOfGroup } from "./_channel";
+import { adInquiriesByDay, type AdInquiryDay } from "./_ad-inquiries";
+import { costPerQualified, qualifiedCount } from "./_qualified";
 
 /**
  * Campaign-detail helpers — Detail-mode breakdowns on /werbebudget.
@@ -95,11 +95,13 @@ export interface CampaignDetailRow {
   clicks: number;
   ctr: number | null;
   /**
-   * Anfragen joined on source_campaign_id. Null when the platform sent neither
-   * campaign id nor name (account-level spend): nothing can be matched, which
-   * is not 0.
+   * Qualifizierte Anfragen (_qualified.ts) joined on source_campaign_id, the
+   * unit of the Kennzahlen above and the Übersicht. Null when the platform sent
+   * neither campaign id nor name (account-level spend): nothing can be
+   * matched, which is not 0.
    */
   leads: number | null;
+  /** Werbebudget ÷ those qualifizierte Anfragen (costPerQualified). */
   cplEur: number | null;
 }
 
@@ -135,12 +137,13 @@ export async function campaignsForPeriodTx(
         sql`(${schema.campaignSnapshots.rawPayload}->>'campaign_id')`
       );
 
-    // Lead-side: requests grouped by source_campaign_id (spam excluded, like
-    // every other Anfragen count).
+    // Lead-side: qualifizierte Anfragen per source_campaign_id, so a campaign's
+    // count and cost match the Kennzahlen and the Übersicht (spam is never
+    // qualified).
     const leadRows = await tx
       .select({
         campaignId: schema.requests.sourceCampaignId,
-        leads: sql<number>`count(*) filter (where ${schema.requests.status} <> 'spam')::int`,
+        leads: qualifiedCount,
       })
       .from(schema.requests)
       .where(
@@ -176,24 +179,20 @@ export async function campaignsForPeriodTx(
         clicks,
         ctr: impressions > 0 ? clicks / impressions : null,
         leads,
-        cplEur: leads ? Number((spend / leads).toFixed(2)) : null,
+        cplEur: leads == null ? null : costPerQualified(spend, leads),
       });
     }
     return out.sort((a, b) => b.spendEur - a.spendEur).slice(0, 20);
   }
 }
 
-export interface AdInquiryDay {
-  date: string;
-  platform: "meta" | "google";
-  inquiries: number;
-}
+export type { AdInquiryDay } from "./_ad-inquiries";
 
 /**
- * Anfragen per Berlin day that came in through a Meta or Google ad, counted
- * in the portal (spam excluded) with the same channel rule as the dashboard
- * (bySource, reportingChannel). The Werbebudget page shows this number
- * instead of the lead count the platforms report, so every page agrees.
+ * Anfragen per Berlin day that came in through a Meta or Google ad over the
+ * last `days` days, each with its qualifizierte Anfragen (_ad-inquiries.ts).
+ * The Werbebudget page shows these instead of the lead count the platforms
+ * report, and divides the Werbebudget by `qualified`, so every page agrees.
  */
 export async function adInquiriesByDayTx(
   tx: Tx,
@@ -201,34 +200,7 @@ export async function adInquiriesByDayTx(
   days: number
 ): Promise<AdInquiryDay[]> {
   const win = berlinLastDays(days);
-  const berlinDate = sql<string>`to_char((${schema.requests.createdAt} AT TIME ZONE 'Europe/Berlin')::date, 'YYYY-MM-DD')`;
-  const rows = await tx
-    .select({
-      ...channelKeys,
-      date: berlinDate,
-      inquiries: sql<number>`count(*)::int`,
-    })
-    .from(schema.requests)
-    .where(
-      and(
-        eq(schema.requests.clinicId, clinicId),
-        ne(schema.requests.status, "spam"),
-        gte(schema.requests.createdAt, win.start),
-        lt(schema.requests.createdAt, win.endExclusive)
-      )
-    )
-    .groupBy(...channelGroupBy, berlinDate);
-
-  const byDay = new Map<string, AdInquiryDay>();
-  for (const r of rows) {
-    const platform = adPlatformFor(channelOfGroup(r));
-    if (!platform) continue;
-    const key = `${platform}|${r.date}`;
-    const day = byDay.get(key) ?? { date: r.date, platform, inquiries: 0 };
-    day.inquiries += Number(r.inquiries);
-    byDay.set(key, day);
-  }
-  return Array.from(byDay.values());
+  return adInquiriesByDay(tx, clinicId, win.start, win.endExclusive);
 }
 
 export interface SyncHistoryRow {
@@ -260,55 +232,5 @@ export async function syncHistoryTx(
       .orderBy(desc(schema.campaignSnapshots.snapshotDate))
       .limit(limit);
     return rows.map((r) => ({ date: r.date, rowCount: Number(r.rowCount) }));
-  }
-}
-
-/**
- * Pace projection — at the current daily run-rate, what's the projected
- * total spend by month-end.
- */
-export interface SpendPaceProjection {
-  monthSpendSoFar: number;
-  daysElapsed: number;
-  daysInMonth: number;
-  projectedMonthSpend: number;
-}
-
-export async function spendPaceProjectionTx(
-  tx: Tx,
-  clinicId: string
-): Promise<SpendPaceProjection> {
-  {
-    // Berlin calendar month: on the 1st between 00:00 and 02:00 Berlin the
-    // server (UTC) is still in the previous month.
-    const today = berlinDay();
-    const [y, m, d] = today.split("-").map(Number) as [number, number, number];
-    const monthStartStr = `${today.slice(0, 7)}-01`;
-    const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
-    const monthEndStr = `${today.slice(0, 7)}-${String(daysInMonth).padStart(2, "0")}`;
-    const daysElapsed = Math.max(1, d);
-
-    const [spendRow] = await tx
-      .select({
-        spend: sql<number>`coalesce(sum(${schema.campaignSnapshots.spendEur}), 0)`,
-      })
-      .from(schema.campaignSnapshots)
-      .where(
-        and(
-          eq(schema.campaignSnapshots.clinicId, clinicId),
-          gte(schema.campaignSnapshots.snapshotDate, monthStartStr),
-          lte(schema.campaignSnapshots.snapshotDate, monthEndStr)
-        )
-      );
-
-    const monthSpendSoFar = Number(spendRow?.spend ?? 0);
-    const projectedMonthSpend = (monthSpendSoFar / daysElapsed) * daysInMonth;
-
-    return {
-      monthSpendSoFar,
-      daysElapsed,
-      daysInMonth,
-      projectedMonthSpend: Number(projectedMonthSpend.toFixed(2)),
-    };
   }
 }

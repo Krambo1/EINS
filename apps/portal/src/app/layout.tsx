@@ -41,11 +41,13 @@ export default function RootLayout({
       <head>
         {/* Set data-theme BEFORE first paint so CSS-variable surfaces don't
             flash white→dark on reload. Runs synchronously in <head>; the
-            try/catch covers privacy modes where localStorage throws. */}
+            try/catch covers privacy modes where localStorage throws. Only
+            the admin host (same test as middleware.ts) has a dark design;
+            the Praxis side is always light, whatever an older visit saved. */}
         <script
           dangerouslySetInnerHTML={{
             __html:
-              "try{var t=localStorage.getItem('eins-portal-theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}",
+              "try{var t=localStorage.getItem('eins-portal-theme');if(t==='dark'&&/^admin\\./i.test(location.hostname))document.documentElement.setAttribute('data-theme','dark');}catch(e){}",
           }}
         />
       </head>

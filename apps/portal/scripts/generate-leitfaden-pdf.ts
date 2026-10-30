@@ -1,8 +1,8 @@
 /**
  * generate-leitfaden-pdf — regenerate the full Vertriebsleitfaden PDF to a
  * file so it can be eyeballed. The same `generateLeitfadenPdf()` is used by
- * the db seed to publish the document into /dokumente, so what you preview
- * here is byte-for-byte what lands in the Dokumente list.
+ * the db seed to publish the document into the Dateien page (/dateien), so what you preview
+ * here is byte-for-byte what lands in the Dateien list.
  *
  * Usage (PowerShell — see CLAUDE.md gotchas):
  *   pnpm --filter portal pdf:leitfaden            # writes ./storage/leitfaden.pdf (gitignored)

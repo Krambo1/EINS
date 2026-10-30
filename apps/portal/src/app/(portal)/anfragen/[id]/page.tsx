@@ -3,7 +3,6 @@ import { after } from "next/server";
 import { eq } from "drizzle-orm";
 import Link from "next/link";
 import {
-  Avatar,
   Card,
   CardContent,
   CardHeader,
@@ -15,7 +14,6 @@ import {
   AccordionItem,
   AccordionTrigger,
   AccordionContent,
-  ExplainerPopover,
 } from "@eins/ui";
 import { requireSession } from "@/auth/guards";
 import { db, schema } from "@/db/client";
@@ -23,18 +21,16 @@ import { writeAudit } from "@/server/audit";
 import { responseRuleStartForClinic } from "@/server/guarantee-clock";
 import { getRequestWithActivities, markRequestViewed } from "@/server/queries/requests";
 import { listFollowupsForRequest } from "@/server/queries/followups";
+import { retreatmentsForRequest } from "@/server/queries/retreatments";
 import { leadTokenForRequestId } from "@/server/pvs-token";
 import { can } from "@/lib/roles";
 import { PvsTokenCard } from "./_pvs-token-card";
 import { LeadCockpit, MobileActionBar } from "./_lead-cockpit";
-import {
-  DEADLINE_RUNNING_HINT,
-  LATE_HINT,
-  NOT_ANSWERED_HINT,
-  OVERDUE_HINT,
-} from "../_lib/response-hints";
 import { Followups } from "./_followups";
-import { statusChangeLine } from "./_status-change";
+import { RetreatmentSection } from "./_retreatment";
+import { PendingProvider } from "./_pending";
+import { LiveStatus, LiveTimeFacts, ProofStats } from "./_live-status";
+import { VerlaufList } from "./_verlauf";
 import { RevokeAdsConsentButton } from "./_revoke-ads-consent";
 import { quizAnswerLines } from "../_lib/quiz-answers";
 import { quizFromSignals } from "@/server/queries/requests";
@@ -42,20 +38,10 @@ import {
   siblingRequests,
   patientLifetimeRevenue,
 } from "@/server/queries/patients";
-import {
-  SOURCE_LABELS,
-  ACTIVITY_KIND_LABELS,
-  SLA_HOURS,
-  type ActivityKind,
-  type RequestStatus,
-} from "@/lib/constants";
+import { type RequestStatus } from "@/lib/constants";
+import { reportingChannel, reportingChannelLabel } from "@/lib/sources";
 import { withBrandLogos } from "@/app/_components/Brand";
-import {
-  RESPONSE_STATE_LABELS,
-  isPraxisResponseFlag,
-  responseInfo,
-} from "@/lib/response-time";
-import { formatBerlinDateTime } from "@/lib/werkstunden";
+import { responseInfo } from "@/lib/response-time";
 import { statusImpliesContact } from "../_lib/row-timing";
 import {
   formatDate,
@@ -66,10 +52,6 @@ import {
   ArrowLeft,
   Mail,
   Phone,
-  MessageSquare,
-  CheckCircle2,
-  Clock,
-  AlertTriangle,
 } from "lucide-react";
 import { isUuid } from "@/lib/ids";
 
@@ -108,6 +90,7 @@ export default async function AnfrageDetailPage({
     listFollowupsForRequest(session.clinicId, session.userId, id),
     // K-3: rule start of this Praxis (signing date) for the response badge.
     responseRuleStartForClinic(session.clinicId),
+    retreatmentsForRequest(session.clinicId, session.userId, id),
   ]);
   // Not awaited on the 404 path; keep a failure there from becoming an
   // unhandled rejection. The real await below still sees the error.
@@ -115,7 +98,7 @@ export default async function AnfrageDetailPage({
 
   const data = await getRequestWithActivities(session.clinicId, session.userId, id);
   if (!data) notFound();
-  const { request, activities, treatmentName, locationName, firstAttemptAt } = data;
+  const { request, activities, treatmentName, locationName, firstAttemptAt, postTitle } = data;
 
   // Durable PHI-read access trace (DSGVO Art. 30/32) — record who opened which
   // patient record (pentest L2). Deferred so it never blocks the render;
@@ -140,7 +123,7 @@ export default async function AnfrageDetailPage({
     after(() => markRequestViewed(session.clinicId, session.userId, id));
   }
 
-  const [[siblings, pvsLinkRow, followups, responseRuleStart], patientLtv] = await Promise.all([
+  const [[siblings, pvsLinkRow, followups, responseRuleStart, retreatments], patientLtv] = await Promise.all([
     sidePromise,
     request.patientId
       ? patientLifetimeRevenue(session.clinicId, session.userId, request.patientId)
@@ -149,14 +132,9 @@ export default async function AnfrageDetailPage({
   const quizAnswers = quizAnswerLines(quizFromSignals(request.aiSignals));
 
   // Accountability counters for the proof summary. Cheap — reuse the
-  // already-loaded `activities` array for the call count, and the
-  // followups list (pending-first) for the next due Wiedervorlage.
+  // already-loaded `activities` array for the call count. <ProofStats>
+  // adds what is still saving and picks the next due Wiedervorlage.
   const callCount = activities.filter((a) => a.kind === "call").length;
-  const reactionMs =
-    request.firstContactedAt != null
-      ? request.firstContactedAt.getTime() - request.createdAt.getTime()
-      : null;
-  const nextFollowup = followups.find((f) => f.status === "pending") ?? null;
   const pvsControlled = request.pvsAppointmentId !== null;
 
   // Direction A: only surface the EINS-Lead token while the request hasn't
@@ -187,19 +165,13 @@ export default async function AnfrageDetailPage({
   const slaBreached =
     !contactImplied &&
     !request.firstContactedAt &&
-    request.slaRespondBy &&
+    !!request.slaRespondBy &&
     request.slaRespondBy.getTime() < Date.now();
-
-  const responseFlagged = isPraxisResponseFlag(response.state);
-  const responseHint =
-    response.state === "nicht_beantwortet"
-      ? NOT_ANSWERED_HINT
-      : response.state === "zu_spaet"
-      ? LATE_HINT
-      : DEADLINE_RUNNING_HINT;
 
   return (
     // Bottom padding below `md` keeps the fixed action bar off the last card.
+    // The provider carries what is still saving (optimistic UI, _pending.tsx).
+    <PendingProvider actorName={session.fullName} actorEmail={session.email}>
     <div className="space-y-4 pb-24 md:pb-0">
       <Link
         href="/anfragen"
@@ -218,12 +190,14 @@ export default async function AnfrageDetailPage({
             </h1>
             {/* Same order as the Anfragen list: status, then the plain facts. */}
             <div className="mt-2 flex flex-wrap items-center gap-x-1.5 text-sm text-fg-secondary">
-              <StatusPill status={request.status} />
-              {request.statusSource === "pvs" && <span>· Status aus der PVS</span>}
+              <LiveStatus status={request.status} fromPvs={request.statusSource === "pvs"} />
             </div>
             <div className="mt-1 text-sm text-fg-secondary">
               {treatmentName && <>{treatmentName} · </>}
-              {withBrandLogos(SOURCE_LABELS[request.source as keyof typeof SOURCE_LABELS] ?? request.source)}
+              {/* Where the person came from, as the Quellen card counts it,
+                  and the post whose link they used. */}
+              {withBrandLogos(reportingChannelLabel(reportingChannel({ source: request.source, utm: request.utm })))}
+              {postTitle && <> · Beitrag „{postTitle}“</>}
               {locationName && <> · {locationName}</>}
             </div>
           </div>
@@ -287,37 +261,17 @@ export default async function AnfrageDetailPage({
           </div>
 
           {/* Fristen: Entscheidungswerte, darum kräftig und in Worten. */}
-          <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
-            <TimeFact label="Eingegangen" value={formatDateTime(request.createdAt)} />
-            {request.firstContactedAt && (
-              <TimeFact
-                label="Erstkontakt"
-                value={formatDateTime(request.firstContactedAt)}
-              />
-            )}
-            {request.slaRespondBy && (
-              <TimeFact
-                label={`Rückruf-Ziel (${SLA_HOURS} Stunden)`}
-                value={formatDateTime(request.slaRespondBy)}
-                status={slaBreached ? "Überfällig" : null}
-                statusTone="bad"
-                hintTerm="Rückruf-Ziel"
-                hint={OVERDUE_HINT}
-              />
-            )}
-            {response.deadline && response.state !== "ausgenommen" && !contactImplied && (
-              <TimeFact
-                label="48-Werkstunden-Frist"
-                value={formatBerlinDateTime(response.deadline)}
-                status={RESPONSE_STATE_LABELS[response.state]}
-                statusTone={
-                  responseFlagged ? "bad" : response.state === "rechtzeitig" ? "good" : "default"
-                }
-                hintTerm={responseFlagged ? RESPONSE_STATE_LABELS[response.state] : "48 Werkstunden"}
-                hint={responseHint}
-              />
-            )}
-          </dl>
+          <LiveTimeFacts
+            createdAt={request.createdAt}
+            firstContactedAt={request.firstContactedAt}
+            firstAttemptAt={firstAttemptAt}
+            slaRespondBy={request.slaRespondBy}
+            ruleStart={responseRuleStart}
+            status={request.status}
+            serverResponse={response}
+            serverSlaBreached={slaBreached}
+            serverContactImplied={contactImplied}
+          />
 
           {/* Antworten aus dem Zielseiten-Quiz (C-26): der Gesprächseinstieg
               für den Rückruf, vorher nur im JSON der Rohdaten. */}
@@ -377,20 +331,13 @@ export default async function AnfrageDetailPage({
           Wiedervorlagen bleiben immer erlaubt. Der Status steht oben im Kopf. */}
       {canWork && (
         <Card className="p-5 md:p-6">
-          <div className="grid gap-4 sm:grid-cols-3">
-            <ProofStat
-              label="Reaktionszeit"
-              value={reactionMs != null ? formatDuration(reactionMs) : "Noch kein Kontakt"}
-            />
-            <ProofStat
-              label="Anrufversuche"
-              value={callCount === 0 ? "Noch keine" : String(callCount)}
-            />
-            <ProofStat
-              label="Nächste Wiedervorlage"
-              value={nextFollowup ? formatDateTime(nextFollowup.dueAt) : "Keine"}
-            />
-          </div>
+          <ProofStats
+            requestId={request.id}
+            createdAt={request.createdAt}
+            firstContactedAt={request.firstContactedAt}
+            callCount={callCount}
+            followups={followups}
+          />
 
           <div className="mt-4 border-t border-border pt-4">
             <p className="mb-3 text-sm text-fg-primary">
@@ -413,6 +360,16 @@ export default async function AnfrageDetailPage({
           Karte steht immer da, auch leer, damit man die Funktion kennt. */}
       {canWork && <Followups requestId={request.id} followups={followups} />}
 
+      {/* Wiederbehandlungen of this patient, with the way to take one off
+          the calendar or back on (the old card's list, per person). */}
+      {retreatments.calls.length > 0 && (
+        <RetreatmentSection
+          data={retreatments}
+          canWork={canWork}
+          isInhaber={can(session.role, "settings.team")}
+        />
+      )}
+
       {pvsLeadToken && (
         <PvsTokenCard token={pvsLeadToken} pvsVendor={pvsLinkRow?.vendor ?? null} />
       )}
@@ -425,60 +382,17 @@ export default async function AnfrageDetailPage({
           <CardTitle>Verlauf</CardTitle>
         </CardHeader>
         <CardContent className="space-y-0">
-          {activities.length === 0 ? (
-            <p className="text-sm text-fg-primary">
-              Noch kein Verlauf. Protokollieren Sie den ersten Anruf oder
-              hinterlassen Sie eine Notiz.
-            </p>
-          ) : (
-            <ul className="divide-y divide-border">
-              {activities.map((a, idx) => {
-                const prev = activities[idx + 1];
-                const gapMs = prev
-                  ? a.createdAt.getTime() - prev.createdAt.getTime()
-                  : null;
-                const statusLine =
-                  a.kind === "status_change" ? statusChangeLine(a.meta) : null;
-                return (
-                  <li key={a.id} className="py-3">
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg-primary">
-                      <ActivityIcon kind={a.kind as ActivityKind} />
-                      <span className="font-medium">
-                        {ACTIVITY_KIND_LABELS[a.kind as ActivityKind] ?? a.kind}
-                      </span>
-                      <span aria-hidden>·</span>
-                      <span className="tabular-nums">{formatDateTime(a.createdAt)}</span>
-                      {(a.actorName || a.actorEmail) && (
-                        <>
-                          <span aria-hidden>·</span>
-                          <span className="inline-flex items-center gap-1.5 text-fg-secondary">
-                            <Avatar
-                              name={a.actorName ?? a.actorEmail ?? "?"}
-                              size="xs"
-                            />
-                            {a.actorName ?? a.actorEmail}
-                          </span>
-                        </>
-                      )}
-                      {gapMs != null && gapMs > 0 && (
-                        <span className="text-fg-secondary md:ml-auto">
-                          +{formatDuration(gapMs)} nach vorigem Eintrag
-                        </span>
-                      )}
-                    </div>
-                    {statusLine && (
-                      <p className="mt-1 text-base text-fg-primary">{statusLine}</p>
-                    )}
-                    {a.body && (
-                      <p className="mt-1 whitespace-pre-wrap text-base text-fg-primary">
-                        {a.body}
-                      </p>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+          <VerlaufList
+            activities={activities.map((a) => ({
+              id: a.id,
+              kind: a.kind,
+              actorName: a.actorName,
+              actorEmail: a.actorEmail,
+              body: a.body,
+              meta: a.meta,
+              createdAt: a.createdAt,
+            }))}
+          />
         </CardContent>
       </Card>
 
@@ -586,6 +500,7 @@ export default async function AnfrageDetailPage({
               )}
           </Accordion>
     </div>
+    </PendingProvider>
   );
 }
 
@@ -593,57 +508,6 @@ export default async function AnfrageDetailPage({
  * A time that drives a decision (DS3 item 3): label, the time in weight,
  * and the state in words (never colour alone), with an optional (i).
  */
-function TimeFact({
-  label,
-  value,
-  status = null,
-  statusTone = "default",
-  hint,
-  hintTerm,
-}: {
-  label: string;
-  value: string;
-  status?: string | null;
-  statusTone?: "default" | "good" | "bad";
-  hint?: string;
-  hintTerm?: string;
-}) {
-  // Same pattern as the timing line in the lists: icon first, dark text.
-  const Icon = statusTone === "bad" ? AlertTriangle : statusTone === "good" ? CheckCircle2 : Clock;
-  const iconClass =
-    statusTone === "bad" ? "text-tone-bad" : statusTone === "good" ? "text-tone-good" : "text-fg-secondary";
-  return (
-    <div className="min-w-0">
-      <dt className="flex items-center text-sm font-medium text-fg-primary">
-        {label}
-        {hint && (
-          <ExplainerPopover term={hintTerm ?? label} ariaLabel={`Erklärung zu ${hintTerm ?? label}`}>
-            {hint}
-          </ExplainerPopover>
-        )}
-      </dt>
-      <dd className="mt-0.5 text-base font-semibold tabular-nums text-fg-primary">{value}</dd>
-      {status && (
-        <dd className="flex items-start gap-1.5 text-sm font-medium text-fg-primary">
-          <Icon aria-hidden className={`mt-[3px] h-3.5 w-3.5 shrink-0 ${iconClass}`} />
-          {status}
-        </dd>
-      )}
-    </div>
-  );
-}
-
-/** Label over value, the same anatomy as TimeFact. Urgency lives in the
- *  Rückruf-Ziel line above, so the value stays in the normal text colour. */
-function ProofStat({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div>
-      <div className="text-sm font-medium text-fg-primary">{label}</div>
-      <div className="mt-0.5 text-base font-semibold tabular-nums text-fg-primary">{value}</div>
-    </div>
-  );
-}
-
 function DataField({
   label,
   value,
@@ -664,22 +528,6 @@ function DataField({
   );
 }
 
-function ActivityIcon({ kind }: { kind: ActivityKind }) {
-  switch (kind) {
-    case "call":
-      return <Phone className="h-3.5 w-3.5" />;
-    case "email":
-      return <Mail className="h-3.5 w-3.5" />;
-    case "whatsapp":
-    case "note":
-      return <MessageSquare className="h-3.5 w-3.5" />;
-    case "status_change":
-      return <CheckCircle2 className="h-3.5 w-3.5" />;
-    default:
-      return <Clock className="h-3.5 w-3.5" />;
-  }
-}
-
 /**
  * Shortened consent IP (C-27): last IPv4 octet zeroed, IPv6 cut to the
  * first three groups. Enough to show that consent came from a real request,
@@ -693,13 +541,4 @@ function maskIp(ip: string | null | undefined): string | null {
     return `${ip.split(":").slice(0, 3).join(":")}::`;
   }
   return null;
-}
-
-function formatDuration(ms: number): string {
-  const min = ms / 60_000;
-  if (min < 60) return `${Math.round(min)} Min`;
-  const hr = min / 60;
-  if (hr < 48) return `${hr.toFixed(1).replace(".", ",")} Std`;
-  const days = hr / 24;
-  return `${Math.round(days)} Tage`;
 }

@@ -23,7 +23,7 @@ At the start of every session on this project, read `D:\Desktop\Claude\Obsidian\
 | Path | What |
 |---|---|
 | `apps/website` | Marketing site. Next.js 14 App Router, Tailwind, Framer Motion. |
-| `apps/portal` | Kunden-Portal: dashboard, Anfragen, Auswertung, Fortschritt, Einstellungen, admin/pvs-bridge. Next.js 15, Postgres, password + magic-link auth (no TOTP). Boot guide: `apps/portal/RUN.md`. |
+| `apps/portal` | Kunden-Portal: dashboard, Anfragen, Auswertung, Fortschritt, Einstellungen, admin/pvs-bridge. Next.js 15, Postgres, password + magic-link auth (no TOTP). Boot guide: `apps/portal/RUN.md`. UI rules (read before any page change): `apps/portal/DESIGN.md`. |
 | `apps/clinic-landing` | Per-Praxis Landing-Pages mit Lead-Intake + Review-Tokens. |
 | `apps/bridge` + `apps/bridge/agent` | PVS-Bridge (CharlyTel, Tomedo, Dampsoft, ...). Category moat, nicht als Feature behandeln. Agent läuft auf Praxis-Maschine. Adapter-Guide: `apps/bridge/UNIVERSAL_ADAPTER_BUILD.md`. |
 | `packages/ui` | Shared shadcn-style primitives. |
@@ -84,7 +84,7 @@ Source of truth is the Obsidian vault `D:\Desktop\Claude\Obsidian\Karam`:
 
 - **tsx CLI scripts** (migrate/seed/worker) need a manual dotenv loader that reads `.env.local` before `.env`. Next.js loads `.env.local` itself, standalone tsx does not ("DATABASE_URL is not set").
 - **`@eins/ui` Button has no `variant="destructive"`.** Use `variant="danger"`; the cva does not define `destructive`.
-- **`Card` hardcodes `bg-bg-primary` and a Tailwind shadow.** Overrides need the `!` prefix; custom utilities like `card-glow` already win by CSS order.
+- **`Card` hardcodes `bg-bg-primary` and `[box-shadow:var(--shadow-card)]`.** Background overrides need the `!` prefix; replace the shadow with another `[box-shadow:…]` (e.g. `[box-shadow:none]`), since tailwind-merge does not treat `shadow-none` as a conflict. Never write `shadow-[var(--…)]`: Tailwind reads it as a shadow colour and draws nothing.
 - **Shared components** (e.g. `SimpleMetric`) used by several surfaces: never change them in place, wrap at the call site. Never truncate data to fit a tile; show fewer columns at the call site instead.
 - **Seed scripts** deleting a row with many FK dependents: use `TRUNCATE ... CASCADE`, not single `DELETE`s (FKs without `ON DELETE CASCADE` break it).
 - **Drizzle returns `jsonb` as `unknown`.** Guard with `!!x && typeof x === "object"` before rendering it as a ReactNode.

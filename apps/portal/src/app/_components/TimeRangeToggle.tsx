@@ -14,6 +14,7 @@ import {
   DASHBOARD_RANGE_LABELS,
   type DashboardRange,
 } from "@/lib/dashboard-range";
+import { useParamViews } from "./instant-views";
 
 // useLayoutEffect warns during SSR; fall back to useEffect on the server. The
 // scroll restore below is client-only anyway, so the no-op server pass is fine.
@@ -62,18 +63,29 @@ interface Props {
  * with the new window. `router.replace` + transition keeps the page from
  * scrolling and preserves the previous render while the new one streams in.
  *
- * Selection is rendered as a sliding pill (mirrors the desktop sidenav) so
- * range changes animate left/right instead of flashing in place. The pill
- * uses `bg-fg-primary`, which is black in light mode and white in dark mode.
+ * Selection is rendered as a sliding marker so range changes animate
+ * left/right instead of flashing in place. The marker is the tile surface
+ * with a hairline ring on the grey track (no black pill, no shadow).
+ *
+ * Inside ParamViews for `paramKey` (instant-views.tsx) the switch is instant:
+ * the marker follows the tap, the card swaps to its kept view and only the
+ * address is rewritten, no navigation.
  */
-export function TimeRangeToggle({ value, paramKey, ariaLabel }: Props) {
+export function TimeRangeToggle({ value: serverValue, paramKey, ariaLabel }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const [isPending, startTransition] = useTransition();
+  const [navPending, startTransition] = useTransition();
+  const views = useParamViews(paramKey);
+  const value = (views?.picked as DashboardRange | undefined) ?? serverValue;
+  const isPending = navPending || (views?.loading ?? false);
 
   const select = (next: DashboardRange) => {
     if (next === value) return;
+    if (views) {
+      views.select(next);
+      return;
+    }
     // Snapshot scroll before navigating so the restore effect can undo the
     // App Router's commit-time scroll-to-top (see scrollRestoreByKey above).
     scrollRestoreByKey.set(paramKey, window.scrollY);
@@ -148,7 +160,7 @@ export function TimeRangeToggle({ value, paramKey, ariaLabel }: Props) {
       role="tablist"
       aria-label={ariaLabel}
       className={cn(
-        "relative inline-flex items-center gap-1 rounded-full border border-border bg-bg-secondary p-1 backdrop-blur-sm transition-opacity sm:gap-0.5",
+        "relative inline-flex items-center gap-0.5 rounded-md bg-bg-secondary p-0.5 transition-opacity",
         isPending && "opacity-70"
       )}
       aria-busy={isPending}
@@ -156,7 +168,7 @@ export function TimeRangeToggle({ value, paramKey, ariaLabel }: Props) {
       {pill && (
         <div
           aria-hidden
-          className="pointer-events-none absolute left-0 top-0 rounded-full bg-fg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)] transition-[transform,width,height] duration-300 ease-out will-change-transform"
+          className="pointer-events-none absolute left-0 top-0 rounded bg-[var(--surface-tile)] ring-1 ring-border transition-[transform,width,height] duration-200 ease-out will-change-transform"
           style={{
             transform: `translate3d(${pill.left}px, ${pill.top}px, 0)`,
             width: pill.width,
@@ -177,14 +189,14 @@ export function TimeRangeToggle({ value, paramKey, ariaLabel }: Props) {
             aria-selected={active}
             onClick={() => select(r)}
             className={cn(
-              "relative z-10 whitespace-nowrap rounded-full px-3 py-2.5 text-sm font-medium tabular-nums transition-colors duration-300 sm:px-2.5 sm:py-1.5 sm:text-sm",
+              "relative z-10 whitespace-nowrap rounded px-3 py-2 text-[13px] font-medium tabular-nums transition-colors duration-200 sm:px-2.5 sm:py-1",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1 focus-visible:ring-offset-bg-primary",
               active
-                ? "text-bg-primary"
+                ? "text-fg-primary"
                 : "text-fg-secondary hover:text-fg-primary",
-              // SSR / pre-measurement fallback so the active label isn't
-              // briefly invisible (light-on-light) before the pill mounts.
-              active && !pill && "bg-fg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
+              // SSR / pre-measurement fallback so the active option is marked
+              // before the sliding marker mounts.
+              active && !pill && "bg-[var(--surface-tile)] ring-1 ring-border"
             )}
           >
             {DASHBOARD_RANGE_LABELS[r]}

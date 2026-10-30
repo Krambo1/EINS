@@ -17,7 +17,7 @@ import {
   reportingChannel,
 } from "./sources";
 import { REQUEST_SOURCES, SOURCE_LABELS } from "./constants";
-import { FRONT_DESK_SOURCES, INTAKE_SOURCES, WEBHOOK_ONLY_SOURCES, isFrontDeskSource } from "./sources";
+import { FRONT_DESK_SOURCES, INTAKE_SOURCES, MESSWEG_SOURCE_VALUES, WEBHOOK_ONLY_SOURCES, isFrontDeskSource } from "./sources";
 
 describe("classifyAttribution: Messweg", () => {
   it("counts a form on an EINS Zielseite", () => {
@@ -278,5 +278,18 @@ describe("front-desk sources", () => {
     }
     expect(isFrontDeskSource("formular")).toBe(false);
     expect(isFrontDeskSource(null)).toBe(false);
+  });
+});
+
+describe("MESSWEG_SOURCE_VALUES", () => {
+  it("is exactly the set classifyAttribution counts as a Messweg", () => {
+    for (const source of MESSWEG_SOURCE_VALUES) {
+      expect(source).toBe(source.toLowerCase().trim());
+      expect(classifyAttribution({ source, utm: null }).messweg).not.toBeNull();
+    }
+    for (const source of [...REQUEST_SOURCES, ...Object.keys(ENTRY_SOURCE_ALIASES), ...FRONT_DESK_SOURCES]) {
+      const isMessweg = classifyAttribution({ source, utm: null }).messweg !== null;
+      expect(MESSWEG_SOURCE_VALUES.includes(source.toLowerCase().trim())).toBe(isMessweg);
+    }
   });
 });

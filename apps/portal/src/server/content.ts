@@ -280,9 +280,9 @@ async function notifyAssetReady(clinicId: string): Promise<void> {
         userId: u.id,
         clinicId,
         kind: "asset_ready",
-        title: "Neue Datei unter Medien",
-        body: "EINS hat eine neue Datei für Ihren nächsten Beitrag unter Medien abgelegt.",
-        link: "/medien",
+        title: "Neue Datei unter Inhalte",
+        body: "EINS hat eine neue Datei für Ihren nächsten Beitrag unter Inhalte abgelegt.",
+        link: "/inhalte#beitraege",
       }))
     );
   } catch (err) {
@@ -635,7 +635,7 @@ export async function listContentItemsForAdmin(clinicId: string): Promise<Conten
   return loadItems(db as unknown as Handle, clinicId, { hideDrafts: false });
 }
 
-/** Posts the Praxis sees on /beitraege: through RLS, without drafts. */
+/** Posts the Praxis sees on /inhalte: through RLS, without drafts. */
 export async function listContentItemsForPractice(clinicId: string, userId: string): Promise<ContentItemView[]> {
   return withClinicContext(clinicId, userId, (tx) => loadItems(tx, clinicId, { hideDrafts: true }), "beitraege:list");
 }

@@ -25,6 +25,7 @@ import { formatDateTime } from "@/lib/formatting";
 import { EventsFilters } from "./_components/EventsFilters";
 import { EventsPanel } from "./_components/EventsPanel";
 import { isUuid } from "@/lib/ids";
+import { NavTransition, PendingDim } from "@/app/_components/instant-views";
 
 export const metadata = { title: "PVS-Bridge Event-Trace" };
 
@@ -84,38 +85,42 @@ export default async function PvsEventsPage({
         </TabsList>
 
         <TabsContent value="events" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Filter</CardTitle>
-              <CardDescription>
-                Defaults: letzte 24 Stunden, alle Praxen. Filter sind URL-
-                kodiert; Permalink kopieren funktioniert.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <EventsFilters
-                clinics={clinics}
-                bridgeSources={[...BRIDGE_SOURCES]}
-                eventKinds={[...EVENT_KINDS]}
-                applied={filters.applied}
-              />
-            </CardContent>
-          </Card>
+          <NavTransition>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Filter</CardTitle>
+                <CardDescription>
+                  Defaults: letzte 24 Stunden, alle Praxen. Filter sind URL-
+                  kodiert; Permalink kopieren funktioniert.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <EventsFilters
+                  clinics={clinics}
+                  bridgeSources={[...BRIDGE_SOURCES]}
+                  eventKinds={[...EVENT_KINDS]}
+                  applied={filters.applied}
+                />
+              </CardContent>
+            </Card>
 
-          <EventsPanel
-            rows={events.rows.map((r) => ({
-              id: r.id,
-              clinicId: r.clinicId,
-              clinicLabel: r.clinicDisplayName ?? r.clinicId.slice(0, 8),
-              bridgeSource: r.bridgeSource,
-              kind: r.kind,
-              pvsExternalEventId: r.pvsExternalEventId,
-              occurredAt: r.occurredAt.toISOString(),
-              receivedAt: r.receivedAt.toISOString(),
-            }))}
-            truncated={events.truncated}
-            hardCap={EVENTS_HARD_CAP}
-          />
+            <PendingDim>
+              <EventsPanel
+                rows={events.rows.map((r) => ({
+                  id: r.id,
+                  clinicId: r.clinicId,
+                  clinicLabel: r.clinicDisplayName ?? r.clinicId.slice(0, 8),
+                  bridgeSource: r.bridgeSource,
+                  kind: r.kind,
+                  pvsExternalEventId: r.pvsExternalEventId,
+                  occurredAt: r.occurredAt.toISOString(),
+                  receivedAt: r.receivedAt.toISOString(),
+                }))}
+                truncated={events.truncated}
+                hardCap={EVENTS_HARD_CAP}
+              />
+            </PendingDim>
+          </NavTransition>
 
           <p className="text-xs text-fg-tertiary">
             Hinweis: <code>pvs_event_log</code> enthält nur erfolgreich

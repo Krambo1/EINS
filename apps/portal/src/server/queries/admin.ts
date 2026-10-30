@@ -19,6 +19,7 @@ import {
 } from "drizzle-orm";
 import { db, schema } from "@/db/client";
 import { channelGroupBy, channelKeys, channelOfGroup, type ChannelGroup } from "./_channel";
+import { adPlatformFor, type ReportingChannel } from "@/lib/sources";
 import { firstAttemptAtSql, toAttemptDate } from "./response-time";
 import {
   REQUEST_STATUSES,
@@ -1596,15 +1597,20 @@ export interface CampaignAggregateRow {
   clinicName: string;
   /** Billing currency of this row's Praxis; row-level revenue formats with it. */
   currency: CurrencyCode;
-  source: string;
+  /** meta_anzeige or google_anzeige: only bezahlte Anzeigen have campaigns. */
+  channel: ReportingChannel;
   campaignId: string | null;
   leads: number;
   revenueEur: number;
-  spendEur: number;
-  cpl: number | null;
-  roas: number | null;
 }
 
+/**
+ * Ad campaigns across all Praxen, ranked by Anfragen (most first, or fewest
+ * with `ascending`). Only inquiries from bezahlte Anzeigen count: organic
+ * posts are no campaigns and never land among the ones to pause. Spend exists
+ * per Praxis and platform only (campaign_snapshots), so a campaign has no
+ * Budget or Werbeertrag of its own; the platform cards carry those.
+ */
 export async function topCampaigns(args: {
   periodDays?: number;
   limit?: number;
@@ -1613,13 +1619,14 @@ export async function topCampaigns(args: {
   const days = args.periodDays ?? 30;
   const since = subDays(new Date(), days);
 
-  // Pull lead-side aggregates first; campaign spend joined per clinic.
+  // Grouped by reporting channel (entry point + UTM) so organic and paid
+  // Meta stay apart; folded per campaign below.
   const leadRows = await db
     .select({
       clinicId: schema.requests.clinicId,
       clinicName: schema.clinics.displayName,
       currency: schema.clinics.currency,
-      source: schema.requests.source,
+      ...channelKeys,
       campaignId: schema.requests.sourceCampaignId,
       leads: sql<number>`count(*)::int`,
       revenue: sql<number>`coalesce(sum(${schema.requests.convertedRevenueEur}), 0)`,
@@ -1631,52 +1638,35 @@ export async function topCampaigns(args: {
       schema.requests.clinicId,
       schema.clinics.displayName,
       schema.clinics.currency,
-      schema.requests.source,
+      ...channelGroupBy,
       schema.requests.sourceCampaignId
     );
 
-  // Spend aggregated per (clinic, platform). Map source → platform.
-  const spendRows = await db
-    .select({
-      clinicId: schema.campaignSnapshots.clinicId,
-      platform: schema.campaignSnapshots.platform,
-      spend: sql<number>`coalesce(sum(${schema.campaignSnapshots.spendEur}), 0)`,
-    })
-    .from(schema.campaignSnapshots)
-    .where(gte(schema.campaignSnapshots.snapshotDate, isoDate(since)))
-    .groupBy(schema.campaignSnapshots.clinicId, schema.campaignSnapshots.platform);
-
-  const spendMap = new Map<string, number>();
-  for (const r of spendRows) {
-    spendMap.set(`${r.clinicId}::${r.platform}`, Number(r.spend));
-  }
-
-  const rows: CampaignAggregateRow[] = leadRows.map((l) => {
-    const platform =
-      l.source === "meta" || l.source === "google" ? l.source : "csv";
-    const spend = spendMap.get(`${l.clinicId}::${platform}`) ?? 0;
-    const leads = Number(l.leads);
-    const revenue = Number(l.revenue);
-    return {
+  const byCampaign = new Map<string, CampaignAggregateRow>();
+  for (const l of leadRows) {
+    const channel = channelOfGroup(l);
+    if (!adPlatformFor(channel)) continue;
+    const key = `${l.clinicId}::${channel}::${l.campaignId ?? ""}`;
+    const row = byCampaign.get(key) ?? {
       clinicId: l.clinicId,
       clinicName: l.clinicName,
       currency: (l.currency ?? "EUR") as CurrencyCode,
-      source: l.source,
+      channel,
       campaignId: l.campaignId,
-      leads,
-      revenueEur: revenue,
-      spendEur: spend,
-      cpl: leads > 0 && spend > 0 ? Number((spend / leads).toFixed(2)) : null,
-      roas: spend > 0 ? Number((revenue / spend).toFixed(2)) : null,
+      leads: 0,
+      revenueEur: 0,
     };
-  });
+    row.leads += Number(l.leads);
+    row.revenueEur += Number(l.revenue);
+    byCampaign.set(key, row);
+  }
 
-  rows.sort((a, b) => {
-    const ra = a.roas ?? -Infinity;
-    const rb = b.roas ?? -Infinity;
-    return args.ascending ? ra - rb : rb - ra;
-  });
-
+  const rows = [...byCampaign.values()];
+  rows.sort((a, b) =>
+    args.ascending
+      ? a.leads - b.leads || a.revenueEur - b.revenueEur
+      : b.leads - a.leads || b.revenueEur - a.revenueEur
+  );
   return rows.slice(0, args.limit ?? 10);
 }
 

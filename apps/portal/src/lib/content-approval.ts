@@ -1,6 +1,6 @@
 /**
  * Approval decisions on posts (Beiträge), pure. Shared by the one-click link
- * (/freigabe/[token]) and the portal buttons on /beitraege (D7: both at the
+ * (/freigabe/[token]) and the portal buttons on /inhalte (D7: both at the
  * same time, the first decision wins). The DB side lives in
  * server/content-approval.ts; this module holds the rules it applies.
  */
@@ -75,7 +75,7 @@ export function linkExpired(tokenExpiresAt: Date, now: Date = new Date()): boole
   return tokenExpiresAt.getTime() <= now.getTime();
 }
 
-export const LINK_EXPIRED_MESSAGE = "Dieser Link ist abgelaufen. Bitte entscheiden Sie im Portal unter Beiträge.";
+export const LINK_EXPIRED_MESSAGE = "Dieser Link ist abgelaufen. Bitte entscheiden Sie im Portal unter Inhalte.";
 
 /** Last day the Praxis has: due_at is the following Berlin midnight. */
 export function approvalDueDayOf(dueAt: Date): IsoDate {

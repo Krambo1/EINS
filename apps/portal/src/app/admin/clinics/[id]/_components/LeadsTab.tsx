@@ -8,6 +8,7 @@ import {
   AI_CATEGORY_LABELS,
 } from "@/lib/constants";
 import type { AdminLeadFilters, AdminLeadRow } from "@/server/queries/admin";
+import { NavForm } from "@/app/_components/instant-views";
 import { LeadsTable } from "../../../_components/LeadsTable";
 
 const PAGE_SIZE = 50;
@@ -40,7 +41,7 @@ export function LeadsTab({
     <div className="space-y-5">
       <Card>
         <CardContent className="pt-6">
-          <form className="grid gap-3 md:grid-cols-[2fr_repeat(3,1fr)_auto]" method="get">
+          <NavForm className="grid gap-3 md:grid-cols-[2fr_repeat(3,1fr)_auto]">
             <input type="hidden" name="tab" value="leads" />
             <Input
               name="search"
@@ -101,7 +102,7 @@ export function LeadsTab({
                 Filtern
               </Button>
             </div>
-          </form>
+          </NavForm>
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-fg-secondary">
             <span>Aktive Filter:</span>
             {!hasFilters(filters) && <Badge tone="neutral">Keine</Badge>}

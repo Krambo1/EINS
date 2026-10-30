@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { NavTransition, PendingDim } from "@/app/_components/instant-views";
 import { and, asc, desc, eq, gte, isNull, sql } from "drizzle-orm";
 import { Badge } from "@eins/ui";
 import { requireAdmin } from "@/auth/admin-guards";
@@ -556,11 +557,15 @@ export default async function AdminClinicDetailPage({
         </p>
       )}
 
-      <div className="border-y border-border py-2">
-        <ClinicTabsNav tabs={[...TABS]} current={tab} />
-      </div>
+      {/* A tab, filter or page marks itself on the tap; the tab's content
+          dims at the same size until the server render arrives. */}
+      <NavTransition>
+        <div className="border-y border-border py-2">
+          <ClinicTabsNav tabs={[...TABS]} />
+        </div>
 
-      <div>{renderedTab}</div>
+        <PendingDim>{renderedTab}</PendingDim>
+      </NavTransition>
     </div>
   );
 }

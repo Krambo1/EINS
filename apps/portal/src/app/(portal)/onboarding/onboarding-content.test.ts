@@ -54,12 +54,18 @@ const OLD_MODEL = [
 ];
 
 describe("Asset-Liefer-Checkliste catalog", () => {
-  it("keeps unique ids and the counts (33 Punkte, 24 Pflicht, 5 Blocker)", () => {
+  it("keeps unique ids and the counts (33 Punkte, 22 Pflicht, 5 Blocker)", () => {
     const ids = ALL_CHECKLIST_ITEMS.map((i) => i.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toHaveLength(33);
-    expect(REQUIRED_CHECKLIST_IDS).toHaveLength(24);
+    expect(REQUIRED_CHECKLIST_IDS).toHaveLength(22);
     expect(BLOCKER_CHECKLIST_IDS).toEqual(["A1", "A2", "A3", "A4", "A5"]);
+  });
+
+  it("organic start: the ad accounts (B3, B4) are not Pflicht", () => {
+    const required = new Set<string>(REQUIRED_CHECKLIST_IDS);
+    expect(required.has("B3")).toBe(false);
+    expect(required.has("B4")).toBe(false);
   });
 
   it("A5 keeps its id, stays a required blocker and is the Klon-Aufnahme", () => {

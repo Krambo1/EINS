@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 // Importing the shim runs its side effect once: pre-populate the CommonJS
 // require cache for `server-only` with an empty exports object. Worker entry
 // points do this first so any transitively server-only module (db/client,
-// storage, monthly-pdf, ...) can be imported under tsx/Node without tripping
+// storage, ...) can be imported under tsx/Node without tripping
 // the package's `throw`. See src/worker/shim-server-only.ts.
 import "./shim-server-only";
 

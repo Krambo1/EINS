@@ -11,7 +11,7 @@ export function ChecklistReminderBanner({ remaining }: { remaining: number }) {
   return (
     <Link
       href="/onboarding/checkliste"
-      className="mb-6 flex items-center gap-3 rounded-xl border border-[var(--accent-glow)] bg-bg-secondary px-4 py-3 text-sm transition-colors hover:border-accent"
+      className="mb-4 flex items-center md:mb-6 gap-3 rounded-[var(--r-panel)] border border-[var(--accent-glow)] md:rounded-[var(--r-control)] bg-bg-secondary px-4 py-3 text-sm transition-colors hover:border-accent"
     >
       <span className="min-w-0 flex-1 text-fg-primary">
         <span className="font-semibold">

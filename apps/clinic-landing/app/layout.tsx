@@ -10,9 +10,9 @@ import "./globals.css";
  */
 
 export const metadata: Metadata = {
-  title: "Clinic Landing Template",
+  title: "Zielseiten-Vorlage",
   description:
-    "Multi-Tenant-Vorlage für Praxis-Kampagnen. Diese Seite wird unter jeder Praxis-Domain individuell ausgespielt.",
+    "Vorlage für die Zielseiten der Praxen, erreichbar über Profil-Link, Beiträge und Anzeigen. Diese Seite wird unter jeder Praxis-Domain individuell ausgespielt.",
   robots: { index: false, follow: false },
 };
 

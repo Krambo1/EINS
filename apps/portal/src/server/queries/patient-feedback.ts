@@ -1,5 +1,5 @@
 import "server-only";
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, gte, ilike, inArray, lte, or, type SQL } from "drizzle-orm";
 import { schema, withClinicContext } from "@/db/client";
 import type { PatientFeedbackStatus } from "@/lib/constants";
 
@@ -25,18 +25,49 @@ export interface PatientFeedbackListRow {
   createdAt: Date;
 }
 
+/**
+ * Filters of the Rückmeldungen list, applied on the server once the list
+ * reaches its row cap (below it the browser filters the same way, see
+ * bewertungen/_lib/feedback-filter.ts).
+ */
+export interface PatientFeedbackListFilter {
+  status?: PatientFeedbackStatus;
+  /** Any of these statuses (a view such as "Offen"). */
+  statuses?: readonly PatientFeedbackStatus[];
+  ratingMin?: number;
+  ratingMax?: number;
+  /** Part of the name, the e-mail or the text, case-insensitive. */
+  search?: string;
+}
+
+function feedbackWhere(filter: PatientFeedbackListFilter | undefined): SQL | undefined {
+  if (!filter) return undefined;
+  const t = schema.patientFeedback;
+  const parts: (SQL | undefined)[] = [];
+  if (filter.status) parts.push(eq(t.status, filter.status));
+  if (filter.statuses?.length) parts.push(inArray(t.status, [...filter.statuses]));
+  if (filter.ratingMin != null) parts.push(gte(t.rating, filter.ratingMin));
+  if (filter.ratingMax != null) parts.push(lte(t.rating, filter.ratingMax));
+  const q = filter.search?.trim();
+  if (q) {
+    // % and _ are literal in a search; the backslash escapes them for ILIKE.
+    const like = `%${q.replace(/[\\%_]/g, "\\$&")}%`;
+    parts.push(or(ilike(t.contactName, like), ilike(t.contactEmail, like), ilike(t.freeText, like)));
+  }
+  const set = parts.filter((x): x is SQL => x != null);
+  return set.length ? and(...set) : undefined;
+}
+
 export async function listPatientFeedback(
   clinicId: string,
   userId: string,
-  filter?: { status?: PatientFeedbackStatus }
+  filter?: PatientFeedbackListFilter
 ): Promise<PatientFeedbackListRow[]> {
   return await withClinicContext(
     clinicId,
     userId,
     async (tx) => {
-      const where = filter?.status
-        ? eq(schema.patientFeedback.status, filter.status)
-        : undefined;
+      const where = feedbackWhere(filter);
       const rows = await tx
         .select({
           id: schema.patientFeedback.id,
@@ -173,5 +204,67 @@ export async function getPatientFeedback(
       return row as PatientFeedbackDetail;
     },
     "patient-feedback:detail"
+  );
+}
+
+/**
+ * Who answered or closed a Rückmeldung and when (the detail's "Erledigt"
+ * row, like the reply attribution in Appbot and Retently). Both stay null
+ * while it is open: setting neu or gesehen clears them.
+ */
+export async function getPatientFeedbackResolution(
+  clinicId: string,
+  userId: string,
+  id: string
+): Promise<{ resolvedAt: Date | null; resolvedByName: string | null }> {
+  return await withClinicContext(
+    clinicId,
+    userId,
+    async (tx) => {
+      const [row] = await tx
+        .select({
+          resolvedAt: schema.patientFeedback.resolvedAt,
+          fullName: schema.clinicUsers.fullName,
+          email: schema.clinicUsers.email,
+        })
+        .from(schema.patientFeedback)
+        .leftJoin(
+          schema.clinicUsers,
+          eq(schema.patientFeedback.resolvedBy, schema.clinicUsers.id)
+        )
+        .where(eq(schema.patientFeedback.id, id))
+        .limit(1);
+      return {
+        resolvedAt: row?.resolvedAt ?? null,
+        resolvedByName: row?.fullName?.trim() || row?.email || null,
+      };
+    },
+    "patient-feedback:resolution"
+  );
+}
+
+/**
+ * Rückmeldungen per status under the list's other filters (stars, search),
+ * for the counts on the view chips once the list is filtered on the server.
+ */
+export async function countPatientFeedbackByStatus(
+  clinicId: string,
+  userId: string,
+  filter?: Omit<PatientFeedbackListFilter, "status" | "statuses">
+): Promise<Record<PatientFeedbackStatus, number>> {
+  return await withClinicContext(
+    clinicId,
+    userId,
+    async (tx) => {
+      const rows = await tx
+        .select({ status: schema.patientFeedback.status, n: count() })
+        .from(schema.patientFeedback)
+        .where(feedbackWhere(filter))
+        .groupBy(schema.patientFeedback.status);
+      const out: Record<PatientFeedbackStatus, number> = { neu: 0, gesehen: 0, beantwortet: 0, geschlossen: 0 };
+      for (const r of rows) out[r.status as PatientFeedbackStatus] = Number(r.n);
+      return out;
+    },
+    "patient-feedback:count-by-status"
   );
 }

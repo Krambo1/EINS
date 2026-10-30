@@ -23,7 +23,6 @@ import {
   MessageSquarePlus,
   ArrowRightLeft,
   CalendarClock,
-  Loader2,
   Lock,
   Mail,
 } from "lucide-react";
@@ -44,6 +43,17 @@ import {
   type ActionResult,
 } from "./actions";
 import { followupInputError } from "./_followup-date";
+import { parseBerlinLocalInput } from "../_lib/berlin-input";
+import { showActionFlash } from "../../_components/flash-event";
+import { formatDateTime } from "@/lib/formatting";
+import {
+  newActivity,
+  pendingId,
+  usePending,
+  usePendingStatus,
+  type PendingChange,
+} from "./_pending";
+import { ScrollHint } from "@/app/_components/ScrollHint";
 
 const KEEP = "__keep__";
 
@@ -75,7 +85,10 @@ export function LeadCockpit({
   contactPhone?: string | null;
   contactEmail?: string | null;
 }) {
-  const transitions = STATUS_TRANSITIONS[currentStatus as RequestStatus] ?? [];
+  // A status that is still saving counts: the next dialog starts from it.
+  const pendingStatus = usePendingStatus();
+  const status = pendingStatus ?? currentStatus;
+  const transitions = STATUS_TRANSITIONS[status as RequestStatus] ?? [];
   // Lifted so the phone action bar can open the same dialog.
   const [callOpen, setCallOpen] = useState(false);
 
@@ -83,7 +96,7 @@ export function LeadCockpit({
     <div className="flex flex-wrap items-center gap-2">
       <CallDialog
         requestId={requestId}
-        currentStatus={currentStatus}
+        currentStatus={status}
         transitions={transitions}
         pvsControlled={pvsControlled}
         open={callOpen}
@@ -98,7 +111,7 @@ export function LeadCockpit({
       <NoteDialog requestId={requestId} />
       <StatusDialog
         requestId={requestId}
-        currentStatus={currentStatus}
+        currentStatus={status}
         transitions={transitions}
         pvsControlled={pvsControlled}
       />
@@ -107,19 +120,47 @@ export function LeadCockpit({
   );
 }
 
-/** Shared error/submit hook for the dialogs. */
-function useAction(onDone: () => void) {
+const OFFLINE = "Keine Verbindung. Bitte versuchen Sie es noch einmal.";
+
+/**
+ * Shared submit hook for the dialogs (optimistic). After the checks, `run`
+ * closes the dialog at once and puts the change on the page (`change`, see
+ * _pending.tsx) while the action runs in the background. The form is cleared
+ * at once (`clear` empties the fields and returns a function that puts the
+ * input back), so a dialog opened again meanwhile starts empty and nothing
+ * typed there is lost. Saved: a toast. Not saved: the change drops away, the
+ * input comes back, the dialog opens again and a toast says why. `error` is
+ * only for the checks that run before anything is sent.
+ */
+function useSave(setOpen: (open: boolean) => void, clear: () => () => void) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const run = (action: (fd: FormData) => Promise<ActionResult>, fd: FormData) => {
+  const { add } = usePending();
+  const run = (
+    action: (fd: FormData) => Promise<ActionResult>,
+    fd: FormData,
+    change: PendingChange,
+    savedTitle: string
+  ) => {
     setError(null);
+    setOpen(false);
+    const restore = clear();
     startTransition(async () => {
+      add(change);
+      const failed = (description: string) => {
+        restore();
+        setOpen(true);
+        showActionFlash({ tone: "bad", title: "Nicht gespeichert", description });
+      };
       try {
         const res = await action(fd);
-        if (res.ok) onDone();
-        else setError(res.message);
+        if (res.ok) {
+          showActionFlash({ tone: "good", title: savedTitle });
+        } else {
+          failed(res.message);
+        }
       } catch {
-        setError("Keine Verbindung. Bitte versuchen Sie es noch einmal.");
+        failed(OFFLINE);
       }
     });
   };
@@ -230,11 +271,19 @@ function CallDialog({
   const [statusAfter, setStatusAfter] = useState<string>(KEEP);
   const [followupAt, setFollowupAt] = useState("");
   const [followupNote, setFollowupNote] = useState("");
-  const { isPending, error, setError, run } = useAction(() => {
-    setOpen(false);
+  const { actor } = usePending();
+  const { isPending, error, setError, run } = useSave(setOpen, () => {
+    const saved = { note, statusAfter, followupAt, followupNote };
     setNote("");
+    setStatusAfter(KEEP);
     setFollowupAt("");
     setFollowupNote("");
+    return () => {
+      setNote(saved.note);
+      setStatusAfter(saved.statusAfter);
+      setFollowupAt(saved.followupAt);
+      setFollowupNote(saved.followupNote);
+    };
   });
 
   // Suggest a status when the outcome changes — only if it's a legal move and
@@ -272,7 +321,27 @@ function CallDialog({
       fd.set("followupAt", followupAt);
       if (followupNote.trim()) fd.set("followupNote", followupNote);
     }
-    run(logCall, fd);
+
+    // What the page shows while this saves: the call, the status change and
+    // the Wiedervorlage with its Verlauf note, as the server writes them.
+    const at = new Date();
+    const activities = [newActivity(actor, at, "call", note.trim() || null, { outcome })];
+    const change: PendingChange = { at, activities, contact: true };
+    if (statusAfter !== KEEP && statusAfter !== currentStatus) {
+      activities.push(
+        newActivity(actor, at, "status_change", null, { from: currentStatus, to: statusAfter })
+      );
+      change.status = statusAfter as RequestStatus;
+    }
+    const due = followupAt ? parseBerlinLocalInput(followupAt) : null;
+    if (due) {
+      const dueNote = followupNote.trim() || null;
+      change.followup = { id: pendingId(), dueAt: due, note: dueNote };
+      activities.push(
+        newActivity(actor, at, "note", `Wiedervorlage für ${formatDateTime(due)}${dueNote ? `: ${dueNote}` : ""}`)
+      );
+    }
+    run(logCall, fd, change, "Anruf gespeichert");
   };
 
   return (
@@ -315,13 +384,15 @@ function CallDialog({
 
           <div>
             <FieldLabel>Notiz (optional)</FieldLabel>
-            <Textarea
-              rows={3}
-              maxLength={5000}
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="z. B. Patient meldet sich nächste Woche selbst."
-            />
+            <ScrollHint watch={note}>
+              <Textarea
+                rows={3}
+                maxLength={5000}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="z. B. Patient meldet sich nächste Woche selbst."
+              />
+            </ScrollHint>
           </div>
 
           <div>
@@ -367,12 +438,9 @@ function CallDialog({
 
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="outline" disabled={isPending}>
-              Abbrechen
-            </Button>
+            <Button variant="outline">Abbrechen</Button>
           </DialogClose>
           <Button onClick={submit} disabled={isPending}>
-            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
             Speichern
           </Button>
         </DialogFooter>
@@ -386,9 +454,11 @@ function MessageDialog({ requestId }: { requestId: string }) {
   const [open, setOpen] = useState(false);
   const [channel, setChannel] = useState<"email" | "whatsapp">("email");
   const [note, setNote] = useState("");
-  const { isPending, error, setError, run } = useAction(() => {
-    setOpen(false);
+  const { actor } = usePending();
+  const { isPending, error, setError, run } = useSave(setOpen, () => {
+    const saved = note;
     setNote("");
+    return () => setNote(saved);
   });
 
   const submit = () => {
@@ -396,7 +466,13 @@ function MessageDialog({ requestId }: { requestId: string }) {
     fd.set("id", requestId);
     fd.set("channel", channel);
     if (note.trim()) fd.set("note", note);
-    run(logMessage, fd);
+    const at = new Date();
+    run(
+      logMessage,
+      fd,
+      { at, activities: [newActivity(actor, at, channel, note.trim() || null)], contact: true },
+      "Nachricht vermerkt"
+    );
   };
 
   return (
@@ -437,24 +513,23 @@ function MessageDialog({ requestId }: { requestId: string }) {
           </div>
           <div>
             <FieldLabel>Notiz (optional)</FieldLabel>
-            <Textarea
-              rows={3}
-              maxLength={5000}
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="Zum Beispiel: Terminvorschläge geschickt."
-            />
+            <ScrollHint watch={note}>
+              <Textarea
+                rows={3}
+                maxLength={5000}
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Zum Beispiel: Terminvorschläge geschickt."
+              />
+            </ScrollHint>
           </div>
           <ErrorLine message={error} />
         </div>
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="outline" disabled={isPending}>
-              Abbrechen
-            </Button>
+            <Button variant="outline">Abbrechen</Button>
           </DialogClose>
           <Button onClick={submit} disabled={isPending}>
-            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
             Speichern
           </Button>
         </DialogFooter>
@@ -466,16 +541,19 @@ function MessageDialog({ requestId }: { requestId: string }) {
 function NoteDialog({ requestId }: { requestId: string }) {
   const [open, setOpen] = useState(false);
   const [note, setNote] = useState("");
-  const { isPending, error, setError, run } = useAction(() => {
-    setOpen(false);
+  const { actor } = usePending();
+  const { isPending, error, setError, run } = useSave(setOpen, () => {
+    const saved = note;
     setNote("");
+    return () => setNote(saved);
   });
 
   const submit = () => {
     const fd = new FormData();
     fd.set("id", requestId);
     fd.set("note", note);
-    run(addNote, fd);
+    const at = new Date();
+    run(addNote, fd, { at, activities: [newActivity(actor, at, "note", note)] }, "Notiz gespeichert");
   };
 
   return (
@@ -498,24 +576,23 @@ function NoteDialog({ requestId }: { requestId: string }) {
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
-          <Textarea
-            rows={4}
-            maxLength={5000}
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Interne Notiz zum Verlauf dieser Anfrage."
-            autoFocus
-          />
+          <ScrollHint watch={note}>
+            <Textarea
+              rows={4}
+              maxLength={5000}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Interne Notiz zum Verlauf dieser Anfrage."
+              autoFocus
+            />
+          </ScrollHint>
           <ErrorLine message={error} />
         </div>
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="outline" disabled={isPending}>
-              Abbrechen
-            </Button>
+            <Button variant="outline">Abbrechen</Button>
           </DialogClose>
           <Button onClick={submit} disabled={isPending || !note.trim()}>
-            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
             Speichern
           </Button>
         </DialogFooter>
@@ -537,9 +614,11 @@ function StatusDialog({
 }) {
   const [open, setOpen] = useState(false);
   const [status, setStatus] = useState<string>("");
-  const { isPending, error, setError, run } = useAction(() => {
-    setOpen(false);
+  const { actor } = usePending();
+  const { isPending, error, setError, run } = useSave(setOpen, () => {
+    const saved = status;
     setStatus("");
+    return () => setStatus(saved);
   });
 
   if (pvsControlled) {
@@ -562,7 +641,18 @@ function StatusDialog({
     fd.set("id", requestId);
     fd.set("status", status);
     fd.set("expectedStatus", currentStatus);
-    run(changeStatus, fd);
+    const at = new Date();
+    run(
+      changeStatus,
+      fd,
+      {
+        at,
+        activities: [newActivity(actor, at, "status_change", null, { from: currentStatus, to: status })],
+        status: status as RequestStatus,
+        contact: currentStatus === "neu",
+      },
+      "Status geändert"
+    );
   };
 
   return (
@@ -606,12 +696,9 @@ function StatusDialog({
         </div>
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="outline" disabled={isPending}>
-              Abbrechen
-            </Button>
+            <Button variant="outline">Abbrechen</Button>
           </DialogClose>
           <Button onClick={submit} disabled={isPending || !status}>
-            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
             Übernehmen
           </Button>
         </DialogFooter>
@@ -624,10 +711,15 @@ function FollowupDialog({ requestId }: { requestId: string }) {
   const [open, setOpen] = useState(false);
   const [dueAt, setDueAt] = useState("");
   const [note, setNote] = useState("");
-  const { isPending, error, setError, run } = useAction(() => {
-    setOpen(false);
+  const { actor } = usePending();
+  const { isPending, error, setError, run } = useSave(setOpen, () => {
+    const saved = { dueAt, note };
     setDueAt("");
     setNote("");
+    return () => {
+      setDueAt(saved.dueAt);
+      setNote(saved.note);
+    };
   });
 
   const submit = () => {
@@ -640,7 +732,23 @@ function FollowupDialog({ requestId }: { requestId: string }) {
     fd.set("id", requestId);
     fd.set("dueAt", dueAt);
     if (note.trim()) fd.set("note", note);
-    run(scheduleFollowup, fd);
+    const at = new Date();
+    const due = parseBerlinLocalInput(dueAt);
+    const dueNote = note.trim() || null;
+    run(
+      scheduleFollowup,
+      fd,
+      due
+        ? {
+            at,
+            followup: { id: pendingId(), dueAt: due, note: dueNote },
+            activities: [
+              newActivity(actor, at, "note", `Wiedervorlage für ${formatDateTime(due)}${dueNote ? `: ${dueNote}` : ""}`),
+            ],
+          }
+        : { at },
+      "Wiedervorlage geplant"
+    );
   };
 
   return (
@@ -688,12 +796,9 @@ function FollowupDialog({ requestId }: { requestId: string }) {
         </div>
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="outline" disabled={isPending}>
-              Abbrechen
-            </Button>
+            <Button variant="outline">Abbrechen</Button>
           </DialogClose>
           <Button onClick={submit} disabled={isPending}>
-            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
             Planen
           </Button>
         </DialogFooter>

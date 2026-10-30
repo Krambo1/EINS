@@ -195,7 +195,7 @@ export function AdminSearchDialog({ open, onOpenChange }: DialogProps) {
         // -translate-x-1/2 so the open animation's transform doesn't fight
         // the centering transform.
         "fixed inset-x-0 top-[10vh] z-[101] mx-auto w-[min(92vw,640px)]",
-        "overflow-hidden rounded-2xl border border-border bg-bg-primary shadow-2xl",
+        "overflow-hidden rounded-md border border-border bg-bg-primary shadow-2xl",
         "will-change-transform",
         "data-[state=open]:animate-[opa-dialog-drop-in_160ms_cubic-bezier(0.16,1,0.3,1)]",
         "data-[state=closed]:animate-[opa-dialog-drop-out_120ms_ease-in]"
@@ -212,7 +212,7 @@ export function AdminSearchDialog({ open, onOpenChange }: DialogProps) {
             "placeholder:text-fg-tertiary focus:outline-none"
           )}
         />
-        <kbd className="hidden items-center rounded border border-border bg-bg-secondary px-1.5 py-0.5 font-mono text-[10px] text-fg-secondary md:inline-flex">
+        <kbd className="hidden items-center rounded-sm border border-border px-1 py-0.5 font-mono text-[11px] text-fg-secondary md:inline-flex">
           Esc
         </kbd>
         <button
@@ -220,7 +220,7 @@ export function AdminSearchDialog({ open, onOpenChange }: DialogProps) {
           onClick={() => onOpenChange(false)}
           aria-label="Suche schließen"
           className={cn(
-            "-mr-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-fg-secondary transition-colors",
+            "-mr-1 inline-flex h-10 w-10 shrink-0 items-center justify-center rounded text-fg-secondary transition-colors",
             "hover:bg-bg-secondary hover:text-fg-primary",
             "focus:outline-none focus-visible:ring-2 focus-visible:ring-fg-primary",
             "md:hidden"
@@ -373,15 +373,15 @@ export function AdminSearchDialog({ open, onOpenChange }: DialogProps) {
 
       <div className="flex items-center justify-between border-t border-border px-4 py-2 text-xs text-fg-tertiary">
         <span>
-          <kbd className="rounded border border-border bg-bg-secondary px-1 py-0.5 font-mono">↑↓</kbd>{" "}
+          <kbd className="rounded-sm border border-border px-1 py-0.5 font-mono">↑↓</kbd>{" "}
           navigieren
         </span>
         <span>
-          <kbd className="rounded border border-border bg-bg-secondary px-1 py-0.5 font-mono">↵</kbd>{" "}
+          <kbd className="rounded-sm border border-border px-1 py-0.5 font-mono">↵</kbd>{" "}
           öffnen
         </span>
         <span>
-          <kbd className="rounded border border-border bg-bg-secondary px-1 py-0.5 font-mono">esc</kbd>{" "}
+          <kbd className="rounded-sm border border-border px-1 py-0.5 font-mono">esc</kbd>{" "}
           schliessen
         </span>
       </div>
@@ -451,9 +451,11 @@ function ResultItem({
       onDragEnd={onDragEnd}
       onDrop={onDrop}
       className={cn(
-        "group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 text-sm",
+        // Selected row: grey fill plus a short accent bar on the left edge.
+        "group relative flex cursor-pointer items-center gap-3 rounded px-3 py-2 text-sm",
         "text-fg-primary aria-selected:bg-bg-secondary",
         "data-[selected=true]:bg-bg-secondary",
+        "before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full before:bg-accent before:opacity-0 data-[selected=true]:before:opacity-100",
         draggable && "cursor-grab active:cursor-grabbing",
         isDragging && "opacity-40",
         isDragOver && "border-t-2 border-fg-primary"

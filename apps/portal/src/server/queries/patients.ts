@@ -5,10 +5,10 @@ import { cacheClinicQuery, SHORT_REVALIDATE_S } from "./_cache";
 import { canonicalSource } from "@/lib/sources";
 
 /**
- * Average lifetime value keyed by raw first-touch source (the same source
- * vocabulary as `requests.source` / `bySource`), so it maps onto the
- * Quellen-Aufschlüsselung rows 1:1. Deliberately *not* window-scoped: LTV is a
- * lifetime metric, so it aggregates every patient regardless of the dashboard period.
+ * Average lifetime value keyed by first-touch reporting channel (the same
+ * buckets as `bySource`), so it maps onto the Quellen-Aufschlüsselung rows
+ * 1:1. Deliberately *not* window-scoped: LTV is a lifetime metric, so it
+ * aggregates every patient regardless of the dashboard period.
  */
 async function ltvBySourceUncached(
   clinicId: string,
@@ -17,21 +17,23 @@ async function ltvBySourceUncached(
   return withClinicContext(clinicId, userId, async (tx) => {
     const rows = await tx
       .select({
+        firstTouchChannel: schema.patients.firstTouchChannel,
         firstTouchSource: schema.patients.firstTouchSource,
         patientCount: sql<number>`count(*)::int`,
         totalRevenueEur: sql<number>`coalesce(sum(${schema.patients.lifetimeRevenueEur}), 0)`,
       })
       .from(schema.patients)
       .where(eq(schema.patients.clinicId, clinicId))
-      .groupBy(schema.patients.firstTouchSource);
+      .groupBy(schema.patients.firstTouchChannel, schema.patients.firstTouchSource);
 
-    // Keyed like bySource (reporting channel). first_touch_source keeps no
-    // UTM, so Zielseite patients land in "direkt" here. Several raw sources can
-    // share a channel, so sum first and divide once.
+    // first_touch_channel keeps the UTMs of the first Anfrage (organic post,
+    // profile link, DM link). Patients from before migration 0097 that the
+    // backfill could not reach fall back to the raw source, which has no UTM.
+    // Several rows can share a channel, so sum first and divide once.
     const sums = new Map<string, { count: number; revenue: number }>();
     for (const r of rows) {
-      if (!r.firstTouchSource) continue;
-      const key = canonicalSource(r.firstTouchSource);
+      if (!r.firstTouchChannel && !r.firstTouchSource) continue;
+      const key = r.firstTouchChannel ?? canonicalSource(r.firstTouchSource);
       const acc = sums.get(key) ?? { count: 0, revenue: 0 };
       acc.count += Number(r.patientCount);
       acc.revenue += Number(r.totalRevenueEur);

@@ -24,7 +24,7 @@ export function GlobalSearch({ onOpen }: GlobalSearchProps) {
       onClick={onOpen}
       aria-label="Suchen (Tastenkürzel Strg + K)"
       className={cn(
-        "group flex h-9 w-full items-center gap-2 rounded-xl border border-border bg-bg-secondary px-3 text-sm text-fg-secondary transition-colors",
+        "group flex h-8 w-full items-center gap-2 rounded border border-border px-2.5 text-sm text-fg-secondary transition-colors",
         "hover:border-fg-tertiary hover:text-fg-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-fg-primary"
       )}
     >
@@ -32,7 +32,7 @@ export function GlobalSearch({ onOpen }: GlobalSearchProps) {
       <span className="flex-1 text-left">Suchen…</span>
       <kbd
         aria-hidden
-        className="hidden items-center gap-0.5 rounded border border-border bg-bg-primary px-1.5 py-0.5 font-mono text-[10px] font-medium tracking-tight text-fg-secondary md:inline-flex"
+        className="hidden items-center gap-0.5 rounded-sm border border-border px-1 py-0.5 font-mono text-[11px] text-fg-secondary md:inline-flex"
       >
         {isMac ? "⌘" : "Strg"} K
       </kbd>

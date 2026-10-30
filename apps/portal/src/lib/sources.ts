@@ -216,6 +216,17 @@ export interface Attribution {
 const ENTRY_FORMULAR = new Set(["formular", "intake", "landing", "landing_form", "zielseite"]);
 const ENTRY_ANRUF = new Set(["anruf", "tracking_anruf", "call_tracking", "tracking_call"]);
 const ENTRY_BUCHUNG = new Set(["buchung", "buchungslink", "booking", "booking_link"]);
+
+/**
+ * Every raw `requests.source` value of the three Messwege, lower case: the
+ * SQL side of `classifyAttribution(...).messweg` (server/queries/_qualified.ts
+ * matches `lower(btrim(source))` against it).
+ */
+export const MESSWEG_SOURCE_VALUES: readonly string[] = [
+  ...ENTRY_FORMULAR,
+  ...ENTRY_ANRUF,
+  ...ENTRY_BUCHUNG,
+];
 const ENTRY_META_FORM = new Set(["meta", "meta_lead_form"]);
 // Written when someone reached the Praxis inside the app (e.g. a DM answered
 // by hand) with no EINS link in between: organic channel, but not a Messweg.

@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { usePathname } from "next/navigation";
@@ -16,7 +17,6 @@ import {
   LayoutDashboard,
   Inbox,
   Megaphone,
-  Film,
   Clapperboard,
   FileText,
   BookOpen,
@@ -24,16 +24,12 @@ import {
   Star,
   Menu,
   HelpCircle,
-  FileUp,
-  CalendarClock,
 } from "lucide-react";
 import type { Role } from "@/lib/constants";
 import { can } from "@/lib/roles";
 import { ImpersonationBanner } from "./ImpersonationBanner";
 import { UserMenu } from "./UserMenu";
 import { markSectionSeenAction } from "./nav-actions";
-import { SidebarContactCard } from "./SidebarContactCard";
-import { ThemeToggle } from "@/app/_components/ThemeToggle";
 import { EinsLogo } from "@/app/_components/EinsLogo";
 
 interface NavSubItem {
@@ -62,8 +58,9 @@ interface NavGroup {
 /**
  * Sidebar, main path first. Kept short on purpose (about ten entries for a
  * new Praxis): "Werbebudget" appears once ads run, "Einstellungen" lives
- * in the account menu (top right), "Häufige Fragen" is the single "Hilfe"
- * entry. Every page stays reachable by URL; permissions are unchanged.
+ * in the account menu (top of the sidebar), "Häufige Fragen" is the single
+ * "Hilfe" entry, Wiederbehandlungen is the second view of Anfragen. Every
+ * page stays reachable by URL; permissions are unchanged.
  */
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -72,7 +69,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/dashboard", label: "Übersicht", icon: LayoutDashboard, permission: "dashboard.view" },
       { href: "/anfragen", label: "Anfragen", icon: Inbox, permission: "requests.view" },
-      { href: "/wiederbehandlungen", label: "Wiederbehandlungen", icon: CalendarClock, permission: "requests.view" },
       { href: "/werbebudget", label: "Werbebudget", icon: Megaphone, permission: "campaigns.live", needsAdData: true },
       {
         href: "/bewertungen",
@@ -84,17 +80,11 @@ const NAV_GROUPS: NavGroup[] = [
           { href: "/bewertungen/feedback", label: "Patientenfeedback", permission: "patient_feedback.view" },
         ],
       },
-    ],
-  },
-  {
-    id: "eins",
-    label: "Zusammenarbeit mit EINS",
-    items: [
       { href: "/fortschritt", label: "Fortschritt", icon: Milestone },
-      { href: "/medien", label: "Medien", icon: Film, permission: "assets.view" },
-      { href: "/beitraege", label: "Beiträge", icon: Clapperboard, permission: "assets.view" },
-      { href: "/dokumente", label: "Dokumente", icon: FileText, permission: "documents.view.marketing" },
-      { href: "/dateien", label: "Dateien an EINS", icon: FileUp, permission: "uploads.send" },
+      // Medien and Beiträge are one page (2026-10-29).
+      { href: "/inhalte", label: "Inhalte", icon: Clapperboard, permission: "assets.view" },
+      // Dokumente and "Dateien an EINS" are one page (2026-10-29).
+      { href: "/dateien", label: "Dateien", icon: FileText, permission: "documents.view.marketing" },
       { href: "/leitfaden", label: "Leitfaden", icon: BookOpen, permission: "leitfaden.view" },
     ],
   },
@@ -110,6 +100,48 @@ const NAV_GROUPS: NavGroup[] = [
 
 /** Group that is visually anchored to the bottom of the sidenav. */
 const BOTTOM_ANCHORED_GROUP = "hilfe";
+
+/** Pages without a nav entry of their own, and the entry that stays marked. */
+const NAV_ALIASES: Record<string, string> = {
+  "/wiederbehandlungen": "/anfragen",
+};
+
+/**
+ * Logo and Praxis name at the top of the sidebar: the brand, a link to the
+ * Übersicht, not a menu. A long name takes two lines, never cut.
+ */
+function BrandMark({
+  href,
+  logoUrl,
+  name,
+  className,
+}: {
+  href: string;
+  logoUrl: string | null;
+  name: string;
+  className?: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        "flex min-w-0 shrink-0 items-center gap-2.5 rounded-[var(--r-control)] pl-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+        className
+      )}
+    >
+      {logoUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={logoUrl} alt="" className="h-8 w-8 shrink-0 rounded-[var(--r-small)] object-cover" />
+      ) : (
+        <EinsLogo className="h-7 w-auto shrink-0" />
+      )}
+      <span aria-hidden="true" className="h-6 w-px shrink-0 bg-border" />
+      <span className="line-clamp-2 min-w-0 break-words text-[15px] font-semibold leading-5 text-fg-primary">
+        {name}
+      </span>
+    </Link>
+  );
+}
 
 /**
  * Pill for something the user still owes, right of the nav label: due
@@ -132,7 +164,7 @@ function ActionPill({
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-semibold tabular-nums text-fg-primary",
+        "inline-flex shrink-0 items-center gap-1 rounded-[var(--r-small)] border px-1.5 py-0.5 text-xs font-semibold tabular-nums text-fg-primary",
         active
           ? "border-transparent bg-bg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
           : "border-[var(--tone-warn-border)] bg-[var(--tone-warn-bg)]"
@@ -188,6 +220,12 @@ export interface PortalShellProps {
   anfragenDue?: number;
   /** Ad account connected or campaign data present: list "Werbebudget". */
   showWerbebudget?: boolean;
+  /**
+   * A notice above both columns (the Start-Checkliste reminder). Above them,
+   * not inside the page, so the logo and the nav still line up with the
+   * page's first row and first card.
+   */
+  notice?: ReactNode;
   children: ReactNode;
 }
 
@@ -211,9 +249,11 @@ export function PortalShellClient({
   navBadgeCounts: serverBadgeCounts,
   anfragenDue = 0,
   showWerbebudget = false,
+  notice,
   children,
 }: PortalShellProps) {
   const pathname = usePathname();
+  const clinicName = clinic.displayName || "EINS Portal";
 
   // "Neu" pills of sections the user opened by a click in the portal. The
   // layout (and its badge counts) does not render again on such a soft
@@ -224,11 +264,13 @@ export function PortalShellClient({
   );
   useEffect(() => {
     const first = pathname?.split("/").filter(Boolean)[0];
-    if (!first || !["fortschritt", "medien", "dokumente"].includes(first)) return;
+    // The documents' "Neu" belongs to the Dateien page, the Medien's to Inhalte.
+    const section = first === "dateien" ? "dokumente" : first === "inhalte" ? "medien" : first;
+    if (!first || !section || !["fortschritt", "medien", "dokumente"].includes(section)) return;
     const href = `/${first}`;
     if (serverBadgeCounts?.[href] !== "Neu" || seenSections.has(href)) return;
     setSeenSections((prev) => new Set(prev).add(href));
-    void markSectionSeenAction(first).catch(() => {});
+    void markSectionSeenAction(section).catch(() => {});
   }, [pathname, serverBadgeCounts, seenSections]);
   const navBadgeCounts = useMemo(() => {
     if (!serverBadgeCounts || seenSections.size === 0) return serverBadgeCounts;
@@ -275,9 +317,14 @@ export function PortalShellClient({
   }, [visibleGroups]);
 
   // Most-specific match wins so /bewertungen/feedback beats /bewertungen.
+  // A page without its own entry marks the entry it belongs to.
   const activeHref = useMemo(() => {
+    const alias = Object.keys(NAV_ALIASES).find(
+      (a) => pathname === a || pathname.startsWith(`${a}/`)
+    );
+    const path = alias ? NAV_ALIASES[alias]! : pathname;
     return allHrefs
-      .filter((h) => pathname === h || pathname.startsWith(`${h}/`))
+      .filter((h) => path === h || path.startsWith(`${h}/`))
       .sort((a, b) => b.length - a.length)[0];
   }, [allHrefs, pathname]);
 
@@ -339,6 +386,26 @@ export function PortalShellClient({
     return () => window.removeEventListener("keydown", onKey);
   }, [mobileNavOpen]);
 
+  // A notice above both columns pushes the sticky sidebar down until the page
+  // scrolls. The sidebar leaves its height out (--shell-notice), so "Hilfe"
+  // at its foot stays on the first screen. 4.5rem is the one-line banner at
+  // desktop width, so the first paint is already close.
+  const noticeRef = useRef<HTMLDivElement>(null);
+  const [noticeHeight, setNoticeHeight] = useState<number | null>(null);
+  const hasNotice = notice != null && notice !== false;
+  useEffect(() => {
+    const el = noticeRef.current;
+    if (!el) return;
+    const measure = () => setNoticeHeight(el.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasNotice]);
+  const shellStyle = {
+    "--shell-notice": hasNotice ? (noticeHeight != null ? `${noticeHeight}px` : "4.5rem") : "0px",
+  } as CSSProperties;
+
   const showProgress = pendingHref !== null;
 
   // Top-bar shortcut to Anfragen on the phone (same permission as the nav).
@@ -359,7 +426,7 @@ export function PortalShellClient({
     : null;
 
   return (
-    <div className="flex min-h-dvh flex-col overflow-x-clip bg-bg-primary">
+    <div className="flex min-h-dvh flex-col overflow-x-clip bg-[var(--surface-canvas)]">
       <TopProgressBar active={showProgress} />
       {impersonating && (
         <ImpersonationBanner
@@ -368,28 +435,31 @@ export function PortalShellClient({
           expiresAt={impersonationExpiresAt ?? null}
         />
       )}
-      {/* Header */}
+      {/* Phone header: frosted canvas, so cards scrolling under it stay
+          faintly visible and the header reads as the top layer. From md there
+          is no header bar: the account menu heads the sidebar, on the page's
+          first row. On the phone it heads the drawer the same way. */}
       <header
-        className="sticky top-0 z-40 border-b border-border backdrop-blur"
-        style={{ backgroundColor: "color-mix(in srgb, var(--bg-primary) 95%, transparent)" }}
+        className="sticky top-0 z-40 border-b border-border backdrop-blur-md md:hidden"
+        style={{ backgroundColor: "color-mix(in srgb, var(--surface-canvas) 82%, transparent)" }}
       >
-        <div className="mx-auto flex max-w-screen-2xl items-center gap-1.5 px-4 py-3 md:gap-4 md:px-6">
+        <div className="mx-auto flex h-14 max-w-screen-2xl items-center gap-1.5 px-4 md:h-16 md:gap-4 md:px-6">
           <button
             type="button"
             onClick={() => setMobileNavOpen(true)}
             aria-label="Menü öffnen"
             aria-expanded={mobileNavOpen}
             aria-controls="mobile-nav-drawer"
-            className="-ml-1 inline-flex h-10 w-10 items-center justify-center rounded-lg text-fg-primary hover:bg-bg-secondary md:hidden"
+            className="-ml-1 inline-flex h-10 w-10 items-center justify-center rounded-[var(--r-control)] text-fg-primary hover:bg-bg-secondary md:hidden"
           >
             <Menu className="h-6 w-6" />
           </button>
           <Link href="/dashboard" className="flex items-center gap-3 md:pl-3">
             {clinic.logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={clinic.logoUrl} alt="" className="h-9 w-9 rounded-lg object-cover" />
+              <img src={clinic.logoUrl} alt="" className="h-9 w-9 rounded-[var(--r-control)] object-cover" />
             ) : (
-              <EinsLogo className="h-9 w-auto md:h-10" />
+              <EinsLogo className="h-8 w-auto md:h-9" />
             )}
             <span aria-hidden="true" className="hidden h-7 w-px bg-border md:block" />
             <div className="hidden flex-col leading-tight md:flex">
@@ -410,7 +480,7 @@ export function PortalShellClient({
               aria-label={anfragenHeader.label}
               aria-current={activeHref === "/anfragen" ? "page" : undefined}
               className={cn(
-                "relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg text-fg-primary hover:bg-bg-secondary md:hidden",
+                "relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--r-control)] text-fg-primary hover:bg-bg-secondary md:hidden",
                 activeHref === "/anfragen" && "bg-bg-secondary"
               )}
             >
@@ -431,33 +501,32 @@ export function PortalShellClient({
               )}
             </Link>
           )}
-
-          {/* Phone: the theme switch moves into the drawer to make room. */}
-          <div className="hidden md:block">
-            <ThemeToggle />
-          </div>
-
-          <UserMenu user={user} />
         </div>
       </header>
 
-      <div className="mx-auto flex w-full max-w-screen-2xl flex-1 gap-8 px-4 py-6 md:px-6">
+      <div
+        className="mx-auto flex w-full max-w-screen-2xl flex-1 flex-col px-4 py-4 md:px-6 md:py-8"
+        style={shellStyle}
+      >
+      {hasNotice && <div ref={noticeRef}>{notice}</div>}
+      <div className="flex flex-1 gap-8 lg:gap-12">
         {/* Side rail (nav). The wrapping <div> owns sticky positioning +
-            overflow. */}
-        <div className="sticky top-20 hidden h-[calc(100dvh-6rem)] w-56 shrink-0 flex-col gap-3 self-start overflow-y-auto pr-1 md:flex">
+            overflow. Its rows line up with the page beside it: the logo row
+            is as tall as the page's first row (--shell-row, the period
+            switch on the Übersicht), and the nav starts one spacing step
+            (24 px) below it, level with the first card. The account is at
+            the foot, under Hilfe. */}
+        <div className="sticky top-8 hidden h-[calc(100dvh-4rem-var(--shell-notice))] w-56 shrink-0 flex-col gap-3 self-start overflow-y-auto pr-1 md:flex lg:w-60">
+          <BrandMark href="/dashboard" logoUrl={clinic.logoUrl} name={clinicName} className="mb-3 h-[var(--shell-row)]" />
           <nav aria-label="Hauptnavigation" className="flex flex-1 flex-col gap-4">
           {visibleGroups.map((group) => {
             const isBottom = group.id === BOTTOM_ANCHORED_GROUP;
             return (
             <Fragment key={group.id}>
-              {/* Contact card sits in the free space above the "Hilfe" entry.
-                  It carries `mt-auto` (rather than the group below it) so the
-                  card + footer cluster at the bottom with no gap between
-                  them. */}
-              {isBottom && <SidebarContactCard className="mt-auto" />}
-            <div className="flex flex-col gap-0.5">
+            {/* The "Hilfe" group sits at the bottom of the column. */}
+            <div className={cn("flex flex-col gap-0.5", isBottom && "mt-auto")}>
               {group.label && (
-                <h3 className="px-3 pb-1 text-sm font-medium text-fg-primary">
+                <h3 className="px-3 pb-1 text-[13px] font-medium text-fg-secondary">
                   {group.label}
                 </h3>
               )}
@@ -489,29 +558,24 @@ export function PortalShellClient({
                       onClick={exactlyActive ? undefined : () => setPendingHref(item.href)}
                       aria-current={exactlyActive ? "page" : undefined}
                       className={cn(
-                        "relative flex items-center gap-3 rounded-xl px-3 py-1.5 text-base transition-colors duration-300",
+                        "relative flex items-center gap-3 rounded-[var(--r-control)] px-3 py-1.5 text-[15px] transition-colors duration-150",
+                        // The page you are on is raised off the canvas like a card.
                         exactlyActive
-                          ? "font-semibold text-bg-primary"
+                          ? "elev-raised bg-[var(--surface-raised)] font-semibold text-fg-primary"
                           : sectionActive
                             ? "font-semibold text-fg-primary"
-                            : "font-medium text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
-                        exactlyActive && "bg-fg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
+                            : "font-medium text-fg-secondary hover:bg-[var(--hover-wash)] hover:text-fg-primary"
                       )}
                     >
                       <span className="relative inline-flex shrink-0">
-                        <Icon className="h-5 w-5" />
+                        <Icon className="h-[18px] w-[18px]" />
                       </span>
                       <span>{item.label}</span>
                       {(badge || (item.href === "/anfragen" && anfragenDue > 0)) && (
                         <span className="ml-auto flex items-center gap-1">
                           {badge && (
                             <span
-                              className={cn(
-                                "inline-flex min-w-[1.25rem] items-center justify-center rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums text-tone-good",
-                                exactlyActive
-                                  ? "bg-bg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
-                                  : "bg-[var(--tone-good-bg)]"
-                              )}
+                              className="inline-flex min-w-[1.25rem] items-center justify-center rounded-[var(--r-small)] bg-[var(--tone-good-bg)] px-1.5 py-0.5 text-xs font-semibold tabular-nums text-tone-good"
                               aria-label={
                                 /^\d+(\+)?$/.test(badge) ? `${badge} neu` : badge
                               }
@@ -538,22 +602,16 @@ export function PortalShellClient({
                               onClick={subActive ? undefined : () => setPendingHref(sub.href)}
                               aria-current={subActive ? "page" : undefined}
                               className={cn(
-                                "relative flex items-center gap-2 rounded-lg px-3 py-1 text-sm transition-colors duration-300",
+                                "relative flex items-center gap-2 rounded-[var(--r-small)] px-3 py-1 text-sm transition-colors duration-150",
                                 subActive
-                                  ? "font-semibold text-bg-primary"
-                                  : "font-medium text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary",
-                                subActive && "bg-fg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
+                                  ? "elev-raised bg-[var(--surface-raised)] font-semibold text-fg-primary"
+                                  : "font-medium text-fg-secondary hover:bg-[var(--hover-wash)] hover:text-fg-primary"
                               )}
                             >
                               <span>{sub.label}</span>
                               {subBadge && (
                                 <span
-                                  className={cn(
-                                    "ml-auto inline-flex min-w-[1.125rem] items-center justify-center rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums text-tone-good",
-                                    subActive
-                                      ? "bg-bg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
-                                      : "bg-[var(--tone-good-bg)]"
-                                  )}
+                                  className="ml-auto inline-flex min-w-[1.125rem] items-center justify-center rounded-[var(--r-small)] bg-[var(--tone-good-bg)] px-1.5 py-0.5 text-xs font-semibold tabular-nums text-tone-good"
                                   aria-label={
                                     /^\d+(\+)?$/.test(subBadge)
                                       ? `${subBadge} neu`
@@ -576,6 +634,9 @@ export function PortalShellClient({
             );
           })}
           </nav>
+          <div className="shrink-0 border-t border-border pt-3">
+            <UserMenu user={user} clinicName={clinicName} />
+          </div>
         </div>
 
         {/* Mobile nav drawer — slide-out panel containing the same sidebar
@@ -605,27 +666,16 @@ export function PortalShellClient({
               mobileNavOpen ? "translate-x-0" : "-translate-x-full"
             )}
           >
-            <div className="flex items-center gap-3 pb-1">
-              {clinic.logoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={clinic.logoUrl} alt="" className="h-9 w-9 rounded-lg object-cover" />
-              ) : (
-                <EinsLogo className="h-9 w-auto" />
-              )}
-              <span className="truncate text-base font-semibold">
-                {clinic.displayName || "EINS Portal"}
-              </span>
-            </div>
+            <BrandMark href="/dashboard" logoUrl={clinic.logoUrl} name={clinicName} className="h-11 pb-1" />
 
             <nav aria-label="Hauptnavigation" className="flex flex-1 flex-col gap-4">
               {visibleGroups.map((group) => {
                 const isBottom = group.id === BOTTOM_ANCHORED_GROUP;
                 return (
                 <Fragment key={group.id}>
-                  {isBottom && <SidebarContactCard className="mt-auto" />}
-                <div className="flex flex-col gap-0.5">
+                <div className={cn("flex flex-col gap-0.5", isBottom && "mt-auto")}>
                   {group.label && (
-                    <h3 className="px-3 pb-1 text-sm font-medium text-fg-primary">
+                    <h3 className="px-3 pb-1 text-[13px] font-medium text-fg-secondary">
                       {group.label}
                     </h3>
                   )}
@@ -651,9 +701,9 @@ export function PortalShellClient({
                           }
                           aria-current={exactlyActive ? "page" : undefined}
                           className={cn(
-                            "relative flex items-center gap-3 rounded-xl px-3 py-2 text-base transition-colors",
+                            "relative flex items-center gap-3 rounded-[var(--r-control)] px-3 py-2 text-base transition-colors",
                             exactlyActive
-                              ? "bg-fg-primary font-semibold text-bg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
+                              ? "bg-bg-secondary font-semibold text-fg-primary"
                               : sectionActive
                                 ? "font-semibold text-fg-primary"
                                 : "font-medium text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary"
@@ -668,7 +718,7 @@ export function PortalShellClient({
                               {badge && (
                                 <span
                                   className={cn(
-                                    "inline-flex min-w-[1.25rem] items-center justify-center rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums text-tone-good",
+                                    "inline-flex min-w-[1.25rem] items-center justify-center rounded-[var(--r-small)] px-1.5 py-0.5 text-xs font-semibold tabular-nums text-tone-good",
                                     exactlyActive
                                       ? "bg-bg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
                                       : "bg-[var(--tone-good-bg)]"
@@ -703,9 +753,9 @@ export function PortalShellClient({
                                   }
                                   aria-current={subActive ? "page" : undefined}
                                   className={cn(
-                                    "relative flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors",
+                                    "relative flex items-center gap-2 rounded-[var(--r-small)] px-3 py-1.5 text-sm transition-colors",
                                     subActive
-                                      ? "bg-fg-primary font-semibold text-bg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
+                                      ? "bg-bg-secondary font-semibold text-fg-primary"
                                       : "font-medium text-fg-secondary hover:bg-bg-secondary hover:text-fg-primary"
                                   )}
                                 >
@@ -713,7 +763,7 @@ export function PortalShellClient({
                                   {subBadge && (
                                     <span
                                       className={cn(
-                                        "ml-auto inline-flex min-w-[1.125rem] items-center justify-center rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums text-tone-good",
+                                        "ml-auto inline-flex min-w-[1.125rem] items-center justify-center rounded-[var(--r-small)] px-1.5 py-0.5 text-xs font-semibold tabular-nums text-tone-good",
                                         subActive
                                           ? "bg-bg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
                                           : "bg-[var(--tone-good-bg)]"
@@ -740,10 +790,8 @@ export function PortalShellClient({
                 );
               })}
             </nav>
-
-            <div className="flex items-center justify-between gap-3 border-t border-border px-3 pt-3">
-              <span className="text-sm font-medium text-fg-primary">Helles oder dunkles Design</span>
-              <ThemeToggle />
+            <div className="shrink-0 border-t border-border pt-3">
+              <UserMenu user={user} clinicName={clinicName} />
             </div>
           </aside>
         </div>
@@ -753,7 +801,10 @@ export function PortalShellClient({
             becomes visible once content actually exceeds the viewport — pages
             with intrinsic whitespace (e.g. Dokumente when sparsely populated)
             stay unaffected. */}
-        <main className="min-w-0 flex-1 pb-[max(5rem,env(safe-area-inset-bottom))]">{children}</main>
+        <main className="min-w-0 flex-1 pb-[max(5rem,env(safe-area-inset-bottom))]">
+          {children}
+        </main>
+      </div>
       </div>
     </div>
   );

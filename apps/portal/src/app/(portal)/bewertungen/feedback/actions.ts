@@ -29,6 +29,28 @@ export async function setFeedbackStatusAction(formData: FormData) {
   }
 }
 
+export type FeedbackStatusResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * The status switch on the Rückmeldung: one tap saves and the switch shows
+ * the result as a toast itself, so it hands the outcome back instead of a
+ * page flash.
+ */
+export async function saveFeedbackStatusAction(
+  formData: FormData
+): Promise<FeedbackStatusResult> {
+  const session = await requireSession();
+  try {
+    await setFeedbackStatus(session, formData);
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: flashMessageFromError(err, "patient_feedback.status"),
+    };
+  }
+}
+
 async function setFeedbackStatus(
   session: Awaited<ReturnType<typeof requireSession>>,
   formData: FormData

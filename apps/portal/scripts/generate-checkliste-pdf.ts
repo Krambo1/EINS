@@ -2,7 +2,7 @@
  * generate-checkliste-pdf — render the Asset-Liefer-Checkliste PDF.
  *
  * Unlike the Vertriebsleitfaden (seeded per Praxis into the DB), this checklist
- * is the same for everyone and ships as a STATIC asset, pinned in the Dokumente
+ * is the same for everyone and ships as a STATIC asset, pinned on the Dateien
  * tab next to the Portal-Anleitung. So the default output goes straight into
  * public/ — re-run this whenever content.ts changes, then commit the PDF.
  *

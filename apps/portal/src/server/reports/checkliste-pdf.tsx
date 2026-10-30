@@ -26,13 +26,12 @@ import { DISPLAY_TIME_ZONE } from "@/lib/formatting";
  * Asset-Liefer-Checkliste as a downloadable, branded PDF.
  *
  * Same content for every Praxis, so it ships as a static asset under
- * public/anleitung/ and is pinned in the Dokumente tab next to the Portal-
+ * public/anleitung/ and is pinned on the Dateien page next to the Portal-
  * Anleitung (no per-clinic DB row). The single source of truth is the same
  * `content.ts` the clinic page, the admin tab and the onboarding step read, so
  * the printable list never drifts from the interactive checklist.
  *
- * Built with @react-pdf/renderer (already used by monthly-pdf.tsx and
- * leitfaden-pdf.tsx). The built-in Helvetica covers German umlauts, §, € and
+ * Built with @react-pdf/renderer (already used by leitfaden-pdf.tsx). The built-in Helvetica covers German umlauts, §, € and
  * the typographic quotes via WinAnsi. The only non-WinAnsi glyph used in the
  * content is the "→" step arrow (in the access instructions); it is down-
  * converted to "›" before rendering.

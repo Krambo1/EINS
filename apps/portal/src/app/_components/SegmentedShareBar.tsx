@@ -8,6 +8,7 @@ export type { ShareTone };
 
 const statToneClass: Record<ShareTone, string> = {
   neutral: "text-fg-primary",
+  muted: "text-fg-primary",
   accent: "text-fg-primary",
   good: "text-tone-good",
   warn: "text-tone-warn",
@@ -35,10 +36,10 @@ const CARD_WIDTH = 212;
 const CARD_GAP = 10;
 
 /**
- * The rounded, gapped segmented share bar lifted out of the clinic dashboard's
+ * The slim, gapped segmented share bar lifted out of the clinic dashboard's
  * Quellen-Aufschlüsselung so the admin Übersicht renders the identical visual.
- * Outer ends of the whole bar are fully rounded; the inner edges where segments
- * meet keep a gentle radius. Hovering a segment dims the rest and floats a
+ * Outer ends of the whole bar are rounded; the inner edges where segments
+ * meet keep a small radius. Hovering a segment dims the rest and floats a
  * per-segment card above the bar, clamped to the bar bounds. When the period
  * has no data the segments render as equal-width outlines.
  *
@@ -90,7 +91,7 @@ export function SegmentedShareBar({
   return (
     <div
       ref={barRef}
-      className="relative flex h-8 w-full gap-[3px]"
+      className="relative flex h-2.5 w-full gap-[2px]"
       role="img"
       aria-label={ariaLabel}
     >
@@ -100,13 +101,13 @@ export function SegmentedShareBar({
         const isLast = i === list.length - 1;
         const seg = SHARE_TONE_VAR[r.tone ?? "accent"];
         // Outer ends of the whole bar are fully rounded; inner edges where
-        // segments meet get a gentle radius. OUTER must be the real pill radius
-        // (= half the 32px bar height), NOT a huge sentinel like 999: a 999
+        // segments meet get a small radius. OUTER must be the real pill radius
+        // (= half the 10px bar height), NOT a huge sentinel like 999: a 999
         // corner makes CSS's border-radius scaling shrink the other corners on
         // that segment to ~0, which is why the first/last segment's inner edge
         // would render square while the middle ones stayed rounded.
-        const INNER = 6;
-        const OUTER = 16;
+        const INNER = 2;
+        const OUTER = 5;
         return (
           <div
             key={r.key}

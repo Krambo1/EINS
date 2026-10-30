@@ -11,8 +11,6 @@ import {
   reminderDecision,
   resolveInterval,
   sinceLastVisitPhrase,
-  summarizeForecast,
-  summarizeReminders,
   type TreatmentVisit,
 } from "./retreatment";
 
@@ -270,56 +268,5 @@ describe("copy helpers", () => {
     for (const s of [sinceLastVisitPhrase("2026-01-01", "2026-07-01"), intervalLabel(200)]) {
       expect(s).not.toContain("—");
     }
-  });
-});
-
-describe("summaries", () => {
-  const today = "2026-07-01";
-
-  it("forecasts the next 90 days by distinct patient and known value", () => {
-    const s = summarizeForecast(
-      [
-        { patientId: "a", status: "open", dueOn: "2026-07-20", cycleRevenueCents: 35_000, reminderSentAt: null, returnedOn: null },
-        { patientId: "a", status: "open", dueOn: "2026-08-20", cycleRevenueCents: 50_000, reminderSentAt: null, returnedOn: null },
-        { patientId: "b", status: "booked", dueOn: "2026-09-01", cycleRevenueCents: null, reminderSentAt: null, returnedOn: null },
-        { patientId: "c", status: "open", dueOn: "2026-12-01", cycleRevenueCents: 10_000, reminderSentAt: null, returnedOn: null },
-        { patientId: "d", status: "open", dueOn: "2026-06-01", cycleRevenueCents: 10_000, reminderSentAt: null, returnedOn: null },
-        { patientId: "e", status: "returned", dueOn: "2026-07-10", cycleRevenueCents: 10_000, reminderSentAt: null, returnedOn: "2026-06-20" },
-      ],
-      today
-    );
-    expect(s).toEqual({
-      duePatients: 2,
-      dueRows: 3,
-      dueValueCents: 85_000,
-      dueRowsWithoutValue: 1,
-      overduePatients: 1,
-    });
-  });
-
-  it("counts reminders this month and returns after a reminder", () => {
-    const monthStart = "2026-07-01";
-    const s = summarizeReminders(
-      [
-        // reminded this month, booked since
-        { patientId: "a", status: "booked", dueOn: "2026-07-20", cycleRevenueCents: null, reminderSentAt: new Date("2026-07-06T08:00:00Z"), returnedOn: null, returnedRevenueCents: null },
-        // reminded this month, nothing yet
-        { patientId: "b", status: "open", dueOn: "2026-07-25", cycleRevenueCents: null, reminderSentAt: new Date("2026-07-11T08:00:00Z"), returnedOn: null, returnedRevenueCents: null },
-        // reminded last month, came back after it
-        { patientId: "c", status: "returned", dueOn: "2026-06-20", cycleRevenueCents: null, reminderSentAt: new Date("2026-06-06T08:00:00Z"), returnedOn: "2026-06-18", returnedRevenueCents: 40_000 },
-        // came back BEFORE the reminder date: not counted as after-reminder
-        { patientId: "d", status: "returned", dueOn: "2026-06-20", cycleRevenueCents: null, reminderSentAt: new Date("2026-06-10T08:00:00Z"), returnedOn: "2026-06-01", returnedRevenueCents: 40_000 },
-        // never reminded
-        { patientId: "e", status: "returned", dueOn: "2026-06-20", cycleRevenueCents: null, reminderSentAt: null, returnedOn: "2026-06-25", returnedRevenueCents: 40_000 },
-      ],
-      monthStart
-    );
-    expect(s).toEqual({
-      remindedThisMonth: 2,
-      bookedThisMonth: 1,
-      remindedTotal: 4,
-      returnedAfterReminder: 1,
-      returnedAfterReminderCents: 40_000,
-    });
   });
 });

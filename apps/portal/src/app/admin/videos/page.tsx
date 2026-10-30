@@ -7,8 +7,12 @@ import { listOutreachVideos, type OutreachVideoStats } from "@/server/outreach-v
 import { AdminPageHeader } from "../_components/AdminPageHeader";
 import { CopyLinkButton } from "./_components/CopyLinkButton";
 import { VideoUploadCard } from "./_components/VideoUploadCard";
+import { VideoList } from "./_components/VideoList";
 
 export const metadata = { title: "Videos · Admin" };
+
+/** The LIMIT of listOutreachVideos: a full list may miss rows, so the server filters. */
+const VIDEO_LIST_CAP = 500;
 
 interface PageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -19,7 +23,11 @@ export default async function AdminVideosPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const showArchived = params.archiviert === "1";
   const hinweis = typeof params.hinweis === "string" ? params.hinweis : null;
-  const videos = await listOutreachVideos({ includeArchived: showArchived });
+  // Active and archived once: below the cap the archive toggle filters in
+  // the browser (VideoList).
+  const all = await listOutreachVideos({ includeArchived: true });
+  const instant = all.length < VIDEO_LIST_CAP;
+  const videos = instant || showArchived ? all : await listOutreachVideos();
 
   return (
     <div className="space-y-8">
@@ -38,43 +46,11 @@ export default async function AdminVideosPage({ searchParams }: PageProps) {
 
       <Card>
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between gap-4">
-            <h2 className="text-lg font-semibold">Alle Videos</h2>
-            <Link
-              href={showArchived ? "/admin/videos" : "/admin/videos?archiviert=1"}
-              className="text-sm text-accent underline-offset-4 hover:underline"
-            >
-              {showArchived ? "Nur aktive zeigen" : "Archivierte mit anzeigen"}
-            </Link>
-          </div>
-
-          {videos.length === 0 ? (
-            <p className="text-base text-fg-primary">Noch kein Video hochgeladen.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              {/* DS5: below md only Praxis (with last view and links), Aufrufe and Termin-Klick. */}
-              <table className="w-full text-left text-sm md:min-w-[860px]">
-                <thead className="border-b border-border text-fg-primary">
-                  <tr>
-                    <th className="py-2 pr-4 font-medium">Praxis</th>
-                    <th className="hidden py-2 pr-4 font-medium md:table-cell">Hochgeladen</th>
-                    <th className="py-2 pr-4 text-right font-medium">Aufrufe</th>
-                    <th className="hidden py-2 pr-4 text-right font-medium md:table-cell">Geräte</th>
-                    <th className="hidden py-2 pr-4 text-right font-medium md:table-cell">Gestartet</th>
-                    <th className="hidden py-2 pr-4 text-right font-medium md:table-cell">Am weitesten</th>
-                    <th className="py-2 pr-4 text-right font-medium">Termin-Klick</th>
-                    <th className="hidden py-2 pr-4 font-medium md:table-cell">Zuletzt angesehen</th>
-                    <th className="hidden py-2 font-medium md:table-cell" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {videos.map((v) => (
-                    <VideoRow key={v.id} v={v} />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <VideoList archived={videos.map((v) => v.archivedAt != null)} instant={instant}>
+            {videos.map((v) => (
+              <VideoRow key={v.id} v={v} />
+            ))}
+          </VideoList>
           <p className="text-sm text-fg-primary">
             Eigene Aufrufe über „Ansehen“ (mit ?intern=1) zählen nicht mit. „Geräte“ zählt
             verschiedene Geräte pro Tag, ohne Cookie.

@@ -14,7 +14,7 @@ import "../lib/load-env";
 import postgres from "postgres";
 import { randomUUID } from "node:crypto";
 import { hash as argon2Hash } from "@node-rs/argon2";
-import { attributionConfidence } from "../lib/sources";
+import { attributionConfidence, firstTouchFields } from "../lib/sources";
 
 /**
  * Dev-only Default-Passwort für alle Demo-Seed-User. Stimmt mit dem RUN.md
@@ -43,6 +43,14 @@ const DEMO_NEW_CLINIC_ID = "d1e2f3a4-b5c6-4d7e-8f90-1a2b3c4d5e6f";
 // ----- Helpers -----
 function pick<T>(arr: readonly T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]!;
+}
+function pickWeighted<T extends { weight: number }>(arr: readonly T[]): T {
+  let r = Math.random() * arr.reduce((s, x) => s + x.weight, 0);
+  for (const x of arr) {
+    r -= x.weight;
+    if (r < 0) return x;
+  }
+  return arr[arr.length - 1]!;
 }
 function randomInt(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -119,7 +127,41 @@ const MESSAGES = [
   "Ich möchte unverbindlich Infos. Vielen Dank im Voraus.",
   "HILFE: war bei einer anderen Praxis und bin unzufrieden. Können Sie das korrigieren?",
 ];
-const SOURCES = ["meta", "google", "formular", "manuell"] as const;
+/**
+ * Where the demo Anfragen come from, weighted like an organic-first Praxis
+ * that later put ads behind its posts: the entry point (`requests.source`)
+ * plus the UTMs EINS links carry (UTM convention in lib/sources.ts), so the
+ * Quellen buckets come out as on a real Praxis. `post` tags an Instagram
+ * Anfrage with the post that was live on that day (LIVE_POSTS).
+ */
+const SEED_ORIGINS: ReadonlyArray<{
+  source: string;
+  utm: Record<string, string>;
+  post?: boolean;
+  weight: number;
+}> = [
+  { source: "formular", utm: { utm_source: "instagram", utm_medium: "organisch" }, post: true, weight: 22 },
+  { source: "formular", utm: { utm_source: "instagram", utm_medium: "profil_link" }, weight: 14 },
+  { source: "formular", utm: { utm_source: "instagram", utm_medium: "dm" }, post: true, weight: 9 },
+  { source: "formular", utm: { utm_source: "tiktok", utm_medium: "organisch" }, weight: 6 },
+  { source: "formular", utm: { utm_source: "facebook", utm_medium: "organisch" }, weight: 4 },
+  { source: "formular", utm: { utm_source: "facebook", utm_medium: "anzeige" }, weight: 15 },
+  { source: "formular", utm: { utm_source: "google", utm_medium: "cpc" }, weight: 9 },
+  { source: "meta", utm: {}, weight: 3 },
+  { source: "manuell", utm: {}, weight: 11 },
+  // Zielseite without any UTM: "Direkt (ohne Kennzeichnung)".
+  { source: "formular", utm: {}, weight: 7 },
+];
+/** Front-desk answers to "Wie kam die Person zu Ihnen?" (SELF_REPORTED_SOURCES). */
+const FRONT_DESK_SELF_REPORTS = ["instagram", "empfehlung", "anruf_praxis"] as const;
+/**
+ * The published demo posts (Beiträge block below, keep in sync): post code,
+ * the treatment it is about and the days-ago window it was live in.
+ */
+const LIVE_POSTS = [
+  { code: "m4t9z", treatment: "Faltenbehandlung mit Botox", liveFromDaysAgo: 18, liveToDaysAgo: 0 },
+  { code: "n5v2b", treatment: "Laser-Haarentfernung", liveFromDaysAgo: 38, liveToDaysAgo: 30 },
+] as const;
 
 async function main() {
   // Hard guard: this script writes accounts with the well-known DEMO_PASSWORD
@@ -255,7 +297,21 @@ async function main() {
       const daysBack = i < 3 ? randomInt(0, 4) : daysBackInBucket(bucket);
       const createdAt = daysAgo(daysBack, randomInt(0, 8));
       const status = i < 3 ? "neu" : pick(statuses);
-      const source = pick(SOURCES);
+      const origin = pickWeighted(SEED_ORIGINS);
+      const source = origin.source;
+      const livePost = origin.post
+        ? LIVE_POSTS.find((p) => daysBack < p.liveFromDaysAgo && daysBack >= p.liveToDaysAgo)
+        : undefined;
+      const utm: Record<string, string> =
+        Object.keys(origin.utm).length === 0
+          ? {}
+          : {
+              ...origin.utm,
+              utm_campaign: `demo_${randomInt(1, 4)}`,
+              ...(livePost ? { utm_content: livePost.code } : {}),
+            };
+      const selfReportedSource = source === "manuell" ? pick(FRONT_DESK_SELF_REPORTS) : null;
+      const firstTouch = firstTouchFields(source, utm);
       // 25% chance to repeat a previously-seen contact so LTV accumulates.
       const repeatPool = Object.values(patientStats);
       const repeat = repeatPool.length > 0 && Math.random() < 0.25;
@@ -268,7 +324,7 @@ async function main() {
       const aiScore = randomInt(25, 95);
       const aiCategory = aiScore >= 70 ? "hot" : aiScore >= 40 ? "warm" : "cold";
       const message = pick(MESSAGES);
-      const treatment = pick(TREATMENTS);
+      const treatment = livePost?.treatment ?? pick(TREATMENTS);
       const treatmentId = categorize(treatment);
       // 60% chance to come in for the secondary location (so multi-location UI shows split data).
       const locationId = Math.random() < 0.4 ? secondaryLocationId : primaryLocationId;
@@ -305,6 +361,7 @@ async function main() {
           INSERT INTO patients (
             id, clinic_id, email, phone, full_name,
             first_seen_at, last_seen_at, first_touch_source,
+            first_touch_channel, first_touch_content_code,
             lifetime_revenue_eur, request_count, won_count
           ) VALUES (
             ${patientId},
@@ -315,6 +372,8 @@ async function main() {
             ${createdAt.toISOString()},
             ${createdAt.toISOString()},
             ${source},
+            ${firstTouch.firstTouchChannel},
+            ${firstTouch.firstTouchContentCode},
             0,
             0,
             0
@@ -349,7 +408,7 @@ async function main() {
           sla_respond_by,
           created_at, dsgvo_consent_at,
           first_contacted_at, won_at,
-          utm, raw_payload, attribution_confidence
+          utm, raw_payload, attribution_confidence, self_reported_source
         ) VALUES (
           ${requestId},
           ${clinicId},
@@ -375,9 +434,10 @@ async function main() {
           ${createdAt.toISOString()},
           ${status !== "neu" ? new Date(createdAt.getTime() + 90 * 60_000).toISOString() : null},
           ${status === "gewonnen" ? new Date(createdAt.getTime() + 7 * 24 * 60 * 60_000).toISOString() : null},
-          ${sql.json({ utm_source: source, utm_campaign: `demo_${randomInt(1, 4)}` })},
+          ${Object.keys(utm).length > 0 ? sql.json(utm) : null},
           ${sql.json({ source })},
-          ${attributionConfidence({ source })}
+          ${attributionConfidence({ source, selfReportedSource })},
+          ${selfReportedSource}
         )
       `;
       // Seed one activity — Status change or note
@@ -599,15 +659,14 @@ async function main() {
     await mkdir(dirname(leitfadenPath), { recursive: true });
     await writeFile(leitfadenPath, leitfadenPdf);
 
-    // --- documents (vertrag/avv/auswertung are placeholder keys; the
-    // Vertriebsleitfaden row below points at the freshly generated file) ---
+    // --- documents (vertrag/avv are placeholder keys; the Vertriebsleitfaden
+    // row below points at the freshly generated file). No monthly report:
+    // the Übersicht is the monthly Auswertung. ---
     await sql`
       INSERT INTO documents (clinic_id, kind, title, storage_key, visible_to_roles)
       VALUES
         (${clinicId}, 'vertrag',              'Hauptvertrag EINS',                                    'clinics/praxis-dr-demo/vertrag-2026.pdf',                ARRAY['inhaber']::text[]),
-        (${clinicId}, 'avv',                  'Auftragsverarbeitungsvertrag',                         'clinics/praxis-dr-demo/avv-2026.pdf',                    ARRAY['inhaber']::text[]),
-        (${clinicId}, 'auswertung_monatlich', ${'Monats-Auswertung ' + (now.getMonth() > 0 ? `${String(now.getMonth()).padStart(2,'0')}/${now.getFullYear()}` : `12/${now.getFullYear() - 1}`)},
-                                                                                                      'clinics/praxis-dr-demo/monatsbericht-letzter.pdf',       ARRAY['inhaber','marketing']::text[])
+        (${clinicId}, 'avv',                  'Auftragsverarbeitungsvertrag',                         'clinics/praxis-dr-demo/avv-2026.pdf',                    ARRAY['inhaber']::text[])
     `;
     await sql`
       INSERT INTO documents (clinic_id, kind, title, storage_key, file_size_bytes, visible_to_roles)
@@ -627,7 +686,7 @@ async function main() {
       VALUES
         (${inhaberId},   ${clinicId}, 'new_lead',    'Neue heiße Anfrage',     'Dr. Müller-Krug hat soeben eine Terminanfrage gestellt (KI-Bewertung 87).', '/anfragen'),
         (${marketingId}, ${clinicId}, 'sla_warning', 'Antwort-Frist in 60 Minuten', 'Eine Anfrage erreicht bald die Antwort-Frist. Bitte kontaktieren.',     '/anfragen'),
-        (${inhaberId},   ${clinicId}, 'asset_ready', 'Neuer Beitrag bereit',   'Ein neuer Beitrag mit Ihrem KI-Klon liegt unter Medien zur Ansicht bereit.', '/medien')
+        (${inhaberId},   ${clinicId}, 'asset_ready', 'Neuer Beitrag bereit',   'Ein neuer Beitrag mit Ihrem KI-Klon liegt unter Inhalte zur Ansicht bereit.', '/inhalte#beitraege')
     `;
 
     // --- platform_credentials (Werbe-Sync card on dashboard + Werbebudget page) ---
@@ -653,13 +712,15 @@ async function main() {
     // Praxisinhaber:innen sind keine Marketing-Profis. Titel und Beschreibungen
     // werden bewusst in einfachem Deutsch ohne Anglizismen geschrieben.
     // Admin-authored: created_by_email = team@eins.ag (das EINS-Team-Postfach).
-    const reportEventDate = new Date();
-    reportEventDate.setDate(reportEventDate.getDate() + 6);
-    const reportMonthLabel = new Intl.DateTimeFormat("de-DE", {
+    // The monthly Strategie-Gespräch: its agreed next steps are written down
+    // here (contract 2.11), the figures are the Übersicht.
+    const callDate = new Date();
+    callDate.setDate(callDate.getDate() - 5);
+    const callMonthLabel = new Intl.DateTimeFormat("de-DE", {
       month: "long",
       year: "numeric",
       timeZone: "Europe/Berlin",
-    }).format(reportEventDate);
+    }).format(callDate);
     await sql`
       INSERT INTO clinic_timeline_entries (
         clinic_id, title, description, event_date, status, created_by_email
@@ -685,9 +746,9 @@ async function main() {
         (${clinicId}, 'Empfehlung: Automatische Erinnerungen aktivieren',
          'Wir empfehlen, Ihre Patientinnen alle vier Monate automatisch zu erinnern. Direkt aus dem Portal.',
          now() - interval '1 day', 'laeuft', 'team@eins.ag'),
-        (${clinicId}, ${`Monatsbericht ${reportMonthLabel}`},
-         'Ihr Monatsbericht mit allen wichtigen Zahlen, einer Auswertung der Anfragen und unseren Empfehlungen für den nächsten Monat.',
-         now() + interval '6 days', 'geplant', 'team@eins.ag'),
+        (${clinicId}, ${`Strategie-Gespräch ${callMonthLabel}`},
+         'Nächste Schritte: zwei neue Beiträge zu Lippen-Behandlungen, weil sie die meisten Anfragen gebracht haben. Das Werbebudget der Lippen-Anzeige bleibt bei 20 € am Tag. Ihr Empfang ruft neue Anfragen am selben Tag zurück.',
+         now() - interval '5 days', 'abgeschlossen', 'team@eins.ag'),
         (${clinicId}, 'Großes Quartals-Gespräch',
          'Wir blicken auf die letzten drei Monate zurück, verteilen das Werbebudget neu und entwickeln neue Anzeigen-Ideen für die kommenden Monate.',
          now() + interval '23 days', 'geplant', 'team@eins.ag')
@@ -695,7 +756,7 @@ async function main() {
 
     // --- Beiträge (content_items, Phase 3/4): one post per status so every
     // screen has data: admin tab "Beiträge" (gate, Freigabe-Paket, sent
-    // batches), portal /beitraege (approval buttons, change text, live, stop)
+    // batches), portal /inhalte (approval buttons, change text, live, stop)
     // and the public /freigabe/<token> page (link printed below). Fixed valid
     // post codes (lib/post-code.ts: 5 chars, no vowels, digit and letter).
     const { buildContentLinks } = await import("../lib/content-links");
@@ -770,6 +831,15 @@ async function main() {
       UPDATE content_publications SET stopped_at = ${daysAgo(30).toISOString()}
       WHERE content_item_id = ${postIdByKey.gestoppt!}
     `;
+    // Anfragen that arrived through a post link carry its code in
+    // utm_content; link them as the intake does (resolveContentItemId).
+    await sql`
+      UPDATE requests r SET content_item_id = ci.id
+      FROM content_items ci
+      WHERE r.clinic_id = ${clinicId}
+        AND ci.clinic_id = r.clinic_id
+        AND ci.code = r.utm ->> 'utm_content'
+    `;
 
     // Approval batches: an older, fully decided one (freigegeben, aenderung,
     // live) and today's open one (one normal post, one clone post that only
@@ -837,8 +907,8 @@ async function main() {
          'Vielen Dank für den Hinweis. Die Sammel-Aktion ist eingeplant und kommt mit dem nächsten Update. Wir melden uns, sobald sie verfügbar ist.',
          now() - interval '9 days'),
         (${clinicId}, ${marketingId}, 'fehler',
-         'Die monatliche Auswertung als PDF lädt bei mir nur sehr langsam, manchmal bricht der Download ab.',
-         '/dashboard',
+         'Beim Hochladen eines großen Videos unter Dateien bricht der Upload bei mir manchmal ab.',
+         '/dateien',
          'gesehen',
          NULL,
          now() - interval '2 days')

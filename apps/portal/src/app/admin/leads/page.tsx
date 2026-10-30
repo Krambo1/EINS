@@ -25,6 +25,7 @@ import {
   AdminUrlToggle,
 } from "../_components/AdminFilters";
 import { isUuid } from "@/lib/ids";
+import { NavTransition, PendingDim } from "@/app/_components/instant-views";
 
 export const metadata = { title: "Anfragen · Admin" };
 
@@ -97,123 +98,130 @@ export default async function AdminLeadsPage({ searchParams }: PageProps) {
   >;
   delete qWithoutPage.page;
 
+  // The server filters and pages (every Anfrage of every Praxis is too many
+  // to send). A filter or page marks itself on the tap, the figures and rows
+  // dim at the same size until the new render arrives.
   return (
-    <div className="space-y-8">
-      <AdminPageHeader
-        title="Anfragen-Postfach"
-        subtitle="Alle Anfragen aller Praxen in einer Ansicht. Lesemodus: zum Bearbeiten in die jeweilige Praxis wechseln."
-      />
+    <NavTransition>
+      <div className="space-y-8">
+        <AdminPageHeader
+          title="Anfragen-Postfach"
+          subtitle="Alle Anfragen aller Praxen in einer Ansicht. Lesemodus: zum Bearbeiten in die jeweilige Praxis wechseln."
+        />
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <MetricTile
-          label="Anfragen"
-          value={formatNumber(result.aggregates.total)}
-          sublabel="im aktuellen Filter"
-        />
-        <MetricTile
-          label="Mit Termin"
-          value={formatNumber(result.aggregates.inFunnel)}
-          sublabel="Termin vereinbart oder weiter"
-        />
-        <MetricTile
-          label="Gewonnen"
-          value={formatNumber(result.aggregates.won)}
-          sublabel="Abschlüsse"
-          tone="accent"
-        />
-        <MetricTile
-          label="Umsatz"
-          value={formatClinicAggregate(
-            result.aggregates.revenueEur,
-            result.aggregates.currencies
-          )}
-          sublabel="zugeordnet"
-          tone="accent"
-        />
+        <PendingDim className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <MetricTile
+            label="Anfragen"
+            value={formatNumber(result.aggregates.total)}
+            sublabel="im aktuellen Filter"
+          />
+          <MetricTile
+            label="Mit Termin"
+            value={formatNumber(result.aggregates.inFunnel)}
+            sublabel="Termin vereinbart oder weiter"
+          />
+          <MetricTile
+            label="Gewonnen"
+            value={formatNumber(result.aggregates.won)}
+            sublabel="Abschlüsse"
+            tone="accent"
+          />
+          <MetricTile
+            label="Umsatz"
+            value={formatClinicAggregate(
+              result.aggregates.revenueEur,
+              result.aggregates.currencies
+            )}
+            sublabel="zugeordnet"
+            tone="accent"
+          />
+        </PendingDim>
+
+        <Card>
+          <CardContent className="pt-6">
+            <div className="grid gap-3 md:grid-cols-[2fr_repeat(4,1fr)_auto]">
+              <AdminSearchInput placeholder="Name, E-Mail, Telefon, Behandlungswunsch" />
+              <AdminUrlMultiSelect
+                param="clinicId"
+                selected={filters.clinicIds ?? []}
+                label="Praxis"
+                options={clinics.map((c) => ({ value: c.id, label: c.name }))}
+              />
+              <AdminUrlMultiSelect
+                param="status"
+                selected={filters.status ?? []}
+                label="Status"
+                options={REQUEST_STATUSES.map((s) => ({
+                  value: s,
+                  label: REQUEST_STATUS_LABELS[s],
+                }))}
+              />
+              <AdminUrlMultiSelect
+                param="source"
+                selected={filters.source ?? []}
+                label="Quelle"
+                options={REQUEST_SOURCES.map((s) => ({
+                  value: s,
+                  label: SOURCE_LABELS[s],
+                }))}
+              />
+              <AdminUrlMultiSelect
+                param="aiCategory"
+                selected={filters.aiCategory ?? []}
+                label="KI-Bewertung"
+                options={[
+                  ...AI_CATEGORIES.map((c) => ({
+                    value: c,
+                    label: AI_CATEGORY_LABELS[c],
+                  })),
+                  { value: "unscored", label: "Ohne Bewertung" },
+                ]}
+              />
+              <AdminUrlToggle
+                param="slaBreachedOnly"
+                checked={!!filters.slaBreachedOnly}
+                label="Internes Antwortziel überschritten"
+              />
+            </div>
+            <PendingDim className="mt-3 flex flex-wrap items-center gap-2 text-xs text-fg-secondary">
+              <span>Aktive Filter:</span>
+              {!hasFilters(filters) && <Badge tone="neutral">Keine</Badge>}
+              {filters.clinicIds && filters.clinicIds.length > 0 && (
+                <Badge tone="neutral">
+                  {filters.clinicIds.length}{" "}
+                  {filters.clinicIds.length === 1 ? "Praxis" : "Praxen"}
+                </Badge>
+              )}
+              {filters.status?.map((s) => (
+                <Badge key={`s-${s}`} tone="neutral">
+                  Status: {REQUEST_STATUS_LABELS[s]}
+                </Badge>
+              ))}
+              {filters.source?.map((s) => (
+                <Badge key={`src-${s}`} tone="neutral">
+                  Quelle: {s}
+                </Badge>
+              ))}
+              {filters.slaBreachedOnly && <Badge tone="bad">Internes Antwortziel überschritten</Badge>}
+              {filters.search && (
+                <Badge tone="neutral">Suche: {filters.search}</Badge>
+              )}
+            </PendingDim>
+          </CardContent>
+        </Card>
+
+        <PendingDim>
+          <LeadsTable
+            rows={result.items}
+            total={result.total}
+            page={page}
+            pageSize={PAGE_SIZE}
+            basePath="/admin/leads"
+            queryWithoutPage={qWithoutPage}
+          />
+        </PendingDim>
       </div>
-
-      <Card>
-        <CardContent className="pt-6">
-          <div className="grid gap-3 md:grid-cols-[2fr_repeat(4,1fr)_auto]">
-            <AdminSearchInput placeholder="Name, E-Mail, Telefon, Behandlungswunsch" />
-            <AdminUrlMultiSelect
-              param="clinicId"
-              selected={filters.clinicIds ?? []}
-              label="Praxis"
-              options={clinics.map((c) => ({ value: c.id, label: c.name }))}
-            />
-            <AdminUrlMultiSelect
-              param="status"
-              selected={filters.status ?? []}
-              label="Status"
-              options={REQUEST_STATUSES.map((s) => ({
-                value: s,
-                label: REQUEST_STATUS_LABELS[s],
-              }))}
-            />
-            <AdminUrlMultiSelect
-              param="source"
-              selected={filters.source ?? []}
-              label="Quelle"
-              options={REQUEST_SOURCES.map((s) => ({
-                value: s,
-                label: SOURCE_LABELS[s],
-              }))}
-            />
-            <AdminUrlMultiSelect
-              param="aiCategory"
-              selected={filters.aiCategory ?? []}
-              label="KI-Bewertung"
-              options={[
-                ...AI_CATEGORIES.map((c) => ({
-                  value: c,
-                  label: AI_CATEGORY_LABELS[c],
-                })),
-                { value: "unscored", label: "Ohne Bewertung" },
-              ]}
-            />
-            <AdminUrlToggle
-              param="slaBreachedOnly"
-              checked={!!filters.slaBreachedOnly}
-              label="Internes Antwortziel überschritten"
-            />
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-fg-secondary">
-            <span>Aktive Filter:</span>
-            {!hasFilters(filters) && <Badge tone="neutral">Keine</Badge>}
-            {filters.clinicIds && filters.clinicIds.length > 0 && (
-              <Badge tone="neutral">
-                {filters.clinicIds.length}{" "}
-                {filters.clinicIds.length === 1 ? "Praxis" : "Praxen"}
-              </Badge>
-            )}
-            {filters.status?.map((s) => (
-              <Badge key={`s-${s}`} tone="neutral">
-                Status: {REQUEST_STATUS_LABELS[s]}
-              </Badge>
-            ))}
-            {filters.source?.map((s) => (
-              <Badge key={`src-${s}`} tone="neutral">
-                Quelle: {s}
-              </Badge>
-            ))}
-            {filters.slaBreachedOnly && <Badge tone="bad">Internes Antwortziel überschritten</Badge>}
-            {filters.search && (
-              <Badge tone="neutral">Suche: {filters.search}</Badge>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
-      <LeadsTable
-        rows={result.items}
-        total={result.total}
-        page={page}
-        pageSize={PAGE_SIZE}
-        basePath="/admin/leads"
-        queryWithoutPage={qWithoutPage}
-      />
-    </div>
+    </NavTransition>
   );
 }
 

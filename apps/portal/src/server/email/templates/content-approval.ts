@@ -1,7 +1,7 @@
 /**
  * The weekly batch e-mail "Ihre Beiträge zur Freigabe" (Phase 4, D7). One
  * mail per recipient, listing the posts that person may decide, each with a
- * one-click link to /freigabe/<token>. The same buttons stand on /beitraege.
+ * one-click link to /freigabe/<token>. The same buttons stand on /inhalte.
  *
  * Wording rules: nothing goes online without the Praxis' approval, a clear
  * last day, never an automatic approval.
@@ -29,7 +29,7 @@ export interface ApprovalMailInput {
   /** "14.10.2026", for the subject. */
   dueDate: string;
   posts: ApprovalMailPost[];
-  /** Absolute URL of /beitraege. */
+  /** Absolute URL of /inhalte. */
   portalUrl: string;
   linkTtlDays: number;
 }
@@ -60,10 +60,10 @@ export function approvalBatchMail(input: ApprovalMailInput): { subject: string; 
       "",
       `${intro} Ohne Ihre Freigabe geht kein Beitrag online.`,
       "",
-      `Bitte geben Sie ${n === 1 ? "den Beitrag" : "jeden Beitrag"} bis ${input.dueLabel} frei oder beschreiben Sie, was wir ändern sollen. Das geht über den Link beim Beitrag oder im Portal unter Beiträge. Es gilt die erste Entscheidung.`,
+      `Bitte geben Sie ${n === 1 ? "den Beitrag" : "jeden Beitrag"} bis ${input.dueLabel} frei oder beschreiben Sie, was wir ändern sollen. Das geht über den Link beim Beitrag oder im Portal unter Inhalte. Es gilt die erste Entscheidung.`,
       "",
       ...blocks.flatMap((b) => [b, ""]),
-      `Die Links gelten ${input.linkTtlDays} Tage. Danach entscheiden Sie im Portal unter Beiträge: ${input.portalUrl}`,
+      `Die Links gelten ${input.linkTtlDays} Tage. Danach entscheiden Sie im Portal unter Inhalte: ${input.portalUrl}`,
       "",
       "Wenn Sie Fragen haben, antworten Sie einfach auf diese E-Mail.",
       "",

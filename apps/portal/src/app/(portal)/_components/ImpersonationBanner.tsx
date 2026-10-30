@@ -135,7 +135,7 @@ export function ImpersonationBanner({ targetEmail, clinicName, expiresAt }: Prop
             type="button"
             onClick={onEnd}
             disabled={pending}
-            className="min-h-11 rounded-lg border border-border bg-bg-primary px-4 py-2 font-medium md:min-h-9 md:px-3 md:py-1 text-fg-primary transition hover:bg-bg-secondary disabled:opacity-60"
+            className="h-[var(--control-h)] rounded-[var(--r-control)] border border-border bg-bg-primary px-4 font-medium md:px-3 text-fg-primary transition hover:bg-bg-secondary disabled:opacity-60"
           >
             {pending ? "Wird beendet …" : "Kundenansicht beenden"}
           </button>

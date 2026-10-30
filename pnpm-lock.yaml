@@ -260,6 +260,9 @@ importers:
       drizzle-orm:
         specifier: ^0.36.4
         version: 0.36.4(@types/better-sqlite3@7.6.13)(@types/pg@8.20.0)(@types/react@19.0.0)(better-sqlite3@12.10.0)(mysql2@3.22.3(@types/node@22.19.17))(pg@8.20.0)(postgres@3.4.9)(react@19.2.5)
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.2
       jose:
         specifier: ^5.9.6
         version: 5.10.0

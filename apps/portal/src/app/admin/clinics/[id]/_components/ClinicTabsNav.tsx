@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
-import { cn } from "@eins/ui";
+import { usePathname } from "next/navigation";
+import { PendingLink, usePendingParam } from "@/app/_components/instant-views";
 
 export interface ClinicTabsNavItem {
   key: string;
@@ -10,52 +9,34 @@ export interface ClinicTabsNavItem {
 }
 
 /**
- * Client-side nav for clinic-detail tabs. Each tab is a Link, so the URL
- * (and its `?tab=` param) is the source of truth, server components read
- * it and render the matching panel.
+ * Tabs of the Praxis detail page. Each tab is a link with its `?tab=` (the
+ * URL stays the source of truth, the server renders the panel); a switch
+ * resets the tab's deep-link state. Inside the page's NavTransition the tab
+ * marks itself on the tap and the old panel dims until the new one arrives.
  */
-export function ClinicTabsNav({
-  tabs,
-  current,
-}: {
-  tabs: ClinicTabsNavItem[];
-  current: string;
-}) {
+export function ClinicTabsNav({ tabs }: { tabs: ClinicTabsNavItem[] }) {
   const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const current = usePendingParam("tab", "uebersicht");
 
   return (
     <nav aria-label="Bereiche der Praxis" className="flex min-w-0 flex-wrap items-center gap-1">
-      {tabs.map((t) => {
-        const params = new URLSearchParams(searchParams.toString());
-        if (t.key === "uebersicht") params.delete("tab");
-        else params.set("tab", t.key);
-        // Reset deep-link state when switching tabs.
-        for (const k of Array.from(params.keys())) {
-          if (k !== "tab") params.delete(k);
-        }
-        const href = params.toString()
-          ? `${pathname}?${params.toString()}`
-          : pathname;
-        const active = current === t.key;
-        return (
-          <Link
-            key={t.key}
-            href={href}
-            scroll={false}
-            aria-current={active ? "page" : undefined}
-            className={cn(
-              "group relative whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium transition-colors duration-200",
-              active ? "text-accent" : "text-fg-primary hover:text-accent"
-            )}
-          >
-            {t.label}
-            {active && (
-              <span className="pointer-events-none absolute inset-x-3 -bottom-0.5 h-px bg-accent" />
-            )}
-          </Link>
-        );
-      })}
+      {tabs.map((t) => (
+        <PendingLink
+          key={t.key}
+          href={t.key === "uebersicht" ? pathname : `${pathname}?tab=${t.key}`}
+          param="tab"
+          value={t.key}
+          defaultValue="uebersicht"
+          className="group relative whitespace-nowrap rounded-full px-3 py-2 text-sm font-medium transition-colors duration-200"
+          activeClassName="text-accent"
+          inactiveClassName="text-fg-primary hover:text-accent"
+        >
+          {t.label}
+          {current === t.key && (
+            <span className="pointer-events-none absolute inset-x-3 -bottom-0.5 h-px bg-accent" />
+          )}
+        </PendingLink>
+      ))}
     </nav>
   );
 }

@@ -18,6 +18,11 @@ export interface TrendChartPoint {
   /** ISO date string (YYYY-MM-DD) or anything Date.parse-able. */
   date: string;
   value: number;
+  /**
+   * Tooltip text in place of the formatted date, e.g. "23.–29. Okt. 2025" for
+   * a point that sums several days. The x-axis tick still uses `date`.
+   */
+  label?: string;
 }
 
 /**
@@ -79,8 +84,37 @@ export interface TrendChartProps {
   className?: string;
   /** Render a gradient-filled area under the line. Default true. */
   filled?: boolean;
+  /**
+   * Line shape: "smooth" (monotone cubic, default) or "straight" (straight
+   * segments between the points, Triple Whale's tile lines). The comparison
+   * line follows it.
+   */
+  curve?: "smooth" | "straight";
+  /**
+   * Colour the line by height instead of by `tone`: `top` at the top of the
+   * scale, `bottom` at zero, blended in between (Triple Whale: teal peaks,
+   * blue valleys). The area fill and the focus dot follow it. Single-series
+   * only.
+   */
+  lineGradient?: { top: string; bottom: string };
+  /** Line width in px. Default 1.5. */
+  strokeWidth?: number;
+  /** Dash pattern of the comparison line. Default "3 3"; "0 4" draws dots. */
+  comparisonDash?: string;
+  /**
+   * Hover card style. "full" (default): long date, "Label: value" and the
+   * comparison with its own long date. "compact": one row per line, each with
+   * a mark in the line's colour, a short date and the value (Attio's rows,
+   * Triple Whale's short date). Single-series only.
+   */
+  tooltip?: "full" | "compact";
   /** Render axis labels (date x-axis ticks, value y-axis ticks). Default false. */
   showAxes?: boolean;
+  /**
+   * Date format of the x-axis ticks: "day" ("23. Okt.", default) or "month"
+   * ("Okt. 2025") for charts that span several years.
+   */
+  tickFormat?: "day" | "month";
   /**
    * When `showAxes` is on, set to `false` to hide just the y-axis tick labels
    * while keeping the x-axis date ticks. Useful on dashboard tiles where the
@@ -163,6 +197,19 @@ function monotoneCubicPath(
     const cp2x = pts[i + 1].x - dx[i] / 3;
     const cp2y = pts[i + 1].y - (t[i + 1] * dx[i]) / 3;
     segments += ` C${cp1x.toFixed(2)},${cp1y.toFixed(2)} ${cp2x.toFixed(2)},${cp2y.toFixed(2)} ${pts[i + 1].x.toFixed(2)},${pts[i + 1].y.toFixed(2)}`;
+  }
+  return { move, segments };
+}
+
+/** Straight segments between the points, in the same shape as `monotoneCubicPath`. */
+function straightPath(
+  pts: { x: number; y: number }[]
+): { move: string; segments: string } {
+  if (pts.length === 0) return { move: "", segments: "" };
+  const move = `M${pts[0].x.toFixed(2)},${pts[0].y.toFixed(2)}`;
+  let segments = "";
+  for (let i = 1; i < pts.length; i++) {
+    segments += ` L${pts[i].x.toFixed(2)},${pts[i].y.toFixed(2)}`;
   }
   return { move, segments };
 }
@@ -276,9 +323,15 @@ function SingleSeriesTrendChart({
   height = 64,
   className,
   filled = true,
+  curve = "smooth",
+  lineGradient,
+  strokeWidth = 1.5,
+  comparisonDash = "3 3",
+  tooltip = "full",
   showAxes = false,
   showYAxis = true,
   showGrid = false,
+  tickFormat = "day",
   formatValue,
   valueFormat,
   label,
@@ -286,6 +339,32 @@ function SingleSeriesTrendChart({
   ariaLabel,
 }: TrendChartProps) {
   const [activeIdx, setActiveIdx] = React.useState<number | null>(null);
+  // Plot width, read on pointer move: the compact hover card goes left of the
+  // crosshair only when it has no room on the right.
+  const [plotWidth, setPlotWidth] = React.useState(0);
+  const tipRef = React.useRef<HTMLDivElement>(null);
+  const [tipWidth, setTipWidth] = React.useState(120);
+  const linePathOf = curve === "straight" ? straightPath : monotoneCubicPath;
+  // Compact hover card: "13. Okt.", with the year only when it is not this year.
+  const fmtDateTip = React.useMemo(
+    () => ({
+      thisYear: new Intl.DateTimeFormat(locale, { day: "numeric", month: "short" }),
+      otherYear: new Intl.DateTimeFormat(locale, {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      }),
+    }),
+    [locale]
+  );
+  const tipDate = (point: TrendChartPoint) => {
+    if (point.label) return point.label;
+    const d = parseDateLoose(point.date);
+    if (!d) return point.date;
+    const fmt =
+      d.getFullYear() === new Date().getFullYear() ? fmtDateTip.thisYear : fmtDateTip.otherYear;
+    return fmt.format(d);
+  };
 
   const fmtValue = React.useMemo(
     () =>
@@ -296,11 +375,13 @@ function SingleSeriesTrendChart({
   );
   const fmtDateShort = React.useMemo(
     () =>
-      new Intl.DateTimeFormat(locale, {
-        day: "2-digit",
-        month: "short",
-      }),
-    [locale]
+      new Intl.DateTimeFormat(
+        locale,
+        tickFormat === "month"
+          ? { month: "short", year: "numeric" }
+          : { day: "2-digit", month: "short" }
+      ),
+    [locale, tickFormat]
   );
   const fmtDateLong = React.useMemo(
     () =>
@@ -344,7 +425,7 @@ function SingleSeriesTrendChart({
           ];
         })()
       : data.map((d, i) => ({ x: i * stepX, y: toY(d.value) }));
-    const { move, segments } = monotoneCubicPath(points);
+    const { move, segments } = linePathOf(points);
     const linePath = move + segments;
     const first = points[0];
     const last = points[points.length - 1];
@@ -371,7 +452,7 @@ function SingleSeriesTrendChart({
           .map((d, i) => ({ x: i * cmpStepX, y: toY(d.value) }));
       }
       if (comparisonPoints && comparisonPoints.length > 0) {
-        const { move: cmove, segments: cseg } = monotoneCubicPath(comparisonPoints);
+        const { move: cmove, segments: cseg } = linePathOf(comparisonPoints);
         comparisonPath = cmove + cseg;
       }
     }
@@ -386,7 +467,12 @@ function SingleSeriesTrendChart({
       comparisonPath,
       comparisonPoints,
     };
-  }, [data, comparisonData, height]);
+  }, [data, comparisonData, height, linePathOf]);
+
+  // Width of the compact hover card, measured after each move, before paint.
+  React.useLayoutEffect(() => {
+    if (tipRef.current) setTipWidth(tipRef.current.offsetWidth);
+  }, [activeIdx]);
 
   if (!geom) {
     return (
@@ -401,6 +487,14 @@ function SingleSeriesTrendChart({
   // SSR-stable gradient id (see stableId). Derived from tone + geometry, never
   // from useId, so it can't drift under streaming-Suspense hydration.
   const gradId = stableId(`trend-grad-${tone}`, geom.areaPath);
+  const lineGradId = stableId(`trend-line-${tone}`, geom.areaPath);
+  // With a lineGradient the line is coloured by height; the focus dot takes
+  // the colour of the line where it sits.
+  const lineStroke = lineGradient ? `url(#${lineGradId})` : stroke[tone];
+  const colorAtY = (yPct: number) =>
+    lineGradient
+      ? `color-mix(in srgb, ${lineGradient.bottom} ${yPct.toFixed(1)}%, ${lineGradient.top})`
+      : stroke[tone];
 
   const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     // Pointer handler lives on the plot-area div (the flex-1 child), so the
@@ -411,6 +505,7 @@ function SingleSeriesTrendChart({
     const idx = Math.round(ratio * (data.length - 1));
     const clamped = Math.max(0, Math.min(data.length - 1, idx));
     setActiveIdx(clamped);
+    setPlotWidth(rect.width);
   };
 
   const handlePointerLeave = () => setActiveIdx(null);
@@ -437,6 +532,9 @@ function SingleSeriesTrendChart({
     activeComparisonPoint != null
       ? (activeComparisonPoint.y / Math.max(1, height)) * 100
       : 0;
+  // The compact card needs its own width plus a 12 px gap beside the crosshair.
+  const roomRight = plotWidth * (1 - activePct / 100);
+  const tipOnLeft = roomRight < tipWidth + 12 && plotWidth - roomRight > roomRight;
 
   const xTickIdx = showAxes || showGrid ? pickTickIndices(data.length, 5) : [];
   // Y-axis tick fractions from bottom (0) to top (max). 5 ticks → quarters.
@@ -492,7 +590,9 @@ function SingleSeriesTrendChart({
           <svg
             viewBox={`0 0 ${geom.width} ${height}`}
             preserveAspectRatio="none"
-            className="block h-full w-full pointer-events-none"
+            // overflow-visible: a line at 0 or at the top of the scale sits on
+            // the SVG's edge, and clipping would cut its stroke to half width.
+            className="block h-full w-full overflow-visible pointer-events-none"
             aria-hidden
           >
             {showGrid && (
@@ -508,17 +608,33 @@ function SingleSeriesTrendChart({
                 ))}
               </g>
             )}
+            {lineGradient && (
+              <defs>
+                {/* In user space over the full plot height (a flat line has no
+                    bounding box to stretch an objectBoundingBox gradient over). */}
+                <linearGradient id={lineGradId} gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="0" y2={height}>
+                  <stop offset="0%" style={{ stopColor: lineGradient.top }} />
+                  <stop offset="100%" style={{ stopColor: lineGradient.bottom }} />
+                </linearGradient>
+              </defs>
+            )}
             {filled && (
               <>
                 <defs>
                   <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
                     <stop
                       offset="0%"
-                      style={{ stopColor: stroke[tone], stopOpacity: 0.35 }}
+                      style={{
+                        stopColor: lineGradient ? lineGradient.top : stroke[tone],
+                        stopOpacity: lineGradient ? 0.16 : 0.35,
+                      }}
                     />
                     <stop
                       offset="100%"
-                      style={{ stopColor: stroke[tone], stopOpacity: 0.04 }}
+                      style={{
+                        stopColor: lineGradient ? lineGradient.bottom : stroke[tone],
+                        stopOpacity: lineGradient ? 0 : 0.04,
+                      }}
                     />
                   </linearGradient>
                 </defs>
@@ -533,8 +649,8 @@ function SingleSeriesTrendChart({
                 fill="none"
                 stroke="var(--fg-tertiary)"
                 strokeOpacity={0.55}
-                strokeWidth={1.25}
-                strokeDasharray="3 3"
+                strokeWidth={Math.max(1.25, strokeWidth - 0.5)}
+                strokeDasharray={comparisonDash}
                 strokeLinejoin="round"
                 strokeLinecap="round"
                 vectorEffect="non-scaling-stroke"
@@ -543,8 +659,8 @@ function SingleSeriesTrendChart({
             <path
               d={geom.linePath}
               fill="none"
-              stroke={stroke[tone]}
-              strokeWidth={1.5}
+              stroke={lineStroke}
+              strokeWidth={strokeWidth}
               strokeLinejoin="round"
               strokeLinecap="round"
               vectorEffect="non-scaling-stroke"
@@ -581,13 +697,61 @@ function SingleSeriesTrendChart({
               style={{
                 left: `${activePct}%`,
                 top: `${activeYPct}%`,
-                backgroundColor: stroke[tone],
+                backgroundColor: colorAtY(activeYPct),
               }}
             />
           )}
 
+          {/* Compact hover card: a row per line, mark + short date + value.
+              It sits beside the crosshair at the point's height (Triple
+              Whale), on the left once the point is past the middle, and
+              stays inside the chart's height. Half its height: 19 px for
+              one row, 31 px for two. */}
+          {activeIdx !== null && activeData && tooltip === "compact" && (
+            <div
+              ref={tipRef}
+              className="pointer-events-none absolute z-10 flex flex-col gap-1 whitespace-nowrap rounded-[10px] bg-bg-primary py-2 pl-2.5 pr-3 shadow-[0_0_0_1px_rgba(16,16,26,0.07),0_10px_24px_-10px_rgba(16,16,26,0.3)]"
+              style={{
+                left: `${activePct}%`,
+                top: `min(max(${activeYPct.toFixed(1)}%, ${activeComparisonData ? 31 : 19}px), calc(100% - ${activeComparisonData ? 31 : 19}px))`,
+                transform: `translate(${tipOnLeft ? "calc(-100% - 12px)" : "12px"}, -50%)`,
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  aria-hidden
+                  className="h-4 w-[3px] shrink-0 rounded-full"
+                  style={{ backgroundColor: colorAtY(activeYPct) }}
+                />
+                <span className="text-[13px] font-medium leading-5 text-fg-primary">{tipDate(activeData)}</span>
+                <span className="ml-auto pl-4 text-[15px] font-semibold leading-5 tabular-nums text-fg-primary">
+                  {fmtValue(activeData.value)}
+                </span>
+              </div>
+              {activeComparisonData && (
+                <div className="flex items-center gap-2">
+                  <span
+                    aria-hidden
+                    className="h-4 w-[3px] shrink-0 rounded-full"
+                    style={{
+                      backgroundImage:
+                        "repeating-linear-gradient(180deg, var(--fg-tertiary) 0 3px, transparent 3px 5px)",
+                    }}
+                  />
+                  <span className="text-[13px] leading-5 text-fg-secondary">
+                    <span className="sr-only">{comparisonLabel}: </span>
+                    {tipDate(activeComparisonData)}
+                  </span>
+                  <span className="ml-auto pl-4 text-[15px] font-medium leading-5 tabular-nums text-fg-secondary">
+                    {fmtValue(activeComparisonData.value)}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Tooltip — clamped so it doesn't overflow the chart edges */}
-          {activeIdx !== null && activeData && (
+          {activeIdx !== null && activeData && tooltip === "full" && (
             <div
               className="pointer-events-none absolute z-10 whitespace-nowrap rounded-md border border-border bg-bg-secondary px-3 py-2 shadow-lg"
               style={{
@@ -597,7 +761,7 @@ function SingleSeriesTrendChart({
               }}
             >
               <div className="text-sm font-medium text-fg-primary">
-                {formatTooltipDate(activeData.date, fmtDateLong)}
+                {activeData.label ?? formatTooltipDate(activeData.date, fmtDateLong)}
               </div>
               <div className="mt-1 font-display text-base font-semibold tabular-nums text-fg-primary">
                 {label ? <span className="font-normal text-fg-secondary">{label}: </span> : null}
@@ -618,7 +782,9 @@ function SingleSeriesTrendChart({
                     {fmtValue(activeComparisonData.value)}
                   </span>
                   <span className="text-fg-tertiary">
-                    · {formatTooltipDate(activeComparisonData.date, fmtDateLong)}
+                    ·{" "}
+                    {activeComparisonData.label ??
+                      formatTooltipDate(activeComparisonData.date, fmtDateLong)}
                   </span>
                 </div>
               )}
@@ -860,7 +1026,9 @@ function MultiSeriesTrendChart({
           <svg
             viewBox={`0 0 ${geom.width} ${height}`}
             preserveAspectRatio="none"
-            className="block h-full w-full pointer-events-none"
+            // overflow-visible: a line at 0 or at the top of the scale sits on
+            // the SVG's edge, and clipping would cut its stroke to half width.
+            className="block h-full w-full overflow-visible pointer-events-none"
             aria-hidden
           >
             {showGrid && (

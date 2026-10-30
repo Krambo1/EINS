@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { NavTransition, PendingDim, PendingLink } from "@/app/_components/instant-views";
 import { notFound } from "next/navigation";
 import { cookies } from "next/headers";
 import { ArrowLeft } from "lucide-react";
@@ -299,29 +300,35 @@ export default async function AdminGuaranteeClinicPage({ params, searchParams }:
                 <summary className="cursor-pointer text-base font-medium">
                   Weitere mögliche Anfragen ({others.length})
                 </summary>
-                <div className="mt-4 space-y-6">
-                  {shownOthers.map((e) => (
-                    <div key={e.row.id} className="space-y-3 border-t border-border pt-4 first:border-0 first:pt-0">
-                      <InquiryDetails
-                        inquiry={e.row}
-                        attribution={e.attribution}
-                        inquiryOn={e.inquiryOn}
-                        ruleStart={g.responseRuleStart}
-                      />
-                      <InquiryDecision clinicId={g.clinicId} inquiry={e.row} ruleStart={g.responseRuleStart} earlier />
+                {/* "anzeigen" loads the rest from the server (the list can run to
+                    thousands); the shown ones dim at once until it lands. */}
+                <NavTransition>
+                  <PendingDim>
+                    <div className="mt-4 space-y-6">
+                      {shownOthers.map((e) => (
+                        <div key={e.row.id} className="space-y-3 border-t border-border pt-4 first:border-0 first:pt-0">
+                          <InquiryDetails
+                            inquiry={e.row}
+                            attribution={e.attribution}
+                            inquiryOn={e.inquiryOn}
+                            ruleStart={g.responseRuleStart}
+                          />
+                          <InquiryDecision clinicId={g.clinicId} inquiry={e.row} ruleStart={g.responseRuleStart} earlier />
+                        </div>
+                      ))}
+                      {hiddenOthers > 0 && (
+                        <PendingLink
+                          href={`/admin/garantie/${g.clinicId}?alle=1#weitere`}
+                          className="inline-flex items-center gap-2 text-sm text-fg-secondary hover:text-fg-primary"
+                        >
+                          {hiddenOthers === 1
+                            ? "1 weitere Anfrage anzeigen"
+                            : `Weitere ${formatNumber(hiddenOthers)} Anfragen anzeigen`}
+                        </PendingLink>
+                      )}
                     </div>
-                  ))}
-                  {hiddenOthers > 0 && (
-                    <Link
-                      href={`/admin/garantie/${g.clinicId}?alle=1#weitere`}
-                      className="inline-flex items-center gap-2 text-sm text-fg-secondary hover:text-fg-primary"
-                    >
-                      {hiddenOthers === 1
-                        ? "1 weitere Anfrage anzeigen"
-                        : `Weitere ${formatNumber(hiddenOthers)} Anfragen anzeigen`}
-                    </Link>
-                  )}
-                </div>
+                  </PendingDim>
+                </NavTransition>
               </details>
             )}
 

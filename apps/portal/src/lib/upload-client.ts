@@ -12,10 +12,17 @@ import type { UploadTarget } from "@/server/uploads";
 export function uploadFileToTarget(
   target: Pick<UploadTarget, "mode" | "url">,
   file: File,
-  onProgress?: (fraction: number) => void
+  onProgress?: (fraction: number) => void,
+  /** Cancels the upload; the promise then rejects with "aborted". */
+  signal?: AbortSignal
 ): Promise<void> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("aborted"));
+      return;
+    }
     const xhr = new XMLHttpRequest();
+    signal?.addEventListener("abort", () => xhr.abort(), { once: true });
     xhr.open(target.mode === "presigned" ? "PUT" : "POST", target.url);
     // Must match the content type baked into the presigned signature (see
     // normalizeContentType server-side).

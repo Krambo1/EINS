@@ -1,4 +1,5 @@
-import { ExplainerPopover, cn } from "@eins/ui";
+import { cn } from "@eins/ui";
+import { ExplainerPopover } from "@/app/(portal)/_components/ExplainerPopover";
 import { AlertTriangle, Clock } from "lucide-react";
 import { RESPONSE_STATE_LABELS } from "@/lib/response-time";
 import { formatBerlinDateTime } from "@/lib/werkstunden";
@@ -30,27 +31,31 @@ export function TimingLine({
   className?: string;
 }) {
   if (!timing) return null;
-  const { text, hints, urgent, tone } = describe(timing);
+  const { text, hints, urgent, tone } = describeTiming(timing);
   const Icon = urgent ? AlertTriangle : Clock;
   return (
     <span
       className={cn(
-        "inline-flex min-w-0 items-center gap-1.5 text-sm font-medium tabular-nums text-fg-primary",
+        "inline-flex min-w-0 items-start gap-1.5 text-sm font-medium leading-5 tabular-nums text-fg-primary",
         className
       )}
       title={explain ? undefined : hints.join(" ")}
     >
-      <Icon
-        aria-hidden
-        className={cn(
-          "h-3.5 w-3.5 shrink-0",
-          tone === "bad" ? "text-tone-bad" : tone === "warn" ? "text-tone-warn" : "text-fg-secondary"
-        )}
-      />
+      {/* One line tall, so the icon sits on the first line when the text
+          wraps in a narrow column. */}
+      <span aria-hidden className="flex h-[1lh] shrink-0 items-center">
+        <Icon
+          className={cn(
+            "h-3.5 w-3.5",
+            tone === "bad" ? "text-tone-bad" : tone === "warn" ? "text-tone-warn" : "text-fg-secondary"
+          )}
+        />
+      </span>
       {timing.kind === "deadline" && timing.late && (
         <span className="sr-only">Rückruf-Ziel verpasst. </span>
       )}
-      <span className="min-w-0 truncate">{text}</span>
+      {/* Wraps instead of being cut off. */}
+      <span className="min-w-0 break-words">{text}</span>
       {explain && (
         <ExplainerPopover term={text} ariaLabel={`Erklärung: ${text}`}>
           {hints.map((h, i) => (
@@ -64,7 +69,8 @@ export function TimingLine({
   );
 }
 
-function describe(timing: RowTiming): {
+/** Text, explanation and tone of a timing; shared with `RowSignal`. */
+export function describeTiming(timing: RowTiming): {
   text: string;
   hints: string[];
   urgent: boolean;

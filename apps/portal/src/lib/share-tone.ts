@@ -6,10 +6,12 @@
  * "use client" module into a server component yields a client reference, not
  * the object — hence this neutral home.
  */
-export type ShareTone = "neutral" | "accent" | "good" | "warn" | "bad";
+// "muted" (lightest grey) keeps "Unbekannt" apart from the other neutral slices.
+export type ShareTone = "neutral" | "muted" | "accent" | "good" | "warn" | "bad";
 
 export const SHARE_TONE_VAR: Record<ShareTone, string> = {
   neutral: "var(--fg-tertiary)",
+  muted: "var(--border-hover)",
   accent: "var(--accent)",
   good: "var(--tone-good)",
   warn: "var(--tone-warn)",

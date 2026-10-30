@@ -6,7 +6,7 @@ const base = {
   practiceName: "Praxis Dr. Beispiel",
   dueLabel: "Montag, 12.10.2026",
   dueDate: "12.10.2026",
-  portalUrl: "https://portal.eins.ag/beitraege",
+  portalUrl: "https://portal.eins.ag/inhalte",
   linkTtlDays: 30,
   posts: [
     {

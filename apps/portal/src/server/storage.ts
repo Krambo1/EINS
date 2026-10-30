@@ -38,6 +38,21 @@ export function isPublicKey(key: string): boolean {
   return !key.includes("..") && PUBLIC_KEY_PREFIXES.some((p) => key.startsWith(p));
 }
 
+export interface UrlOptions {
+  expiresInSeconds?: number;
+  /** Save under this file name instead of opening the file. */
+  downloadName?: string;
+}
+
+/**
+ * Content-Disposition for a download under `name`: an ASCII fallback for old
+ * clients plus the exact UTF-8 name (RFC 6266), so "Prüfung.pdf" keeps its ü.
+ */
+export function attachmentDisposition(name: string): string {
+  const ascii = name.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+}
+
 /**
  * A prefix for `removePrefix` must name a folder ("<clinicId>/",
  * "pvs-csv-uploads/<clinicId>/"): non-empty segments, trailing slash, no
@@ -54,8 +69,13 @@ export function assertDeletablePrefix(prefix: string): void {
 }
 
 export interface Storage {
-  /** Public (or presigned) URL for reading a stored object. */
-  urlFor(key: string, options?: { expiresInSeconds?: number }): Promise<string>;
+  /**
+   * Public (or presigned) URL for reading a stored object. With
+   * `downloadName` the URL saves the file under that name instead of opening
+   * it (Content-Disposition: attachment). The `download` attribute alone does
+   * that only on the same origin, never for a presigned R2 URL.
+   */
+  urlFor(key: string, options?: UrlOptions): Promise<string>;
   /**
    * Synchronous, NON-presigned public URL for `key`. Used in hot-path
    * server-component rendering (avatars in tables, dropdowns, timelines)
@@ -105,8 +125,11 @@ export interface Storage {
 }
 
 class LocalStorage implements Storage {
-  async urlFor(key: string): Promise<string> {
-    return this.publicUrlFor(key);
+  async urlFor(key: string, options?: UrlOptions): Promise<string> {
+    const url = this.publicUrlFor(key);
+    return options?.downloadName
+      ? `${url}?download=${encodeURIComponent(options.downloadName)}`
+      : url;
   }
 
   publicUrlFor(key: string): string {
@@ -190,10 +213,7 @@ class R2Storage implements Storage {
     return null;
   }
 
-  async urlFor(
-    key: string,
-    options?: { expiresInSeconds?: number }
-  ): Promise<string> {
+  async urlFor(key: string, options?: UrlOptions): Promise<string> {
     const pub = this.publicUrlFor(key);
     if (pub) return pub;
     // Lazy-import the S3 SDK on-demand so local-first setups
@@ -217,6 +237,9 @@ class R2Storage implements Storage {
     const cmd = new GetObjectCommand({
       Bucket: env.R2_BUCKET!,
       Key: key,
+      ...(options?.downloadName
+        ? { ResponseContentDisposition: attachmentDisposition(options.downloadName) }
+        : {}),
     });
     return getSignedUrl(client, cmd, {
       expiresIn: options?.expiresInSeconds ?? 3600,

@@ -14,6 +14,7 @@ import {
 } from "./content";
 import { saveDiscoveryAction, type SaveDiscoveryState } from "./actions";
 import { SectionNav, type SectionNavItem } from "./SectionNav";
+import { ScrollHint } from "@/app/_components/ScrollHint";
 
 const sectionAnchorId = (key: string) => `abschnitt-${key}`;
 
@@ -375,13 +376,15 @@ function QuestionField({ question: q, value, missing, onChange }: QuestionFieldP
       )}
 
       {q.type === "textarea" && (
-        <Textarea
-          id={inputId}
-          rows={4}
-          maxLength={4000}
-          value={typeof value === "string" ? value : ""}
-          onChange={(e) => onChange(e.target.value)}
-        />
+        <ScrollHint watch={value}>
+          <Textarea
+            id={inputId}
+            rows={4}
+            maxLength={4000}
+            value={typeof value === "string" ? value : ""}
+            onChange={(e) => onChange(e.target.value)}
+          />
+        </ScrollHint>
       )}
 
       {q.type === "auswahl" && q.options && (

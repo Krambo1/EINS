@@ -1,18 +1,21 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Button } from "@eins/ui";
-import { Check, CalendarCheck, PhoneMissed, Loader2 } from "lucide-react";
+import { cn } from "@eins/ui";
 import {
   STATUS_TRANSITIONS,
   type CallOutcome,
   type RequestStatus,
 } from "@/lib/constants";
 import { logCall } from "../[id]/actions";
+import { showActionFlash } from "../../_components/flash-event";
+import { useTrackedCall } from "./CallQueueState";
 
-// Zweistufig (C-30): Der erste Klick wählt das Ergebnis, erst "Speichern"
-// schreibt. Jeder gespeicherte Anruf zählt als Kontaktversuch und lässt sich
-// nicht zurücknehmen, ein Fehlklick am Handy darf also nichts auslösen.
+// Ein Klick speichert (Karam, 2026-10-29: keine Rückfrage mehr; ersetzt den
+// zweistufigen Ablauf aus C-30). Jeder gespeicherte Anruf zählt als
+// Kontaktversuch und lässt sich nicht zurücknehmen. Bestätigung und Fehler
+// kommen als Toast: die Karte behält ihre Größe, der Schalter seinen Platz
+// (DESIGN.md Abschnitt 10, "Fixed size").
 
 /**
  * Ein-Klick-Anrufausgang direkt auf der "Jetzt anrufen"-Karte. Ruft die
@@ -31,54 +34,68 @@ const OUTCOMES: ReadonlyArray<{
   outcome: CallOutcome;
   status: RequestStatus;
   label: string;
-  icon: typeof Check;
-  variant: "default" | "secondary" | "outline";
 }> = [
   {
     key: "termin",
     outcome: "erreicht",
     status: "termin_vereinbart",
     label: "Termin vereinbart",
-    icon: CalendarCheck,
-    variant: "default",
   },
   {
     key: "erreicht",
     outcome: "erreicht",
     status: "kontaktiert",
     label: "Erreicht",
-    icon: Check,
-    variant: "secondary",
   },
   {
     key: "nicht_erreicht",
     outcome: "nicht_erreicht",
     status: "nicht_erreicht",
     label: "Nicht erreicht",
-    icon: PhoneMissed,
-    variant: "outline",
   },
 ];
 
+/**
+ * The switch's track and segments, shared with RetreatmentOutcomeActions.
+ * Phone: three equal thirds, labels may wrap (two lines fit in the control
+ * height, so the track has one height). From sm each segment is as wide as
+ * its words, so "Termin vereinbart" stays on one line in a half-width card.
+ * Segments are controls (--control-h, control radius), the track 4 px
+ * around them one radius step up, so the corners share a centre (DESIGN.md
+ * section 5).
+ */
+export const OUTCOME_TRACK =
+  "elev-inset grid grid-cols-3 gap-1 rounded-[var(--r-panel)] bg-[var(--well)] p-1 sm:inline-grid sm:grid-cols-[repeat(3,auto)]";
+
+export function outcomeSegment(pending: boolean): string {
+  return cn(
+    "flex h-[var(--control-h)] items-center justify-center rounded-[var(--r-control)] px-2 text-center text-sm font-medium leading-tight transition-[color,background-color,box-shadow,opacity] duration-300 sm:px-3.5",
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+    pending
+      ? "elev-raised bg-[var(--surface-raised)] text-fg-primary"
+      : "text-fg-secondary enabled:hover:text-fg-primary disabled:opacity-50"
+  );
+}
+
 export function CallOutcomeActions({
   requestId,
+  name,
   currentStatus,
   pvsControlled,
 }: {
   requestId: string;
+  /** Patient name for the toast: by then the next patient is on the card. */
+  name: string;
   currentStatus: RequestStatus;
   pvsControlled: boolean;
 }) {
   const [isPending, startTransition] = useTransition();
   const [pendingKey, setPendingKey] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const track = useTrackedCall();
 
   const allowed = STATUS_TRANSITIONS[currentStatus] ?? [];
-  const selected = OUTCOMES.find((o) => o.key === selectedKey) ?? null;
 
   const run = (o: (typeof OUTCOMES)[number]) => {
-    setError(null);
     setPendingKey(o.key);
     const fd = new FormData();
     fd.set("id", requestId);
@@ -89,72 +106,58 @@ export function CallOutcomeActions({
     }
     startTransition(async () => {
       try {
-        const res = await logCall(fd);
+        // Auf der Anruf-Karte (CallQueueState) rückt der nächste Patient
+        // sofort nach, `track` blendet diesen Anruf aus, bis die Action
+        // zurück ist. Schlägt sie fehl, kommt er zurück auf die Karte.
+        // Ohne die Karte: wie zuvor, die Action allein.
+        const res = await (track ? track(() => logCall(fd)) : logCall(fd));
         // Erfolg: revalidatePath("/anfragen") in der Action rendert die
         // Warteschlange neu, der nächste Lead wird zur Hero-Karte.
         if (res.ok) {
-          setSelectedKey(null);
+          showActionFlash({ tone: "good", title: "Anruf gespeichert", description: `${name}: ${o.label}` });
         } else {
-          setError(res.message);
-          setPendingKey(null);
+          showActionFlash({ tone: "bad", title: "Nicht gespeichert", description: `${name}: ${res.message}` });
         }
       } catch {
-        setError("Keine Verbindung. Bitte versuchen Sie es noch einmal.");
+        showActionFlash({
+          tone: "bad",
+          title: "Nicht gespeichert",
+          description: `${name}: Keine Verbindung. Bitte versuchen Sie es noch einmal.`,
+        });
+      } finally {
         setPendingKey(null);
       }
     });
   };
 
+  // A switch like the period switch on the Übersicht: the track is pressed
+  // into the card, the outcome being saved is raised while it saves. One tap
+  // saves. It sits at the foot of the patient's own card, under that
+  // patient's call button, so it is clear whose call it logs. Nothing
+  // appears or grows here: the result comes as a toast.
   return (
     <div>
-      <div className="mb-2 text-sm font-medium text-fg-primary">Anruf protokollieren</div>
-      <div className="flex flex-wrap gap-2">
-        {OUTCOMES.map((o) => {
-          const Icon = o.icon;
-          const thisPending = isPending && pendingKey === o.key;
-          const isSelected = selectedKey === o.key;
-          return (
-            <Button
-              key={o.key}
-              size="sm"
-              variant={selected && !isSelected ? "outline" : o.variant}
-              disabled={isPending}
-              aria-pressed={isSelected}
-              onClick={() => {
-                setError(null);
-                setSelectedKey(isSelected ? null : o.key);
-              }}
-            >
-              {thisPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Icon className="h-4 w-4" />
-              )}
-              {o.label}
-            </Button>
-          );
-        })}
+      <div id={`call-outcome-${requestId}`} className="mb-2 text-[15px] font-medium text-fg-primary">
+        Ergebnis des Anrufs
       </div>
-      {selected && (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="text-sm text-fg-primary">
-            Anruf als „{selected.label}“ speichern? Das zählt als Kontaktversuch.
-          </span>
-          <Button size="sm" disabled={isPending} onClick={() => run(selected)}>
-            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            Speichern
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
+      <div
+        role="group"
+        aria-labelledby={`call-outcome-${requestId}`}
+        aria-busy={isPending}
+        className={OUTCOME_TRACK}
+      >
+        {OUTCOMES.map((o) => (
+          <button
+            key={o.key}
+            type="button"
             disabled={isPending}
-            onClick={() => setSelectedKey(null)}
+            onClick={() => run(o)}
+            className={outcomeSegment(isPending && pendingKey === o.key)}
           >
-            Abbrechen
-          </Button>
-        </div>
-      )}
-      {error && <p className="mt-2 text-sm text-tone-bad">{error}</p>}
+            {o.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

@@ -1,10 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTransition } from "react";
 import { Button, cn } from "@eins/ui";
 import { X } from "lucide-react";
+import { PendingLink, useNavTransition } from "@/app/_components/instant-views";
 
 interface ClinicOption {
   id: string;
@@ -41,23 +41,35 @@ export function EventsFilters({
   clinics,
   bridgeSources,
   eventKinds,
-  applied,
+  applied: serverApplied,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
-  const [pending, startTransition] = useTransition();
+  const [ownPending, startTransition] = useTransition();
+  // Inside the page's NavTransition the selects show the new value at once
+  // and the event list (not this grid) dims until the server render lands.
+  const nav = useNavTransition();
+  const pending = !nav && ownPending;
+  const applied = nav?.pending ? appliedFrom(nav.params) : serverApplied;
 
   const updateParam = (key: string, value: string) => {
-    const next = new URLSearchParams(params.toString());
-    if (value) next.set(key, value);
-    else next.delete(key);
-    // Switching range presets clears the custom from/to so the server
-    // doesn't keep applying a stale window.
-    if (key === "range" && value !== "custom") {
-      next.delete("from");
-      next.delete("to");
+    const apply = (next: URLSearchParams) => {
+      if (value) next.set(key, value);
+      else next.delete(key);
+      // Switching range presets clears the custom from/to so the server
+      // doesn't keep applying a stale window.
+      if (key === "range" && value !== "custom") {
+        next.delete("from");
+        next.delete("to");
+      }
+    };
+    if (nav) {
+      nav.navigate(apply);
+      return;
     }
+    const next = new URLSearchParams(params.toString());
+    apply(next);
     const qs = next.toString();
     startTransition(() => {
       router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
@@ -167,15 +179,27 @@ export function EventsFilters({
       {hasAny && (
         <div className="md:col-span-2 lg:col-span-4">
           <Button asChild type="button" variant="ghost" size="sm">
-            <Link href={pathname}>
+            <PendingLink href={pathname}>
               <X className="mr-1 h-3.5 w-3.5" />
               Filter zurücksetzen
-            </Link>
+            </PendingLink>
           </Button>
         </div>
       )}
     </div>
   );
+}
+
+/** The filters a pending address asks for (the same keys as the URL contract). */
+function appliedFrom(p: URLSearchParams): AppliedFilters {
+  return {
+    clinicId: p.get("clinic") ?? "",
+    bridgeSource: p.get("source") ?? "",
+    kind: p.get("kind") ?? "",
+    range: p.get("range") ?? "",
+    from: p.get("from") ?? "",
+    to: p.get("to") ?? "",
+  };
 }
 
 function FilterCell({

@@ -528,7 +528,7 @@ export async function sendApprovalBatchEmails(batch: CreatedBatch): Promise<Batc
     postsWithoutRecipient: batch.posts.filter((p) => !reached.has(p.itemId)).map((p) => p.title),
   };
   const dueDay = approvalDueDayOf(batch.dueAt);
-  const portalUrl = `${env.APP_ORIGIN.replace(/\/$/, "")}/beitraege`;
+  const portalUrl = `${env.APP_ORIGIN.replace(/\/$/, "")}/inhalte`;
 
   for (const { recipient, posts } of groups) {
     const mail = approvalBatchMail({
@@ -863,10 +863,12 @@ export interface PracticeApprovalView {
   id: string;
   inhaberOnly: boolean;
   decision: RecordedDecision | null;
+  /** Who decided in the portal; null for a decision by e-mail link. */
+  decidedByName: string | null;
   dueAt: Date;
 }
 
-/** Latest approval per post for /beitraege, through RLS. */
+/** Latest approval per post for /inhalte, through RLS. */
 export async function listApprovalsForPractice(
   clinicId: string,
   userId: string
@@ -876,9 +878,14 @@ export async function listApprovalsForPractice(
     userId,
     (tx) =>
       tx
-        .select({ approval: schema.contentApprovals, dueAt: schema.contentApprovalBatches.dueAt })
+        .select({
+          approval: schema.contentApprovals,
+          dueAt: schema.contentApprovalBatches.dueAt,
+          decidedByName: schema.clinicUsers.fullName,
+        })
         .from(schema.contentApprovals)
         .innerJoin(schema.contentApprovalBatches, eq(schema.contentApprovalBatches.id, schema.contentApprovals.batchId))
+        .leftJoin(schema.clinicUsers, eq(schema.clinicUsers.id, schema.contentApprovals.decidedByUserId))
         .where(eq(schema.contentApprovals.clinicId, clinicId))
         .orderBy(desc(schema.contentApprovals.createdAt)),
     "beitraege:approvals"
@@ -890,6 +897,7 @@ export async function listApprovalsForPractice(
       id: r.approval.id,
       inhaberOnly: r.approval.inhaberOnly,
       decision: recordedOf(r.approval),
+      decidedByName: r.decidedByName ?? null,
       dueAt: r.dueAt,
     });
   }

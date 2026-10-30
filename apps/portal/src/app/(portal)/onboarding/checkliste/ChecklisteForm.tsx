@@ -45,6 +45,7 @@ import {
   saveChecklistItem,
 } from "./actions";
 import { formatBytes } from "@/lib/formatting";
+import { ScrollHint } from "@/app/_components/ScrollHint";
 
 export interface ClientChecklistFile {
   id: string;
@@ -107,7 +108,7 @@ export function ChecklisteForm({
       {CHECKLIST_BLOCKS.map((block) => (
         <Card
           key={block.key}
-          className="border-0 bg-transparent p-0 shadow-none md:border md:bg-bg-primary md:p-6 md:shadow-[var(--shadow-card)]"
+          className="border-0 bg-transparent p-0 [box-shadow:none] md:border md:bg-bg-primary md:p-6 md:[box-shadow:var(--shadow-card)]"
         >
           <CardContent className="space-y-4">
             <div>
@@ -159,31 +160,56 @@ function ItemCard({
   const [pending, start] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [answer, setAnswer] = useState<ChecklistAnswer>(state.answer);
+  // What a tap on a toggle shows before the server has answered. It lives
+  // until the saved row lands: the card then remounts (key above) with the
+  // real state. A failed save clears it again.
+  const [optimistic, setOptimistic] = useState<{
+    selfChecked: boolean;
+    entfaellt: boolean;
+  } | null>(null);
+  // A second tap on a toggle while a save runs is ignored (the server
+  // computes the status from the whole card, so two saves must not race),
+  // instead of greying out the card for the duration.
+  const saving = useRef(false);
+  // A file upload or removal is running: the toggles show as disabled for
+  // that time (a toggle save alone does not grey them).
+  const [fileBusy, setFileBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const delivered = isDelivered(state.status);
   const verified = state.status === "geprueft";
-  const entfaellt = state.status === "entfaellt";
-  const selfChecked = state.status === "geliefert" || state.status === "geprueft";
+  const entfaellt = optimistic?.entfaellt ?? state.status === "entfaellt";
+  const selfChecked =
+    optimistic?.selfChecked ??
+    (state.status === "geliefert" || state.status === "geprueft");
 
   // Inline email/phone validation, mirrored on the server. Blocks save while
   // any contact field holds a malformed value.
   const fieldErrors = validateChecklistFields(item, answer);
   const hasFieldErrors = Object.keys(fieldErrors).length > 0;
 
-  function persist(opts: {
-    answer?: ChecklistAnswer;
-    selfChecked?: boolean;
-    nichtVorhanden?: boolean;
-  }) {
+  /**
+   * Saves the card. `onRevert` undoes what the tap showed ahead of the
+   * save; it runs on a validation error, a rejected save and a thrown error.
+   */
+  function persist(
+    opts: {
+      answer?: ChecklistAnswer;
+      selfChecked?: boolean;
+      nichtVorhanden?: boolean;
+    },
+    onRevert?: () => void
+  ) {
     setError(null);
     const toValidate = opts.answer ?? answer;
     const errs = validateChecklistFields(item, toValidate);
     const firstErr = Object.values(errs)[0];
     if (firstErr) {
+      onRevert?.();
       setError(firstErr);
       return;
     }
+    saving.current = true;
     start(async () => {
       try {
         const res = await saveChecklistItem({
@@ -193,11 +219,27 @@ function ItemCard({
           nichtVorhanden: opts.nichtVorhanden,
         });
         // Success: the action revalidates this page, no extra refresh needed.
-        if (!res.ok) setError(saveErrorText(res.error));
+        if (!res.ok) {
+          onRevert?.();
+          setError(saveErrorText(res.error));
+        }
       } catch {
+        onRevert?.();
         setError(saveErrorText("network"));
+      } finally {
+        saving.current = false;
       }
     });
+  }
+
+  /** Flips a toggle at once and saves in the background. */
+  function tapToggle(
+    show: { selfChecked: boolean; entfaellt: boolean },
+    opts: { selfChecked?: boolean; nichtVorhanden?: boolean }
+  ) {
+    if (pending || saving.current) return;
+    setOptimistic(show);
+    persist(opts, () => setOptimistic(null));
   }
 
   function onFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
@@ -213,6 +255,7 @@ function ItemCard({
       setError("Datei zu groß (max. 25 MB). Große Sets bitte als Link liefern.");
       return;
     }
+    setFileBusy(true);
     start(async () => {
       // Direct-to-storage: mint a target, upload the bytes straight to
       // object storage, then register the file. The bytes never pass
@@ -244,6 +287,8 @@ function ItemCard({
         if (!res.ok) setError(uploadErrorText(res.error));
       } catch {
         setError(uploadErrorText("network"));
+      } finally {
+        setFileBusy(false);
       }
     });
   }
@@ -251,6 +296,7 @@ function ItemCard({
   function onRemoveFile(fileId: string, name: string) {
     setError(null);
     if (!window.confirm(`Datei "${name}" wirklich entfernen?`)) return;
+    setFileBusy(true);
     start(async () => {
       try {
         const res = await removeChecklistFile({ fileId });
@@ -261,6 +307,8 @@ function ItemCard({
         setError(
           "Datei konnte nicht entfernt werden. Bitte prüfen Sie Ihre Internetverbindung und versuchen Sie es erneut."
         );
+      } finally {
+        setFileBusy(false);
       }
     });
   }
@@ -336,12 +384,14 @@ function ItemCard({
           {item.allowKeineVorhanden && (
             <ToggleRow
               checked={keineVorhanden}
-              disabled={pending}
+              disabled={fileBusy}
               label="Keine vorhanden"
               onToggle={() => {
+                if (pending || saving.current) return;
+                const previous = answer;
                 const next = { ...answer, keineVorhanden: !keineVorhanden };
                 setAnswer(next);
-                persist({ answer: next });
+                persist({ answer: next }, () => setAnswer(previous));
               }}
             />
           )}
@@ -353,13 +403,18 @@ function ItemCard({
                 item.deliveryType === "einladung") && (
                 <ToggleRow
                   checked={selfChecked}
-                  disabled={pending || entfaellt}
+                  disabled={entfaellt || fileBusy}
                   label={
                     item.deliveryType === "einladung"
                       ? "Einladung verschickt"
                       : "Erledigt"
                   }
-                  onToggle={() => persist({ selfChecked: !selfChecked })}
+                  onToggle={() =>
+                    tapToggle(
+                      { selfChecked: !selfChecked, entfaellt: false },
+                      { selfChecked: !selfChecked }
+                    )
+                  }
                 />
               )}
 
@@ -473,14 +528,16 @@ function ItemCard({
                           )}
                         </Label>
                         {field.type === "textarea" ? (
-                          <Textarea
-                            id={fid}
-                            rows={3}
-                            maxLength={8000}
-                            placeholder={field.placeholder}
-                            value={val}
-                            onChange={(e) => setField(field.key, e.target.value)}
-                          />
+                          <ScrollHint watch={val}>
+                            <Textarea
+                              id={fid}
+                              rows={3}
+                              maxLength={8000}
+                              placeholder={field.placeholder}
+                              value={val}
+                              onChange={(e) => setField(field.key, e.target.value)}
+                            />
+                          </ScrollHint>
                         ) : (
                           <Input
                             id={fid}
@@ -515,9 +572,12 @@ function ItemCard({
               {item.allowNichtVorhanden && (
                 <button
                   type="button"
-                  disabled={pending}
+                  disabled={fileBusy}
                   onClick={() =>
-                    persist({ nichtVorhanden: !entfaellt, selfChecked: false })
+                    tapToggle(
+                      { selfChecked: false, entfaellt: !entfaellt },
+                      { nichtVorhanden: !entfaellt, selfChecked: false }
+                    )
                   }
                   className="text-sm text-fg-secondary underline-offset-2 hover:underline disabled:opacity-50"
                 >

@@ -27,7 +27,7 @@ export function AnimationenQueue({ rows }: { rows: AnimationRow[] }) {
     <QueueShell
       id="animationen"
       title="Animations-Wünsche"
-      description={`Anfragen aus dem Animations-Katalog. Status-Wechsel auf „Bereit“ benachrichtigt automatisch.`}
+      description="Anfragen aus dem Animations-Katalog. Die Praxis bekommt keine E-Mail mehr, wenn eine Animation bereit ist."
       count={rows.length}
       tone="warn"
       emptyMessage="Keine offenen Animations-Anfragen."

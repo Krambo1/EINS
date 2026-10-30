@@ -17,7 +17,15 @@ import {
 import { withClinicContext, schema } from "@/db/client";
 import type { AnyRequestStatus, RequestStatus, RequestSort } from "@/lib/constants";
 import { responseDeadline } from "@/lib/werkstunden";
+import {
+  addDays,
+  berlinDay,
+  FORECAST_WINDOW_DAYS,
+  type RetreatmentListFilter,
+} from "@/lib/retreatment";
+import type { ReportingChannel } from "@/lib/sources";
 import { cacheClinicQuery, SHORT_REVALIDATE_S } from "./_cache";
+import { channelPredicate } from "./_channel";
 import { firstAttemptAtSql, toAttemptDate } from "./response-time";
 import { openCountsAtPoints, openQueuePoints } from "./requests-open-queue";
 
@@ -35,6 +43,8 @@ export interface RequestListItem {
   treatmentId: string | null;
   treatmentName: string | null;
   source: string;
+  /** `requests.utm`, for the channel the row shows (reportingChannel). */
+  utm: unknown;
   status: RequestStatus;
   slaRespondBy: Date | null;
   firstContactedAt: Date | null;
@@ -78,13 +88,16 @@ function requestSortOrderBy(sort: RequestSort): SQL[] {
 
 export interface RequestListFilters {
   status?: AnyRequestStatus[];
-  source?: string[];
+  /** Quelle filter: the reporting channels (Instagram-Beitrag, Meta-Anzeige, ...). */
+  channel?: ReportingChannel[];
   treatmentId?: string[];
   search?: string;
   assignedTo?: string | "unassigned" | null;
   slaBreachedOnly?: boolean;
   /** When true, only return rows with no activity in the last 14 days. */
   staleOnly?: boolean;
+  /** Anfragen with a Wiederbehandlung (RETREATMENT_LIST_FILTERS). */
+  retreatment?: RetreatmentListFilter[];
 }
 
 /** Escape LIKE/ILIKE wildcards so a typed `%` or `_` matches literally (C-23). */
@@ -108,15 +121,22 @@ export function phoneSearchDigits(term: string): string | null {
   return digits.length >= 4 ? digits : null;
 }
 
-function requestListWhere(clinicId: string, filters: RequestListFilters): SQL {
+/**
+ * WHERE of the inbox list and its export. `channelWhere` is the Quelle
+ * filter, built beforehand by channelPredicate (it reads the Praxis's
+ * channel groups first).
+ */
+function requestListWhere(
+  clinicId: string,
+  filters: RequestListFilters,
+  channelWhere?: SQL
+): SQL {
     const predicates = [eq(schema.requests.clinicId, clinicId)];
 
     if (filters.status?.length) {
       predicates.push(inArray(schema.requests.status, filters.status));
     }
-    if (filters.source?.length) {
-      predicates.push(inArray(schema.requests.source, filters.source));
-    }
+    if (channelWhere) predicates.push(channelWhere);
     if (filters.treatmentId?.length) {
       predicates.push(inArray(schema.requests.treatmentId, filters.treatmentId));
     }
@@ -168,6 +188,23 @@ function requestListWhere(clinicId: string, filters: RequestListFilters): SQL {
         )`
       );
     }
+    if (filters.retreatment?.length) {
+      const horizon = addDays(berlinDay(new Date()), FORECAST_WINDOW_DAYS);
+      // "offen" is everyone the Übersicht counts, also on an Anfrage still
+      // being worked (the page shows the tag on every row of this filter).
+      const which = [
+        filters.retreatment.includes("offen") &&
+          sql`(rc.status IN ('open', 'booked') AND rc.due_on <= ${horizon}::date)`,
+        filters.retreatment.includes("ausgeblendet") && sql`rc.status = 'dismissed'`,
+      ].filter((p): p is SQL => !!p);
+      predicates.push(
+        sql`EXISTS (
+          SELECT 1 FROM retreatment_cycles rc
+          WHERE rc.request_id = ${schema.requests.id}
+            AND (${sql.join(which, sql` OR `)})
+        )`
+      );
+    }
 
     return and(...predicates)!;
 }
@@ -190,7 +227,10 @@ export async function listRequests(
   const sort = opts.sort ?? "neueste";
 
   return withClinicContext(clinicId, userId, async (tx) => {
-    const whereClause = requestListWhere(clinicId, filters);
+    const channelWhere = filters.channel?.length
+      ? await channelPredicate(tx, clinicId, filters.channel)
+      : undefined;
+    const whereClause = requestListWhere(clinicId, filters, channelWhere);
 
     const [items, [{ count }]] = await Promise.all([
       tx
@@ -203,6 +243,7 @@ export async function listRequests(
           treatmentId: schema.requests.treatmentId,
           treatmentName: schema.treatments.name,
           source: schema.requests.source,
+          utm: schema.requests.utm,
           status: schema.requests.status,
           slaRespondBy: schema.requests.slaRespondBy,
           firstContactedAt: schema.requests.firstContactedAt,
@@ -251,6 +292,8 @@ export interface RequestExportRow {
   treatmentName: string | null;
   treatmentWish: string | null;
   source: string;
+  /** `requests.utm`, for the channel column (reportingChannel). */
+  utm: unknown;
   status: string;
   firstContactedAt: Date | null;
   message: string | null;
@@ -275,6 +318,9 @@ export async function exportRequests(
     clinicId,
     userId,
     async (tx) => {
+      const channelWhere = filters.channel?.length
+        ? await channelPredicate(tx, clinicId, filters.channel)
+        : undefined;
       const rows = await tx
         .select({
           id: schema.requests.id,
@@ -285,6 +331,7 @@ export async function exportRequests(
           treatmentName: schema.treatments.name,
           treatmentWish: schema.requests.treatmentWish,
           source: schema.requests.source,
+          utm: schema.requests.utm,
           status: schema.requests.status,
           firstContactedAt: schema.requests.firstContactedAt,
           message: schema.requests.message,
@@ -300,7 +347,7 @@ export async function exportRequests(
           schema.patients,
           eq(schema.requests.patientId, schema.patients.id)
         )
-        .where(requestListWhere(clinicId, filters))
+        .where(requestListWhere(clinicId, filters, channelWhere))
         .orderBy(...requestSortOrderBy(sort))
         .limit(REQUEST_EXPORT_MAX_ROWS + 1);
       return {
@@ -616,7 +663,7 @@ export async function getRequestWithActivities(
     if (!row) return null;
     const { firstAttemptAt, ...request } = row;
 
-    const [activities, treatmentRow, locationRow] = await Promise.all([
+    const [activities, treatmentRow, locationRow, postRow] = await Promise.all([
       tx
         .select({
           id: schema.requestActivities.id,
@@ -658,6 +705,15 @@ export async function getRequestWithActivities(
             .limit(1)
             .then((r) => r[0] ?? null)
         : Promise.resolve(null),
+      // The post whose link the Anfrage came through (its post code).
+      request.contentItemId
+        ? tx
+            .select({ title: schema.contentItems.title })
+            .from(schema.contentItems)
+            .where(eq(schema.contentItems.id, request.contentItemId))
+            .limit(1)
+            .then((r) => r[0] ?? null)
+        : Promise.resolve(null),
     ]);
 
     return {
@@ -667,6 +723,7 @@ export async function getRequestWithActivities(
       activities,
       treatmentName: treatmentRow?.name ?? null,
       locationName: locationRow?.name ?? null,
+      postTitle: postRow?.title ?? null,
     };
   });
 }

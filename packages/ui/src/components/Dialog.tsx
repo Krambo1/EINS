@@ -9,6 +9,12 @@ export const Dialog = DialogPrimitive.Root;
 export const DialogTrigger = DialogPrimitive.Trigger;
 export const DialogPortal = DialogPrimitive.Portal;
 export const DialogClose = DialogPrimitive.Close;
+/**
+ * The bare Radix content (focus trap, Esc, aria) without the card styling and
+ * close button of `DialogContent`. Opt-in for surfaces that bring their own
+ * size and controls, such as a media viewer; place it in `DialogPortal`.
+ */
+export const DialogContentUnstyled = DialogPrimitive.Content;
 
 export const DialogOverlay = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Overlay>,

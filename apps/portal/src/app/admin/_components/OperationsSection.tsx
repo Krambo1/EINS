@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { ArrowUpRight } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, Badge } from "@eins/ui";
+import { ChevronRight } from "lucide-react";
+import { cn } from "@eins/ui";
 import type { PendingOperations, SlaBreachRow } from "@/server/queries/admin";
+import { Panel, PanelLink, ROW_CLASS } from "./Panel";
 
 /**
- * Pending-ops counts shown as a compact row of linked stats. SLA-Verstöße is
+ * Pending-ops counts, one linked row each while open. SLA-Verstöße is
  * deliberately NOT here: it gets its own dedicated list below, so the breach
  * count appears exactly once on the Übersicht (the nav badge aside).
  */
@@ -34,10 +35,16 @@ const PENDING_ITEMS: {
   },
 ];
 
+/** "5 h" under two days, then whole days ("345 Tage" instead of "8279h"). */
+function ageLabel(hours: number): string {
+  if (hours < 48) return `${hours} h`;
+  return `${Math.floor(hours / 24)} Tage`;
+}
+
 /**
- * Operations: merges the SLA-breach top list and the pending-ops counts into a
- * single clinic-styled card, replacing the separate SlaAndResponseSection and
- * OperationsQuickAccess. The response-time median moved into the leaderboard.
+ * Operations: the open pending-ops counts and the SLA-breach top list in one
+ * panel. Only what is open is shown (a 0 is no task); nothing open, no panel.
+ * The response-time median lives in the leaderboard.
  */
 export function OperationsSection({
   sla,
@@ -47,92 +54,72 @@ export function OperationsSection({
   operations: PendingOperations;
 }) {
   const totalBreaches = sla.reduce((s, r) => s + r.breachCount, 0);
+  const pending = PENDING_ITEMS.filter((item) => operations[item.key] > 0);
+  if (pending.length === 0 && sla.length === 0) return null;
 
   return (
-    <Card
-      className="print:break-inside-avoid"
-      style={{
-        backgroundColor: "var(--bg-card)",
-        boxShadow: "var(--shadow-card)",
-      }}
+    <Panel
+      title="Aufgaben"
+      action={<PanelLink href="/admin/operations">Alle Aufgaben</PanelLink>}
+      bodyClassName="space-y-4 px-4 pb-3 pt-1"
     >
-      <CardHeader className="flex-row items-start justify-between gap-2 space-y-0">
-        <CardTitle className="!text-xl !font-medium md:!text-2xl">
-          Aufgaben
-        </CardTitle>
-        <Link
-          href="/admin/operations"
-          className="text-sm text-accent hover:underline"
-        >
-          Alle Aufgaben →
-        </Link>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="grid gap-3 sm:grid-cols-3">
-          {PENDING_ITEMS.map((item) => {
-            const count = operations[item.key];
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="group flex items-center justify-between gap-3 rounded-xl border border-border bg-bg-secondary px-4 py-3 text-sm font-medium text-fg-primary transition-colors hover:border-accent"
-              >
-                <span className="flex items-center gap-2">
-                  {item.label}
-                  {count > 0 && <Badge tone={item.tone}>{count}</Badge>}
+      {pending.length > 0 && (
+        <ul className="divide-y divide-border">
+          {pending.map((item) => (
+            <li key={item.href}>
+              <Link href={item.href} data-row className={ROW_CLASS}>
+                <span className="min-w-0 flex-1 text-fg-primary">{item.label}</span>
+                <span
+                  className={cn(
+                    "shrink-0 font-medium tabular-nums",
+                    item.tone === "bad" ? "text-tone-bad" : "text-tone-warn"
+                  )}
+                >
+                  {operations[item.key]}
                 </span>
-                <ArrowUpRight className="h-4 w-4 text-fg-tertiary transition-colors group-hover:text-accent" />
+                <ChevronRight className="h-4 w-4 shrink-0 text-fg-tertiary" aria-hidden />
               </Link>
-            );
-          })}
-        </div>
+            </li>
+          ))}
+        </ul>
+      )}
 
+      {sla.length > 0 && (
         <div>
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="text-sm font-medium text-fg-secondary">
-              Internes Antwortziel überschritten (nicht die 48-Werkstunden-Frist)
+          <div className="flex items-baseline justify-between gap-2 pb-1">
+            <span className="text-sm font-medium text-fg-primary">Internes Antwortziel überschritten</span>
+            <span className="shrink-0 text-sm font-medium tabular-nums text-tone-bad">
+              {totalBreaches} offen
             </span>
-            {totalBreaches > 0 && (
-              <Badge tone="bad">{totalBreaches} offen</Badge>
-            )}
           </div>
-          {sla.length === 0 ? (
-            <p className="rounded-md border border-[var(--tone-good-border)] bg-[var(--tone-good-bg)] px-4 py-3 text-sm text-tone-good">
-              Keine Anfrage über dem internen Antwortziel.
-            </p>
-          ) : (
-            <table className="w-full text-sm">
-              <thead className="text-left text-sm font-medium text-fg-primary">
-                <tr>
-                  <th className="py-2">Praxis</th>
-                  <th className="py-2 text-right">Offen</th>
-                  <th className="py-2 text-right">Älteste</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sla.map((r) => (
-                  <tr key={r.clinicId} className="border-t border-border">
-                    <td className="py-2">
-                      <Link
-                        href={`/admin/clinics/${r.clinicId}?tab=leads`}
-                        className="hover:text-accent"
-                      >
-                        {r.clinicName}
-                      </Link>
-                    </td>
-                    <td className="py-2 text-right">
-                      <Badge tone="bad">{r.breachCount}</Badge>
-                    </td>
-                    <td className="py-2 text-right text-xs tabular-nums text-fg-secondary">
-                      {r.oldestBreachHours}h
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          <div className="flex items-center gap-3 border-b border-border py-1.5 text-sm text-fg-secondary">
+            <span className="flex-1">Praxis</span>
+            <span>Offen</span>
+            <span className="w-20 text-right">Älteste</span>
+            <span className="w-4" aria-hidden />
+          </div>
+          <ul className="divide-y divide-border">
+            {sla.map((r) => (
+              <li key={r.clinicId}>
+                <Link
+                  href={`/admin/clinics/${r.clinicId}?tab=leads`}
+                  data-row
+                  className={ROW_CLASS}
+                >
+                  <span className="min-w-0 flex-1 truncate text-fg-primary">{r.clinicName}</span>
+                  <span className="shrink-0 font-medium tabular-nums text-tone-bad">
+                    {r.breachCount}
+                  </span>
+                  <span className="w-20 shrink-0 text-right text-[13px] tabular-nums text-fg-secondary">
+                    {ageLabel(r.oldestBreachHours)}
+                  </span>
+                  <ChevronRight className="h-4 w-4 shrink-0 text-fg-tertiary" aria-hidden />
+                </Link>
+              </li>
+            ))}
+          </ul>
         </div>
-      </CardContent>
-    </Card>
+      )}
+    </Panel>
   );
 }

@@ -1,10 +1,11 @@
-import Link from "next/link";
+import { PendingLink } from "@/app/_components/instant-views";
 import { Card, CardContent, MetricTile, Badge, TrendChart, Donut } from "@eins/ui";
 import {
   formatEuro,
   formatMoney,
   formatNumber,
   formatPercent,
+  formatRoas,
 } from "@/lib/formatting";
 import { REQUEST_STATUS_LABELS } from "@/lib/constants";
 import { reportingChannelLabel } from "@/lib/sources";
@@ -65,21 +66,18 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
           Zeitraum
         </span>
         {PERIOD_OPTIONS.map((p) => (
-          <Link
+          <PendingLink
             key={p.key}
-            href={{
-              pathname: `/admin/clinics/${clinicId}`,
-              query: { tab: "leistung", period: p.key },
-            }}
-            scroll={false}
-            className={`rounded-full border px-3 py-1 text-sm transition-colors ${
-              p.key === periodKey
-                ? "border-accent bg-fg-primary text-bg-primary"
-                : "border-border text-fg-primary hover:border-accent hover:text-accent"
-            }`}
+            href={`/admin/clinics/${clinicId}?tab=leistung&period=${p.key}`}
+            param="period"
+            value={p.key}
+            defaultValue={periodKey}
+            className="rounded-full border px-3 py-1 text-sm transition-colors"
+            activeClassName="border-accent bg-fg-primary text-bg-primary"
+            inactiveClassName="border-border text-fg-primary hover:border-accent hover:text-accent"
           >
             {p.label}
-          </Link>
+          </PendingLink>
         ))}
       </div>
 
@@ -103,7 +101,7 @@ export function LeistungTab({ perf, periodKey, clinicId }: Props) {
         />
         <MetricTile
           label="Werbeertrag"
-          value={summary.roas == null ? "–" : `${summary.roas.toFixed(2)}×`}
+          value={formatRoas(summary.roas)}
           sublabel={summary.cpp == null ? "" : `Kosten pro Patient ${formatEuro(summary.cpp)}`}
           tone={roasTone}
         />

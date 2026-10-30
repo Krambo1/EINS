@@ -2,13 +2,14 @@
 
 import { useState, useTransition } from "react";
 import { Button } from "@eins/ui";
-import { Loader2 } from "lucide-react";
 import { revokeAdsConsent } from "./actions";
 
 /**
  * "Einwilligung widerrufen" (migration 0077). The action returns
  * `{ ok, message }` like the other cockpit actions (V2 Neben 5), so a refusal
- * shows as a German line instead of an error page.
+ * shows as a German line instead of an error page. Not optimistic on purpose:
+ * it stops data flows to Meta and Google, so the page waits for the server.
+ * While it saves the button only dims; a spinner would widen it.
  */
 export function RevokeAdsConsentButton({ requestId }: { requestId: string }) {
   const [isPending, startTransition] = useTransition();
@@ -31,7 +32,6 @@ export function RevokeAdsConsentButton({ requestId }: { requestId: string }) {
   return (
     <>
       <Button type="button" size="sm" variant="danger" disabled={isPending} onClick={submit}>
-        {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
         Einwilligung widerrufen
       </Button>
       {error && <p className="basis-full text-sm text-tone-bad">{error}</p>}

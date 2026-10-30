@@ -20,7 +20,11 @@ import {
   type UploadTarget,
 } from "@/server/uploads";
 import { formatBytes } from "@/lib/formatting";
-import { flashError, flashMessageFromError } from "@/lib/flash";
+import { flashError, flashMessageFromError, flashSuccess } from "@/lib/flash";
+import { DOCUMENT_KINDS, type DocumentKind } from "@/lib/constants";
+import { listDocuments } from "@/server/queries/documents";
+import { safeName, uniqueNames, type ZipFile } from "../inhalte/_lib/zip";
+import { KIND_FILTER_LABELS, PINNED_DOCS, documentFileName } from "./_lib/von-eins";
 
 /**
  * "Dateien an EINS" — general clinic-to-EINS file delivery.
@@ -192,7 +196,9 @@ export async function deleteClientUploadAction(
 ): Promise<void> {
   const session = await requireSession();
   try {
-    await deleteClientUpload(session, formData);
+    // One tap deletes, no question first; the toast says which file went.
+    const filename = await deleteClientUpload(session, formData);
+    if (filename) await flashSuccess("Datei gelöscht", filename);
   } catch (err) {
     // F-01: a toast instead of the error page.
     await flashError(
@@ -206,12 +212,12 @@ export async function deleteClientUploadAction(
 async function deleteClientUpload(
   session: Awaited<ReturnType<typeof requireSession>>,
   formData: FormData
-): Promise<void> {
+): Promise<string | null> {
   if (!can(session.role, "uploads.send")) {
     throw new ForbiddenError("uploads.send");
   }
   const id = z.string().uuid().safeParse(formData.get("id"));
-  if (!id.success) return;
+  if (!id.success) return null;
 
   let storageKey: string | null = null;
   let filename: string | null = null;
@@ -259,6 +265,84 @@ async function deleteClientUpload(
       diff: { filename },
     });
   }
+  return filename;
+}
+
+// ---------------------------------------------------------------
+// "Alle herunterladen" in "Von EINS"
+// ---------------------------------------------------------------
+
+/** Long enough for a slow line to read every file one after the other. */
+const ZIP_LINK_SECONDS = 6 * 60 * 60;
+
+/**
+ * The files of "Von EINS" under the chosen Art (all of them without one, the
+ * Anleitung and the Checkliste included) with fresh signed links, and the
+ * name of the ZIP. The browser reads the files straight from storage and
+ * packs them (inhalte/_lib/zip.ts, as for Medien); no bytes pass through
+ * here. The links on the page expire after 10 minutes, too soon for a ZIP
+ * started later or a slow line.
+ */
+export async function listVonEinsFilesAction(
+  kind: string | null
+): Promise<{ base: string; files: ZipFile[] }> {
+  const session = await requireSession();
+  if (!can(session.role, "documents.view.marketing")) {
+    throw new ForbiddenError("documents.view.marketing");
+  }
+  const art = (DOCUMENT_KINDS as readonly string[]).includes(kind ?? "")
+    ? (kind as DocumentKind)
+    : undefined;
+
+  const [docs, [clinic]] = await Promise.all([
+    // The same rows the card lists for this role (Verträge and AVV only for
+    // the Inhaber:in).
+    listDocuments(session.clinicId, session.userId, session.role, art ? { kind: art } : {}),
+    db
+      .select({ displayName: schema.clinics.displayName })
+      .from(schema.clinics)
+      .where(eq(schema.clinics.id, session.clinicId))
+      .limit(1),
+  ]);
+
+  const pinned = art ? [] : PINNED_DOCS;
+  const names = uniqueNames([
+    ...pinned.map((d) => d.downloadName),
+    // The names their own "Herunterladen" saves them under.
+    ...docs.map((d) => documentFileName(d.title, d.storageKey)),
+  ]);
+  const now = new Date().toISOString();
+  const storage = getStorage();
+  const files: ZipFile[] = [
+    ...pinned.map((d, i) => ({
+      name: names[i]!,
+      url: d.href,
+      downloadUrl: d.href,
+      size: null,
+      modified: now,
+    })),
+    ...(await Promise.all(
+      docs.map(async (d, i) => {
+        const name = names[pinned.length + i]!;
+        return {
+          name,
+          url: await storage.urlFor(d.storageKey, { expiresInSeconds: ZIP_LINK_SECONDS }),
+          downloadUrl: await storage.urlFor(d.storageKey, {
+            expiresInSeconds: ZIP_LINK_SECONDS,
+            downloadName: name,
+          }),
+          size: d.fileSizeBytes ?? null,
+          modified: d.createdAt.toISOString(),
+        };
+      })
+    )),
+  ];
+
+  // "Dateien von EINS Praxis Dr. Demo 30.10.2026", or "Verträge …".
+  const date = new Date().toLocaleDateString("de-DE", { timeZone: "Europe/Berlin" });
+  const label = art ? KIND_FILTER_LABELS[art] : "Dateien von EINS";
+  const base = safeName(`${label} ${clinic?.displayName ?? "Ihre Praxis"} ${date}`, "Dateien von EINS");
+  return { base, files };
 }
 
 // ---------------------------------------------------------------

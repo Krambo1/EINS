@@ -76,7 +76,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "bereiche-ueberblick",
         q: "Welche Bereiche gibt es im Portal?",
-        a: "In der Seitenleiste finden Sie: Übersicht (Ihre Kennzahlen), Fortschritt (Ihr Onboarding), Anfragen (Patientenanfragen), Werbebudget (Ihre Anzeigen, sobald welche laufen), Bewertungen (Reputation und Patientenfeedback), Medien (Ihre Beiträge), Dokumente (Verträge und Material), Leitfaden (Ihr Vertriebs-Playbook), Feedback (Ihre Wünsche an uns) und Einstellungen.",
+        a: "In der Seitenleiste finden Sie: Übersicht (Ihre Kennzahlen), Fortschritt (Ihr Onboarding), Anfragen (Patientenanfragen), Werbebudget (Ihre Anzeigen, sobald welche laufen), Bewertungen (Reputation und Patientenfeedback), Inhalte (Ihre Beiträge, Videos und Bilder), Dateien (Verträge und Material), Leitfaden (Ihr Vertriebs-Playbook), Nachrichten an EINS (Ihre Wünsche an uns) und Hilfe. Ihre Einstellungen erreichen Sie über Ihren Namen in der Seitenleiste.",
         keywords: ["navigation", "tabs", "menü", "seitenleiste", "module"],
       },
       {
@@ -106,13 +106,13 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "reaktionszeit",
         q: "Wie schnell sollte ich auf eine neue Anfrage reagieren?",
-        a: "So schnell wie möglich, unser Ziel ist ein Rückruf innerhalb von 2 Stunden. Je früher Sie sich melden, desto höher ist die Chance, dass aus der Anfrage ein Termin wird. Bitte versuchen Sie, jede Anfrage innerhalb von 48 Werkstunden zu kontaktieren (Montag bis Freitag, 9 bis 18 Uhr). Das ist keine Bedingung der Garantie, die Folgen eines Verzugs erklärt die nächste Frage. Konkrete Zielwerte und bewährte Gesprächsabläufe finden Sie im Vertriebsleitfaden.",
+        a: "So schnell wie möglich, am besten in den ersten 5 Minuten nach Eingang. Je früher Sie sich melden, desto höher ist die Chance, dass aus der Anfrage ein Termin wird. Bitte versuchen Sie, jede Anfrage spätestens innerhalb von 48 Werkstunden zu kontaktieren (Montag bis Freitag, 9 bis 18 Uhr). Das ist keine Bedingung der Garantie, die Folgen eines Verzugs erklärt die nächste Frage. Konkrete Zielwerte und bewährte Gesprächsabläufe finden Sie im Vertriebsleitfaden.",
         keywords: ["sla", "geschwindigkeit", "zurückrufen", "schnell", "antwortzeit", "reaktion"],
       },
       {
         id: "frist-48-werkstunden",
         q: "Was passiert, wenn wir eine Anfrage nicht innerhalb von 48 Werkstunden kontaktieren?",
-        a: "Die 48 Werkstunden sind keine Bedingung der Garantie. Werkstunden sind Montag bis Freitag, 9 bis 18 Uhr, ohne gesetzliche Feiertage am Sitz Ihrer Praxis. Das Portal rechnet zu Ihren Gunsten und lässt jeden Tag aus, der in einem Bundesland gesetzlicher Feiertag ist. Die Frist beginnt mit dem Eingang der Anfrage im Portal, bei Eingang außerhalb der Werkstunden mit der nächsten Werkstunde.\n\nAls Kontaktversuch zählt, dass Ihre Praxis die Person anruft oder ihr schreibt und das im Portal vermerkt: mit \"Anruf protokollieren\" (jedes Ergebnis zählt, auch \"Nicht erreicht\") oder mit dem Status \"Kontaktiert\", \"Nicht erreicht\" oder \"Termin vereinbart\". Ein Gespräch muss nicht zustande kommen. \"Spam\" oder \"Verloren\" zählt nicht.\n\nSchaffen Sie es nicht, hat das Folgen:\nDie Anfrage steht in Ihrer Auswertung gesondert als \"von der Praxis nicht beantwortet\" oder, bei einem späteren Kontaktversuch, als \"von der Praxis zu spät beantwortet\".\nLiegen gleichzeitig drei oder mehr solcher Anfragen offen, warnen wir Sie per E-Mail. Sind am Ende des nächsten Werktags immer noch drei oder mehr offen, dürfen wir die bezahlten Anzeigen pausieren. Sobald Sie die Anfragen kontaktiert haben, schalten wir sie sofort wieder ein. Ihre organischen Beiträge laufen weiter.\n\nMehr passiert nicht: Die Garantie bleibt, und es gibt deswegen keine Gebühr, keine Vertragsstrafe, keinen Schadensersatz, keine Kündigung und keine Verlängerung der 90 Tage. Die genauen Regeln stehen im Garantie-Anhang unter Dokumente.",
+        a: "Die 48 Werkstunden sind keine Bedingung der Garantie. Werkstunden sind Montag bis Freitag, 9 bis 18 Uhr, ohne gesetzliche Feiertage am Sitz Ihrer Praxis. Das Portal rechnet zu Ihren Gunsten und lässt jeden Tag aus, der in einem Bundesland gesetzlicher Feiertag ist. Die Frist beginnt mit dem Eingang der Anfrage im Portal, bei Eingang außerhalb der Werkstunden mit der nächsten Werkstunde.\n\nAls Kontaktversuch zählt, dass Ihre Praxis die Person anruft oder ihr schreibt und das im Portal vermerkt: mit \"Anruf protokollieren\" (jedes Ergebnis zählt, auch \"Nicht erreicht\") oder mit dem Status \"Kontaktiert\", \"Nicht erreicht\" oder \"Termin vereinbart\". Ein Gespräch muss nicht zustande kommen. \"Spam\" oder \"Verloren\" zählt nicht.\n\nSchaffen Sie es nicht, hat das Folgen:\nDie Anfrage steht in Ihrer Auswertung gesondert als \"von der Praxis nicht beantwortet\" oder, bei einem späteren Kontaktversuch, als \"von der Praxis zu spät beantwortet\".\nLiegen gleichzeitig drei oder mehr solcher Anfragen offen, warnen wir Sie per E-Mail. Sind am Ende des nächsten Werktags immer noch drei oder mehr offen, dürfen wir die bezahlten Anzeigen pausieren. Sobald Sie die Anfragen kontaktiert haben, schalten wir sie sofort wieder ein. Ihre organischen Beiträge laufen weiter.\n\nMehr passiert nicht: Die Garantie bleibt, und es gibt deswegen keine Gebühr, keine Vertragsstrafe, keinen Schadensersatz, keine Kündigung und keine Verlängerung der 90 Tage. Die genauen Regeln stehen im Garantie-Anhang unter Dateien.",
         keywords: ["48 werkstunden", "frist", "kontaktversuch", "nicht beantwortet", "zu spät beantwortet", "anzeigen pausieren", "antwortzeit", "rückruf", "anruf protokollieren", "garantie"],
       },
       {
@@ -160,8 +160,8 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "was-zeigt-dashboard",
         q: "Was zeigt mir die Übersicht?",
-        a: "Die Übersicht ist Ihr Dashboard. Sie sehen dort auf einen Blick die wichtigsten Zahlen: wie viele Anfragen eingegangen sind, wie schnell darauf reagiert wird, wie sich Ihr Umsatz entwickelt und wie wirtschaftlich Ihre Anzeigen laufen.",
-        keywords: ["dashboard", "kennzahlen", "kpi", "übersicht", "zahlen", "auswertung"],
+        a: "Die Übersicht ist Ihr Dashboard. Sie sehen dort auf einen Blick die wichtigsten Zahlen: wie viele Anfragen eingegangen sind, woher sie kamen, wie schnell darauf reagiert wird und wie sich Ihr Umsatz entwickelt. Sobald Anzeigen laufen, sehen Sie dort auch, wie wirtschaftlich sie sind.\n\nDie Übersicht ist auch Ihre monatliche Auswertung. Einmal im Monat schicken wir Ihnen die Zahlen der letzten 30 Tage per E-Mail und besprechen sie mit Ihnen im Strategie-Gespräch. Die vereinbarten nächsten Schritte stehen danach unter Fortschritt.",
+        keywords: ["dashboard", "kennzahlen", "kpi", "übersicht", "zahlen", "auswertung", "monatsbericht", "bericht", "monatlich"],
       },
       {
         id: "werbeertrag",
@@ -178,7 +178,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "zeitraum-waehlen",
         q: "Kann ich den Zeitraum der Zahlen umstellen?",
-        a: "Ja. Oben auf der Übersicht können Sie den Zeitraum wechseln, zum Beispiel den aktuellen Monat oder einen längeren Zeitraum. Alle Kennzahlen passen sich dann automatisch an.",
+        a: "Ja. Oben auf der Übersicht können Sie den Zeitraum wechseln, zum Beispiel die letzten 30 Tage oder einen längeren Zeitraum. Alle Kennzahlen passen sich dann automatisch an.",
         keywords: ["zeitraum", "monat", "quartal", "filter", "zeit umstellen", "vergleich"],
       },
       {
@@ -198,6 +198,12 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
         q: "Sehe ich, welche Anfrage zu welchem Umsatz geführt hat?",
         a: "Ja, in der Übersicht ist nachvollziehbar, wie aus Anfragen Termine und daraus Umsatz wird. So erkennen Sie, welche Behandlungsbereiche besonders gut laufen.",
         keywords: ["zuordnung", "attribution", "welche anfrage", "umsatz quelle", "herkunft umsatz"],
+      },
+      {
+        id: "quellen",
+        q: "Was bedeuten die Quellen bei den Anfragen?",
+        a: "Die Quelle zeigt, woher eine Anfrage kam. Instagram-, Facebook- oder TikTok-Beitrag: Die Person kam über den Link in einem Beitrag. Profil-Link: über den Link in Ihrem Profil. Link aus Direktnachricht: über einen Link, den wir in einer Direktnachricht verschickt haben. Meta-Anzeige und Google-Anzeige: über eine bezahlte Anzeige. Direkt (ohne Kennzeichnung): Die Person kam ohne gekennzeichneten Link auf Ihre Zielseite, zum Beispiel über eine kopierte Adresse. Manueller Eintrag: Ihr Team hat die Anfrage selbst angelegt.",
+        keywords: ["quelle", "quellen", "herkunft", "woher", "instagram", "profil-link", "direktnachricht", "direkt", "organisch"],
       },
       {
         id: "ladezeit",
@@ -232,13 +238,13 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "wer-verwaltet-anzeigen",
         q: "Wer kümmert sich um die Beiträge und Anzeigen?",
-        a: "Das übernimmt EINS für Sie: Erstellung und Veröffentlichung der Beiträge sowie Konzeption, Schaltung und laufende Optimierung der Anzeigen. Die Betreuung der Anzeigen ist im Preis enthalten. Sie geben die Beiträge frei, müssen sich nicht um die Technik kümmern und behalten im Portal trotzdem den vollen Überblick.",
+        a: "Das übernimmt EINS für Sie: Erstellung und Veröffentlichung der Beiträge und, sobald Anzeigen laufen, deren Konzeption, Schaltung und laufende Optimierung. Die Betreuung der Anzeigen ist im Preis enthalten. Sie geben die Beiträge frei, müssen sich nicht um die Technik kümmern und behalten im Portal trotzdem den vollen Überblick.",
         keywords: ["wer macht", "verwaltung", "betreuung", "optimierung", "agentur", "beiträge"],
       },
       {
         id: "werbekonto-verbinden",
         q: "Wie verbinde ich mein Werbekonto?",
-        a: "Unter Einstellungen, Werbekonten verbinden Sie Ihr Meta- und Google-Konto mit wenigen Klicks. Dadurch können wir Anzeigen in Ihrem Namen schalten und die Zahlen sauber in Ihre Übersicht spielen. Diesen Schritt nimmt in der Regel die Inhaberin oder der Inhaber vor.",
+        a: "Das brauchen Sie erst, wenn Anzeigen starten sollen. Für die organischen Beiträge ist kein Werbekonto nötig. Unter Einstellungen, Werbekonten verbinden Sie Ihr Meta- und Google-Konto mit wenigen Klicks. Dadurch können wir Anzeigen in Ihrem Namen schalten und die Zahlen sauber in Ihre Übersicht spielen. Diesen Schritt nimmt in der Regel die Inhaberin oder der Inhaber vor.",
         keywords: ["werbekonto", "verbinden", "meta", "google ads", "oauth", "verknüpfen"],
       },
       {
@@ -250,7 +256,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "werbekonto-trennen",
         q: "Was passiert, wenn ich ein Werbekonto trenne?",
-        a: "Wird die Verbindung getrennt, können wir keine neuen Anzeigen mehr in Ihrem Namen schalten und keine aktuellen Zahlen mehr abrufen. Trennen Sie ein Konto deshalb bitte nur in Absprache mit uns.",
+        a: "Wird die Verbindung getrennt, können wir keine neuen Anzeigen mehr in Ihrem Namen schalten und keine aktuellen Zahlen mehr abrufen. Ihre Beiträge laufen organisch weiter. Trennen Sie ein Konto deshalb bitte nur in Absprache mit uns.",
         keywords: ["trennen", "verbindung lösen", "deaktivieren", "abmelden"],
       },
     ],
@@ -299,13 +305,13 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
   },
   {
     id: "medien",
-    label: "Medien und Beiträge",
+    label: "Inhalte",
     items: [
       {
         id: "medien-bereich",
-        q: "Was finde ich unter Medien?",
-        a: "Unter Medien finden Sie die für Ihre Praxis erstellten Beiträge: Videos mit Ihrem KI-Klon, Erklär-Animationen und Bildmaterial. Sie sind HWG-geprüft, als KI-generiert gekennzeichnet und werden erst nach Ihrer Freigabe veröffentlicht. Hier stehen sie Ihnen zum Ansehen und Herunterladen bereit.",
-        keywords: ["medien", "videos", "beiträge", "animationen", "grafiken", "bildmaterial", "ki", "klon", "assets"],
+        q: "Was finde ich unter Inhalte?",
+        a: "Unter Inhalte finden Sie alles, was EINS für Ihre Praxis erstellt. Oben die Beiträge, die auf Ihre Freigabe warten. Darunter alle Beiträge mit ihrem Stand, den Anfragen, die sie gebracht haben, und ihrem Video oder Bild zum Ansehen und Herunterladen. Jeder Beitrag ist HWG-geprüft, als KI-generiert gekennzeichnet und geht erst nach Ihrer Freigabe online.",
+        keywords: ["inhalte", "medien", "videos", "beiträge", "grafiken", "bildmaterial", "ki", "klon", "assets"],
       },
       {
         id: "ki-beitraege",
@@ -328,7 +334,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "medien-nutzen",
         q: "Darf ich die Beiträge auch für meine eigenen Kanäle nutzen?",
-        a: "Ja. Sobald die erste Rechnung bezahlt ist, dürfen Sie alles, was für Ihre Praxis entstanden ist, dauerhaft nutzen und bearbeiten, zum Beispiel auf Ihrer Website, in Ihren eigenen Profilen, in Anzeigen oder in Print. Das gilt auch nach einer Kündigung und mit einer anderen Agentur. Die Einzelheiten stehen in Ihrem Vertrag unter Dokumente.",
+        a: "Ja. Sobald die erste Rechnung bezahlt ist, dürfen Sie alles, was für Ihre Praxis entstanden ist, dauerhaft nutzen und bearbeiten, zum Beispiel auf Ihrer Website, in Ihren eigenen Profilen, in Anzeigen oder in Print. Das gilt auch nach einer Kündigung und mit einer anderen Agentur. Die Einzelheiten stehen in Ihrem Vertrag unter Dateien.",
         keywords: ["nutzungsrechte", "verwenden", "eigene kanäle", "website", "social media", "rechte"],
       },
       {
@@ -340,8 +346,8 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "medien-herunterladen",
         q: "Wie lade ich ein Video herunter?",
-        a: "Öffnen Sie das gewünschte Video im Bereich Medien und nutzen Sie die Download-Funktion. Die Datei wird dann auf Ihr Gerät gespeichert.",
-        keywords: ["download", "herunterladen", "speichern", "video"],
+        a: "Öffnen Sie unter Inhalte in „Alle Beiträge“ den Beitrag: Dort steht „Herunterladen“. Mit „Alle herunterladen“ oben in der Karte laden Sie die Dateien aller Beiträge auf einmal, gesammelt in einer ZIP-Datei.",
+        keywords: ["download", "herunterladen", "speichern", "video", "alle", "zip"],
       },
       {
         id: "neue-medien-haeufigkeit",
@@ -363,14 +369,14 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
     items: [
       {
         id: "dokumente-bereich",
-        q: "Was finde ich unter Dokumente?",
-        a: "Unter Dokumente liegen Ihre Verträge, die Auftragsverarbeitungsvereinbarung (AVV), Marketing-Material und der vollständige Vertriebsleitfaden als PDF. Sie können die Dateien dort jederzeit ansehen und herunterladen.",
-        keywords: ["dokumente", "dateien", "vertrag", "avv", "downloads", "material"],
+        q: "Was finde ich unter Dateien?",
+        a: "Unter Dateien liegt alles, was EINS Ihnen gibt: Ihre Verträge, die Auftragsverarbeitungsvereinbarung (AVV), Marketing-Material und der vollständige Vertriebsleitfaden als PDF. Sie können alles jederzeit ansehen und herunterladen. Dort senden Sie uns auch Dokumente, Bilder und Videos und sehen, ob EINS sie schon geöffnet hat.",
+        keywords: ["dokumente", "dateien", "vertrag", "avv", "downloads", "material", "hochladen", "senden"],
       },
       {
         id: "vertrag-finden",
         q: "Wo finde ich meinen Vertrag und die AVV?",
-        a: "Beides liegt unter Dokumente. Aus Datenschutzgründen sind Verträge und die AVV nur für die Inhaberin oder den Inhaber sichtbar.",
+        a: "Beides liegt unter Dateien. Aus Datenschutzgründen sind Verträge und die AVV nur für die Inhaberin oder den Inhaber sichtbar.",
         keywords: ["vertrag", "avv", "finden", "inhaber", "rechtliches"],
       },
       {
@@ -382,7 +388,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "leitfaden-pdf",
         q: "Wo finde ich den vollständigen Vertriebsleitfaden als PDF?",
-        a: "Die komplette Fassung mit allen Einwänden, HWG-Tabellen und Vorlagen liegt als PDF unter Dokumente. Der Bereich Leitfaden im Portal zeigt die wichtigste Kurzfassung.",
+        a: "Die komplette Fassung mit allen Einwänden, HWG-Tabellen und Vorlagen liegt als PDF unter Dateien. Der Bereich Leitfaden im Portal zeigt die wichtigste Kurzfassung.",
         keywords: ["leitfaden pdf", "playbook", "vollständig", "download", "vertriebsleitfaden"],
       },
       {
@@ -400,8 +406,8 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "was-ist-leitfaden",
         q: "Was ist der Vertriebsleitfaden?",
-        a: "Der Vertriebsleitfaden ist Ihr Playbook für die Annahme von Patientenanfragen am Telefon: Gesprächs-Eröffnung, die richtigen Fragen, Antworten auf häufige Einwände, HWG-konforme Formulierungen und Tipps gegen ausgefallene Termine. Damit machen Sie aus mehr Anfragen echte Termine.",
-        keywords: ["leitfaden", "playbook", "gesprächsführung", "telefon", "skript", "vertrieb"],
+        a: "Der Vertriebsleitfaden ist Ihr Playbook für die Annahme von Patientenanfragen am Telefon: Gesprächs-Eröffnung, die richtigen Fragen, Antworten auf häufige Einwände, HWG-konforme Formulierungen und Tipps gegen ausgefallene Termine. Damit machen Sie aus mehr Anfragen echte Termine.\n\nFür neue Anfragen steht dort auch, wann Sie anrufen und nachfassen, mit Vorlagen für Rückruf, Mailbox, E-Mail und WhatsApp zum Kopieren.",
+        keywords: ["leitfaden", "playbook", "gesprächsführung", "telefon", "skript", "vertrieb", "vorlage", "e-mail", "whatsapp", "mailbox", "rückruf"],
       },
       {
         id: "wer-leitfaden-lesen",
@@ -454,7 +460,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "wer-sieht-was",
         q: "Wer darf welche Bereiche sehen?",
-        a: "Die meisten Bereiche wie Übersicht, Anfragen, Bewertungen, Medien und Leitfaden stehen allen Rollen offen. Verträge, das Team und die Werbekonten sind aus gutem Grund nur für die Inhaberin oder den Inhaber sichtbar.",
+        a: "Die meisten Bereiche wie Übersicht, Anfragen, Bewertungen, Inhalte und Leitfaden stehen allen Rollen offen. Verträge, das Team und die Werbekonten sind aus gutem Grund nur für die Inhaberin oder den Inhaber sichtbar.",
         keywords: ["berechtigung", "sichtbarkeit", "zugriff", "rollen", "rechte"],
       },
       {
@@ -496,13 +502,13 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "datenspeicherung",
         q: "Werden meine Daten datenschutzkonform verarbeitet?",
-        a: "Ja. Die Verarbeitung richtet sich nach der DSGVO und der mit Ihnen geschlossenen Auftragsverarbeitungsvereinbarung. Diese finden Sie unter Dokumente.",
+        a: "Ja. Die Verarbeitung richtet sich nach der DSGVO und der mit Ihnen geschlossenen Auftragsverarbeitungsvereinbarung. Diese finden Sie unter Dateien.",
         keywords: ["speicherung", "wo daten", "server", "dsgvo", "konform", "verarbeitung"],
       },
       {
         id: "avv-noetig",
         q: "Brauche ich eine AVV mit EINS?",
-        a: "Ja. Da EINS personenbezogene Daten in Ihrem Auftrag verarbeitet, ist eine Auftragsverarbeitungsvereinbarung erforderlich. Sie ist Teil Ihrer Unterlagen und liegt unter Dokumente bereit.",
+        a: "Ja. Da EINS personenbezogene Daten in Ihrem Auftrag verarbeitet, ist eine Auftragsverarbeitungsvereinbarung erforderlich. Sie ist Teil Ihrer Unterlagen und liegt unter Dateien bereit.",
         keywords: ["avv nötig", "vereinbarung", "auftragsverarbeitung", "pflicht", "dsgvo"],
       },
       {
@@ -574,7 +580,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "was-am-telefon-sagen",
         q: "Was darf ich am Telefon sagen, und was nicht?",
-        a: "Eine kompakte Übersicht mit konkreten Formulierungen, also was Sie sagen sollten und was Sie besser vermeiden, finden Sie im Vertriebsleitfaden unter HWG-Quick-Reference. Die vollständige Fassung steht in der PDF unter Dokumente.",
+        a: "Eine kompakte Übersicht mit konkreten Formulierungen, also was Sie sagen sollten und was Sie besser vermeiden, finden Sie im Vertriebsleitfaden unter HWG-Quick-Reference. Die vollständige Fassung steht in der PDF unter Dateien.",
         keywords: ["telefon", "formulierungen", "erlaubt sagen", "verboten", "leitfaden", "sag so"],
       },
       {
@@ -592,7 +598,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "was-ist-garantie",
         q: "Was ist die EINS-Garantie?",
-        a: "Keine Anfrage, keine Rechnung. Sie zahlen nichts, bis die erste qualifizierte Anfrage über EINS in Ihrem Portal liegt. Kommt in 90 Tagen keine, endet die Zusammenarbeit, und Sie haben nichts bezahlt.\n\nDie 90 Tage laufen ab dem Tag Ihrer Unterschrift, bis die erste qualifizierte Anfrage über EINS in Ihrem Portal liegt. Die verbindlichen Einzelheiten stehen im EINS-Garantie-Anhang Ihres Vertrags unter Dokumente.",
+        a: "Keine Anfrage, keine Rechnung. Sie zahlen nichts, bis die erste qualifizierte Anfrage über EINS in Ihrem Portal liegt. Kommt in 90 Tagen keine, endet die Zusammenarbeit, und Sie haben nichts bezahlt.\n\nDie 90 Tage laufen ab dem Tag Ihrer Unterschrift, bis die erste qualifizierte Anfrage über EINS in Ihrem Portal liegt. Die verbindlichen Einzelheiten stehen im EINS-Garantie-Anhang Ihres Vertrags unter Dateien.",
         keywords: ["garantie", "keine anfrage keine rechnung", "versprechen", "sicherheit", "bedingungen", "90 tage"],
       },
       {
@@ -610,13 +616,13 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "garantie-finden",
         q: "Wo finde ich die genauen Bedingungen?",
-        a: "Die verbindlichen Bedingungen dazu, wann Ihre erste qualifizierte Anfrage über EINS zählt und wie die 90 Tage laufen, stehen im EINS-Garantie-Anhang. Er ist Teil Ihres Vertrags, den Sie unter Dokumente finden. Bei Fragen dazu sind wir jederzeit für Sie da.",
+        a: "Die verbindlichen Bedingungen dazu, wann Ihre erste qualifizierte Anfrage über EINS zählt und wie die 90 Tage laufen, stehen im EINS-Garantie-Anhang. Er ist Teil Ihres Vertrags, den Sie unter Dateien finden. Bei Fragen dazu sind wir jederzeit für Sie da.",
         keywords: ["garantie finden", "bedingungen", "vertrag", "dokumente", "nachlesen", "anhang"],
       },
       {
         id: "abrechnung",
         q: "Wie funktioniert die Abrechnung?",
-        a: "1.900 € netto im Monat. Ein Paket, keine Einrichtungsgebühr, monatlich kündbar. Die erste Rechnung kommt erst, wenn die erste qualifizierte Anfrage über EINS in Ihrem Portal liegt, nicht erst mit der ersten gebuchten Beratung. Am Tag der ersten qualifizierten Anfrage über EINS beginnt Ihr erster bezahlter Leistungsmonat. Kommt in 90 Tagen keine, endet die Zusammenarbeit, und Sie haben nichts bezahlt. Werbebudget für Anzeigen zahlen Sie separat direkt an Meta und Google. Die verbindlichen Konditionen stehen in Ihrem Vertrag unter Dokumente.",
+        a: "1.900 € netto im Monat. Ein Paket, keine Einrichtungsgebühr, monatlich kündbar. Die erste Rechnung kommt erst, wenn die erste qualifizierte Anfrage über EINS in Ihrem Portal liegt, nicht erst mit der ersten gebuchten Beratung. Am Tag der ersten qualifizierten Anfrage über EINS beginnt Ihr erster bezahlter Leistungsmonat. Kommt in 90 Tagen keine, endet die Zusammenarbeit, und Sie haben nichts bezahlt. Werbebudget für Anzeigen zahlen Sie separat direkt an Meta und Google. Die verbindlichen Konditionen stehen in Ihrem Vertrag unter Dateien.",
         keywords: ["abrechnung", "kosten", "preis", "rechnung", "erste rechnung", "konditionen", "zahlung"],
       },
       {

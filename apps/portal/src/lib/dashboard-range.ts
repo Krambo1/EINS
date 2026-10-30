@@ -33,11 +33,14 @@ export const ADMIN_RANGE_KEYS = {
   leistung: "rLeistung",
 } as const;
 
+// Named by their real length (RANGE_DAYS), the same words as the clinic
+// dashboard switch, so "30 Tage" never reads as the calendar month the
+// "(Monat)" tiles on the admin Übersicht show.
 export const DASHBOARD_RANGE_LABELS: Record<DashboardRange, string> = {
   heute: "Heute",
-  mon: "Monat",
-  jahr: "Jahr",
-  max: "Max",
+  mon: "30 Tage",
+  jahr: "12 Monate",
+  max: "5 Jahre",
 };
 
 const RANGE_DAYS: Record<DashboardRange, number> = {

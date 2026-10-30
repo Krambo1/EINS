@@ -625,7 +625,7 @@ function FreigabePaketCard({
       <CardHeader>
         <CardTitle>Freigabe-Paket</CardTitle>
         <CardDescription>
-          Die Praxis bekommt eine E-Mail mit einem Link pro Beitrag und sieht dieselben Knöpfe unter Beiträge. Es gilt
+          Die Praxis bekommt eine E-Mail mit einem Link pro Beitrag und sieht dieselben Knöpfe unter Inhalte. Es gilt
           die erste Entscheidung. Frist: 2 Werktage. Klon-Beiträge gehen nur an Inhaber-Zugänge.
         </CardDescription>
       </CardHeader>
