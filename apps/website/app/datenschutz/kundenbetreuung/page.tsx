@@ -14,15 +14,15 @@ export const metadata = {
   alternates: { canonical: "/datenschutz/kundenbetreuung" },
 };
 
-const STAND = "13.10.2026";
+const STAND = "30.10.2026";
 
 /** Every service that receives support data, with role, place and transfer basis. */
 const PROVIDERS: { name: string; task: string; place: string; basis: string }[] = [
   {
-    name: "Migadu (Migadu-Mail GmbH, Schachen, Schweiz)",
+    name: "Purelymail (Add Rabbit LLC, USA)",
     task: "E-Mail-Postfach team@eins.ag: Empfang Ihrer E-Mails und Ablage der Korrespondenz",
-    place: "Rechenzentren in Frankreich (EU)",
-    basis: "Auftragsverarbeitungsvertrag (die Datenschutzerklärung von Migadu ist zugleich der Auftragsverarbeitungsvertrag); Speicherung in der EU, für die Schweiz besteht ein Angemessenheitsbeschluss der EU-Kommission (Art. 45 DSGVO)",
+    place: "Server von Amazon Web Services in den USA",
+    basis: "Purelymail ist nicht nach dem EU-U.S. Data Privacy Framework zertifiziert, für diesen Empfänger besteht also kein Angemessenheitsbeschluss, und US-Behörden können unter Umständen auf die Daten zugreifen. Die Übermittlung stützt sich auf Art. 49 Abs. 1 Buchstabe b und c DSGVO: Ihre Nachricht muss in unserem Postfach liegen, damit wir den Vertrag mit Ihnen oder Ihrer Praxis erfüllen und Ihnen antworten können",
   },
   {
     name: "Cloudflare (Cloudflare, Inc., San Francisco, USA)",

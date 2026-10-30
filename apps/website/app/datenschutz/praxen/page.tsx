@@ -230,11 +230,15 @@ export default function DatenschutzPraxen() {
             Framework zertifiziert, zusätzlich gelten Standardvertragsklauseln.
           </li>
           <li>
-            <strong>Migadu</strong> (Migadu-Mail GmbH, Schachen, Schweiz): das
-            Postfach {CONTACT_EMAIL}, in dem Ihre Antworten eingehen und aus dem
-            wir antworten, auch mit dem angefragten Video als Anhang. Server in
-            Frankreich (EU); für Zugriffe aus der Schweiz gilt der
-            Angemessenheitsbeschluss der EU-Kommission.
+            <strong>Purelymail</strong> (Add Rabbit LLC, USA): das Postfach{" "}
+            {CONTACT_EMAIL}, in dem Ihre Antworten eingehen und aus dem wir
+            antworten, auch mit dem angefragten Video als Anhang. Server von
+            Amazon Web Services in den USA. Purelymail ist nicht unter dem Data
+            Privacy Framework zertifiziert, es besteht also kein
+            Angemessenheitsbeschluss, und US-Behörden können unter Umständen auf
+            die Daten zugreifen. Die Übermittlung stützt sich auf Art. 49 Abs. 1
+            lit. b DSGVO: Ihre Antwort muss in unserem Postfach liegen, damit wir
+            Ihnen antworten und das angefragte Video schicken können.
           </li>
           <li>
             <strong>Cloudflare</strong> (Cloudflare, Inc., San Francisco, USA):
@@ -344,7 +348,7 @@ export default function DatenschutzPraxen() {
           Ändert sich etwas an der Recherche, am Versand oder an den Diensten,
           passen wir diese Seite an.
         </p>
-        <p className="font-mono text-sm text-fg-secondary">Stand: 13.10.2026</p>
+        <p className="font-mono text-sm text-fg-secondary">Stand: 30.10.2026</p>
       </Section>
     </main>
   );
