@@ -10,6 +10,7 @@ import {
   Separator,
 } from "@eins/ui";
 import type { schema } from "@/db/client";
+import { BundeslandSelect } from "@/app/admin/_components/BundeslandSelect";
 import { updateClinicAction } from "../actions";
 
 export function StammdatenTab({
@@ -22,7 +23,7 @@ export function StammdatenTab({
       <CardHeader>
         <CardTitle>Stammdaten</CardTitle>
         <CardDescription>
-          Anzeigename, Rechtsname und HWG-Kontakt.
+          Anzeigename, Rechtsname, Bundesland und HWG-Kontakt.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -62,6 +63,10 @@ export function StammdatenTab({
               defaultValue={clinic.defaultDoctorEmail ?? ""}
               maxLength={200}
             />
+          </div>
+
+          <div className="md:col-span-1">
+            <BundeslandSelect defaultValue={clinic.bundesland} />
           </div>
 
           <Separator className="md:col-span-2" />

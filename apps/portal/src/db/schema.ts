@@ -69,6 +69,10 @@ export const clinics = pgTable("clinics", {
   primaryColor: text("primary_color"),
   defaultDoctorEmail: text("default_doctor_email"),
   billingAddress: jsonb("billing_address"),
+  /** Land of the Praxis, ISO 3166-2:DE code without "DE-" (lib/bundesland.ts).
+   *  Statutory holidays for the 48 Werkstunden (lib/werkstunden.ts); null =
+   *  not stored, union of all Länder. CHECK in migration 0104. */
+  bundesland: text("bundesland"),
   hwgContactName: text("hwg_contact_name"),
   hwgContactEmail: text("hwg_contact_email"),
   locations: jsonb("locations").default(sql`'[]'::jsonb`),

@@ -9,6 +9,7 @@ import { db, schema } from "@/db/client";
 import { writeAudit } from "@/server/audit";
 import { applyDefaultJourney } from "@/server/timeline-journey";
 import { TIMELINE_STATUSES } from "@/lib/constants";
+import { BUNDESLAENDER } from "@/lib/bundesland";
 
 /**
  * Admin-side clinic mutations. All actions re-check admin session (defense
@@ -40,6 +41,7 @@ const UpdateClinicSchema = z.object({
   hwgContactEmail: z.string().email().max(200).optional().or(z.literal("")),
   hwgContactName: z.string().max(200).optional().or(z.literal("")),
   defaultDoctorEmail: z.string().email().max(200).optional().or(z.literal("")),
+  bundesland: z.enum(BUNDESLAENDER).optional().or(z.literal("")),
 });
 
 export async function updateClinicAction(formData: FormData) {
@@ -65,6 +67,7 @@ export async function updateClinicAction(formData: FormData) {
       hwgContactEmail: d.hwgContactEmail || null,
       hwgContactName: d.hwgContactName || null,
       defaultDoctorEmail: d.defaultDoctorEmail || null,
+      bundesland: d.bundesland || null,
     })
     .where(eq(schema.clinics.id, d.id));
 
@@ -76,6 +79,7 @@ export async function updateClinicAction(formData: FormData) {
     entityId: d.id,
     diff: {
       displayName: { from: before.displayName, to: d.displayName },
+      bundesland: { from: before.bundesland, to: d.bundesland || null },
     },
   });
 

@@ -9,6 +9,7 @@ import {
   Phone,
 } from "lucide-react";
 import { formatDate, formatMoney, formatRelative } from "@/lib/formatting";
+import type { PraxisResponseRule } from "@/lib/response-time";
 import type { CallQueueLead } from "@/server/queries/requests";
 import type {
   RetreatmentCall,
@@ -97,7 +98,7 @@ export function CallQueue({
   callTags,
   dueCount = 0,
   countryCode = "49",
-  ruleStart,
+  responseRule,
 }: {
   /** Anfragen and due Wiederbehandlungen in call order (mergeCallItems). */
   items: CallItem[];
@@ -108,7 +109,7 @@ export function CallQueue({
   /** Wiederbehandlung of an Anfrage among the items, also while it is worked. */
   callTags?: Map<string, RetreatmentTagData>;
   /** K-3: 48-Werkstunden rule start of the Praxis (signing date). */
-  ruleStart?: Date | null;
+  responseRule?: PraxisResponseRule | null;
   /** Clinic-wide count of Wiedervorlagen due now — may exceed the visible rows. */
   dueCount?: number;
   /** Country calling code for national numbers ("0170 ...") in WhatsApp links. */
@@ -130,7 +131,7 @@ export function CallQueue({
         <NextCallCard
           lead={item.lead}
           countryCode={countryCode}
-          ruleStart={ruleStart}
+          responseRule={responseRule}
           retreatment={callTags?.get(item.lead.id)}
           today={retreatment?.today ?? ""}
         />
@@ -145,7 +146,7 @@ export function CallQueue({
     key: item.key,
     node:
       item.kind === "anfrage" ? (
-        <QueueRow lead={item.lead} ruleStart={ruleStart} />
+        <QueueRow lead={item.lead} responseRule={responseRule} />
       ) : (
         <RetreatmentQueueRow call={item.call} today={retreatment?.today ?? ""} />
       ),
@@ -274,20 +275,20 @@ export function nameSize(name: string): string {
 function NextCallCard({
   lead,
   countryCode,
-  ruleStart,
+  responseRule,
   retreatment,
   today,
 }: {
   lead: CallQueueLead;
   countryCode: string;
-  ruleStart?: Date | null;
+  responseRule?: PraxisResponseRule | null;
   /** A Wiederbehandlung of this patient, due or within 90 days (callTags). */
   retreatment?: RetreatmentTagData;
   today: string;
 }) {
   const name = lead.contactName ?? "Unbekannt";
   const answers = quizAnswerLines(lead.quiz);
-  const timing = timingOf(lead, ruleStart);
+  const timing = timingOf(lead, responseRule);
   const followupDue = isFollowupDue(lead);
   const longWish =
     !lead.treatmentName && lead.treatmentWish && lead.treatmentWish.length > WISH_IN_ROW_MAX
@@ -654,7 +655,7 @@ export function Detail({ label, children }: { label: string; children: ReactNode
  * (the name with the date on the right, then status and Behandlung), the
  * signal in its slot before the name, the call button at the end.
  */
-function QueueRow({ lead, ruleStart }: { lead: CallQueueLead; ruleStart?: Date | null }) {
+function QueueRow({ lead, responseRule }: { lead: CallQueueLead; responseRule?: PraxisResponseRule | null }) {
   const name = lead.contactName ?? "Unbekannt";
   const phoneHref = lead.contactPhone ? `tel:${lead.contactPhone}` : null;
 
@@ -669,7 +670,7 @@ function QueueRow({ lead, ruleStart }: { lead: CallQueueLead; ruleStart?: Date |
         href={`/anfragen/${lead.id}`}
         className="flex min-w-0 flex-1 items-start gap-2.5 rounded-[var(--r-control)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
-        <RowSignal timing={timingOf(lead, ruleStart)} followupDue={isFollowupDue(lead)} />
+        <RowSignal timing={timingOf(lead, responseRule)} followupDue={isFollowupDue(lead)} />
         <span className="min-w-0 flex-1">
           <span className="flex items-baseline justify-between gap-3">
             <span className="min-w-0 break-words text-[15px] font-medium leading-5 text-fg-primary">
@@ -729,13 +730,13 @@ function FollowupDue() {
 }
 
 /** The one timing (Frist, Rückruf-Ziel, flags), shared with the list. */
-function timingOf(lead: CallQueueLead, ruleStart?: Date | null) {
+function timingOf(lead: CallQueueLead, responseRule?: PraxisResponseRule | null) {
   return rowTiming(
     {
       createdAt: lead.createdAt,
       firstAttemptAt: lead.firstAttemptAt,
       status: lead.status,
-      ruleStart,
+      ...responseRule,
       firstContactedAt: lead.firstContactedAt,
       slaRespondBy: lead.slaRespondBy,
     },

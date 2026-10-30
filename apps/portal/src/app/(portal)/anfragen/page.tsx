@@ -37,7 +37,7 @@ import { Facts } from "./_components/Facts";
 import { mergeCallItems } from "./_lib/call-items";
 import { listTagText } from "./_lib/retreatment-text";
 import { rowTiming } from "./_lib/row-timing";
-import { responseRuleStartForClinic } from "@/server/guarantee-clock";
+import { responseRuleForClinic } from "@/server/guarantee-clock";
 import { RequestListSkeleton } from "./_components/RequestListSkeleton";
 import {
   hasListFilter,
@@ -184,7 +184,7 @@ async function RequestListLoader({
     can(session.role, "requests.update") && page === 1 && !filtered;
   const canExport = can(session.role, "requests.view");
 
-  const [{ items, total }, callQueue, dueList, ruleStart, retreatmentCalls] = await Promise.all([
+  const [{ items, total }, callQueue, dueList, responseRule, retreatmentCalls] = await Promise.all([
     listRequests(
       session.clinicId,
       session.userId,
@@ -206,7 +206,7 @@ async function RequestListLoader({
       ? dueFollowups(session.clinicId, session.userId)
       : Promise.resolve([]),
     // K-3: no "nicht beantwortet" for inquiries before the signing date.
-    responseRuleStartForClinic(session.clinicId),
+    responseRuleForClinic(session.clinicId),
     showCallQueue
       ? retreatmentCallQueue(session.clinicId, session.userId, CALL_LOAD)
       : Promise.resolve(null),
@@ -262,7 +262,7 @@ async function RequestListLoader({
           dueCount={dueList.length}
           // No country column on clinics; CHF billing means a Swiss Praxis.
           countryCode={session.currency === "CHF" ? "41" : "49"}
-          ruleStart={ruleStart}
+          responseRule={responseRule}
         />
       )}
 
@@ -347,7 +347,7 @@ async function RequestListLoader({
                     createdAt: r.createdAt,
                     firstAttemptAt: r.firstAttemptAt,
                     status: r.status,
-                    ruleStart,
+                    ...responseRule,
                     firstContactedAt: r.firstContactedAt,
                     slaRespondBy: r.slaRespondBy,
                   },

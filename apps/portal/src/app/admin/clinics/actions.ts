@@ -11,6 +11,7 @@ import { writeAudit } from "@/server/audit";
 import { applyDefaultJourney } from "@/server/timeline-journey";
 import { isIsoDate } from "@/lib/guarantee-clock";
 import { berlinDateString } from "@/lib/formatting";
+import { BUNDESLAENDER } from "@/lib/bundesland";
 import { slugifyClinicName } from "./slug";
 
 /**
@@ -31,6 +32,7 @@ const CreateClinicSchema = z.object({
   ownerName: z.string().trim().min(2, "Name der Inhaberin oder des Inhabers fehlt").max(200),
   ownerEmail: z.string().trim().toLowerCase().email("E-Mail-Adresse ist ungültig").max(200),
   signedOn: z.string().optional().or(z.literal("")),
+  bundesland: z.enum(BUNDESLAENDER).optional().or(z.literal("")),
 });
 
 function failCreate(message: string): never {
@@ -88,6 +90,7 @@ export async function createClinicAction(formData: FormData) {
           displayName: d.displayName,
           legalName: d.legalName && d.legalName.length > 0 ? d.legalName : d.displayName,
           slug,
+          bundesland: d.bundesland || null,
         })
         .returning({ id: schema.clinics.id });
       const clinicId = clinic!.id;

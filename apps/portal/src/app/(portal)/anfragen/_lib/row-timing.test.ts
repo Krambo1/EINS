@@ -82,3 +82,26 @@ describe("rowTiming", () => {
     ).toBeNull();
   });
 });
+
+describe("rowTiming uses the Land of the Praxis", () => {
+  // Mon 30.10.2028 10:00; Tue 31.10. Reformationstag, Wed 01.11. Allerheiligen.
+  const arrival = new Date("2028-10-30T09:00:00Z");
+  const row = (over: Partial<RowTimingInput>) =>
+    input({ createdAt: arrival, slaRespondBy: null, ...over });
+
+  it("shows the deadline at the Praxis's seat", () => {
+    const now = new Date("2028-10-30T12:00:00Z");
+    expect(rowTiming(row({ bundesland: "BE" }), now)).toMatchObject({
+      kind: "deadline",
+      deadline: new Date("2028-11-06T12:00:00Z"),
+    });
+    expect(rowTiming(row({ bundesland: "NW" }), now)).toMatchObject({
+      kind: "deadline",
+      deadline: new Date("2028-11-07T12:00:00Z"),
+    });
+    expect(rowTiming(row({}), now)).toMatchObject({
+      kind: "deadline",
+      deadline: new Date("2028-11-08T12:00:00Z"),
+    });
+  });
+});

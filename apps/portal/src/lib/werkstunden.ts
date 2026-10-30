@@ -6,11 +6,16 @@
  * except statutory holidays at the seat of the Praxis. An inquiry that arrives
  * outside working hours starts its clock at the next working hour.
  *
- * Holidays: the seat of the Praxis is not stored in the portal, so the
- * response deadline skips the UNION of the statutory holidays of all 16
- * Länder. That is deliberately conservative: an extra skipped day only moves
- * the computed deadline later, never earlier than the contractual one, so the
- * portal never flags a Praxis too early.
+ * Holidays: the Land of the Praxis is stored as clinics.bundesland (admin
+ * Stammdaten, migration 0104). With it set, the response deadline skips the
+ * nationwide holidays plus that Land's own. Holidays that only part of a Land
+ * observes (Fronleichnam in some Gemeinden of SN and TH, Mariä Himmelfahrt in
+ * most of BY, the Augsburger Friedensfest) count for the whole Land, because
+ * the Gemeinde is not stored. Without a Land the deadline skips the UNION of
+ * the statutory holidays of all 16 Länder. Both are deliberately
+ * conservative: an extra skipped day only moves the computed deadline later,
+ * never earlier than the contractual one, so the portal never flags a Praxis
+ * too early.
  *
  * Werktag (Folge 3, cure period after a warning) follows the Garantie-Anhang
  * definition instead: Monday to Friday except nationwide holidays and the
@@ -25,6 +30,7 @@
 
 import { addDays, fromDayNumber, toDayNumber, type IsoDate } from "./guarantee-clock";
 import { DAY_MS } from "./constants";
+import type { Bundesland } from "./bundesland";
 
 export const RESPONSE_WORKING_HOURS = 48;
 export const WORKDAY_START_HOUR = 9;
@@ -135,19 +141,24 @@ function bussUndBettag(year: number): IsoDate {
   throw new Error("unreachable");
 }
 
-/** Holidays that only some Länder (or one city) observe. */
-function regionalHolidays(year: number): IsoDate[] {
+/**
+ * Holidays that only some Länder (or one city) observe, with the Länder whose
+ * Praxen skip them. "teils" holidays count for the whole Land (see header).
+ */
+function regionalHolidays(year: number): { date: IsoDate; lands: readonly Bundesland[] }[] {
   const easter = easterSunday(year);
   return [
-    iso(year, 1, 6), // Heilige Drei Könige (BW, BY, ST)
-    iso(year, 3, 8), // Internationaler Frauentag (BE, MV)
-    addDays(easter, 60), // Fronleichnam (BW, BY, HE, NW, RP, SL, teils SN, TH)
-    iso(year, 8, 8), // Augsburger Friedensfest (Stadt Augsburg)
-    iso(year, 8, 15), // Mariä Himmelfahrt (SL, teils BY)
-    iso(year, 9, 20), // Weltkindertag (TH)
-    iso(year, 10, 31), // Reformationstag (BB, HB, HH, MV, NI, SN, ST, SH, TH)
-    iso(year, 11, 1), // Allerheiligen (BW, BY, NW, RP, SL)
-    bussUndBettag(year), // Buß- und Bettag (SN)
+    { date: iso(year, 1, 6), lands: ["BW", "BY", "ST"] }, // Heilige Drei Könige
+    { date: iso(year, 3, 8), lands: ["BE", "MV"] }, // Internationaler Frauentag
+    // Fronleichnam (teils SN, TH)
+    { date: addDays(easter, 60), lands: ["BW", "BY", "HE", "NW", "RP", "SL", "SN", "TH"] },
+    { date: iso(year, 8, 8), lands: ["BY"] }, // Augsburger Friedensfest (Stadt Augsburg)
+    { date: iso(year, 8, 15), lands: ["SL", "BY"] }, // Mariä Himmelfahrt (teils BY)
+    { date: iso(year, 9, 20), lands: ["TH"] }, // Weltkindertag
+    // Reformationstag
+    { date: iso(year, 10, 31), lands: ["BB", "HB", "HH", "MV", "NI", "SN", "ST", "SH", "TH"] },
+    { date: iso(year, 11, 1), lands: ["BW", "BY", "NW", "RP", "SL"] }, // Allerheiligen
+    { date: bussUndBettag(year), lands: ["SN"] }, // Buß- und Bettag
   ];
 }
 
@@ -160,14 +171,19 @@ function nrwHolidays(year: number): IsoDate[] {
   ];
 }
 
-const unionCache = new Map<number, ReadonlySet<IsoDate>>();
+const landCache = new Map<string, ReadonlySet<IsoDate>>();
 const nrwCache = new Map<number, ReadonlySet<IsoDate>>();
 
-function unionHolidaySet(year: number): ReadonlySet<IsoDate> {
-  let set = unionCache.get(year);
+/** Nationwide holidays plus those of `land`; null = union of all 16 Länder. */
+function holidaySetFor(year: number, land: Bundesland | null): ReadonlySet<IsoDate> {
+  const key = `${year}:${land ?? "*"}`;
+  let set = landCache.get(key);
   if (!set) {
-    set = new Set([...nationwideHolidays(year), ...regionalHolidays(year)]);
-    unionCache.set(year, set);
+    const regional = regionalHolidays(year)
+      .filter((h) => land === null || h.lands.includes(land))
+      .map((h) => h.date);
+    set = new Set([...nationwideHolidays(year), ...regional]);
+    landCache.set(key, set);
   }
   return set;
 }
@@ -181,9 +197,17 @@ function nrwHolidaySet(year: number): ReadonlySet<IsoDate> {
   return set;
 }
 
-/** Statutory holiday in at least one Land (used for the response deadline). */
+/** Statutory holiday in at least one Land. */
 export function isAnyStatutoryHoliday(day: IsoDate): boolean {
-  return unionHolidaySet(Number(day.slice(0, 4))).has(day);
+  return holidaySetFor(Number(day.slice(0, 4)), null).has(day);
+}
+
+/**
+ * Statutory holiday at the seat of a Praxis in `land` (used for the response
+ * deadline). Without a stored Land: holiday in at least one Land.
+ */
+export function isStatutoryHolidayIn(day: IsoDate, land: Bundesland | null | undefined): boolean {
+  return holidaySetFor(Number(day.slice(0, 4)), land ?? null).has(day);
 }
 
 /** Nationwide or NRW holiday (used for the Werktag of Folge 3). */
@@ -191,14 +215,14 @@ export function isNrwHoliday(day: IsoDate): boolean {
   return nrwHolidaySet(Number(day.slice(0, 4))).has(day);
 }
 
-function isWorkingDay(dayNumber: number): boolean {
+function isWorkingDay(dayNumber: number, land: Bundesland | null): boolean {
   const wd = weekday(dayNumber);
-  return wd >= 1 && wd <= 5 && !isAnyStatutoryHoliday(fromDayNumber(dayNumber));
+  return wd >= 1 && wd <= 5 && !isStatutoryHolidayIn(fromDayNumber(dayNumber), land);
 }
 
-function nextWorkingDay(dayNumber: number): number {
+function nextWorkingDay(dayNumber: number, land: Bundesland | null): number {
   let d = dayNumber + 1;
-  while (!isWorkingDay(d)) d++;
+  while (!isWorkingDay(d, land)) d++;
   return d;
 }
 
@@ -213,16 +237,18 @@ export function isWerktag(day: IsoDate): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * The instant `hours` Werkstunden after `start`. A start outside working
- * hours is first moved to the next working hour. A deadline that lands
- * exactly on 18:00 stays on that day (it does not roll to 09:00 next day).
+ * The instant `hours` Werkstunden after `start` at a Praxis in `land`
+ * (omitted or null: union of all Länder). A start outside working hours is
+ * first moved to the next working hour. A deadline that lands exactly on
+ * 18:00 stays on that day (it does not roll to 09:00 next day).
  */
-export function addWorkingHours(start: Date, hours: number): Date {
+export function addWorkingHours(start: Date, hours: number, land?: Bundesland | null): Date {
+  const seat = land ?? null;
   const wall = berlinWallMs(start);
   let day = Math.floor(wall / DAY_MS);
   let t = wall - day * DAY_MS;
-  if (!isWorkingDay(day) || t >= END_MS) {
-    day = nextWorkingDay(day);
+  if (!isWorkingDay(day, seat) || t >= END_MS) {
+    day = nextWorkingDay(day, seat);
     t = START_MS;
   } else if (t < START_MS) {
     t = START_MS;
@@ -233,14 +259,17 @@ export function addWorkingHours(start: Date, hours: number): Date {
     const available = END_MS - t;
     if (remaining <= available) return instantFromBerlinWall(day * DAY_MS + t + remaining);
     remaining -= available;
-    day = nextWorkingDay(day);
+    day = nextWorkingDay(day, seat);
     t = START_MS;
   }
 }
 
-/** End of the 48-Werkstunden window for an inquiry that arrived at `createdAt`. */
-export function responseDeadline(createdAt: Date): Date {
-  return addWorkingHours(createdAt, RESPONSE_WORKING_HOURS);
+/**
+ * End of the 48-Werkstunden window for an inquiry that arrived at `createdAt`
+ * at a Praxis in `land` (clinics.bundesland; null = not stored).
+ */
+export function responseDeadline(createdAt: Date, land?: Bundesland | null): Date {
+  return addWorkingHours(createdAt, RESPONSE_WORKING_HOURS, land);
 }
 
 /** The Werktag after the Berlin calendar day of `ts`. */

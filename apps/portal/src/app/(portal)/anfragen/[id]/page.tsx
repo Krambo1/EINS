@@ -18,7 +18,7 @@ import {
 import { requireSession } from "@/auth/guards";
 import { db, schema } from "@/db/client";
 import { writeAudit } from "@/server/audit";
-import { responseRuleStartForClinic } from "@/server/guarantee-clock";
+import { responseRuleForClinic } from "@/server/guarantee-clock";
 import { getRequestWithActivities, markRequestViewed } from "@/server/queries/requests";
 import { listFollowupsForRequest } from "@/server/queries/followups";
 import { retreatmentsForRequest } from "@/server/queries/retreatments";
@@ -89,7 +89,7 @@ export default async function AnfrageDetailPage({
       .then((rows) => rows[0] ?? null),
     listFollowupsForRequest(session.clinicId, session.userId, id),
     // K-3: rule start of this Praxis (signing date) for the response badge.
-    responseRuleStartForClinic(session.clinicId),
+    responseRuleForClinic(session.clinicId),
     retreatmentsForRequest(session.clinicId, session.userId, id),
   ]);
   // Not awaited on the 404 path; keep a failure there from becoming an
@@ -123,7 +123,7 @@ export default async function AnfrageDetailPage({
     after(() => markRequestViewed(session.clinicId, session.userId, id));
   }
 
-  const [[siblings, pvsLinkRow, followups, responseRuleStart, retreatments], patientLtv] = await Promise.all([
+  const [[siblings, pvsLinkRow, followups, responseRule, retreatments], patientLtv] = await Promise.all([
     sidePromise,
     request.patientId
       ? patientLifetimeRevenue(session.clinicId, session.userId, request.patientId)
@@ -153,7 +153,7 @@ export default async function AnfrageDetailPage({
       createdAt: request.createdAt,
       firstAttemptAt,
       status: request.status,
-      ruleStart: responseRuleStart,
+      ...responseRule,
     },
     new Date()
   );
@@ -266,7 +266,7 @@ export default async function AnfrageDetailPage({
             firstContactedAt={request.firstContactedAt}
             firstAttemptAt={firstAttemptAt}
             slaRespondBy={request.slaRespondBy}
-            ruleStart={responseRuleStart}
+            rule={responseRule}
             status={request.status}
             serverResponse={response}
             serverSlaBreached={slaBreached}

@@ -298,3 +298,32 @@ describe("warning mail wording (K-14)", () => {
     expect(body).toContain("keine Bedingung der Garantie.");
   });
 });
+
+describe("Land of the Praxis (clinics.bundesland)", () => {
+  // Mon 30.10.2028 10:00; Tue 31.10. Reformationstag, Wed 01.11. Allerheiligen.
+  const created = at("2028-10-30T10:00:00+01:00");
+  const attempt = at("2028-11-07T12:00:00+01:00");
+
+  it("judges the same attempt against the Praxis's own holidays", () => {
+    const row = { createdAt: created, firstAttemptAt: attempt, status: "kontaktiert" };
+    // Berlin skips neither day: deadline Mon 06.11. 13:00, so Tue is late.
+    expect(responseState({ ...row, bundesland: "BE" }, attempt)).toBe("zu_spaet");
+    // NRW skips Allerheiligen: deadline Tue 07.11. 13:00.
+    expect(responseState({ ...row, bundesland: "NW" }, attempt)).toBe("rechtzeitig");
+    // Unset: union of all Länder, deadline Wed 08.11. 13:00.
+    expect(responseState({ ...row, bundesland: null }, attempt)).toBe("rechtzeitig");
+  });
+
+  it("passes the Land through to attemptInfo and toDeadlineRow", () => {
+    const rule = { ruleStart: RESPONSE_RULE_START, bundesland: "BE" as const };
+    expect(attemptInfo({ createdAt: created, firstAttemptAt: null, ...rule }, attempt).deadline).toEqual(
+      at("2028-11-06T13:00:00+01:00")
+    );
+    expect(
+      toDeadlineRow({ id: "r1", createdAt: created, firstAttemptAt: null, status: "neu", ...rule })?.deadline
+    ).toEqual(at("2028-11-06T13:00:00+01:00"));
+    expect(
+      toDeadlineRow({ id: "r1", createdAt: created, firstAttemptAt: null, status: "neu" })?.deadline
+    ).toEqual(at("2028-11-08T13:00:00+01:00"));
+  });
+});

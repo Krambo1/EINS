@@ -9,6 +9,7 @@ import {
   RESPONSE_STATE_LABELS,
   isPraxisResponseFlag,
   responseInfo,
+  type PraxisResponseRule,
   type ResponseInfo,
 } from "@/lib/response-time";
 import { formatBerlinDateTime } from "@/lib/werkstunden";
@@ -101,7 +102,7 @@ export function LiveTimeFacts({
   firstContactedAt,
   firstAttemptAt,
   slaRespondBy,
-  ruleStart,
+  rule,
   status,
   serverResponse,
   serverSlaBreached,
@@ -111,7 +112,7 @@ export function LiveTimeFacts({
   firstContactedAt: Date | null;
   firstAttemptAt: Date | null;
   slaRespondBy: Date | null;
-  ruleStart: Date;
+  rule: PraxisResponseRule;
   status: string;
   serverResponse: ResponseInfo;
   serverSlaBreached: boolean;
@@ -129,7 +130,7 @@ export function LiveTimeFacts({
       firstAttemptAt ?? changes.flatMap((c) => c.activities ?? []).find(isAttempt)?.createdAt ?? null;
     const nowStatus = pendingStatus ?? status;
     contactAt = firstContactedAt ?? changes.find((c) => c.contact)?.at ?? null;
-    response = responseInfo({ createdAt, firstAttemptAt: attemptAt, status: nowStatus, ruleStart }, new Date());
+    response = responseInfo({ createdAt, firstAttemptAt: attemptAt, status: nowStatus, ...rule }, new Date());
     contactImplied = statusImpliesContact(nowStatus) && !attemptAt;
     slaBreached = serverSlaBreached && !contactImplied && !contactAt;
   }

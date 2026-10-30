@@ -17,6 +17,7 @@ import {
   getClinicInquiry,
   loadClockFacts,
   loadInvoiceDates,
+  responseRuleForClinic,
   todayBerlin,
 } from "@/server/guarantee-clock";
 import {
@@ -38,7 +39,7 @@ import {
   verzugRange,
   type DelayRange,
 } from "@/lib/guarantee-clock";
-import { attemptInfo, responseRuleStartFor } from "@/lib/response-time";
+import { attemptInfo } from "@/lib/response-time";
 import { classifyAttribution } from "@/lib/sources";
 import { GARANTIE_FEHLER_COOKIE, GARANTIE_FEHLER_MAX_AGE } from "./fehler-cookie";
 
@@ -634,7 +635,8 @@ async function rejectInquiryActionRun(formData: FormData) {
   if (otherProof && (!d.note || d.note.length < 5)) {
     fail(d.clinicId, "Bitte in der Notiz festhalten, wie die Praxis den früheren Kontaktversuch nachgewiesen hat.");
   }
-  const attempt = attemptInfo({ ...inquiry, ruleStart: responseRuleStartFor(clock?.signedOn ?? null) }, new Date());
+  // K-3 rule start (signing date) and the holidays of the Praxis's Land.
+  const attempt = attemptInfo({ ...inquiry, ...(await responseRuleForClinic(d.clinicId)) }, new Date());
   const allowed = rejectionAllowed(d.reason, {
     hasContactData: Boolean(inquiry.contactPhone?.trim() || inquiry.contactEmail?.trim()),
     responseState: attempt.state,
