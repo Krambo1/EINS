@@ -40,9 +40,16 @@ jobs:
     runs-on: ubuntu-latest
     needs: typecheck
     env:
-      # Skip env validation — the build doesn't reach the DB; we only want
+      # Skip env validation: the build doesn't reach the DB; we only want
       # to confirm that server/client bundles compile.
       SKIP_ENV_VALIDATION: "1"
+      # The portal's db client refuses a production build without a distinct
+      # RLS role URL. Placeholders on an unreachable port: nothing connects.
+      DATABASE_URL: postgres://ci:ci@127.0.0.1:1/ci
+      DATABASE_URL_APP: postgres://ci_app:ci@127.0.0.1:1/ci
+      # The website's privacy text is a draft until its provider fields are
+      # filled in; CI reports that, the Vercel deploy is what blocks on it.
+      LEGAL_GATE: warn
     steps:
       - uses: actions/checkout@v4
 
@@ -52,7 +59,8 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # The web apps run on Node 24 (engines in their package.json).
+          node-version: 24
           cache: pnpm
 
       - name: Install

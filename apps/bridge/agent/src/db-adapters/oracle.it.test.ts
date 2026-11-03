@@ -180,10 +180,17 @@ runStandardHarness("Oracle (cgm-m1pro-oracle)", async () => {
         // Oracle compares a query's snapshot against the table's DDL time at
         // second granularity, so SELECTs in the first ~2s after the CREATE
         // above still raise ORA-01466. Hold the seed until a probe read goes
-        // through, so the framework's first poll sees a settled table.
+        // through, so the framework's first poll sees a settled table. Only a
+        // READ ONLY transaction (what OracleDriver opens per query) raises it;
+        // a plain SELECT passes at once, so the probe reads the same way.
         await withRetry(
           async () => {
-            await c.execute("SELECT COUNT(*) FROM patient", [], {});
+            await c.execute("SET TRANSACTION READ ONLY", [], {});
+            try {
+              await c.execute("SELECT COUNT(*) FROM patient", [], {});
+            } finally {
+              await c.execute("COMMIT", [], {});
+            }
           },
           { timeoutMs: 30_000, intervalMs: 500, label: "oracle table settle" }
         );

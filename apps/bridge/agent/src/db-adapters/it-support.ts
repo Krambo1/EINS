@@ -25,6 +25,7 @@ import {
   it,
 } from "vitest";
 import {
+  _internal,
   _setStateDbForTesting,
   loadState,
   pendingDriftReports,
@@ -68,6 +69,12 @@ const BOOT_TIMEOUT_MS = 360_000;
 // Per-test budget. The keyset drain runs ~32 polls; every poll is one fast
 // round-trip query, so this is mostly slack for a cold connection.
 const TEST_TIMEOUT_MS = 120_000;
+// The polls' clock. The seed rows carry fixed dates and a first poll reads
+// only the last initialHorizonDays (90), so against the real clock every test
+// read nothing once the rows were older than that. A fixed "now" just after
+// the newest seed row keeps them inside the window for good.
+const HARNESS_NOW_MS = Date.parse("2026-07-02T00:00:00.000Z");
+const harnessNow = (): number => HARNESS_NOW_MS;
 
 /** Engine-neutral description of one patient row. Each harness maps these
  *  fields onto its own column names and binds the temporal fields as JS Date
@@ -289,6 +296,7 @@ export function runStandardHarness(
           const fresh: string[] = [];
           const out = await pollOnce({
             clinicId: CLINIC,
+            now: harnessNow,
             vendor: h.vendor,
             stream: h.stream,
             driver,
@@ -329,11 +337,12 @@ export function runStandardHarness(
     // Phase 4. A cluster of rows sharing one modified_at, drained with a batch
     // size far smaller than the cluster, must reach the sink at least once per
     // row: no skip at the boundary (the old bug), no unbounded re-reading.
-    // Exactly one duplicate batch is legitimate: the first caught-up poll
-    // after the drain applies the H8 overlap, re-reads the head of the cluster
-    // (every row shares the timestamp, so all of it is inside the lookback)
-    // and is capped by the batch size; production dedupes those re-emits in
-    // the outbox. A stuck cursor still fails loudly via the total-emit bound.
+    // One re-read of the cluster is legitimate: the first caught-up poll
+    // after the drain applies the H8 overlap and follows the lookback window
+    // page by page (finding 10). Every row shares the timestamp, so all of it
+    // is inside the window, capped at OVERLAP_MAX_PAGES pages; production
+    // dedupes those re-emits in the outbox. A stuck cursor still fails loudly
+    // via the total-emit bound.
     it("emits every row when a batch boundary splits one shared timestamp", async () => {
       const ids = clusterIds();
       await h.seedPatients(clusterPatients(ids));
@@ -347,6 +356,7 @@ export function runStandardHarness(
         for (let i = 0; i < 200; i++) {
           const out = await pollOnce({
             clinicId: CLINIC,
+            now: harnessNow,
             vendor: h.smallBatchVendor,
             stream: h.stream,
             driver,
@@ -356,7 +366,7 @@ export function runStandardHarness(
         }
         expect([...new Set(seen)].sort()).toEqual(ids.map(String).sort());
         expect(seen.length).toBeLessThanOrEqual(
-          ids.length + h.smallBatchVendor.batchSize
+          ids.length + _internal.OVERLAP_MAX_PAGES * h.smallBatchVendor.batchSize
         );
       } finally {
         await driver.close();
@@ -375,6 +385,7 @@ export function runStandardHarness(
       try {
         const healthy = await pollOnce({
           clinicId: CLINIC,
+          now: harnessNow,
           vendor: h.vendor,
           stream: h.stream,
           driver,
@@ -385,15 +396,25 @@ export function runStandardHarness(
 
         await h.renameEmailColumn();
 
-        const drifted = await pollOnce({
-          clinicId: CLINIC,
-          vendor: h.vendor,
-          stream: h.stream,
-          driver,
-          sink: () => {
-            throw new Error("sink must not run once the query errors");
-          },
-        });
+        // The first SCHEMA_ERROR_THRESHOLD - 1 errors are retried (a view
+        // being rebuilt); the next one halts the stream.
+        const pollRenamed = () =>
+          pollOnce({
+            clinicId: CLINIC,
+            now: harnessNow,
+            vendor: h.vendor,
+            stream: h.stream,
+            driver,
+            sink: () => {
+              throw new Error("sink must not run once the query errors");
+            },
+          });
+        for (let i = 1; i < _internal.SCHEMA_ERROR_THRESHOLD; i++) {
+          const retried = await pollRenamed();
+          expect(retried.driftDetected).toBe(false);
+          expect(loadState(h.vendor.vendor, h.stream.kind).lastError).toMatch(/^schema error /);
+        }
+        const drifted = await pollRenamed();
         expect(drifted.driftDetected).toBe(true);
         expect(drifted.emitted).toBe(0);
         expect(drifted.driftReport).not.toBeNull();
