@@ -31,20 +31,6 @@ export interface OAuthState {
   platform: "meta" | "google";
   /** Random nonce — binds JWT to cookie. */
   nonce: string;
-  /** Where a successful connect lands instead of /einstellungen. */
-  returnTo?: OAuthReturnPage;
-}
-
-/**
- * Pages a connect may return to (`/start?zurueck=/werbebudget`). A fixed
- * list, never a free path, so the redirect after the provider bounce cannot
- * be pointed anywhere else.
- */
-const OAUTH_RETURN_PAGES = ["/werbebudget"] as const;
-export type OAuthReturnPage = (typeof OAUTH_RETURN_PAGES)[number];
-
-export function parseReturnTo(value: unknown): OAuthReturnPage | undefined {
-  return OAUTH_RETURN_PAGES.find((p) => p === value);
 }
 
 export async function signState(payload: OAuthState): Promise<string> {
@@ -74,7 +60,6 @@ export async function verifyState(token: string): Promise<OAuthState | null> {
       userId: payload.userId,
       platform: payload.platform,
       nonce: payload.nonce,
-      returnTo: parseReturnTo(payload.returnTo),
     };
   } catch {
     return null;

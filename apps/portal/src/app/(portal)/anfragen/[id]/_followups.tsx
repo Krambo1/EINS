@@ -1,118 +1,40 @@
 "use client";
 
 import { startTransition } from "react";
-import { Card, CardHeader, CardTitle, CardContent, Button, cn } from "@eins/ui";
-import { Check, X, AlarmClock } from "lucide-react";
+import { AlarmClock } from "lucide-react";
+import { Button, cn } from "@eins/ui";
 import { formatDateTime } from "@/lib/formatting";
-import type { FollowupStatus } from "@/lib/constants";
 import type { FollowupRow } from "@/server/queries/followups";
+import { CONTROL, QUIET_CONTROL, RAISED_CONTROL } from "../../dashboard/_components/dash-ui";
 import { showActionFlash } from "../../_components/flash-event";
 import { completeFollowup, cancelFollowup, type ActionResult } from "./actions";
-import { isPendingId, useFollowups, usePending } from "./_pending";
-
-const RESOLVED_LABEL: Record<Exclude<FollowupStatus, "pending">, string> = {
-  done: "Erledigt",
-  cancelled: "Abgebrochen",
-};
+import { isPendingId, usePending } from "./_pending";
 
 const OFFLINE = "Keine Verbindung. Bitte versuchen Sie es noch einmal.";
 
 /**
- * Wiedervorlagen-Liste auf der Anfrage-Detailseite. Offene Rückrufe oben mit
- * Erledigt/Abbrechen-Aktionen, darunter die abgeschlossene Historie als
- * read-only. Für alle Praxis-Rollen sichtbar (reuse `requests.update`).
- * Optimistisch: eine neu geplante Wiedervorlage steht sofort da, ein Tipp auf
- * Erledigt/Abbrechen schiebt die Zeile sofort in die Historie (_pending.tsx).
+ * An open Wiedervorlage at the top of the Verlauf (Pipedrive's "Focus" above
+ * the history, HubSpot's upcoming tasks): when, what for, and the two ways
+ * to close it. Optimistic: a tap moves it into the history at once; if the
+ * server says no, it comes back and the toast names the patient.
  */
-export function Followups({
+export function PlannedRow({
   requestId,
-  followups: fromServer,
-}: {
-  requestId: string;
-  followups: FollowupRow[];
-}) {
-  const followups = useFollowups(requestId, fromServer);
-
-  // Always shown (DS3): before the first Wiedervorlage the card explains
-  // how to set one, otherwise nobody knows the feature exists.
-  if (followups.length === 0) {
-    return (
-      <Card className="p-5 md:p-6">
-        <CardHeader className="mb-3">
-          <CardTitle>Wiedervorlagen</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-fg-primary">
-            Noch keine Wiedervorlage. Über „Wiedervorlage“ oben legen Sie fest,
-            wann die Anfrage wieder oben in der Anrufliste steht.
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  const pending = followups.filter((f) => f.status === "pending");
-  const resolved = followups.filter((f) => f.status !== "pending");
-
-  return (
-    <Card className="p-5 md:p-6">
-      <CardHeader className="mb-3">
-        <CardTitle>Wiedervorlagen</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {pending.length > 0 ? (
-          <ul className="space-y-2">
-            {pending.map((f) => (
-              <PendingRow key={f.id} requestId={requestId} followup={f} />
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-fg-primary">
-            Keine offene Wiedervorlage. Eine neue legen Sie oben mit
-            „Wiedervorlage“ an.
-          </p>
-        )}
-
-        {resolved.length > 0 && (
-          <div className="border-t border-border pt-3">
-            <ul className="divide-y divide-border">
-              {resolved.map((f) => (
-                <li
-                  key={f.id}
-                  className="flex items-center justify-between py-2 text-sm text-fg-secondary"
-                >
-                  <span className="tabular-nums line-through decoration-fg-tertiary">
-                    {formatDateTime(f.dueAt)}
-                    {f.note ? ` · ${f.note}` : ""}
-                  </span>
-                  <span className="shrink-0 text-sm text-fg-secondary">
-                    {RESOLVED_LABEL[f.status as Exclude<FollowupStatus, "pending">]}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-function PendingRow({
-  requestId,
+  name,
   followup,
+  canWork,
 }: {
   requestId: string;
+  name: string;
   followup: FollowupRow;
+  canWork: boolean;
 }) {
   const { add } = usePending();
-  const overdue = followup.dueAt.getTime() <= Date.now();
+  const due = followup.dueAt.getTime() <= Date.now();
   // Planned a moment ago and not confirmed yet: no id to resolve on the server.
   const saving = isPendingId(followup.id);
 
-  // The row moves to the finished ones at once. If the server says no, the
-  // change drops away (the row comes back) and a toast says why. The row is
-  // gone while this runs, so the transition is not tied to this component.
+  // The row is gone while this runs, so the transition is not tied to it.
   const resolve = (
     action: (fd: FormData) => Promise<ActionResult>,
     to: "done" | "cancelled",
@@ -127,11 +49,11 @@ function PendingRow({
         const res = await action(fd);
         showActionFlash(
           res.ok
-            ? { tone: "good", title: savedTitle }
-            : { tone: "bad", title: "Nicht gespeichert", description: res.message }
+            ? { tone: "good", title: savedTitle, description: name }
+            : { tone: "bad", title: "Nicht gespeichert", description: `${name}: ${res.message}` }
         );
       } catch {
-        showActionFlash({ tone: "bad", title: "Nicht gespeichert", description: OFFLINE });
+        showActionFlash({ tone: "bad", title: "Nicht gespeichert", description: `${name}: ${OFFLINE}` });
       }
     });
   };
@@ -139,52 +61,46 @@ function PendingRow({
   return (
     <li
       className={cn(
-        "flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2.5 transition-opacity duration-300",
-        overdue
-          ? "border-[var(--tone-warn-border)] bg-[var(--tone-warn-bg)]"
-          : "border-border bg-bg-secondary",
+        "grid grid-cols-[1.25rem_minmax(0,1fr)] gap-x-3 py-3 transition-opacity duration-300",
         saving && "opacity-60"
       )}
     >
+      <span aria-hidden className="flex h-5 items-center">
+        <AlarmClock className={cn("h-4 w-4", due ? "text-tone-warn" : "text-fg-secondary")} />
+      </span>
       <div className="min-w-0">
-        <div className="flex items-center gap-1.5 text-sm font-medium text-fg-primary tabular-nums">
-          {overdue && <AlarmClock className="h-4 w-4 text-tone-warn" aria-hidden />}
-          {formatDateTime(followup.dueAt)}
-          {overdue && (
-            <span className="text-sm font-semibold text-fg-primary">fällig</span>
-          )}
+        <div className="flex items-baseline justify-between gap-3">
+          <p className="min-w-0 text-[15px] font-medium leading-5 text-fg-primary">
+            Wiedervorlage{due && <span> · fällig</span>}
+          </p>
+          <time className="shrink-0 text-sm leading-5 tabular-nums text-fg-secondary">
+            {formatDateTime(followup.dueAt)}
+          </time>
         </div>
         {followup.note && (
-          <p className="mt-0.5 truncate text-sm text-fg-secondary">
-            {followup.note}
-          </p>
+          <p className="mt-1 whitespace-pre-wrap break-words text-[15px] leading-6 text-fg-primary">{followup.note}</p>
         )}
-        {followup.createdByName && (
-          <p className="mt-0.5 text-sm text-fg-secondary">
-            gesetzt von {followup.createdByName}
-          </p>
+        {canWork && (
+          <div className="mt-2 flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={saving}
+              onClick={() => resolve(completeFollowup, "done", "Wiedervorlage erledigt")}
+              className={cn(RAISED_CONTROL, CONTROL, "px-4")}
+            >
+              Erledigt
+            </Button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => resolve(cancelFollowup, "cancelled", "Wiedervorlage abgebrochen")}
+              className={cn(QUIET_CONTROL, "disabled:opacity-50")}
+            >
+              Abbrechen
+            </button>
+          </div>
         )}
-      </div>
-      <div className="flex shrink-0 items-center gap-1.5">
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={saving}
-          onClick={() => resolve(completeFollowup, "done", "Wiedervorlage erledigt")}
-        >
-          <Check className="h-4 w-4" />
-          Erledigt
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          disabled={saving}
-          onClick={() => resolve(cancelFollowup, "cancelled", "Wiedervorlage abgebrochen")}
-          className="text-fg-secondary"
-        >
-          <X className="h-4 w-4" />
-          Abbrechen
-        </Button>
       </div>
     </li>
   );

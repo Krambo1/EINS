@@ -689,9 +689,10 @@ export async function findCredentialByMetaPageId(
 }
 
 /**
- * J-1: the Praxis sees last_sync_error on the Werbebudget page, so the error
- * codes from discoverAndStoreMetaPage become sentences for the Praxis. The
- * technical detail stays in the server log.
+ * J-1: the Praxis sees last_sync_error in Einstellungen (the status of the
+ * Meta row in the Werbekonten card), so the error codes from
+ * discoverAndStoreMetaPage become sentences for the Praxis. The technical
+ * detail stays in the server log.
  */
 export function metaPageErrorText(err: unknown): string {
   const code = err instanceof Error ? err.message : String(err);
@@ -705,6 +706,20 @@ export function metaPageErrorText(err: unknown): string {
     return "Die Facebook-Seite ist verbunden, aber Meta schickt noch keine Anfragen an Ihr Portal. Bitte verbinden Sie Meta erneut und bestätigen Sie dabei alle Berechtigungen. Hilft das nicht, melden Sie sich bei EINS.";
   }
   return "Die Facebook-Seite konnte nicht verbunden werden. Bitte verbinden Sie Meta erneut oder melden Sie sich bei EINS.";
+}
+
+/**
+ * Meta is connected, but the Facebook user administers several pages and none
+ * is chosen yet: last_sync_error then holds the multiplePages text above (or,
+ * from older writes, the raw code). Einstellungen asks for the page instead
+ * of showing it as a failed sync.
+ */
+export function isMetaPageSelectionPending(lastSyncError: string | null): boolean {
+  const value = lastSyncError?.trim();
+  return (
+    value === META_PAGE_ERRORS.multiplePages ||
+    value === metaPageErrorText(new Error(META_PAGE_ERRORS.multiplePages))
+  );
 }
 
 /** See PAGE_BINDING_ERROR_TEXTS: every text the binding itself may leave. */

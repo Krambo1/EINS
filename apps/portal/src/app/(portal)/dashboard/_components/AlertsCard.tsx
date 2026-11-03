@@ -7,7 +7,7 @@ import { X } from "lucide-react";
 import type { AlertSeverity } from "@/server/queries/anomalies";
 import { showActionFlash } from "../../_components/flash-event";
 import { dismissAlertAction, snoozeAlertAction } from "./anomaly-actions";
-import { DashCard } from "./dash-ui";
+import { CONTROL, CONTROL_SQUARE, DashCard } from "./dash-ui";
 
 export interface AlertRowData {
   id: string;
@@ -74,20 +74,27 @@ export function AlertsCard({ alerts }: { alerts: AlertRowData[] }) {
           </p>
         </ExplainerPopover>
       }
-      bodyClassName="pt-1"
     >
-      <ul className="divide-y divide-border">
+      {/* Each alert is a tile standing on the card, nothing between them.
+          White on the white card, so the tile carries the card's own drop
+          shadow and hover (elev-card lift, as DashCard), not the small raised
+          one: with that it read flat (Karam, 2026-11-03; a grey well behind the tiles was rejected
+          as cards in cards). Two per row from md up on the page grid
+          (gap-x-6), one on the phone. From md every tile spans two rows of
+          the list's grid (subgrid), so head and steps of two tiles side by
+          side share their heights and the hairline runs level. The space
+          between tile rows is the tiles' bottom margin, taken back once at
+          the end. */}
+      <ul className="flex flex-col gap-4 md:-mb-6 md:grid md:grid-cols-2 md:gap-x-6 md:gap-y-0">
         {visible.map((a) => (
-          <li key={a.id} className="py-4 first:pt-2 last:pb-0">
-            <AlertRow alert={a} onAct={(kind) => act(a.id, kind)} />
-          </li>
+          <AlertTile key={a.id} alert={a} onAct={(kind) => act(a.id, kind)} />
         ))}
       </ul>
     </DashCard>
   );
 }
 
-function AlertRow({
+function AlertTile({
   alert,
   onAct,
 }: {
@@ -99,72 +106,84 @@ function AlertRow({
   const hasAiSteps = (alert.aiActionSteps?.length ?? 0) > 0;
   const showSteps = hasRuleSteps || hasAiSteps;
 
+  // Two sections parted by a full-width hairline (DESIGN.md §5): the head
+  // (dot, headline, "7d" and X at the right) and the steps. Headline as a row
+  // name (15 px), below the card title; steps in body size with one fixed
+  // marker slot, so bullet and "KI" steps start on one line.
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex items-start gap-3">
+    <li className="elev-card lift flex min-w-0 flex-col rounded-[var(--r-panel)] bg-[var(--surface-raised)] md:row-span-2 md:mb-6 md:grid md:grid-rows-subgrid md:gap-0">
+      <div
+        className={`flex items-start gap-3 p-4 ${showSteps ? "border-b border-border" : ""}`}
+      >
         <span
           aria-hidden
-          className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${tone.dotClass}`}
+          className={`mt-[5px] h-2.5 w-2.5 shrink-0 rounded-full ${tone.dotClass}`}
         />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-3">
-            <p className="font-medium text-fg-primary">{alert.title}</p>
-            <button
-              type="button"
-              onClick={() => onAct("dismiss")}
-              aria-label="Auffälligkeit ausblenden"
-              title="Ausblenden"
-              className="opa-focus-ring -mr-1 -mt-1 rounded-[var(--r-small)] p-1 text-fg-tertiary hover:bg-bg-tertiary hover:text-fg-primary"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
+        <p className="min-w-0 flex-1 text-[15px] font-semibold leading-5 text-fg-primary">
+          {alert.title}
+        </p>
+        {/* Snooze and hide side by side. What "7d" does is in the browser's
+            own tooltip (title), nothing custom. */}
+        <div className="-my-2.5 -mr-2.5 flex shrink-0 items-center">
+          <button
+            type="button"
+            onClick={() => onAct("snooze")}
+            aria-label="In 7 Tagen erinnern"
+            title="In 7 Tagen erinnern"
+            className={`${CONTROL} opa-focus-ring inline-flex items-center px-2 text-sm font-medium tabular-nums text-fg-tertiary hover:bg-[var(--hover-wash)] hover:text-fg-primary`}
+          >
+            7d
+          </button>
+          <button
+            type="button"
+            onClick={() => onAct("dismiss")}
+            aria-label="Auffälligkeit ausblenden"
+            title="Ausblenden"
+            className={`${CONTROL} ${CONTROL_SQUARE} opa-focus-ring inline-flex items-center justify-center text-fg-tertiary hover:bg-[var(--hover-wash)] hover:text-fg-primary`}
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
       </div>
 
-      {showSteps && (
-        <div className="ml-[1.375rem] flex flex-col gap-1.5">
-          <p className="text-sm font-medium text-fg-primary">
-            Nächste Schritte
-          </p>
-          <ul className="flex flex-col gap-1 text-sm text-fg-primary">
+      {showSteps ? (
+        <div className="p-4">
+          <ul className="flex flex-col gap-1.5 text-[15px] leading-6 text-fg-primary">
             {alert.actionSteps.map((step, idx) => (
-              <li key={`rule-${idx}`} className="flex gap-2">
-                <span aria-hidden className="text-fg-tertiary">
+              <li key={`rule-${idx}`} className="flex">
+                <span aria-hidden className={`${STEP_MARK} text-fg-tertiary`}>
                   •
                 </span>
-                <span>{step}</span>
+                <span className="min-w-0">{step}</span>
               </li>
             ))}
             {alert.aiActionSteps?.map((step, idx) => (
-              <li key={`ai-${idx}`} className="flex gap-2">
+              <li key={`ai-${idx}`} className="flex">
                 <span
-                  aria-hidden
-                  className="inline-flex h-5 shrink-0 items-center rounded-[var(--r-small)] border border-border px-1.5 text-xs font-medium text-fg-secondary"
+                  className={`${STEP_MARK} text-sm font-medium text-fg-tertiary`}
                   title="Von KI ergänzt, weil der Fall ungewöhnlich ist"
                 >
                   KI
                 </span>
-                <span>{step}</span>
+                <span className="min-w-0">{step}</span>
               </li>
             ))}
           </ul>
         </div>
+      ) : (
+        // Keeps the two grid rows when an alert has nothing to do.
+        <div aria-hidden />
       )}
 
-      {/* A hairline keeps what to do apart from the snooze. */}
-      <div className="ml-[1.375rem] flex items-center gap-3 border-t border-border pt-3 text-sm text-fg-primary">
-        <button
-          type="button"
-          onClick={() => onAct("snooze")}
-          className="opa-focus-ring -ml-1 rounded-[var(--r-small)] px-1 py-0.5 underline-offset-2 hover:bg-bg-tertiary hover:underline"
-        >
-          In 7 Tagen erinnern
-        </button>
-      </div>
-    </div>
+    </li>
   );
 }
+
+/**
+ * Fixed slot before each step: the bullet or "KI", in the column of the dot
+ * above (dot 10 px + gap 12 px), so every step starts where the headline does.
+ */
+const STEP_MARK = "w-[1.375rem] shrink-0";
 
 function severityTone(severity: AlertSeverity): { dotClass: string } {
   switch (severity) {

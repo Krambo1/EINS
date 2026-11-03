@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { rateLimit } from "@/server/rate-limit";
 import { decideApprovalByToken, isApprovalTokenShape } from "@/server/content-approval";
+import type { InvalidDecisionCode } from "@/lib/content-approval";
 import { trustedIpFromHeaders } from "@/lib/client-ip";
 
 /**
@@ -15,6 +16,13 @@ import { trustedIpFromHeaders } from "@/lib/client-ip";
  * (server/content-approval.ts); decided_by_user_id stays null, decided_via
  * 'link'.
  */
+
+/** The page's ?fehler= value for each reason normalizeDecision refuses a decision. */
+const INVALID_FEHLER: Record<InvalidDecisionCode, string> = {
+  too_long: "zu_lang",
+  empty: "text",
+  unknown_decision: "ungueltig",
+};
 
 function back(request: NextRequest, token: string, fehler?: string): NextResponse {
   const url = new URL(`/freigabe/${token}`, request.nextUrl.origin);
@@ -45,7 +53,7 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ token:
   });
   if (!result.ok) {
     if (result.reason === "expired") return back(request, token, "abgelaufen");
-    if (result.reason === "invalid") return back(request, token, decision === "aenderung" ? "text" : "ungueltig");
+    if (result.reason === "invalid") return back(request, token, INVALID_FEHLER[result.invalid]);
     return back(request, token);
   }
   return back(request, token);

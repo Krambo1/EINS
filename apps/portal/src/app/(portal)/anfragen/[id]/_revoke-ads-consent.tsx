@@ -1,40 +1,52 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { Button } from "@eins/ui";
+import { useTransition } from "react";
+import { Button, cn } from "@eins/ui";
+import { CONTROL, RAISED_CONTROL } from "../../dashboard/_components/dash-ui";
+import { showActionFlash } from "../../_components/flash-event";
 import { revokeAdsConsent } from "./actions";
 
 /**
- * "Einwilligung widerrufen" (migration 0077). The action returns
- * `{ ok, message }` like the other cockpit actions (V2 Neben 5), so a refusal
- * shows as a German line instead of an error page. Not optimistic on purpose:
- * it stops data flows to Meta and Google, so the page waits for the server.
- * While it saves the button only dims; a spinner would widen it.
+ * "Widerrufen" for the consent to report to Meta and Google (migration 0077),
+ * in the consent's row of the Details card: rarely used and never during a
+ * call, so a quiet raised button, not a red one on the page. Not optimistic
+ * on purpose: it stops data flows to Meta and Google, so the row changes when
+ * the server has done it; the toast says so, or why not, with the patient's
+ * name. While it saves the button only dims; a spinner would widen it.
  */
-export function RevokeAdsConsentButton({ requestId }: { requestId: string }) {
+export function RevokeAdsConsentButton({ requestId, name }: { requestId: string; name: string }) {
   const [isPending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
 
   const submit = () => {
     const fd = new FormData();
     fd.set("id", requestId);
-    setError(null);
     startTransition(async () => {
       try {
         const res = await revokeAdsConsent(fd);
-        if (!res.ok) setError(res.message);
+        showActionFlash(
+          res.ok
+            ? { tone: "good", title: "Einwilligung widerrufen", description: `${name}: Die Anfrage geht nicht mehr an Meta und Google.` }
+            : { tone: "bad", title: "Nicht widerrufen", description: `${name}: ${res.message}` }
+        );
       } catch {
-        setError("Keine Verbindung. Bitte versuchen Sie es noch einmal.");
+        showActionFlash({
+          tone: "bad",
+          title: "Nicht widerrufen",
+          description: `${name}: Keine Verbindung. Bitte versuchen Sie es noch einmal.`,
+        });
       }
     });
   };
 
   return (
-    <>
-      <Button type="button" size="sm" variant="danger" disabled={isPending} onClick={submit}>
-        Einwilligung widerrufen
-      </Button>
-      {error && <p className="basis-full text-sm text-tone-bad">{error}</p>}
-    </>
+    <Button
+      type="button"
+      variant="outline"
+      disabled={isPending}
+      onClick={submit}
+      className={cn(RAISED_CONTROL, CONTROL, "-my-3 shrink-0 px-3")}
+    >
+      Widerrufen
+    </Button>
   );
 }

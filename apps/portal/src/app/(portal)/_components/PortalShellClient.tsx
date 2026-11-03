@@ -16,7 +16,6 @@ import { TopProgressBar } from "./TopProgressBar";
 import {
   LayoutDashboard,
   Inbox,
-  Megaphone,
   Clapperboard,
   FileText,
   BookOpen,
@@ -24,6 +23,7 @@ import {
   Star,
   Menu,
   HelpCircle,
+  Settings,
 } from "lucide-react";
 import type { Role } from "@/lib/constants";
 import { can } from "@/lib/roles";
@@ -44,8 +44,6 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
   permission?: Parameters<typeof can>[1];
   subItems?: NavSubItem[];
-  /** Only listed once the Praxis runs ads (organic start hides it). */
-  needsAdData?: boolean;
 }
 
 interface NavGroup {
@@ -56,11 +54,13 @@ interface NavGroup {
 }
 
 /**
- * Sidebar, main path first. Kept short on purpose (about ten entries for a
- * new Praxis): "Werbebudget" appears once ads run, "Einstellungen" lives
- * in the account menu (top of the sidebar), "Häufige Fragen" is the single
- * "Hilfe" entry, Wiederbehandlungen is the second view of Anfragen. Every
- * page stays reachable by URL; permissions are unchanged.
+ * Sidebar, main path first. Kept short on purpose (about ten entries): the
+ * Werbebudget page is retired (2026-10-30; its figures are on the Übersicht,
+ * the ad accounts in Einstellungen), "Einstellungen" is the last entry at the
+ * foot, right above the account (and still in the account menu; Karam,
+ * 2026-10-30), "Häufige Fragen" is the single "Hilfe" entry, Wiederbehandlungen
+ * is the second view of Anfragen. Every page stays reachable by URL;
+ * permissions are unchanged, except that every role now sees Einstellungen.
  */
 const NAV_GROUPS: NavGroup[] = [
   {
@@ -69,7 +69,6 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/dashboard", label: "Übersicht", icon: LayoutDashboard, permission: "dashboard.view" },
       { href: "/anfragen", label: "Anfragen", icon: Inbox, permission: "requests.view" },
-      { href: "/werbebudget", label: "Werbebudget", icon: Megaphone, permission: "campaigns.live", needsAdData: true },
       {
         href: "/bewertungen",
         label: "Bewertungen",
@@ -94,6 +93,9 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/support", label: "Nachrichten an EINS", icon: Inbox, permission: "feedback.submit" },
       { href: "/faq", label: "Hilfe", icon: HelpCircle },
+      // Every role: Profil and "Passwort ändern" live there. The page shows
+      // each role only its own cards (Karam, 2026-10-30). Same as UserMenu.
+      { href: "/einstellungen", label: "Einstellungen", icon: Settings },
     ],
   },
 ];
@@ -144,50 +146,62 @@ function BrandMark({
 }
 
 /**
- * Pill for something the user still owes, right of the nav label: due
- * Wiedervorlagen next to "Anfragen".
- * Dark text on a light amber tint with an amber dot, so it reads apart from
- * the green "neu" count without putting text on a strong colour fill. Every
- * nav marker sits on the right, none on the icon.
+ * The one marker right of a nav label, on every row (main entry, sub-entry,
+ * phone drawer and header, active or not): a box in a light tint with text
+ * in the same tone. Green = something new ("12", "Neu"), amber = something
+ * the user still owes ("1 fällig"). Same size, radius and type for both.
  */
-function ActionPill({
+function NavMarker({
   text,
+  tone,
   label,
   title,
-  active,
 }: {
   text: string;
+  tone: "new" | "due";
   label: string;
-  title: string;
-  active: boolean;
+  title?: string;
 }) {
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center gap-1 rounded-[var(--r-small)] border px-1.5 py-0.5 text-xs font-semibold tabular-nums text-fg-primary",
-        active
-          ? "border-transparent bg-bg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
-          : "border-[var(--tone-warn-border)] bg-[var(--tone-warn-bg)]"
+        "inline-flex h-5 min-w-5 shrink-0 items-center justify-center whitespace-nowrap rounded-[var(--r-small)] border px-1.5 text-xs font-semibold leading-none tabular-nums",
+        // The text is the tone darkened (about 7:1 on the tint): the plain
+        // tone colours are 2.6 to 3:1 on white, too faint at 12 px.
+        tone === "new"
+          ? "border-[var(--tone-good-border)] bg-[color-mix(in_srgb,var(--tone-good)_14%,white)] text-[color-mix(in_srgb,var(--tone-good)_55%,black)]"
+          : "border-[var(--tone-warn-border)] bg-[color-mix(in_srgb,var(--tone-warn)_16%,white)] text-[color-mix(in_srgb,var(--tone-warn)_50%,black)]"
       )}
       aria-label={label}
       title={title}
     >
-      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-tone-warn" />
       {text}
     </span>
   );
 }
 
-function DuePill({ count, active }: { count: number; active: boolean }) {
-  if (count <= 0) return null;
-  const n = count > 99 ? "99+" : String(count);
+/** Markers of one nav entry: its "neu" count or "Neu", then due Wiedervorlagen. */
+function NavMarkers({ badge, due }: { badge: string | null; due: number }) {
+  if (!badge && due <= 0) return null;
+  const n = due > 99 ? "99+" : String(due);
   return (
-    <ActionPill
-      text={`${n} fällig`}
-      label={`${n} Wiedervorlagen fällig`}
-      title="Wiedervorlagen, die heute oder früher fällig sind"
-      active={active}
-    />
+    <span className="ml-auto flex items-center gap-1">
+      {badge && (
+        <NavMarker
+          text={badge}
+          tone="new"
+          label={/^\d+(\+)?$/.test(badge) ? `${badge} neu` : badge}
+        />
+      )}
+      {due > 0 && (
+        <NavMarker
+          text={`${n} fällig`}
+          tone="due"
+          label={`${n} Wiedervorlagen fällig`}
+          title="Wiedervorlagen, die heute oder früher fällig sind"
+        />
+      )}
+    </span>
   );
 }
 
@@ -207,8 +221,8 @@ export interface PortalShellProps {
   /** ISO end of the impersonation session (hard 30 min), for the banner. */
   impersonationExpiresAt?: string | null;
   /**
-   * Per-nav-item accent badges, keyed by href. Rendered as a green accent
-   * pill next to the label (desktop) / corner badge (mobile).
+   * Per-nav-item "new" markers, keyed by href. Rendered as a green box right
+   * of the label (`NavMarker`).
    *
    * Values:
    * - number > 0 → renders the count (e.g. "12", capped at "99+")
@@ -218,8 +232,6 @@ export interface PortalShellProps {
   navBadgeCounts?: Record<string, number | string>;
   /** Due Wiedervorlagen, shown as their own pill next to "Anfragen". */
   anfragenDue?: number;
-  /** Ad account connected or campaign data present: list "Werbebudget". */
-  showWerbebudget?: boolean;
   /**
    * A notice above both columns (the Start-Checkliste reminder). Above them,
    * not inside the page, so the logo and the nav still line up with the
@@ -248,7 +260,6 @@ export function PortalShellClient({
   impersonationExpiresAt,
   navBadgeCounts: serverBadgeCounts,
   anfragenDue = 0,
-  showWerbebudget = false,
   notice,
   children,
 }: PortalShellProps) {
@@ -279,11 +290,6 @@ export function PortalShellClient({
     return out;
   }, [serverBadgeCounts, seenSections]);
 
-  // "Werbebudget" stays listed while the user is on it.
-  const onWerbebudget =
-    pathname === "/werbebudget" || pathname.startsWith("/werbebudget/");
-  const adsVisible = showWerbebudget || onWerbebudget;
-
   // Permission-filter both groups and sub-items, drop empty groups.
   const visibleGroups = useMemo<NavGroup[]>(
     () =>
@@ -292,7 +298,6 @@ export function PortalShellClient({
         label: g.label,
         items: g.items
           .filter((i) => !i.permission || can(user.role, i.permission))
-          .filter((i) => !i.needsAdData || adsVisible)
           .map((i) => ({
             ...i,
             subItems: i.subItems?.filter(
@@ -300,7 +305,7 @@ export function PortalShellClient({
             ),
           })),
       })).filter((g) => g.items.length > 0),
-    [user.role, adsVisible]
+    [user.role]
   );
 
   // Every navigable href in the sidebar, including sub-tabs, for active
@@ -388,8 +393,8 @@ export function PortalShellClient({
 
   // A notice above both columns pushes the sticky sidebar down until the page
   // scrolls. The sidebar leaves its height out (--shell-notice), so "Hilfe"
-  // at its foot stays on the first screen. 4.5rem is the one-line banner at
-  // desktop width, so the first paint is already close.
+  // at its foot stays on the first screen. 5.5rem is the one-line banner at
+  // desktop width with its gap below, so the first paint is already right.
   const noticeRef = useRef<HTMLDivElement>(null);
   const [noticeHeight, setNoticeHeight] = useState<number | null>(null);
   const hasNotice = notice != null && notice !== false;
@@ -403,7 +408,7 @@ export function PortalShellClient({
     return () => observer.disconnect();
   }, [hasNotice]);
   const shellStyle = {
-    "--shell-notice": hasNotice ? (noticeHeight != null ? `${noticeHeight}px` : "4.5rem") : "0px",
+    "--shell-notice": hasNotice ? (noticeHeight != null ? `${noticeHeight}px` : "5.5rem") : "0px",
   } as CSSProperties;
 
   const showProgress = pendingHref !== null;
@@ -469,8 +474,8 @@ export function PortalShellClient({
 
           <div className="flex-1" />
 
-          {/* Phone: Anfragen one tap away, with the same counts as the
-              sidebar (new = dark count, due Wiedervorlagen = amber dot). */}
+          {/* Phone: Anfragen one tap away, with the same markers as the
+              sidebar entry. */}
           {anfragenHeader && (
             <Link
               href="/anfragen"
@@ -480,25 +485,14 @@ export function PortalShellClient({
               aria-label={anfragenHeader.label}
               aria-current={activeHref === "/anfragen" ? "page" : undefined}
               className={cn(
-                "relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--r-control)] text-fg-primary hover:bg-bg-secondary md:hidden",
+                "inline-flex h-10 min-w-10 shrink-0 items-center justify-center gap-2 rounded-[var(--r-control)] px-2.5 text-fg-primary hover:bg-bg-secondary md:hidden",
                 activeHref === "/anfragen" && "bg-bg-secondary"
               )}
             >
-              <Inbox className="h-5 w-5" aria-hidden />
-              {anfragenHeader.newText && (
-                <span
-                  aria-hidden
-                  className="absolute -right-0.5 -top-0.5 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-fg-primary px-1 text-xs font-semibold tabular-nums text-bg-primary ring-2 ring-bg-primary"
-                >
-                  {anfragenHeader.newText}
-                </span>
-              )}
-              {anfragenHeader.due && (
-                <span
-                  aria-hidden
-                  className="absolute bottom-1 right-1 h-2.5 w-2.5 rounded-full bg-tone-warn ring-2 ring-bg-primary"
-                />
-              )}
+              <Inbox className="h-5 w-5 shrink-0" aria-hidden />
+              <span aria-hidden className="contents">
+                <NavMarkers badge={anfragenHeader.newText} due={anfragenDue} />
+              </span>
             </Link>
           )}
         </div>
@@ -571,23 +565,10 @@ export function PortalShellClient({
                         <Icon className="h-[18px] w-[18px]" />
                       </span>
                       <span>{item.label}</span>
-                      {(badge || (item.href === "/anfragen" && anfragenDue > 0)) && (
-                        <span className="ml-auto flex items-center gap-1">
-                          {badge && (
-                            <span
-                              className="inline-flex min-w-[1.25rem] items-center justify-center rounded-[var(--r-small)] bg-[var(--tone-good-bg)] px-1.5 py-0.5 text-xs font-semibold tabular-nums text-tone-good"
-                              aria-label={
-                                /^\d+(\+)?$/.test(badge) ? `${badge} neu` : badge
-                              }
-                            >
-                              {badge}
-                            </span>
-                          )}
-                          {item.href === "/anfragen" && (
-                            <DuePill count={anfragenDue} active={exactlyActive} />
-                          )}
-                        </span>
-                      )}
+                      <NavMarkers
+                        badge={badge}
+                        due={item.href === "/anfragen" ? anfragenDue : 0}
+                      />
                     </Link>
                     {visibleSubItems.length > 0 && (
                       <div className="ml-[1.625rem] flex flex-col gap-0.5 border-l border-border pl-3">
@@ -609,18 +590,7 @@ export function PortalShellClient({
                               )}
                             >
                               <span>{sub.label}</span>
-                              {subBadge && (
-                                <span
-                                  className="ml-auto inline-flex min-w-[1.125rem] items-center justify-center rounded-[var(--r-small)] bg-[var(--tone-good-bg)] px-1.5 py-0.5 text-xs font-semibold tabular-nums text-tone-good"
-                                  aria-label={
-                                    /^\d+(\+)?$/.test(subBadge)
-                                      ? `${subBadge} neu`
-                                      : subBadge
-                                  }
-                                >
-                                  {subBadge}
-                                </span>
-                              )}
+                              <NavMarkers badge={subBadge} due={0} />
                             </Link>
                           );
                         })}
@@ -713,28 +683,10 @@ export function PortalShellClient({
                             <Icon className="h-5 w-5" />
                           </span>
                           <span>{item.label}</span>
-                          {(badge || (item.href === "/anfragen" && anfragenDue > 0)) && (
-                            <span className="ml-auto flex items-center gap-1">
-                              {badge && (
-                                <span
-                                  className={cn(
-                                    "inline-flex min-w-[1.25rem] items-center justify-center rounded-[var(--r-small)] px-1.5 py-0.5 text-xs font-semibold tabular-nums text-tone-good",
-                                    exactlyActive
-                                      ? "bg-bg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
-                                      : "bg-[var(--tone-good-bg)]"
-                                  )}
-                                  aria-label={
-                                    /^\d+(\+)?$/.test(badge) ? `${badge} neu` : badge
-                                  }
-                                >
-                                  {badge}
-                                </span>
-                              )}
-                              {item.href === "/anfragen" && (
-                                <DuePill count={anfragenDue} active={exactlyActive} />
-                              )}
-                            </span>
-                          )}
+                          <NavMarkers
+                            badge={badge}
+                            due={item.href === "/anfragen" ? anfragenDue : 0}
+                          />
                         </Link>
                         {visibleSubItems.length > 0 && (
                           <div className="ml-[1.625rem] flex flex-col gap-0.5 border-l border-border pl-3">
@@ -760,23 +712,7 @@ export function PortalShellClient({
                                   )}
                                 >
                                   <span>{sub.label}</span>
-                                  {subBadge && (
-                                    <span
-                                      className={cn(
-                                        "ml-auto inline-flex min-w-[1.125rem] items-center justify-center rounded-[var(--r-small)] px-1.5 py-0.5 text-xs font-semibold tabular-nums text-tone-good",
-                                        subActive
-                                          ? "bg-bg-primary shadow-[0_1px_2px_rgba(16,16,26,0.18)]"
-                                          : "bg-[var(--tone-good-bg)]"
-                                      )}
-                                      aria-label={
-                                        /^\d+(\+)?$/.test(subBadge)
-                                          ? `${subBadge} neu`
-                                          : subBadge
-                                      }
-                                    >
-                                      {subBadge}
-                                    </span>
-                                  )}
+                                  <NavMarkers badge={subBadge} due={0} />
                                 </Link>
                               );
                             })}

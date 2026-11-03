@@ -14,10 +14,6 @@ export interface AdInquiryDay {
   inquiries: number;
   /** Of those, the qualifizierte Anfragen (_qualified.ts): the unit of the cost per Anfrage. */
   qualified: number;
-  /** Of those, the ones that got a Termin or went further, counted as the Trichter counts Termine. */
-  appointments: number;
-  /** Of those, the gewonnene Behandlungen. */
-  won: number;
   /** Umsatz of the won ones: the only Umsatz the Werbeertrag divides by the Werbebudget. */
   revenueEur: number;
 }
@@ -25,8 +21,9 @@ export interface AdInquiryDay {
 /**
  * Anfragen per Berlin day that came in through a Meta or Google ad, counted
  * in the portal with the same channel rule as the Quellen (bySource,
- * reportingChannel), in [start, endExclusive). The Werbebudget page and the
- * Trichter divide the Werbebudget by `qualified`, so every page agrees.
+ * reportingChannel), in [start, endExclusive). The Übersicht divides the
+ * Werbebudget by `qualified` (Pro qualifizierte Anfrage) and `revenueEur` by
+ * the Werbebudget (Werbeertrag), so every card agrees.
  */
 export async function adInquiriesByDay(
   tx: Tx,
@@ -41,8 +38,6 @@ export async function adInquiriesByDay(
       date: berlinDate,
       inquiries: sql<number>`count(*)::int`,
       qualified: qualifiedCount,
-      appointments: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} IN ('termin_vereinbart','beratung_erschienen','behandelt','gewonnen'))::int`,
-      won: sql<number>`count(*) FILTER (WHERE ${schema.requests.status} = 'gewonnen')::int`,
       revenueEur: sql<number>`coalesce(sum(${schema.requests.convertedRevenueEur}) FILTER (WHERE ${schema.requests.status} = 'gewonnen'), 0)::float8`,
     })
     .from(schema.requests)
@@ -66,14 +61,10 @@ export async function adInquiriesByDay(
       platform,
       inquiries: 0,
       qualified: 0,
-      appointments: 0,
-      won: 0,
       revenueEur: 0,
     };
     day.inquiries += Number(r.inquiries);
     day.qualified += Number(r.qualified);
-    day.appointments += Number(r.appointments);
-    day.won += Number(r.won);
     day.revenueEur += Number(r.revenueEur);
     byDay.set(key, day);
   }

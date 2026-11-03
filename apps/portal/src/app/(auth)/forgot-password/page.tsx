@@ -1,7 +1,12 @@
+import { AuthShell } from "../_components/AuthShell";
 import { ForgotPasswordForm } from "./ForgotPasswordForm";
 
 export const metadata = { title: "Passwort vergessen" };
 
 export default function ForgotPasswordPage() {
-  return <ForgotPasswordForm />;
+  return (
+    <AuthShell>
+      <ForgotPasswordForm />
+    </AuthShell>
+  );
 }

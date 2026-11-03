@@ -428,7 +428,7 @@ export interface CallQueueLead {
 
 /**
  * Prioritised lead-queue for the "Jetzt anrufen" view (every role that
- * works Anfragen, see anfragen/page.tsx).
+ * works Anfragen, see anfragen/(liste)/page.tsx).
  *
  * Surfaces leads still in the manual working phase: status ∈ {neu,
  * kontaktiert, nicht_erreicht, termin_vereinbart}. `kontaktiert` /

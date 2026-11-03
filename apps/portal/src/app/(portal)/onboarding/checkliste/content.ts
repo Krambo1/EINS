@@ -15,6 +15,10 @@
  * 2026-09-30 with the switch to the KI-Klon. Successor: F5.
  * Retired: D5 (Vorher-Nachher-Material), retired on 2026-09-30: Vorher-Nachher
  * is not used at all (KANON Abschnitt 8, § 3 und § 11 HWG). No successor.
+ * Retired on 2026-10-30 (Karam's onboarding cut, each asked twice): C6
+ * (Portal-Zugänge für Ihr Team: the hub step "Team einladen" in Einstellungen)
+ * and E5 (Freie Beratungskapazität: Fragebogen A3). E2 lost its field
+ * "einzugsgebiet" (Fragebogen E1); a stored value drops on the next E2 save.
  *
  * Lieferweg-Typen (see DeliveryType): how each item is delivered and what sets
  * its status to 'geliefert'. Two-stage everywhere: the clinic delivers, EINS
@@ -139,7 +143,7 @@ export const MAX_CHECKLIST_UPLOAD_BYTES = 25 * 1024 * 1024;
 export const CHECKLIST_BLOCKS: ChecklistBlock[] = [
   {
     key: "A",
-    title: "Grundlagen zum Start: Ohne diese Punkte startet nichts",
+    title: "Grundlagen zum Start",
     intro:
       "Diese fünf Punkte brauchen wir, bevor die Leistung startet. Die Klon-Aufnahme und die Einwilligung brauchen wir innerhalb von 3 Werktagen nach Unterschrift. Sie zählen erst als erledigt, sobald wir sie geprüft haben.",
     items: [
@@ -442,24 +446,6 @@ Falls Ihre Praxis kein Google Ads-Konto hat: "Nicht vorhanden" wählen.`,
           },
         ],
       },
-      {
-        id: "C6",
-        title: "Portal-Zugänge für Ihr Team",
-        deliveryType: "angabe",
-        required: true,
-        blocker: false,
-        role: "team",
-        anleitung:
-          "Wer in Ihrer Praxis soll das EINS-Portal nutzen können (Anfragen sehen, Auswertungen lesen)? Sie können Ihr Team auch direkt unter Einstellungen → Team einladen; dann hier nur kurz vermerken und abhaken.",
-        fields: [
-          {
-            key: "team",
-            label: "Personen",
-            type: "textarea",
-            placeholder: "Pro Person: Name, E-Mail, Rolle (Rezeption / Marketing / Ärztin/Arzt)",
-          },
-        ],
-      },
     ],
   },
   {
@@ -563,8 +549,7 @@ Falls Ihre Praxis kein Google Ads-Konto hat: "Nicht vorhanden" wählen.`,
         required: true,
         blocker: false,
         role: "team",
-        anleitung:
-          "Tragen Sie alle Standorte ein, an denen behandelt wird. Das Einzugsgebiet bestimmt, für welche Region wir Beiträge und Anzeigen ausrichten.",
+        anleitung: "Tragen Sie alle Standorte ein, an denen behandelt wird.",
         fields: [
           {
             key: "standorte",
@@ -572,12 +557,6 @@ Falls Ihre Praxis kein Google Ads-Konto hat: "Nicht vorhanden" wählen.`,
             type: "textarea",
             placeholder:
               "Pro Standort: Adresse, Öffnungszeiten, Telefonnummer",
-          },
-          {
-            key: "einzugsgebiet",
-            label: "Einzugsgebiet",
-            type: "text",
-            placeholder: "Städte / Umkreis",
           },
         ],
       },
@@ -625,24 +604,6 @@ Falls Ihre Praxis kein Google Ads-Konto hat: "Nicht vorhanden" wählen.`,
             key: "rechnungsanschrift",
             label: "Rechnungsanschrift",
             type: "textarea",
-          },
-        ],
-      },
-      {
-        id: "E5",
-        title: "Freie Beratungskapazität",
-        deliveryType: "angabe",
-        required: true,
-        blocker: false,
-        role: "team",
-        anleitung:
-          "Wie viele Erstberatungen pro Woche sind realistisch frei? Ehrliche Schätzung genügt; danach richten wir aus, wie viele Anfragen wir zu Ihnen leiten, damit keine Anfragen liegen bleiben.",
-        fields: [
-          {
-            key: "kapazitaet",
-            label: "Beratungstermine pro Woche für neue Patienten",
-            type: "text",
-            placeholder: "Zahl oder Spanne",
           },
         ],
       },

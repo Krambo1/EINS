@@ -11,7 +11,7 @@ import {
 import { cn } from "@eins/ui";
 import { formatDateTime } from "@/lib/formatting";
 import { fileExtension, isVideoExtension } from "@/lib/uploads";
-import { DashCard } from "../../dashboard/_components/dash-ui";
+import { DashCard, WASH_AREA } from "../../dashboard/_components/dash-ui";
 
 /**
  * Building blocks of the Dateien page, shared by the page and its skeleton so
@@ -28,12 +28,15 @@ export const FILE_SLOTS = 6;
 export const FILE_ROW = "min-h-[4.25rem] py-3";
 
 /** Six rows. No hairlines between them: Attio's file rows are told apart by
- *  their rounded hover wash. Below lg most names take two lines (six 88 px
- *  rows); from lg one (six 68 px rows plus room for one name that wraps). */
-const FILE_LIST_HEIGHT = "h-[33rem] lg:h-[26.75rem]";
+ *  their rounded hover wash, with 4 px white between two washes. Below lg
+ *  most names take two lines (six 88 px rows); from lg one (six 68 px rows
+ *  plus room for one name that wraps), plus the five 4 px gaps. */
+const FILE_LIST_HEIGHT = "h-[34.25rem] lg:h-[28rem]";
 
-/** The list of a card (FileListRows on the page, the skeleton's rows). */
-export const FILE_LIST = cn("scroll-shadows -mx-2 [--scroll-bg:var(--surface-tile)]", FILE_LIST_HEIGHT);
+/** The list of a card (FileListRows on the page, the skeleton's rows). The
+ *  rows' grey (WASH_AREA) reaches 12 px into the padding, inside the scroll
+ *  box, so it is not cut off. */
+export const FILE_LIST = cn("scroll-shadows -mx-3 space-y-1 px-3 [--scroll-bg:var(--surface-tile)]", FILE_LIST_HEIGHT);
 
 /** The foot: a hairline, 12 px, one control. */
 const FILE_FOOT_HEIGHT = "h-[calc(var(--control-h)+0.75rem+1px)]";
@@ -136,7 +139,8 @@ export function FileRow({
   return (
     <li
       className={cn(
-        "flex items-center gap-3 rounded-[var(--r-control)] px-2 transition-[background-color] hover:bg-[var(--hover-wash)]",
+        "flex items-center gap-3 rounded-[var(--r-panel)] transition-[background-color] hover:bg-[var(--hover-wash)]",
+        WASH_AREA,
         FILE_ROW,
         fresh && "anim-fresh"
       )}

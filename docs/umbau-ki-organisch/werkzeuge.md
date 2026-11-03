@@ -1,5 +1,7 @@
 # Werkzeuge für die KI-Lieferung: Entscheidungsvorlage
 
+> **Überholt seit 11.10.2026 (Remotion-Teile):** Videos und Vorschau-Anzeigen baut EINS mit HyperFrames, nicht mit Remotion. Die Remotion-Empfehlung unten ist der Recherche-Stand vom 30.09.2026.
+
 **Stand:** 30.09.2026 (alle Abrufe am selben Tag) · **Grundlage:** `KANON.md` Abschnitte 7, 8, 9 · **Art:** reine Recherche. Es wurde kein Konto angelegt, nichts angemeldet, nichts eingegeben.
 
 **Wie gelesen wurde**

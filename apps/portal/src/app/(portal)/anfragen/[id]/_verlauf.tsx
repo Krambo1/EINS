@@ -1,82 +1,192 @@
 "use client";
 
-import { Avatar, cn } from "@eins/ui";
-import { Clock, CheckCircle2, Mail, MessageSquare, Phone } from "lucide-react";
-import { ACTIVITY_KIND_LABELS, type ActivityKind } from "@/lib/constants";
+import { useMemo } from "react";
+import {
+  ArrowRightLeft,
+  CalendarCheck,
+  CalendarX,
+  Clock,
+  Mail,
+  MessageCircle,
+  NotebookPen,
+  Phone,
+  type LucideIcon,
+} from "lucide-react";
+import { cn } from "@eins/ui";
+import {
+  ACTIVITY_KIND_LABELS,
+  CALL_OUTCOME_LABELS,
+  type ActivityKind,
+  type CallOutcome,
+} from "@/lib/constants";
 import { formatDateTime } from "@/lib/formatting";
-import { formatDuration } from "./_duration";
-import { isPendingId, usePending, type ActivityItem } from "./_pending";
+import type { FollowupRow } from "@/server/queries/followups";
+import { ScrollHint } from "@/app/_components/ScrollHint";
+import { TABLE_HEAD_BAND } from "../../dashboard/_components/dash-ui";
+import { CenteredNote } from "../_components/CallQueue";
+import { PlannedRow } from "./_followups";
+import { VERLAUF_HEIGHT } from "./_lib/sizes";
+import { isPendingId, useFollowups, usePending, type ActivityItem } from "./_pending";
 import { statusChangeLine } from "./_status-change";
 
-/**
- * The entries of the Verlauf, newest first. What is still saving (a call, a
- * note, a status change from the dialogs) stands on top as a real entry, a
- * little faded until the server confirms; the server's list then replaces it
- * without anything moving.
- */
-export function VerlaufList({ activities }: { activities: ActivityItem[] }) {
-  const { changes } = usePending();
-  const saving = changes.flatMap((c) => c.activities ?? []).reverse();
-  const items = saving.length > 0 ? [...saving, ...activities] : activities;
+const ICON: Partial<Record<ActivityKind, LucideIcon>> = {
+  call: Phone,
+  email: Mail,
+  whatsapp: MessageCircle,
+  note: NotebookPen,
+  status_change: ArrowRightLeft,
+};
 
-  if (items.length === 0) {
-    return (
-      <p className="text-sm text-fg-primary">
-        Noch kein Verlauf. Protokollieren Sie den ersten Anruf oder hinterlassen Sie eine Notiz.
-      </p>
-    );
-  }
+type Entry = {
+  id: string;
+  at: Date;
+  icon: LucideIcon;
+  title: string;
+  actor: string | null;
+  body: string | null;
+  saving: boolean;
+};
+
+function outcomeOf(meta: unknown): CallOutcome | null {
+  const o = !!meta && typeof meta === "object" ? (meta as { outcome?: unknown }).outcome : null;
+  return typeof o === "string" && o in CALL_OUTCOME_LABELS ? (o as CallOutcome) : null;
+}
+
+function fromActivity(a: ActivityItem): Entry {
+  const kind = a.kind as ActivityKind;
+  const outcome = kind === "call" ? outcomeOf(a.meta) : null;
+  const title =
+    kind === "status_change"
+      ? (statusChangeLine(a.meta) ?? ACTIVITY_KIND_LABELS.status_change)
+      : outcome
+        ? `${ACTIVITY_KIND_LABELS.call}: ${CALL_OUTCOME_LABELS[outcome]}`
+        : (ACTIVITY_KIND_LABELS[kind] ?? a.kind);
+  return {
+    id: a.id,
+    at: a.createdAt,
+    icon: ICON[kind] ?? Clock,
+    title,
+    actor: a.actorName ?? a.actorEmail,
+    body: a.body,
+    saving: isPendingId(a.id),
+  };
+}
+
+/** A closed Wiedervorlage as an entry at the time it was closed (no activity row exists for it). */
+function fromFollowup(f: FollowupRow): Entry {
+  const done = f.status === "done";
+  return {
+    id: `followup-${f.id}`,
+    at: f.completedAt ?? f.createdAt,
+    icon: done ? CalendarCheck : CalendarX,
+    title: done ? "Wiedervorlage erledigt" : "Wiedervorlage abgebrochen",
+    actor: null,
+    body: `Für ${formatDateTime(f.dueAt)}${f.note ? `: ${f.note}` : ""}`,
+    saving: false,
+  };
+}
+
+/**
+ * The Verlauf (HubSpot's and Pipedrive's activity timeline): open
+ * Wiedervorlagen on top under "Geplant", then everything that happened,
+ * newest first. Each entry: what (a call with its result, a status move
+ * from → to), when, who, and the text. What is still saving stands on top,
+ * a little faded, until the server's list replaces it. One fixed height; the
+ * list scrolls inside.
+ */
+export function Verlauf({
+  requestId,
+  name,
+  activities,
+  followups: fromServer,
+  canWork,
+}: {
+  requestId: string;
+  name: string;
+  activities: ActivityItem[];
+  followups: FollowupRow[];
+  canWork: boolean;
+}) {
+  const { changes } = usePending();
+  const followups = useFollowups(requestId, fromServer);
+  const planned = followups.filter((f) => f.status === "pending");
+
+  const entries = useMemo(() => {
+    const saving = changes.flatMap((c) => c.activities ?? []);
+    const list = [
+      ...saving.map(fromActivity),
+      ...activities.map(fromActivity),
+      ...followups.filter((f) => f.status !== "pending").map(fromFollowup),
+    ];
+    return list.sort((a, b) => b.at.getTime() - a.at.getTime());
+  }, [changes, activities, followups]);
+
+  const empty = planned.length === 0 && entries.length === 0;
 
   return (
-    <ul className="divide-y divide-border">
-      {items.map((a, idx) => {
-        const prev = items[idx + 1];
-        const gapMs = prev ? a.createdAt.getTime() - prev.createdAt.getTime() : null;
-        const statusLine = a.kind === "status_change" ? statusChangeLine(a.meta) : null;
-        return (
-          <li
-            key={a.id}
-            className={cn("py-3 transition-opacity duration-300", isPendingId(a.id) && "opacity-60")}
-          >
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-fg-primary">
-              <ActivityIcon kind={a.kind as ActivityKind} />
-              <span className="font-medium">{ACTIVITY_KIND_LABELS[a.kind as ActivityKind] ?? a.kind}</span>
-              <span aria-hidden>·</span>
-              <span className="tabular-nums">{formatDateTime(a.createdAt)}</span>
-              {(a.actorName || a.actorEmail) && (
-                <>
-                  <span aria-hidden>·</span>
-                  <span className="inline-flex items-center gap-1.5 text-fg-secondary">
-                    <Avatar name={a.actorName ?? a.actorEmail ?? "?"} size="xs" />
-                    {a.actorName ?? a.actorEmail}
-                  </span>
-                </>
-              )}
-              {gapMs != null && gapMs > 0 && (
-                <span className="text-fg-secondary md:ml-auto">+{formatDuration(gapMs)} nach vorigem Eintrag</span>
-              )}
-            </div>
-            {statusLine && <p className="mt-1 text-base text-fg-primary">{statusLine}</p>}
-            {a.body && <p className="mt-1 whitespace-pre-wrap text-base text-fg-primary">{a.body}</p>}
-          </li>
-        );
-      })}
-    </ul>
+    <ScrollHint>
+      <div
+        role="region"
+        aria-label="Verlauf"
+        tabIndex={0}
+        className={cn(
+          "scroll-shadows -mx-2 overflow-y-auto px-2 [--scroll-bg:var(--surface-tile)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+          VERLAUF_HEIGHT,
+          empty && "flex"
+        )}
+      >
+        {empty ? (
+          <CenteredNote
+            title="Noch kein Eintrag."
+            text="Anrufe, Nachrichten, Notizen und Wiedervorlagen stehen hier."
+          />
+        ) : (
+          <>
+            {planned.length > 0 && (
+              <>
+                <p className={cn(TABLE_HEAD_BAND, "flex items-center px-3")}>Geplant</p>
+                <ul className="divide-y divide-border">
+                  {planned.map((f) => (
+                    <PlannedRow key={f.id} requestId={requestId} name={name} followup={f} canWork={canWork} />
+                  ))}
+                </ul>
+                {entries.length > 0 && <p className={cn(TABLE_HEAD_BAND, "flex items-center px-3")}>Bisher</p>}
+              </>
+            )}
+            <ul className="divide-y divide-border">
+              {entries.map((e) => (
+                <EntryRow key={e.id} entry={e} />
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
+    </ScrollHint>
   );
 }
 
-function ActivityIcon({ kind }: { kind: ActivityKind }) {
-  switch (kind) {
-    case "call":
-      return <Phone className="h-3.5 w-3.5" />;
-    case "email":
-      return <Mail className="h-3.5 w-3.5" />;
-    case "whatsapp":
-    case "note":
-      return <MessageSquare className="h-3.5 w-3.5" />;
-    case "status_change":
-      return <CheckCircle2 className="h-3.5 w-3.5" />;
-    default:
-      return <Clock className="h-3.5 w-3.5" />;
-  }
+function EntryRow({ entry: e }: { entry: Entry }) {
+  const Icon = e.icon;
+  return (
+    <li
+      className={cn(
+        "grid grid-cols-[1.25rem_minmax(0,1fr)] gap-x-3 py-3 transition-opacity duration-300",
+        e.saving && "opacity-60"
+      )}
+    >
+      <span aria-hidden className="flex h-5 items-center text-fg-secondary">
+        <Icon className="h-4 w-4" />
+      </span>
+      <div className="min-w-0">
+        <div className="flex items-baseline justify-between gap-3">
+          <p className="min-w-0 break-words text-[15px] font-medium leading-5 text-fg-primary">{e.title}</p>
+          <time className="shrink-0 text-sm leading-5 tabular-nums text-fg-secondary">{formatDateTime(e.at)}</time>
+        </div>
+        {e.actor && <p className="text-sm leading-5 text-fg-secondary">{e.actor}</p>}
+        {e.body && (
+          <p className="mt-1 whitespace-pre-wrap break-words text-[15px] leading-6 text-fg-primary">{e.body}</p>
+        )}
+      </div>
+    </li>
+  );
 }

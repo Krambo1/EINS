@@ -18,26 +18,35 @@ export const APPROVAL_DECISION_LABELS: Record<ApprovalDecision, string> = {
 
 export const CHANGE_TEXT_MAX = 2000;
 
+export const CHANGE_TEXT_EMPTY_MESSAGE = "Bitte beschreiben Sie, was wir ändern sollen.";
+export const CHANGE_TEXT_TOO_LONG_MESSAGE = `Bitte fassen Sie die Änderung in höchstens ${CHANGE_TEXT_MAX} Zeichen.`;
+
 export function isApprovalDecision(v: unknown): v is ApprovalDecision {
   return typeof v === "string" && (APPROVAL_DECISIONS as readonly string[]).includes(v);
 }
 
+/** Why normalizeDecision refused a decision. */
+export type InvalidDecisionCode = "unknown_decision" | "empty" | "too_long";
+
 export type DecisionInput =
   | { ok: true; decision: ApprovalDecision; changeText: string | null }
-  | { ok: false; error: string };
+  | { ok: false; code: InvalidDecisionCode; error: string };
 
 /**
  * Validates a decision. "aenderung" needs a non-empty description (the DB
  * CHECK enforces the same); "freigegeben" drops any text.
+ *
+ * A form post sends every textarea line break as CRLF, while the textarea's
+ * maxLength counts it once. CRLF and a lone CR become LF before the trim and
+ * the length check, so the limit is the one the person saw and the stored
+ * text uses LF.
  */
 export function normalizeDecision(decision: unknown, changeText: unknown): DecisionInput {
-  if (!isApprovalDecision(decision)) return { ok: false, error: "Unbekannte Entscheidung." };
+  if (!isApprovalDecision(decision)) return { ok: false, code: "unknown_decision", error: "Unbekannte Entscheidung." };
   if (decision === "freigegeben") return { ok: true, decision, changeText: null };
-  const text = typeof changeText === "string" ? changeText.trim() : "";
-  if (!text) return { ok: false, error: "Bitte beschreiben Sie, was wir ändern sollen." };
-  if (text.length > CHANGE_TEXT_MAX) {
-    return { ok: false, error: `Bitte fassen Sie die Änderung in höchstens ${CHANGE_TEXT_MAX} Zeichen.` };
-  }
+  const text = typeof changeText === "string" ? changeText.replace(/\r\n?/g, "\n").trim() : "";
+  if (!text) return { ok: false, code: "empty", error: CHANGE_TEXT_EMPTY_MESSAGE };
+  if (text.length > CHANGE_TEXT_MAX) return { ok: false, code: "too_long", error: CHANGE_TEXT_TOO_LONG_MESSAGE };
   return { ok: true, decision, changeText: text };
 }
 

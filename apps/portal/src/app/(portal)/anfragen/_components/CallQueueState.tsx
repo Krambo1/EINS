@@ -50,6 +50,12 @@ export function useTrackedCall(): TrackCall | null {
   return useContext(TrackContext);
 }
 
+/**
+ * The same hook for the Anfrage page (anfragen/[id]): there the tracker shows
+ * the tapped call in the Verlauf while it saves, instead of hiding a card.
+ */
+export const TrackCallProvider = TrackContext.Provider;
+
 function useQueueState(): QueueState {
   const state = useContext(QueueContext);
   if (!state) throw new Error("CallHeroSlot and CallQueueList belong inside CallQueueState");

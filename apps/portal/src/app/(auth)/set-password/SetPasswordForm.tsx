@@ -6,7 +6,8 @@ import { PASSWORD_MIN_LENGTH } from "@/auth/password-rules";
 import { AuthToast } from "../_components/AuthToast";
 import { PasswordInput } from "../_components/PasswordInput";
 import { PasswordRules } from "../_components/PasswordRules";
-import { AuthLabel, PendingDots, authCtaClass } from "../_components/auth-ui";
+import { AuthField, PendingStatus, authPrimaryClass } from "../_components/auth-ui";
+import { AUTH_STACK } from "../_lib/sizes";
 import {
   setPasswordFromCookieAction,
   type SetPasswordState,
@@ -20,14 +21,18 @@ interface Props {
 function SubmitButton({ blocked }: { blocked: boolean }) {
   const { pending } = useFormStatus();
   return (
-    <button
-      type="submit"
-      disabled={pending || blocked}
-      aria-busy={pending}
-      className={authCtaClass}
-    >
-      {pending ? <PendingDots label="Wird gespeichert" /> : "Passwort speichern"}
-    </button>
+    <>
+      <button
+        type="submit"
+        data-auth-primary
+        disabled={pending || blocked}
+        aria-busy={pending}
+        className={authPrimaryClass}
+      >
+        Passwort speichern
+      </button>
+      <PendingStatus pending={pending} label="Wird gespeichert" />
+    </>
   );
 }
 
@@ -45,7 +50,7 @@ export function SetPasswordForm({ email }: Props) {
   const mismatch = pw.length > 0 && pw2.length > 0 && pw !== pw2;
 
   return (
-    <form action={formAction} onSubmit={() => setClosedFor(state)} className="space-y-6">
+    <form action={formAction} onSubmit={() => setClosedFor(state)} className={AUTH_STACK}>
       {/* Lets password managers file the new password under the right
           account. Not read by the action. */}
       <input
@@ -56,10 +61,7 @@ export function SetPasswordForm({ email }: Props) {
         readOnly
         hidden
       />
-      <div>
-        <AuthLabel htmlFor="password" className="mb-2">
-          Neues Passwort
-        </AuthLabel>
+      <AuthField label="Neues Passwort" htmlFor="password">
         <PasswordInput
           id="password"
           name="password"
@@ -71,11 +73,8 @@ export function SetPasswordForm({ email }: Props) {
           onChange={(e) => setPw(e.target.value)}
           aria-describedby="password-rules"
         />
-      </div>
-      <div>
-        <AuthLabel htmlFor="password2" className="mb-2">
-          Passwort wiederholen
-        </AuthLabel>
+      </AuthField>
+      <AuthField label="Passwort wiederholen" htmlFor="password2">
         <PasswordInput
           id="password2"
           name="password2"
@@ -86,7 +85,7 @@ export function SetPasswordForm({ email }: Props) {
           value={pw2}
           onChange={(e) => setPw2(e.target.value)}
         />
-      </div>
+      </AuthField>
       <PasswordRules id="password-rules" pw={pw} pw2={pw2} />
       <SubmitButton blocked={mismatch} />
       {error && (

@@ -24,6 +24,7 @@ import { DETAIL_GRID, DETAIL_TEXT_HEIGHT, FACT_COLUMNS, RECORD_NAME_HEIGHT } fro
 import { FeedbackNav } from "./_nav";
 import { FeedbackStatusSwitch } from "./_status-switch";
 import { FeedbackReplyEditor } from "./_reply-editor";
+import { mergeReplyTemplates } from "../../_lib/reply-templates-store";
 import { CopyEmailButton } from "./_copy-email";
 import { ScrollHint } from "@/app/_components/ScrollHint";
 
@@ -78,7 +79,10 @@ export default async function PatientenfeedbackDetailPage({
     listPatientFeedback(session.clinicId, session.userId, feedbackQueryFilter(filter)),
     getPatientFeedbackResolution(session.clinicId, session.userId, id),
     db
-      .select({ displayName: schema.clinics.displayName })
+      .select({
+        displayName: schema.clinics.displayName,
+        replyTemplates: schema.clinics.replyTemplates,
+      })
       .from(schema.clinics)
       .where(eq(schema.clinics.id, session.clinicId))
       .limit(1),
@@ -283,6 +287,7 @@ export default async function PatientenfeedbackDetailPage({
                 rating={feedback.rating}
                 defaultNote={feedback.internalNote ?? ""}
                 praxisName={praxisName}
+                templates={mergeReplyTemplates(clinicRows[0]?.replyTemplates)}
               />
             </div>
           </DashCard>

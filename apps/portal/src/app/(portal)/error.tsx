@@ -1,15 +1,20 @@
 "use client";
 
 import { startTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Card, CardContent, Button } from "@eins/ui";
-import { AlertTriangle } from "lucide-react";
+import { Button } from "@eins/ui";
+import { PageHeader } from "./_components/PageHeader";
+import { CardBody, CardFoot, PRIMARY_BUTTON } from "./einstellungen/_components/settings-ui";
 
 /**
  * Error boundary for every page inside the portal shell (sidebar stays).
  * Shows no raw error text: server errors arrive here with a generic message
  * plus `digest`, which is the id in the server log (see instrumentation.ts).
+ *
+ * The error stands where the page would (Primer's degraded experiences,
+ * Atlassian's not-found inside its shell): the title on the logo row, one
+ * card with the sentence, the Fehlernummer and the way out. The sidebar
+ * already leads to the Übersicht.
  *
  * "Erneut versuchen" refreshes the server render before resetting the
  * boundary; `reset()` alone would only re-render the client tree and hit the
@@ -25,27 +30,25 @@ export default function PortalError({
   const router = useRouter();
 
   return (
-    <Card>
-      <CardContent className="flex flex-col items-center gap-4 py-12 text-center">
-        <AlertTriangle className="h-8 w-8 text-tone-bad" aria-hidden />
-        <div className="space-y-1">
-          <h2 className="text-lg font-semibold text-fg-primary">
-            Diese Seite konnte gerade nicht geladen werden.
-          </h2>
-          <p className="text-sm text-fg-secondary">
-            Bitte versuchen Sie es erneut. Bleibt das Problem bestehen, melden
-            Sie sich bei uns und nennen Sie die Fehlernummer.
+    <div className="max-w-3xl space-y-4 md:space-y-6">
+      <PageHeader title="Diese Seite konnte gerade nicht geladen werden" />
+      <div className="anim-rise elev-card min-w-0 rounded-[var(--r-card)] bg-[var(--surface-tile)]">
+        <CardBody className="pt-5 md:pt-6">
+          <p className="text-[15px] leading-6 text-fg-primary">
+            Bleibt der Fehler, schreiben Sie uns die Fehlernummer.
           </p>
-          {error.digest && (
-            <p className="text-sm text-fg-secondary">
-              Fehlernummer: {error.digest}
-            </p>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center justify-center gap-3">
+          {/* The row stays when an error has no number, so the card keeps its height. */}
+          <p className="mt-2 min-h-5 text-sm leading-5 text-fg-secondary">
+            {error.digest && (
+              <>
+                Fehlernummer: <span className="select-all tabular-nums text-fg-primary">{error.digest}</span>
+              </>
+            )}
+          </p>
+        </CardBody>
+        <CardFoot>
           <Button
-            variant="outline"
-            size="md"
+            className={PRIMARY_BUTTON}
             onClick={() =>
               startTransition(() => {
                 router.refresh();
@@ -55,11 +58,8 @@ export default function PortalError({
           >
             Erneut versuchen
           </Button>
-          <Button asChild variant="ghost" size="md">
-            <Link href="/">Zur Übersicht</Link>
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
+        </CardFoot>
+      </div>
+    </div>
   );
 }

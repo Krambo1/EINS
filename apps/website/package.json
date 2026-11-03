@@ -7,7 +7,8 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "pnpm validate:legal && next build",
+    "validate:legal": "node scripts/validate-legal.mjs",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"

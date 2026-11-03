@@ -3,7 +3,7 @@
 import * as React from "react";
 import { cn } from "@eins/ui";
 import { HOVER_CARD, HoverCardBody, LIT_FROM_ABOVE, type HoverCardLine } from "./hover-card";
-import { BreakdownTable, type PairedColumn, type TableRow } from "./PairedBreakdown";
+import { BreakdownTable, type TableColumn, type TableRow } from "./BreakdownTable";
 
 /** One colour per Standort, in row order; "Ohne Standort" stays grey. */
 const SHARE_COLORS = ["var(--accent)", "#4f7fe8", "#a77be3", "#f0a43a", "#e0679a", "#45b26b"];
@@ -43,7 +43,7 @@ export function ShareBreakdown({
   nameLabel: string;
   /** Labels of the bars; each row's `values` follow this order. */
   metrics: string[];
-  columns: PairedColumn[];
+  columns: TableColumn[];
   rows: ShareRow[];
   total?: (string | null)[];
   chartLabel: string;

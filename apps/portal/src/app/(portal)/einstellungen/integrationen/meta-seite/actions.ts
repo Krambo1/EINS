@@ -86,7 +86,6 @@ export async function chooseMetaPageAction(
   });
 
   revalidatePath("/einstellungen");
-  revalidatePath("/werbebudget");
   revalidatePath("/einstellungen/integrationen/meta-seite");
   if (result.leadgenSubscribed) {
     await flashSuccess("Facebook-Seite verbunden", result.page.name || undefined);

@@ -1,6 +1,6 @@
-import { Input } from "@eins/ui";
+import { cn } from "@eins/ui";
 import { PendingSubmit } from "@/app/(portal)/_components/PendingSubmit";
-import { formatDate, formatNumber } from "@/lib/formatting";
+import { formatDate } from "@/lib/formatting";
 import { intervalLabel, MIN_GAPS, MIN_PATIENTS, REMINDER_LEAD_DAYS } from "@/lib/retreatment";
 import type { RetreatmentSettingsData, RetreatmentTreatmentSetting } from "@/server/queries/retreatments";
 import { renderRetreatmentReminderEmail } from "@/server/email/templates/retreatment-reminder";
@@ -8,20 +8,34 @@ import {
   updateRetreatmentSettingsAction,
   updateRetreatmentTreatmentsAction,
 } from "@/app/(portal)/wiederbehandlungen/actions";
-import { TreatmentModeField } from "@/app/(portal)/wiederbehandlungen/TreatmentModeField";
 import { ActionForm } from "@/app/(portal)/_components/ActionForm";
+import { ExplainerPopover } from "@/app/(portal)/_components/ExplainerPopover";
+import { CONTROL } from "../../dashboard/_components/dash-ui";
+import { REMINDER_CONSENT, REMINDER_ENABLE, REMINDER_READ_ONLY } from "../_lib/copy";
+import { INTERVAL_LIST, INTERVAL_ROW, ONE_LINE, SLOTS, slots } from "../_lib/sizes";
+import { EmailPreview } from "./EmailPreview";
+import { INTERVAL_MODE_LABELS } from "../_lib/labels";
+import { IntervalField } from "./IntervalField";
+import {
+  CardBody,
+  CardFoot,
+  CheckRow,
+  FIELD_GRID,
+  Field,
+  FieldValue,
+  SettingsCard,
+  Status,
+  TextInput,
+} from "./settings-ui";
 
 /**
- * Reminder settings for Wiederbehandlungen: set once, edited here.
- * Content only; the page wraps it in its Card. Editing is Inhaber-only.
+ * Wiederbehandlungen, set once and edited here, in two cards that each save
+ * on their own (they were one card with two "Speichern"): the reminder
+ * e-mails (`#wiederbehandlungen`, linked from Anfragen and the onboarding
+ * hub) and the interval per treatment (`#abstaende`). Everyone sees both,
+ * only the Inhaber:in edits.
  */
-export function RetreatmentSettings({
-  data,
-  isInhaber,
-}: {
-  data: RetreatmentSettingsData;
-  isInhaber: boolean;
-}) {
+export function ReminderCard({ data, isInhaber }: { data: RetreatmentSettingsData; isInhaber: boolean }) {
   const preview = renderRetreatmentReminderEmail({
     clinicName: data.clinicName,
     patientName: "Anna Beispiel",
@@ -30,179 +44,152 @@ export function RetreatmentSettings({
     phone: data.phone,
     unsubscribeUrl: "(Link zum Abbestellen)",
   });
+  const foot = <EmailPreview subject={preview.subject} text={preview.text} />;
 
   return (
-    <div className="space-y-8">
-      <div className="space-y-5">
-        <h3 className="text-base font-semibold text-fg-primary">Erinnerungs-E-Mails</h3>
-        <p className="text-base text-fg-primary">
-          {REMINDER_LEAD_DAYS} Tage vor dem fälligen Tag bekommt die Person eine kurze E-Mail von Ihrer
-          Praxis mit einem Link zu Ihrer Terminbuchung. Die E-Mail nennt keine Behandlung und keinen
-          Preis. Jede Person bekommt höchstens eine Erinnerung in 30 Tagen und kann sich mit einem Klick
-          abmelden. Wer schon einen Termin hat, bekommt keine.
-        </p>
-        {isInhaber ? (
-          <ReminderSettingsForm data={data} />
-        ) : (
-          <p className="text-base text-fg-secondary">
-            Ein- und ausschalten kann das die Praxisinhaberin oder der Praxisinhaber.
-          </p>
-        )}
-        <details>
-          <summary className="cursor-pointer list-none text-base font-medium underline underline-offset-4 [&::-webkit-details-marker]:hidden">
-            So sieht die E-Mail aus
-          </summary>
-          <div className="mt-3 rounded-lg border border-border bg-bg-secondary p-4 text-base">
-            <p className="font-medium">Betreff: {preview.subject}</p>
-            <p className="mt-3 whitespace-pre-line text-fg-primary">{preview.text}</p>
-          </div>
-        </details>
-      </div>
-
-      <div className="space-y-5 border-t border-border pt-6">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <h3 className="text-base font-semibold text-fg-primary">Abstand je Behandlung</h3>
-          <span className="text-sm text-fg-secondary">{treatmentSummary(data.treatments)}</span>
-        </div>
-        <p className="text-base text-fg-primary">
-          Automatisch heißt: der übliche Abstand zwischen zwei Behandlungen derselben Art bei Ihren
-          Patientinnen und Patienten, aus Ihrer PVS. Wir rechnen erst, wenn es mindestens {MIN_GAPS}{" "}
-          Wiederholungen bei {MIN_PATIENTS} verschiedenen Personen gibt. Einmalige Eingriffe stellen Sie
-          auf &bdquo;Nicht im Kalender&ldquo;.
-          {data.lastComputedAt ? ` Zuletzt berechnet: ${formatDate(data.lastComputedAt)}.` : ""}
-        </p>
-        {data.treatments.length === 0 ? (
-          <p className="text-base text-fg-secondary">Für Ihre Praxis sind noch keine Behandlungen angelegt.</p>
-        ) : isInhaber ? (
-          <ActionForm action={updateRetreatmentTreatmentsAction} className="space-y-4">
-            <TreatmentList treatments={data.treatments} editable />
-            <PendingSubmit>Abstände speichern</PendingSubmit>
-          </ActionForm>
-        ) : (
-          <TreatmentList treatments={data.treatments} editable={false} />
-        )}
-      </div>
-    </div>
+    <SettingsCard
+      id="wiederbehandlungen"
+      title={
+        // The full name does not fit beside the (i) and the status at 390.
+        <>
+          <span className="sm:hidden">Erinnerungen</span>
+          <span className="hidden sm:inline">Erinnerungen an Folgebehandlungen</span>
+        </>
+      }
+      titleExtra={<ReminderExplainer />}
+      action={<Status tone={data.remindersEnabled ? "good" : "none"}>{data.remindersEnabled ? "An" : "Aus"}</Status>}
+    >
+      {isInhaber ? (
+        <ActionForm action={updateRetreatmentSettingsAction}>
+          <CardBody className="space-y-5">
+            <CheckRow name="consentAttested" defaultChecked={data.consentAttested} label="Patientinnen und Patienten sind informiert">
+              {REMINDER_CONSENT}
+            </CheckRow>
+            <CheckRow name="remindersEnabled" defaultChecked={data.remindersEnabled} label="Erinnerungs-E-Mails einschalten">
+              {REMINDER_ENABLE}
+            </CheckRow>
+            <div className={FIELD_GRID}>
+              <Field label="Link zu Ihrer Online-Terminbuchung" htmlFor="bookingUrl">
+                <TextInput
+                  id="bookingUrl"
+                  name="bookingUrl"
+                  type="url"
+                  defaultValue={data.bookingUrl ?? ""}
+                  placeholder="https://"
+                  maxLength={500}
+                />
+              </Field>
+              <Field label="Telefonnummer für Termine" htmlFor="phone">
+                <TextInput
+                  id="phone"
+                  name="phone"
+                  type="tel"
+                  defaultValue={data.phone ?? ""}
+                  placeholder="0211 1234567"
+                  maxLength={40}
+                />
+              </Field>
+            </div>
+          </CardBody>
+          <CardFoot start={foot}>
+            <PendingSubmit className={cn(CONTROL, "px-4")}>Speichern</PendingSubmit>
+          </CardFoot>
+        </ActionForm>
+      ) : (
+        <>
+          <CardBody className="space-y-5">
+            <div className={FIELD_GRID}>
+              <Field label="Link zu Ihrer Online-Terminbuchung">
+                <FieldValue>{data.bookingUrl || "Nicht hinterlegt"}</FieldValue>
+              </Field>
+              <Field label="Telefonnummer für Termine">
+                <FieldValue>{data.phone || "Nicht hinterlegt"}</FieldValue>
+              </Field>
+            </div>
+            <p className="text-[15px] leading-6 text-fg-primary">{REMINDER_READ_ONLY}</p>
+          </CardBody>
+          <CardFoot start={foot}>{null}</CardFoot>
+        </>
+      )}
+    </SettingsCard>
   );
 }
 
-function treatmentSummary(treatments: RetreatmentTreatmentSetting[]): string {
-  if (treatments.length === 0) return "Noch keine Behandlungen";
-  const auto = treatments.filter((t) => t.mode === "auto").length;
-  const fixed = treatments.filter((t) => t.mode === "fixed").length;
-  const off = treatments.filter((t) => t.mode === "off").length;
-  if (auto === treatments.length) return `Alle ${formatNumber(auto)} automatisch aus Ihrer PVS`;
-  return [
-    auto > 0 ? `${formatNumber(auto)} automatisch` : null,
-    fixed > 0 ? `${formatNumber(fixed)} fest` : null,
-    off > 0 ? `${formatNumber(off)} nicht im Kalender` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-}
-
-function ReminderSettingsForm({ data }: { data: RetreatmentSettingsData }) {
+function ReminderExplainer() {
+  // The card's (i), not a field's: what the e-mail is and when it goes out.
   return (
-    <ActionForm action={updateRetreatmentSettingsAction} className="grid gap-4 md:grid-cols-2">
-      <label className="flex items-start gap-3 md:col-span-2">
-        <input
-          type="checkbox"
-          name="consentAttested"
-          defaultChecked={data.consentAttested}
-          className="mt-1 h-5 w-5 shrink-0 rounded border-border"
-        />
-        <span>
-          <span className="block font-medium text-fg-primary">Patientinnen und Patienten sind informiert</span>
-          <span className="block text-sm text-fg-secondary">
-            Wir sagen bei der Terminvereinbarung, dass wir per E-Mail an eine fällige Folgebehandlung erinnern
-            können und dass man dem jederzeit widersprechen kann.
-          </span>
-        </span>
-      </label>
-
-      <label className="flex items-start gap-3 md:col-span-2">
-        <input
-          type="checkbox"
-          name="remindersEnabled"
-          defaultChecked={data.remindersEnabled}
-          className="mt-1 h-5 w-5 shrink-0 rounded border-border"
-        />
-        <span>
-          <span className="block font-medium text-fg-primary">Erinnerungs-E-Mails einschalten</span>
-          <span className="block text-sm text-fg-secondary">
-            Geht nur zusammen mit dem Haken darüber und einem Buchungslink oder einer Telefonnummer.
-          </span>
-        </span>
-      </label>
-
-      <div>
-        <label htmlFor="bookingUrl" className="mb-1 block text-sm font-medium">
-          Link zu Ihrer Online-Terminbuchung
-        </label>
-        <Input
-          id="bookingUrl"
-          name="bookingUrl"
-          type="url"
-          defaultValue={data.bookingUrl ?? ""}
-          placeholder="https://"
-          maxLength={500}
-        />
-      </div>
-      <div>
-        <label htmlFor="phone" className="mb-1 block text-sm font-medium">
-          Telefonnummer für Termine
-        </label>
-        <Input
-          id="phone"
-          name="phone"
-          type="tel"
-          defaultValue={data.phone ?? ""}
-          placeholder="0211 1234567"
-          maxLength={40}
-        />
-      </div>
-
-      <div className="md:col-span-2">
-        <PendingSubmit>Speichern</PendingSubmit>
-      </div>
-    </ActionForm>
+    <ExplainerPopover term="Erinnerungen">
+      <p>
+        {REMINDER_LEAD_DAYS} Tage vor dem fälligen Tag bekommt die Person eine kurze E-Mail von Ihrer Praxis mit
+        einem Link zu Ihrer Terminbuchung. Die E-Mail nennt keine Behandlung und keinen Preis.
+      </p>
+      <p className="mt-2">
+        Jede Person bekommt höchstens eine Erinnerung in 30 Tagen und kann sich mit einem Klick abmelden. Wer schon
+        einen Termin hat, bekommt keine.
+      </p>
+    </ExplainerPopover>
   );
 }
 
-const MODE_LABELS = {
-  auto: "Automatisch aus Ihrer PVS",
-  fixed: "Fester Abstand",
-  off: "Nicht im Kalender",
-} as const;
-
-function TreatmentList({
-  treatments,
-  editable,
-}: {
-  treatments: RetreatmentTreatmentSetting[];
-  editable: boolean;
-}) {
-  return (
-    <ul className="divide-y divide-border border-y border-border">
-      {treatments.map((t) => (
-        <li key={t.id} className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 py-3">
-          <div className="min-w-0">
-            <p className="text-base font-medium">{t.name}</p>
-            <p className="text-sm text-fg-secondary">
-              {t.pvsIntervalDays
-                ? `Ihre PVS: ${intervalLabel(t.pvsIntervalDays)}, aus ${formatNumber(t.pvsSamples)} Wiederholungen bei ${formatNumber(t.pvsPatients)} Personen`
-                : `Ihre PVS: noch zu wenig Daten${t.pvsSamples > 0 ? ` (${formatNumber(t.pvsSamples)} Wiederholungen)` : ""}`}
-            </p>
+export function IntervalCard({ data, isInhaber }: { data: RetreatmentSettingsData; isInhaber: boolean }) {
+  const explain = (
+    <>
+      <p>
+        Automatisch heißt: der übliche Abstand zwischen zwei Behandlungen derselben Art bei Ihren Patientinnen und
+        Patienten, aus Ihrer PVS. Wir rechnen erst, wenn es mindestens {MIN_GAPS} Wiederholungen bei {MIN_PATIENTS}{" "}
+        verschiedenen Personen gibt.
+      </p>
+      <p className="mt-2">
+        Einmalige Eingriffe stellen Sie auf &bdquo;Nicht im Kalender&ldquo;.
+        {data.lastComputedAt ? ` Zuletzt berechnet: ${formatDate(data.lastComputedAt)}.` : ""}
+      </p>
+    </>
+  );
+  const list = (
+    <ul className={INTERVAL_LIST} style={slots(SLOTS.abstaende)}>
+      {data.treatments.map((t) => (
+        <li key={t.id} className={INTERVAL_ROW}>
+          <div className="min-w-0 lg:flex-1">
+            <p className={cn(ONE_LINE, "text-[15px] font-medium leading-5 text-fg-primary")}>{t.name}</p>
+            <p className={cn(ONE_LINE, "mt-0.5 text-sm leading-5 text-fg-secondary")}>{pvsLine(t)}</p>
           </div>
-          {editable ? (
-            <TreatmentModeField id={t.id} name={t.name} mode={t.mode} intervalMonths={t.intervalMonths} />
+          {isInhaber ? (
+            <IntervalField id={t.id} name={t.name} mode={t.mode} intervalMonths={t.intervalMonths} />
           ) : (
-            <p className="text-base">
-              {t.mode === "fixed" && t.intervalMonths ? `Alle ${t.intervalMonths} Monate` : MODE_LABELS[t.mode]}
+            <p className="text-[15px] leading-6 text-fg-primary lg:shrink-0">
+              {t.mode === "fixed" && t.intervalMonths ? `Alle ${t.intervalMonths} Monate` : INTERVAL_MODE_LABELS[t.mode]}
             </p>
           )}
         </li>
       ))}
+      {data.treatments.length === 0 && (
+        <li className="py-4 text-[15px] leading-6 text-fg-primary">Für Ihre Praxis sind noch keine Behandlungen angelegt.</li>
+      )}
     </ul>
   );
+
+  const title = "Abstand je Behandlung";
+  return (
+    <SettingsCard id="abstaende" title={title} titleExtra={<ExplainerPopover term={title}>{explain}</ExplainerPopover>}>
+      {isInhaber ? (
+        // With no treatments yet the foot stays (the card keeps its height),
+        // its save greyed out: there is nothing to save.
+        <ActionForm action={updateRetreatmentTreatmentsAction}>
+          <CardBody>{list}</CardBody>
+          <CardFoot>
+            <PendingSubmit className={cn(CONTROL, "px-4")} disabled={data.treatments.length === 0}>
+              Speichern
+            </PendingSubmit>
+          </CardFoot>
+        </ActionForm>
+      ) : (
+        <CardBody>{list}</CardBody>
+      )}
+    </SettingsCard>
+  );
+}
+
+/** What the PVS says for the treatment; the counts behind it are not needed for the choice. */
+function pvsLine(t: RetreatmentTreatmentSetting): string {
+  return t.pvsIntervalDays ? `Ihre PVS: ${intervalLabel(t.pvsIntervalDays)}` : "Ihre PVS: noch zu wenig Daten";
 }

@@ -10,7 +10,7 @@ import {
 } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { cn } from "@eins/ui";
-import { authFieldClass } from "./auth-ui";
+import { AUTH_FOCUS, authFieldClass } from "./auth-ui";
 
 /**
  * Password field with a show/hide toggle (NIST 800-63B recommends offering
@@ -54,7 +54,7 @@ export const PasswordInput = forwardRef<
         spellCheck={false}
         autoCorrect="off"
         autoCapitalize="none"
-        className={cn(authFieldClass, "pr-12", className)}
+        className={cn(authFieldClass, "pr-11", className)}
       />
       <button
         type="button"
@@ -62,7 +62,11 @@ export const PasswordInput = forwardRef<
         aria-label={visible ? `${toggleLabel} verbergen` : `${toggleLabel} anzeigen`}
         aria-pressed={visible}
         aria-controls={props.id}
-        className="absolute inset-y-0 right-0 flex w-12 items-center justify-center rounded-r-[14px] text-fg-secondary transition-colors hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgba(88,186,181,0.5)]"
+        className={cn(
+          "absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-[var(--r-control)] text-fg-secondary transition-colors hover:text-fg-primary",
+          AUTH_FOCUS,
+          "focus-visible:ring-inset"
+        )}
       >
         {visible ? (
           <EyeOff aria-hidden className="h-4 w-4" />

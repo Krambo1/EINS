@@ -94,7 +94,7 @@ export async function processRefreshOauth(): Promise<void> {
       kind: "meta_token_expiring",
       title: expired ? "Meta-Verbindung abgelaufen" : "Meta-Verbindung läuft bald ab",
       body: "Bitte in den Einstellungen erneut verbinden, damit die Werbedaten weiter synchronisiert werden.",
-      link: "/einstellungen#integrationen",
+      link: "/einstellungen#werbekonten",
       dedupeDays: 7,
     });
   }

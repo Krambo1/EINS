@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
-import { UserRound } from "lucide-react";
-import { AuthHeader } from "../_components/auth-ui";
+import { AuthShell } from "../_components/AuthShell";
+import { AuthBody, AuthHeader, AuthValue } from "../_components/auth-ui";
 import { readPasswordSetupCookie } from "@/auth/password-setup-cookie";
 import { getSession } from "@/auth/session";
 import { findActiveClinicUserById } from "@/auth/user-lookup";
@@ -16,17 +16,9 @@ interface PageProps {
 
 type Mode = "set_password" | "reset_password";
 
-const HEADINGS: Record<Mode, { title: string; subtitle: string }> = {
-  set_password: {
-    title: "Wählen Sie Ihr Passwort.",
-    subtitle:
-      "Ab jetzt melden Sie sich mit E-Mail und Passwort an. Sie richten es nur einmal ein.",
-  },
-  reset_password: {
-    title: "Neues Passwort wählen.",
-    subtitle:
-      "Wählen Sie ein neues Passwort für Ihr Konto. Danach sind Sie direkt angemeldet.",
-  },
+const TITLES: Record<Mode, string> = {
+  set_password: "Passwort wählen",
+  reset_password: "Neues Passwort wählen",
 };
 
 export default async function SetPasswordPage({ searchParams }: PageProps) {
@@ -53,17 +45,13 @@ export default async function SetPasswordPage({ searchParams }: PageProps) {
     redirect("/login?error=no_user");
   }
 
-  const headings = HEADINGS[setup.intent];
   return (
-    <div>
-      <AuthHeader title={headings.title}>
-        <p>{headings.subtitle}</p>
-        <p className="mt-4 inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-white px-3 py-1 text-sm text-fg-primary">
-          <UserRound aria-hidden className="h-4 w-4 shrink-0 text-fg-secondary" />
-          <span className="truncate">{user.email}</span>
-        </p>
-      </AuthHeader>
-      <SetPasswordForm email={user.email} />
-    </div>
+    <AuthShell>
+      <AuthHeader title={TITLES[setup.intent]} />
+      <AuthBody>
+        <AuthValue label="E-Mail">{user.email}</AuthValue>
+        <SetPasswordForm email={user.email} />
+      </AuthBody>
+    </AuthShell>
   );
 }

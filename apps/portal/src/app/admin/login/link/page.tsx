@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AuthHeader, authCtaClass } from "@/app/(auth)/_components/auth-ui";
+import { AuthBody, AuthHeader, authPrimaryClass } from "@/app/(auth)/_components/auth-ui";
 import { LinkSubmitForm } from "@/app/(auth)/login/link/LinkSubmitForm";
 import { peekAdminToken } from "@/auth/admin-magic-link";
 
@@ -25,15 +25,14 @@ interface PageProps {
   searchParams: Promise<{ token?: string }>;
 }
 
+// Title and button only: each button already says what happens next.
 const READY_COPY = {
   login: {
-    title: "Anmelden.",
-    text: "Klicken Sie auf „Jetzt anmelden“. Der Link gilt nur einmal.",
+    title: "Anmelden",
     button: "Jetzt anmelden",
   },
   password_reset: {
-    title: "Neues Passwort wählen.",
-    text: "Im nächsten Schritt wählen Sie Ihr neues Passwort.",
+    title: "Neues Passwort wählen",
     button: "Weiter zum Passwort",
   },
 } as const;
@@ -47,13 +46,15 @@ export default async function AdminLinkLandingPage({ searchParams }: PageProps) 
   if (!peek.ok) {
     return (
       <div>
-        <AuthHeader title="Link nicht mehr gültig.">
+        <AuthHeader title="Link nicht mehr gültig">
           Der Link ist abgelaufen oder wurde bereits verwendet. Bitte fordern
           Sie einen neuen an.
         </AuthHeader>
-        <Link href="/admin/login" className={authCtaClass}>
-          Zur Anmeldung
-        </Link>
+        <AuthBody>
+          <Link href="/admin/login" data-auth-primary className={authPrimaryClass}>
+            Zur Anmeldung
+          </Link>
+        </AuthBody>
       </div>
     );
   }
@@ -61,12 +62,14 @@ export default async function AdminLinkLandingPage({ searchParams }: PageProps) 
   const copy = READY_COPY[peek.purpose];
   return (
     <div>
-      <AuthHeader title={copy.title}>{copy.text}</AuthHeader>
-      <LinkSubmitForm
-        token={token ?? ""}
-        label={copy.button}
-        action="/admin/login/callback"
-      />
+      <AuthHeader title={copy.title} />
+      <AuthBody>
+        <LinkSubmitForm
+          token={token ?? ""}
+          label={copy.button}
+          action="/admin/login/callback"
+        />
+      </AuthBody>
     </div>
   );
 }

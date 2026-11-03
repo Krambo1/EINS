@@ -543,37 +543,40 @@ export function SendArea({ children }: { children: ReactNode }) {
                 </button>
               ) : (
                 <>
-                  <ul ref={stagedListRef} className="scroll-shadows min-h-0 flex-1 px-1 py-1 [--scroll-bg:var(--well)]">
-                    {staged.map((s) => {
-                      const running = s.status === "uploading";
-                      return (
-                        <li key={s.id} className="flex min-h-16 items-center gap-3 px-2 py-2">
-                          <StagedThumb file={s.file} />
-                          <div className="min-w-0 flex-1">
-                            <p className="break-words text-[15px] font-medium leading-5 text-fg-primary">{s.file.name}</p>
-                            <StagedMeta file={s} />
-                          </div>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            // Bytes that landed are being registered; that
-                            // last step cannot be taken back.
-                            disabled={sending && s.status === "uploaded"}
-                            onClick={() => removeStaged(s.id)}
-                            aria-label={
-                              running
-                                ? `Hochladen von ${s.file.name} abbrechen`
-                                : `${s.file.name} aus der Auswahl entfernen`
-                            }
-                            title={running ? "Abbrechen" : "Entfernen"}
-                            className={cn(RAISED_CONTROL, CONTROL, CONTROL_SQUARE, "shrink-0 text-fg-secondary")}
-                          >
-                            <X className="h-4 w-4" aria-hidden />
-                          </Button>
-                        </li>
-                      );
-                    })}
-                  </ul>
+                  {/* In a dialog, so its own arrow: the page-wide one sits under dialogs. */}
+                  <ScrollHint className="flex min-h-0 flex-1 flex-col">
+                    <ul ref={stagedListRef} className="scroll-shadows min-h-0 flex-1 px-1 py-1 [--scroll-bg:var(--well)]">
+                      {staged.map((s) => {
+                        const running = s.status === "uploading";
+                        return (
+                          <li key={s.id} className="flex min-h-16 items-center gap-3 px-2 py-2">
+                            <StagedThumb file={s.file} />
+                            <div className="min-w-0 flex-1">
+                              <p className="break-words text-[15px] font-medium leading-5 text-fg-primary">{s.file.name}</p>
+                              <StagedMeta file={s} />
+                            </div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              // Bytes that landed are being registered; that
+                              // last step cannot be taken back.
+                              disabled={sending && s.status === "uploaded"}
+                              onClick={() => removeStaged(s.id)}
+                              aria-label={
+                                running
+                                  ? `Hochladen von ${s.file.name} abbrechen`
+                                  : `${s.file.name} aus der Auswahl entfernen`
+                              }
+                              title={running ? "Abbrechen" : "Entfernen"}
+                              className={cn(RAISED_CONTROL, CONTROL, CONTROL_SQUARE, "shrink-0 text-fg-secondary")}
+                            >
+                              <X className="h-4 w-4" aria-hidden />
+                            </Button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </ScrollHint>
                   <p className="flex h-9 shrink-0 items-center border-t border-border px-3 text-sm tabular-nums text-fg-secondary">
                     {staged.length === 1 ? "1 Datei" : `${staged.length} Dateien`}, zusammen{" "}
                     {formatFileSize(totalBytes)}

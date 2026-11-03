@@ -155,7 +155,7 @@ export async function GET(request: NextRequest) {
       );
     }
     return NextResponse.redirect(
-      new URL(payload.returnTo ?? "/einstellungen?connected=meta#werbekonten", env.APP_ORIGIN)
+      new URL("/einstellungen?connected=meta#werbekonten", env.APP_ORIGIN)
     );
   } catch (err) {
     console.error("[oauth/meta] exchange failed:", err);

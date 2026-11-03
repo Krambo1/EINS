@@ -2,12 +2,13 @@ import Link from "next/link";
 import { cn } from "@eins/ui";
 import { formatNumber, formatRelative } from "@/lib/formatting";
 import type { PatientFeedbackListRow } from "@/server/queries/patient-feedback";
-import { DashCard } from "../../dashboard/_components/dash-ui";
-import { NEW_FEEDBACK_SLOTS, TOP_CARD_HEIGHT } from "../_lib/sizes";
+import { DashCard, WASH_AREA, WASH_ROW } from "../../dashboard/_components/dash-ui";
+import { FEEDBACK_ROW_HEIGHT, NEW_FEEDBACK_SLOTS, TOP_CARD_HEIGHT } from "../_lib/sizes";
 import { CardLink, CenteredNote, FeedbackSignal, FeedbackStars, feedbackName } from "./feedback-ui";
 
 /**
- * The Rückmeldungen nobody has opened yet, first on the Plattformen tab: the
+ * The Rückmeldungen nobody has opened yet, right of the platform tiles on the
+ * Plattformen tab: the
  * sidebar counts them on both entries, so the tab shows who they are. Like
  * Linear's inbox: the count beside the title, rows of exactly two lines
  * (name and age, then the stars), the signal in its slot before the name.
@@ -57,13 +58,18 @@ export function NewFeedbackCard({
       ) : (
         // Room for the slots, filled or not; a row whose name wraps scrolls
         // inside instead of growing the card.
-        <ul className="scroll-shadows -mx-2 min-h-0 flex-1 divide-y divide-border [--scroll-bg:var(--surface-tile)]">
+        <ul className="scroll-shadows -mx-3 min-h-0 flex-1 divide-y divide-border px-3 [--scroll-bg:var(--surface-tile)]">
           {shown.map((f) => (
-            <li key={f.id}>
+            // 4 px white inside the hairlines, the wash 12 px past the text (DESIGN.md section 5).
+            <li key={f.id} className={WASH_ROW}>
               <Link
                 // In the "Neu" list, so the arrows on the entry go through the new ones.
                 href={`/bewertungen/feedback/${f.id}?status=neu`}
-                className="flex min-h-14 items-start gap-2.5 px-2 py-1.5 transition-colors hover:bg-[var(--hover-wash)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
+                className={cn(
+                  "flex items-start gap-2.5 rounded-[var(--r-panel)] py-3 transition-colors hover:bg-[var(--hover-wash)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
+                  WASH_AREA,
+                  FEEDBACK_ROW_HEIGHT
+                )}
               >
                 <FeedbackSignal row={f} />
                 <span className="min-w-0 flex-1">

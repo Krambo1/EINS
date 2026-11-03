@@ -21,6 +21,7 @@ import {
   bucketForRating,
   fillTemplate,
   templatesByBucket,
+  type ReplyTemplate,
 } from "../../_lib/reply-templates";
 import { BUCKET_SWITCH_LABELS } from "../../_components/ReplyTemplatesCard";
 import { NOTE_HEIGHT } from "../../_lib/sizes";
@@ -46,11 +47,14 @@ export function FeedbackReplyEditor({
   rating,
   defaultNote,
   praxisName,
+  templates,
 }: {
   feedbackId: string;
   rating: number | null;
   defaultNote: string;
   praxisName: string | null;
+  /** The Praxis's own words where it changed them (`mergeReplyTemplates`). */
+  templates: ReplyTemplate[];
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -152,7 +156,7 @@ export function FeedbackReplyEditor({
                   {BUCKET_SWITCH_LABELS[b]}
                   {b === suggested && rating != null && " (passt zu dieser Bewertung)"}
                 </DropdownMenuLabel>
-                {templatesByBucket(b).map((tpl) => (
+                {templatesByBucket(b, templates).map((tpl) => (
                   <DropdownMenuItem key={tpl.id} onSelect={() => insertTemplate(tpl.text)}>
                     {tpl.title}
                   </DropdownMenuItem>

@@ -41,8 +41,9 @@ Alle Texte, Preise und Statistiken liegen in `lib/`. Sie koennen sie direkt edit
 | `lib/constants.ts` | Calendly-URL, Kontakt-E-Mail, Telefon |
 | `lib/stats-data.ts` | Die 12 Statistiken im interaktiven Explorer |
 | `lib/offer-data.ts` | Basispaket-Sektionen, Wachstumssystem-Features |
-| `lib/system-data.ts` | Die drei System-Ebenen |
-| `lib/timeline-data.ts` | Onboarding-Timeline-Stationen |
+| `lib/system-data.ts` | Die Leistungskarten und der Hinweis zum Werbebudget |
+| `lib/guarantee-data.ts` | Garantie, Material und Klon, drei Versprechen (Wortlaut aus `docs/umbau-ki-organisch/KANON.md`) |
+| `lib/timeline-data.ts` | Ablauf nach der Unterschrift |
 | `lib/fit-data.ts` | Passungs-Checklisten (fuer/gegen Sie) |
 | `lib/objections-data.ts` | FAQ / Einwandbehandlung |
 

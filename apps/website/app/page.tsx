@@ -25,7 +25,7 @@ const SITE_URL = "https://eins.ag";
 export const metadata: Metadata = {
   title: "EINS | Wachstumssystem für Ästhetik-Praxen",
   description:
-    "Mehr Selbstzahler für Ihre Ästhetik-Praxis: Video, bezahlte Anzeigen und KI-gestütztes Anfrage-System als integriertes Wachstumssystem im DACH-Raum.",
+    "Mehr Selbstzahler für Ihre Ästhetik-Praxis: KI-Videos mit Ihrem Klon, organische Reichweite, Anzeigen optional und ein KI-gestütztes Anfrage-System im DACH-Raum.",
   alternates: { canonical: "/" },
 };
 
@@ -36,7 +36,7 @@ const localBusinessJsonLd = {
   url: SITE_URL,
   image: `${SITE_URL}/eins-logo.png`,
   description:
-    "Wachstumssystem für Ästhetik-Praxen im DACH-Raum. Medienproduktion, bezahlte Anzeigen und KI-gestütztes Anfrage-System.",
+    "Wachstumssystem für Ästhetik-Praxen im DACH-Raum. KI-Videos, organische Reichweite, Anzeigen optional und KI-gestütztes Anfrage-System.",
   address: {
     "@type": "PostalAddress",
     addressLocality: "Köln",

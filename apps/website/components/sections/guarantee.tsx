@@ -3,20 +3,16 @@
 import Image from "next/image";
 import { motion } from "framer-motion";
 import { Reveal } from "@/components/ui/reveal";
+import {
+  GUARANTEE_FOOTNOTE,
+  GUARANTEE_ITEMS,
+  OWNERSHIP_CARDS,
+  OWNERSHIP_HEADING,
+  PROMISES,
+  PROMISES_HEADING,
+} from "@/lib/guarantee-data";
 
-const STACK = [
-  {
-    n: 1,
-    title: "100 % Geld zurück bei verfehltem Ziel",
-    body: "Erreichen wir die vereinbarte Anfragen-Schwelle in 90 Tagen nicht, erstatten wir alle bis dahin gezahlten Gebühren an EINS. Vollständig.",
-  },
-  {
-    n: 2,
-    title: "Frei kündbar, jederzeit",
-    body: "Sie können monatlich kündigen, vom ersten Tag an. Keine 12-Monats-Bindung, keine Mindestlaufzeit.",
-  },
-];
-
+// All copy lives in lib/guarantee-data.ts (wording from docs/umbau-ki-organisch/KANON.md).
 export function Guarantee() {
   return (
     <section className="section relative">
@@ -70,7 +66,7 @@ export function Guarantee() {
             <div className="relative md:flex md:items-stretch md:gap-x-6 lg:gap-x-8">
               <div className="md:flex-1">
                 <ul className="flex flex-col gap-10 md:gap-y-12">
-                  {STACK.map((item) => (
+                  {GUARANTEE_ITEMS.map((item) => (
                     <li key={item.n} className="md:flex md:gap-5">
                       <div className="hidden font-mono text-base font-medium text-accent md:block md:text-lg md:pt-1.5">
                         {item.n}.
@@ -106,16 +102,7 @@ export function Guarantee() {
                     />
                   </div>
                   <div className="flex flex-1 flex-col justify-center py-5 pl-6 pr-6">
-                    <div className="font-mono text-xs uppercase tracking-wide text-accent">
-                      Kapazität
-                    </div>
-                    <div className="mt-1 font-display text-2xl font-semibold text-fg-primary">
-                      2 Plätze
-                    </div>
-                    <div className="font-mono text-sm text-fg-secondary">
-                      Q3 2026
-                    </div>
-                    <div className="mt-4 -ml-3 relative h-10 w-28">
+                    <div className="-ml-3 relative h-10 w-28">
                       <Image
                         src="/Signature.png"
                         alt="Unterschrift Karam Issa"
@@ -136,21 +123,9 @@ export function Guarantee() {
                   </div>
                 </div>
 
-                {/* Desktop: stacked Kapazität + large image */}
+                {/* Desktop: large image with signature */}
                 <div className="hidden md:block">
-                  <div className="rounded-xl border border-accent/40 bg-accent/[0.06] p-3">
-                    <div className="font-mono text-[11px] uppercase tracking-wide text-accent">
-                      Kapazität
-                    </div>
-                    <div className="mt-0.5 font-display text-xl font-semibold text-fg-primary lg:text-2xl">
-                      2 Plätze
-                    </div>
-                    <div className="font-mono text-xs text-fg-secondary">
-                      Q3 2026
-                    </div>
-                  </div>
-
-                  <div className="mt-4 relative aspect-[3/4] overflow-hidden rounded-xl border border-border bg-white">
+                  <div className="relative aspect-[3/4] overflow-hidden rounded-xl border border-border bg-white">
                     <Image
                       src="/headshot.webp"
                       alt="Karam Issa, Gründer EINS"
@@ -185,9 +160,55 @@ export function Guarantee() {
           </div>
         </Reveal>
 
+        <Reveal delay={0.2}>
+          <div className="mt-10 md:mx-auto md:mt-14 md:max-w-3xl lg:max-w-4xl">
+            <h3 className="text-center font-display text-2xl font-semibold tracking-tight text-fg-primary md:text-3xl">
+              {OWNERSHIP_HEADING}
+            </h3>
+            <div className="mt-6 grid gap-4 md:mt-8 md:grid-cols-2 md:gap-6">
+              {OWNERSHIP_CARDS.map((item) => (
+                <div
+                  key={item.title}
+                  className="card-glow rounded-2xl border border-border bg-bg-secondary/60 p-6 backdrop-blur-sm md:p-8"
+                >
+                  <h4 className="font-display text-xl font-semibold leading-snug tracking-tight text-fg-primary md:text-2xl">
+                    {item.title}
+                  </h4>
+                  <p className="mt-3 text-base leading-relaxed text-fg-primary md:text-lg">
+                    {item.body}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Reveal>
+
         <Reveal delay={0.22}>
+          <div className="mt-10 md:mx-auto md:mt-14 md:max-w-3xl lg:max-w-4xl">
+            <h3 className="text-center font-display text-2xl font-semibold tracking-tight text-fg-primary md:text-3xl">
+              {PROMISES_HEADING}
+            </h3>
+            <div className="mt-6 grid gap-4 md:mt-8 md:grid-cols-3 md:gap-6">
+              {PROMISES.map((item) => (
+                <div
+                  key={item.title}
+                  className="card-glow rounded-2xl border border-border bg-bg-secondary/60 p-6 backdrop-blur-sm"
+                >
+                  <h4 className="font-display text-lg font-semibold leading-snug tracking-tight text-fg-primary md:text-xl">
+                    {item.title}
+                  </h4>
+                  <p className="mt-3 text-base leading-relaxed text-fg-primary">
+                    {item.body}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </Reveal>
+
+        <Reveal delay={0.24}>
           <p className="mx-auto mt-6 max-w-3xl text-center text-sm leading-relaxed text-fg-secondary md:mt-8">
-            Konditionen werden im Strategie-Gespräch individuell festgelegt. Garantie-Bedingungen werden vor Beauftragung schriftlich fixiert.
+            {GUARANTEE_FOOTNOTE}
           </p>
         </Reveal>
       </div>

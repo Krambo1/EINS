@@ -2,61 +2,69 @@ import { notFound } from "next/navigation";
 import { after } from "next/server";
 import { eq } from "drizzle-orm";
 import Link from "next/link";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  Badge,
-  StatusPill,
-  Button,
-  Accordion,
-  AccordionItem,
-  AccordionTrigger,
-  AccordionContent,
-} from "@eins/ui";
+import { ArrowLeft } from "lucide-react";
+import { cn } from "@eins/ui";
 import { requireSession } from "@/auth/guards";
 import { db, schema } from "@/db/client";
 import { writeAudit } from "@/server/audit";
 import { responseRuleForClinic } from "@/server/guarantee-clock";
-import { getRequestWithActivities, markRequestViewed } from "@/server/queries/requests";
+import {
+  getRequestWithActivities,
+  markRequestViewed,
+} from "@/server/queries/requests";
 import { listFollowupsForRequest } from "@/server/queries/followups";
 import { retreatmentsForRequest } from "@/server/queries/retreatments";
 import { leadTokenForRequestId } from "@/server/pvs-token";
 import { can } from "@/lib/roles";
-import { PvsTokenCard } from "./_pvs-token-card";
-import { LeadCockpit, MobileActionBar } from "./_lead-cockpit";
-import { Followups } from "./_followups";
+import { ScrollHint } from "@/app/_components/ScrollHint";
+import { DashCard, QUIET_CONTROL } from "../../dashboard/_components/dash-ui";
+import { CallResult, Composer } from "./_lead-cockpit";
 import { RetreatmentSection } from "./_retreatment";
 import { PendingProvider } from "./_pending";
-import { LiveStatus, LiveTimeFacts, ProofStats } from "./_live-status";
-import { VerlaufList } from "./_verlauf";
-import { RevokeAdsConsentButton } from "./_revoke-ads-consent";
+import { type ClockInput } from "./_live-status";
+import { Verlauf } from "./_verlauf";
+import { DetailsCard } from "./_details";
+import {
+  MobileActionBar,
+  RecordCard,
+  SiblingsCard,
+  type PvsRow,
+} from "./_record";
+import {
+  DETAIL_GRID,
+  MESSAGE_HEIGHT,
+  ORDER,
+  PAIR_COLUMNS,
+  detailColumns,
+} from "./_lib/sizes";
 import { quizAnswerLines } from "../_lib/quiz-answers";
 import { quizFromSignals } from "@/server/queries/requests";
 import {
   siblingRequests,
   patientLifetimeRevenue,
 } from "@/server/queries/patients";
-import { type RequestStatus } from "@/lib/constants";
 import { reportingChannel, reportingChannelLabel } from "@/lib/sources";
 import { withBrandLogos } from "@/app/_components/Brand";
 import { responseInfo } from "@/lib/response-time";
-import { statusImpliesContact } from "../_lib/row-timing";
-import {
-  formatDate,
-  formatDateTime,
-  formatMoney,
-} from "@/lib/formatting";
-import {
-  ArrowLeft,
-  Mail,
-  Phone,
-} from "lucide-react";
+import { rowTiming, statusImpliesContact } from "../_lib/row-timing";
 import { isUuid } from "@/lib/ids";
 
 export const metadata = { title: "Anfrage" };
 
+/** A wish up to this length is the "Behandlung" row (the call card's limit); longer ones stand in the message. */
+const WISH_IN_ROW_MAX = 40;
+
+/**
+ * One Anfrage, for the person about to call or just off the phone. It
+ * answers, in this order: who is it and how do I reach them, what do they
+ * want and what did they tell us, what is due and by when, what happened so
+ * far; and it logs what was just done, in one tap where it can. The record
+ * (Attio's record page) comes first; from xl it is the column on the right
+ * beside the message and the work on it, as on the Rückmeldung. Every card
+ * keeps one height per breakpoint, saves show at once (_pending.tsx) and
+ * report as a toast. What is kept but not needed in the call sits one level
+ * deeper in "Details".
+ */
 export default async function AnfrageDetailPage({
   params,
 }: {
@@ -96,9 +104,20 @@ export default async function AnfrageDetailPage({
   // unhandled rejection. The real await below still sees the error.
   sidePromise.catch(() => {});
 
-  const data = await getRequestWithActivities(session.clinicId, session.userId, id);
+  const data = await getRequestWithActivities(
+    session.clinicId,
+    session.userId,
+    id,
+  );
   if (!data) notFound();
-  const { request, activities, treatmentName, locationName, firstAttemptAt, postTitle } = data;
+  const {
+    request,
+    activities,
+    treatmentName,
+    locationName,
+    firstAttemptAt,
+    postTitle,
+  } = data;
 
   // Durable PHI-read access trace (DSGVO Art. 30/32) — record who opened which
   // patient record (pentest L2). Deferred so it never blocks the render;
@@ -112,7 +131,7 @@ export default async function AnfrageDetailPage({
       entityId: id,
       requestMeta: {},
       impersonatedByAdminId: session.impersonatedByAdminId,
-    })
+    }),
   );
 
   // Clear the sidebar "neu" badge the first time anyone opens this lead.
@@ -123,31 +142,41 @@ export default async function AnfrageDetailPage({
     after(() => markRequestViewed(session.clinicId, session.userId, id));
   }
 
-  const [[siblings, pvsLinkRow, followups, responseRule, retreatments], patientLtv] = await Promise.all([
+  const [
+    [siblings, pvsLinkRow, followups, responseRule, retreatments],
+    patientLtv,
+  ] = await Promise.all([
     sidePromise,
     request.patientId
-      ? patientLifetimeRevenue(session.clinicId, session.userId, request.patientId)
+      ? patientLifetimeRevenue(
+          session.clinicId,
+          session.userId,
+          request.patientId,
+        )
       : Promise.resolve(null),
   ]);
   const quizAnswers = quizAnswerLines(quizFromSignals(request.aiSignals));
 
-  // Accountability counters for the proof summary. Cheap — reuse the
-  // already-loaded `activities` array for the call count. <ProofStats>
-  // adds what is still saving and picks the next due Wiedervorlage.
-  const callCount = activities.filter((a) => a.kind === "call").length;
+  const name = request.contactName?.trim() || "Unbekannt";
   const pvsControlled = request.pvsAppointmentId !== null;
 
   // Direction A: only surface the EINS-Lead token while the request hasn't
   // already been linked to a PVS appointment. Once linked, the token has
-  // served its purpose and is just noise.
-  const showPvsToken =
-    pvsLinkRow !== null &&
-    pvsLinkRow.status === "connected" &&
-    request.pvsAppointmentId === null;
-  const pvsLeadToken = showPvsToken ? leadTokenForRequestId(id) : null;
+  // served its purpose; the row then says that it is linked.
+  const pvs: PvsRow =
+    pvsLinkRow === null || pvsLinkRow.status !== "connected"
+      ? null
+      : request.pvsAppointmentId !== null
+        ? { linked: true }
+        : {
+            linked: false,
+            token: leadTokenForRequestId(id),
+            vendor: pvsLinkRow.vendor ?? null,
+          };
 
-  // 48-Werkstunden rule (Kanon 6a). Separate from the internal 3-hour SLA
-  // above: this one has contractual consequences for the Praxis.
+  // 48-Werkstunden rule (Kanon 6a). Separate from the internal 3-hour SLA:
+  // this one has contractual consequences for the Praxis.
+  const now = new Date();
   const response = responseInfo(
     {
       createdAt: request.createdAt,
@@ -155,390 +184,268 @@ export default async function AnfrageDetailPage({
       status: request.status,
       ...responseRule,
     },
-    new Date()
+    now,
   );
 
   // Termin vereinbart or later without a logged attempt: the person was
   // reached anyway, so no deadline warnings (same rule as the list, rowTiming).
-  const contactImplied = statusImpliesContact(request.status) && !firstAttemptAt;
+  const contactImplied =
+    statusImpliesContact(request.status) && !firstAttemptAt;
 
   const slaBreached =
     !contactImplied &&
     !request.firstContactedAt &&
     !!request.slaRespondBy &&
-    request.slaRespondBy.getTime() < Date.now();
+    request.slaRespondBy.getTime() < now.getTime();
+
+  const clock: ClockInput = {
+    createdAt: request.createdAt,
+    firstContactedAt: request.firstContactedAt,
+    firstAttemptAt,
+    slaRespondBy: request.slaRespondBy,
+    rule: responseRule,
+    status: request.status,
+    server: {
+      // The same line as the row in the list and on the call card.
+      timing: rowTiming(
+        {
+          createdAt: request.createdAt,
+          firstAttemptAt,
+          status: request.status,
+          ...responseRule,
+          firstContactedAt: request.firstContactedAt,
+          slaRespondBy: request.slaRespondBy,
+        },
+        now,
+      ),
+      response,
+      slaBreached,
+      contactImplied,
+    },
+  };
+
+  // What they want: the treatment, or a short wish; a long wish goes into
+  // the message well with the other answers (the call card's rule).
+  const wish = request.treatmentWish?.trim() || null;
+  const wishInRow = !treatmentName && !!wish && wish.length <= WISH_IN_ROW_MAX;
+  const treatment = {
+    text: treatmentName ?? (wishInRow ? wish : null),
+    inMessage: !treatmentName && !!wish,
+  };
+  // The form's budget field and the quiz's budget answer are two facts; the
+  // field keeps the old page's "Budget-Angabe" when the quiz has a "Budget".
+  const budgetLabel = quizAnswers.some((a) => a.label === "Budget")
+    ? "Budget-Angabe"
+    : "Budget";
+  const pairs = [
+    ...(wish && !wishInRow && wish !== treatmentName
+      ? [{ label: "Wunsch", value: wish }]
+      : []),
+    ...(request.budgetIndication
+      ? [{ label: budgetLabel, value: request.budgetIndication }]
+      : []),
+    ...quizAnswers,
+  ];
+
+  const rawPayload =
+    canAudit &&
+    !!request.rawPayload &&
+    typeof request.rawPayload === "object" &&
+    Object.keys(request.rawPayload as Record<string, unknown>).length > 0
+      ? request.rawPayload
+      : null;
+  // The record lines up with Nachricht and Bearbeiten (_lib/sizes.ts).
+  const columns = detailColumns(canWork);
 
   return (
-    // Bottom padding below `md` keeps the fixed action bar off the last card.
-    // The provider carries what is still saving (optimistic UI, _pending.tsx).
+    // Bottom padding below `md` keeps the fixed bar off the last card. The
+    // provider carries what is still saving (optimistic UI, _pending.tsx).
     <PendingProvider actorName={session.fullName} actorEmail={session.email}>
-    <div className="space-y-4 pb-24 md:pb-0">
-      <Link
-        href="/anfragen"
-        className="group inline-flex items-center gap-1.5 text-sm font-medium text-fg-secondary hover:text-fg-primary"
-      >
-        <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-0.5" aria-hidden />
-        Alle Anfragen
-      </Link>
+      <div className="pb-24 md:pb-0">
+        <div className="mb-4 flex h-[var(--track-h)] items-center md:mb-6">
+          <Link href="/anfragen" className={cn(QUIET_CONTROL, "-ml-2.5")}>
+            <ArrowLeft className="h-4 w-4" aria-hidden />
+            Alle Anfragen
+          </Link>
+        </div>
 
-      {/* Kopf: wer, wie erreichbar, bis wann. Eine Karte statt mehrerer. */}
-      <Card className="p-5 md:p-6">
-        <div className="space-y-5">
-          <div className="min-w-0">
-            <h1 className="text-2xl font-semibold leading-tight md:text-3xl">
-              {request.contactName ?? "Unbekannt"}
-            </h1>
-            {/* Same order as the Anfragen list: status, then the plain facts. */}
-            <div className="mt-2 flex flex-wrap items-center gap-x-1.5 text-sm text-fg-secondary">
-              <LiveStatus status={request.status} fromPvs={request.statusSource === "pvs"} />
+        <div className={DETAIL_GRID}>
+          <div className={columns.record}>
+            <div className={columns.recordTop}>
+              <RecordCard
+                className={cn(ORDER.record, "[--delay:20ms]")}
+                requestId={request.id}
+                name={name}
+                phone={request.contactPhone}
+                email={request.contactEmail}
+                countryCode={session.currency === "CHF" ? "41" : "49"}
+                status={request.status}
+                pvsControlled={pvsControlled}
+                canWork={canWork}
+                clock={clock}
+                followups={followups}
+                treatment={treatment}
+                // Where the person came from, as the Quellen card counts it.
+                source={withBrandLogos(
+                  reportingChannelLabel(
+                    reportingChannel({
+                      source: request.source,
+                      utm: request.utm,
+                    }),
+                  ),
+                )}
+                post={postTitle}
+                locationName={locationName}
+                createdAt={request.createdAt}
+                pvs={pvs}
+              />
             </div>
-            <div className="mt-1 text-sm text-fg-secondary">
-              {treatmentName && <>{treatmentName} · </>}
-              {/* Where the person came from, as the Quellen card counts it,
-                  and the post whose link they used. */}
-              {withBrandLogos(reportingChannelLabel(reportingChannel({ source: request.source, utm: request.utm })))}
-              {postTitle && <> · Beitrag „{postTitle}“</>}
-              {locationName && <> · {locationName}</>}
+
+            <div className={columns.recordRest}>
+              {/* Wiederbehandlungen of this patient, with the way to take one off
+                the calendar or back on (the old card's list, per person). */}
+              {retreatments.calls.length > 0 && (
+                <RetreatmentSection
+                  className={cn(ORDER.retreatment, "[--delay:80ms]")}
+                  data={retreatments}
+                  name={name}
+                  canWork={canWork}
+                  isInhaber={can(session.role, "settings.team")}
+                />
+              )}
+
+              {(siblings.length > 0 || (patientLtv ?? 0) > 0) && (
+                <SiblingsCard
+                  className={cn(ORDER.siblings, "[--delay:100ms]")}
+                  siblings={siblings}
+                  lifetimeRevenue={patientLtv}
+                  currency={session.currency}
+                />
+              )}
             </div>
           </div>
 
-          {/* Kontakt: Nummer und Adresse als Text, genau ein "Anrufen".
-              Unter `md` liegt "Anrufen" in der festen Leiste unten. */}
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-y border-border py-3">
-            {request.contactPhone ? (
-              <span className="inline-flex items-center gap-1.5 text-base font-medium text-fg-primary">
-                <Phone className="h-4 w-4 shrink-0" aria-hidden />
-                <span className="tabular-nums">{request.contactPhone}</span>
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 text-base text-fg-secondary">
-                <Phone className="h-4 w-4" aria-hidden /> Keine Telefonnummer
-              </span>
-            )}
-            {request.contactEmail ? (
-              <span className="inline-flex min-w-0 items-center gap-1.5 text-base text-fg-primary">
-                <Mail className="h-4 w-4 shrink-0" aria-hidden />
-                <span className="truncate">{request.contactEmail}</span>
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 text-base text-fg-secondary">
-                <Mail className="h-4 w-4" aria-hidden /> Keine E-Mail-Adresse
-              </span>
-            )}
-            {request.treatmentWish && (
-              <span className="min-w-0 text-base text-fg-primary">
-                <span className="font-medium">Wunsch:</span>{" "}
-                <span className="break-words">{request.treatmentWish}</span>
-              </span>
-            )}
-            <div className="hidden flex-wrap items-center gap-2 md:ml-auto md:flex">
-              {request.contactPhone && (
-                <Button asChild size="sm">
-                  <a href={`tel:${request.contactPhone}`}>
-                    <Phone className="h-4 w-4" />
-                    Anrufen
-                  </a>
-                </Button>
-              )}
-              {request.contactEmail && (
-                <Button asChild size="sm" variant="outline">
-                  <a href={`mailto:${request.contactEmail}`}>
-                    <Mail className="h-4 w-4" />
-                    E-Mail
-                  </a>
-                </Button>
-              )}
-            </div>
-            {/* Phones: the bar carries Anrufen, so only E-Mail stays here. */}
-            {request.contactPhone && request.contactEmail && (
-              <Button asChild size="sm" variant="outline" className="md:hidden">
-                <a href={`mailto:${request.contactEmail}`}>
-                  <Mail className="h-4 w-4" />
-                  E-Mail schreiben
-                </a>
-              </Button>
-            )}
-          </div>
-
-          {/* Fristen: Entscheidungswerte, darum kräftig und in Worten. */}
-          <LiveTimeFacts
-            createdAt={request.createdAt}
-            firstContactedAt={request.firstContactedAt}
-            firstAttemptAt={firstAttemptAt}
-            slaRespondBy={request.slaRespondBy}
-            rule={responseRule}
-            status={request.status}
-            serverResponse={response}
-            serverSlaBreached={slaBreached}
-            serverContactImplied={contactImplied}
-          />
-
-          {/* Antworten aus dem Zielseiten-Quiz (C-26): der Gesprächseinstieg
-              für den Rückruf, vorher nur im JSON der Rohdaten. */}
-          {quizAnswers.length > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5">
-              {quizAnswers.map((a) => (
-                <Badge key={a.label} tone="neutral" className="text-sm">
-                  {a.label}: {a.value}
-                </Badge>
-              ))}
-            </div>
-          )}
-
-          {request.message && (
-            <div className="grid gap-4 md:grid-cols-2">
-                <div>
-                  <div className="text-sm font-medium text-fg-primary">
-                    Nachricht der Anfrage
+          <div className={columns.work}>
+            <div className={columns.workTop}>
+              {/* What they told us: the message, then the answers as pairs
+                (the call card's well). Plain dark text, one fixed height. */}
+              <DashCard
+                title="Nachricht"
+                className={cn(ORDER.message, "[--delay:40ms]")}
+              >
+                <ScrollHint>
+                  <div
+                    role="region"
+                    aria-label="Nachricht und Angaben"
+                    tabIndex={0}
+                    className={cn(
+                      "scroll-shadows elev-inset rounded-[var(--r-panel)] px-4 py-3 text-[15px] leading-6 text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                      MESSAGE_HEIGHT,
+                    )}
+                  >
+                    {request.message ? (
+                      <p className="whitespace-pre-wrap break-words">
+                        {request.message}
+                      </p>
+                    ) : (
+                      <p className="text-fg-secondary">
+                        Keine Nachricht hinterlassen.
+                      </p>
+                    )}
+                    {pairs.length > 0 && (
+                      <dl className="mt-3 space-y-1">
+                        {pairs.map((p, i) => (
+                          <div
+                            key={`${i}-${p.label}`}
+                            className={cn("grid gap-3", PAIR_COLUMNS)}
+                          >
+                            <dt className="text-sm leading-6 text-fg-secondary">
+                              {p.label}
+                            </dt>
+                            <dd className="min-w-0 break-words">{p.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    )}
                   </div>
-                  <blockquote className="mt-1.5 whitespace-pre-wrap rounded-lg border-l-2 border-accent bg-bg-secondary px-3 py-2 text-base leading-relaxed text-fg-primary">
-                    {request.message}
-                  </blockquote>
-                </div>
-            </div>
-          )}
+                </ScrollHint>
+              </DashCard>
 
-          {/* Consent to report to Meta/Google (migration 0077). */}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-fg-primary">
-            <span>
-              Einwilligung Meta/Google:{" "}
-              {request.adsConsentRevokedAt
-                ? `widerrufen am ${formatDate(request.adsConsentRevokedAt)}`
-                : request.adsConsentAt
-                ? `erteilt am ${formatDate(request.adsConsentAt)}`
-                : "nicht erteilt"}
-            </span>
-            {canWork && request.adsConsentAt && !request.adsConsentRevokedAt && (
-              <RevokeAdsConsentButton requestId={request.id} />
-            )}
+              {/* The work on it: the call's result in one tap (the call card's
+                switch), then note, sent message or Wiedervorlage. The status
+                is changed in the record, where it is read. */}
+              {canWork && (
+                <DashCard
+                  title="Bearbeiten"
+                  className={cn(ORDER.work, "[--delay:60ms]")}
+                >
+                  <CallResult
+                    requestId={request.id}
+                    name={name}
+                    status={request.status}
+                    pvsControlled={pvsControlled}
+                  />
+                  <div className="my-5 border-t border-border" />
+                  <Composer requestId={request.id} name={name} />
+                </DashCard>
+              )}
+            </div>
+
+            <div className={columns.workRest}>
+              <DashCard
+                title="Verlauf"
+                className={cn(ORDER.verlauf, "[--delay:80ms]")}
+              >
+                <Verlauf
+                  requestId={request.id}
+                  name={name}
+                  canWork={canWork}
+                  followups={followups}
+                  activities={activities.map((a) => ({
+                    id: a.id,
+                    kind: a.kind,
+                    actorName: a.actorName,
+                    actorEmail: a.actorEmail,
+                    body: a.body,
+                    meta: a.meta,
+                    createdAt: a.createdAt,
+                  }))}
+                />
+              </DashCard>
+
+              <DetailsCard
+                className={cn(ORDER.details, "[--delay:100ms]")}
+                requestId={request.id}
+                name={name}
+                canWork={canWork}
+                clock={clock}
+                adsConsentAt={request.adsConsentAt}
+                adsConsentRevokedAt={request.adsConsentRevokedAt}
+                dsgvoConsentAt={request.dsgvoConsentAt}
+                dsgvoConsentIp={request.dsgvoConsentIp}
+                ids={{
+                  request: request.id,
+                  patient: request.patientId ?? null,
+                  campaign: request.sourceCampaignId,
+                  ad: request.sourceAdId,
+                }}
+                revenue={
+                  request.convertedRevenueEur
+                    ? Number(request.convertedRevenueEur)
+                    : null
+                }
+                currency={session.currency}
+                rawPayload={rawPayload}
+              />
+            </div>
           </div>
         </div>
-      </Card>
 
-      {/* Telefon ohne Bearbeitungsrecht: nur "Anrufen" in der Leiste unten.
-          Mit Recht rendert das Cockpit die Leiste samt "Protokollieren". */}
-      {!canWork && (
         <MobileActionBar
-          contactPhone={request.contactPhone}
-          contactEmail={request.contactEmail}
+          phone={request.contactPhone}
+          email={request.contactEmail}
         />
-      )}
-
-      {/* Lead-Cockpit: Reaktions-Nachweis + Arbeitsfläche. Die
-          Vor-Buchungs-Phase ist portal-nativ; sobald die Anfrage an einen
-          PVS-Termin gekoppelt ist, sperrt die Status-Steuerung (PVS gewinnt;
-          siehe _lead-cockpit.tsx + actions.ts). Anrufe, Notizen und
-          Wiedervorlagen bleiben immer erlaubt. Der Status steht oben im Kopf. */}
-      {canWork && (
-        <Card className="p-5 md:p-6">
-          <ProofStats
-            requestId={request.id}
-            createdAt={request.createdAt}
-            firstContactedAt={request.firstContactedAt}
-            callCount={callCount}
-            followups={followups}
-          />
-
-          <div className="mt-4 border-t border-border pt-4">
-            <p className="mb-3 text-sm text-fg-primary">
-              Jeder protokollierte Anruf, jede vermerkte E-Mail oder
-              WhatsApp-Nachricht und der Status „Kontaktiert“, „Nicht
-              erreicht“ oder „Termin vereinbart“ zählen als Kontaktversuch.
-            </p>
-            <LeadCockpit
-              requestId={request.id}
-              currentStatus={request.status}
-              pvsControlled={pvsControlled}
-              contactPhone={request.contactPhone}
-              contactEmail={request.contactEmail}
-            />
-          </div>
-        </Card>
-      )}
-
-      {/* Wiedervorlagen vor dem Verlauf: sie sind der nächste Schritt. Die
-          Karte steht immer da, auch leer, damit man die Funktion kennt. */}
-      {canWork && <Followups requestId={request.id} followups={followups} />}
-
-      {/* Wiederbehandlungen of this patient, with the way to take one off
-          the calendar or back on (the old card's list, per person). */}
-      {retreatments.calls.length > 0 && (
-        <RetreatmentSection
-          data={retreatments}
-          canWork={canWork}
-          isInhaber={can(session.role, "settings.team")}
-        />
-      )}
-
-      {pvsLeadToken && (
-        <PvsTokenCard token={pvsLeadToken} pvsVendor={pvsLinkRow?.vendor ?? null} />
-      )}
-
-      {/* Verlauf: Aktivitäts-Protokoll. Anrufe, Notizen und Status-Wechsel
-          der Vor-Buchungs-Phase werden hier portal-nativ erfasst; PVS-Events
-          (Termin, Behandlung, no-show) laufen weiterhin automatisch ein. */}
-      <Card className="p-5 md:p-6">
-        <CardHeader className="mb-3">
-          <CardTitle>Verlauf</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-0">
-          <VerlaufList
-            activities={activities.map((a) => ({
-              id: a.id,
-              kind: a.kind,
-              actorName: a.actorName,
-              actorEmail: a.actorEmail,
-              body: a.body,
-              meta: a.meta,
-              createdAt: a.createdAt,
-            }))}
-          />
-        </CardContent>
-      </Card>
-
-          {/* Sibling requests + Patient LTV */}
-          {(siblings.length > 0 || patientLtv != null) && (
-            <Card className="p-5 md:p-6">
-              <CardHeader className="mb-3">
-                <CardTitle>Patienten-Historie</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {patientLtv != null && (
-                  <div>
-                    <div className="text-sm font-medium text-fg-primary">
-                      Gesamtumsatz dieses Patienten
-                    </div>
-                    <div className="mt-1 font-display text-2xl font-semibold tabular-nums">
-                      {formatMoney(patientLtv, session.currency)}
-                    </div>
-                  </div>
-                )}
-                {siblings.length > 0 && (
-                  <div>
-                    <div className="mb-2 text-sm font-medium text-fg-primary">
-                      Andere Anfragen dieses Patienten
-                    </div>
-                    {/* Fixed columns: status, date and amount line up row by row. */}
-                    <ul className="divide-y divide-border">
-                      {siblings.map((s) => (
-                        <li
-                          key={s.id}
-                          className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-4 gap-y-0.5 py-2 text-sm sm:grid-cols-[minmax(0,1fr)_10rem_6rem_6.5rem]"
-                        >
-                          <Link
-                            href={`/anfragen/${s.id}`}
-                            className="truncate font-medium text-fg-primary hover:text-accent"
-                          >
-                            {s.treatmentWish ?? "Anfrage"}
-                          </Link>
-                          <span className="justify-self-end sm:justify-self-start">
-                            <StatusPill status={s.status as RequestStatus} />
-                          </span>
-                          <span className="tabular-nums text-fg-secondary sm:text-right">
-                            {formatDate(s.createdAt)}
-                          </span>
-                          <span className="text-right font-medium tabular-nums text-fg-primary">
-                            {s.convertedRevenueEur != null
-                              ? formatMoney(s.convertedRevenueEur, session.currency)
-                              : null}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          )}
-
-          {/* Technical metadata + raw payload — all collapsible */}
-          <Accordion type="multiple">
-            <AccordionItem value="tech">
-              <AccordionTrigger>Technische Details</AccordionTrigger>
-              <AccordionContent>
-                <div className="grid gap-4 text-sm md:grid-cols-3">
-                  <DataField label="Anfrage-ID" value={request.id} />
-                  <DataField label="Kampagnen-ID" value={request.sourceCampaignId} />
-                  <DataField label="Anzeigen-ID" value={request.sourceAdId} />
-                  <DataField label="Budget-Angabe" value={request.budgetIndication} />
-                  <DataField
-                    label="Umsatz"
-                    value={
-                      request.convertedRevenueEur
-                        ? formatMoney(Number(request.convertedRevenueEur), session.currency)
-                        : null
-                    }
-                  />
-                  <DataField
-                    label="DSGVO-Zustimmung"
-                    value={
-                      request.dsgvoConsentAt
-                        ? formatDateTime(request.dsgvoConsentAt)
-                        : "Keine (Anruf, Buchung oder Eintrag am Empfang)"
-                    }
-                  />
-                  <DataField
-                    label="DSGVO IP (gekürzt)"
-                    value={maskIp(request.dsgvoConsentIp)}
-                  />
-                  <DataField label="Patient-ID" value={request.patientId ?? null} />
-                </div>
-              </AccordionContent>
-            </AccordionItem>
-            {canAudit &&
-              !!request.rawPayload &&
-              typeof request.rawPayload === "object" &&
-              Object.keys(request.rawPayload as Record<string, unknown>).length > 0 && (
-                <AccordionItem value="raw">
-                  <AccordionTrigger>Übermittelte Formulardaten</AccordionTrigger>
-                  <AccordionContent>
-                    <pre className="overflow-x-auto rounded-md border border-border bg-bg-secondary p-4 text-xs">
-                      {JSON.stringify(request.rawPayload, null, 2)}
-                    </pre>
-                  </AccordionContent>
-                </AccordionItem>
-              )}
-          </Accordion>
-    </div>
+      </div>
     </PendingProvider>
   );
-}
-
-/**
- * A time that drives a decision (DS3 item 3): label, the time in weight,
- * and the state in words (never colour alone), with an optional (i).
- */
-function DataField({
-  label,
-  value,
-}: {
-  label: string;
-  value: string | null | undefined;
-}) {
-  const content = value ?? <span className="text-fg-secondary">–</span>;
-  return (
-    <div>
-      <div className="text-sm font-medium text-fg-primary">
-        {label}
-      </div>
-      <div className="mt-1 flex items-center gap-2 text-base text-fg-primary">
-        {content}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Shortened consent IP (C-27): last IPv4 octet zeroed, IPv6 cut to the
- * first three groups. Enough to show that consent came from a real request,
- * not enough to identify the device.
- */
-function maskIp(ip: string | null | undefined): string | null {
-  if (!ip) return null;
-  const v4 = /^(\d{1,3}\.\d{1,3}\.\d{1,3})\.\d{1,3}$/.exec(ip.trim());
-  if (v4) return `${v4[1]}.0`;
-  if (ip.includes(":")) {
-    return `${ip.split(":").slice(0, 3).join(":")}::`;
-  }
-  return null;
 }

@@ -488,7 +488,6 @@ export async function disconnectIntegrationAction(formData: FormData) {
     await flashError("Trennen fehlgeschlagen", settingsErrorMessage(err, "settings.disconnect"));
   } finally {
     revalidatePath("/einstellungen");
-    revalidatePath("/werbebudget");
   }
 }
 

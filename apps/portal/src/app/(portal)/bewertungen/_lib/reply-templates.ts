@@ -21,7 +21,17 @@ export interface ReplyTemplate {
   title: string;
   /** Der einfügbare Antworttext. Enthält editierbare Platzhalter. */
   text: string;
+  /** Where it comes from: shipped as is, a shipped one the Praxis changed,
+   *  or the Praxis's own (`reply-templates-store.ts`). */
+  origin?: "standard" | "edited" | "custom";
 }
+
+/** Stars per group, for the group headings ("1-2 Sterne"). */
+export const REPLY_BUCKET_STARS: Record<ReplyBucket, { label: string; stars: number }> = {
+  positiv: { label: "4-5 Sterne", stars: 5 },
+  neutral: { label: "3 Sterne", stars: 3 },
+  kritisch: { label: "1-2 Sterne", stars: 2 },
+};
 
 export const REPLY_BUCKET_LABELS: Record<ReplyBucket, string> = {
   positiv: "Positiv (4-5 Sterne)",
@@ -136,9 +146,20 @@ const TEMPLATES: ReplyTemplate[] = [
   },
 ];
 
-/** Alle Vorlagen eines Buckets. Stabile Reihenfolge. */
-export function templatesByBucket(bucket: ReplyBucket): ReplyTemplate[] {
-  return TEMPLATES.filter((t) => t.bucket === bucket);
+/**
+ * Alle Vorlagen eines Buckets, stabile Reihenfolge. `from` is the Praxis's
+ * merged list (`mergeReplyTemplates`); without it the shipped ones.
+ */
+export function templatesByBucket(
+  bucket: ReplyBucket,
+  from: ReplyTemplate[] = TEMPLATES
+): ReplyTemplate[] {
+  return from.filter((t) => t.bucket === bucket);
+}
+
+/** The shipped version of a standard template, for "Original wiederherstellen". */
+export function standardReplyTemplate(id: string): ReplyTemplate | undefined {
+  return TEMPLATES.find((t) => t.id === id);
 }
 
 /** Alle Vorlagen, gruppiert nach Bucket in Anzeige-Reihenfolge. */

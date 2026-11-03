@@ -1,3 +1,6 @@
+// Ablauf nach der Unterschrift. Wording follows docs/umbau-ki-organisch/KANON.md,
+// section 9. The section renders four stations side by side (md:grid-cols-4).
+
 export type Station = {
   when: string;
   title: string;
@@ -6,39 +9,39 @@ export type Station = {
 
 export const STATIONS: Station[] = [
   {
-    when: "Woche 1–2",
-    title: "Wir kommen zu Ihnen",
+    when: "Woche 1",
+    title: "Sie nehmen einmal kurz auf",
     bullets: [
-      "Videodreh und Fotoshooting in Ihrer Praxis",
+      "Die 90 Tage beginnen am Tag der Unterschrift",
+      "Onboarding-Gespräch per Video: Einwilligung und Zugänge",
+      "Klon-Aufnahme am Handy: einmal wenige Minuten Video und Stimme",
+    ],
+  },
+  {
+    when: "Woche 1 bis 2",
+    title: "Klon und Zielseite stehen",
+    bullets: [
+      "Die ersten Beiträge gehen zur Freigabe",
       "Anbindung an Ihre Praxis-Software",
-      "KI-Rechtsprüfung aller Werbebotschaften",
+      "KI-Rechtsprüfung aller Beiträge",
     ],
   },
   {
-    when: "Woche 3",
-    title: "Anzeigen gehen live",
+    when: "Ab Woche 2",
+    title: "Beiträge gehen live",
     bullets: [
-      "Ihre Anzeigen laufen auf Instagram, Facebook und Google",
-      "Erste Patientenanfragen innerhalb weniger Tage",
-      "Wir überwachen täglich die Leistung",
+      "Die ersten Beiträge laufen auf Ihren Kanälen",
+      "Anfragen laufen mit Herkunft in Ihr Portal",
+      "Wöchentliche Freigabe in wenigen Minuten, monatliche Auswertung im Portal",
     ],
   },
   {
-    when: "Ab Woche 6",
-    title: "Wir optimieren",
+    when: "Erste qualifizierte Anfrage",
+    title: "Erste Rechnung, dann Werbebudget",
     bullets: [
-      "Wir testen verschiedene Varianten, was am besten funktioniert",
-      "Fokus auf Ihre profitabelsten Behandlungen",
-      "Die Kosten pro Anfrage sinken kontinuierlich",
-    ],
-  },
-  {
-    when: "Tag 90",
-    title: "Bilanz ziehen",
-    bullets: [
-      "Vollständige Auswertung Ihrer Ergebnisse",
-      "Konkrete Zahlen zu Anfragen, Patienten und Umsatz",
-      "Wachstumsplan für die nächsten 9 Monate",
+      "Erst jetzt kommt die erste Rechnung",
+      "Wir schlagen vor, welches Werbebudget hinter welche Beiträge gehört",
+      "Kommt bis Tag 90 keine erste qualifizierte Anfrage über EINS, endet die Zusammenarbeit ohne Kosten. Steht eine Mitwirkung von Ihnen aus, verlängern sich die 90 Tage um diese Tage, aber nur, wenn wir Ihnen den Verzug per E-Mail mitgeteilt haben",
     ],
   },
 ];

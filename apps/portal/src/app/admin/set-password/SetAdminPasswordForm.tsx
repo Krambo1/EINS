@@ -8,11 +8,12 @@ import { AuthToast } from "@/app/(auth)/_components/AuthToast";
 import { PasswordInput } from "@/app/(auth)/_components/PasswordInput";
 import { PasswordRules } from "@/app/(auth)/_components/PasswordRules";
 import {
-  AuthLabel,
-  PendingDots,
-  authCtaClass,
+  AuthField,
+  PendingStatus,
+  authPrimaryClass,
   authTextLinkClass,
 } from "@/app/(auth)/_components/auth-ui";
+import { AUTH_STACK } from "@/app/(auth)/_lib/sizes";
 import {
   setAdminPasswordAction,
   type SetAdminPasswordActionState,
@@ -22,14 +23,18 @@ function SubmitButton({ blocked, busy }: { blocked: boolean; busy: boolean }) {
   const { pending } = useFormStatus();
   const waiting = pending || busy;
   return (
-    <button
-      type="submit"
-      disabled={waiting || blocked}
-      aria-busy={waiting}
-      className={authCtaClass}
-    >
-      {waiting ? <PendingDots label="Wird gespeichert" /> : "Passwort speichern"}
-    </button>
+    <>
+      <button
+        type="submit"
+        data-auth-primary
+        disabled={waiting || blocked}
+        aria-busy={waiting}
+        className={authPrimaryClass}
+      >
+        Passwort speichern
+      </button>
+      <PendingStatus pending={waiting} label="Wird gespeichert" />
+    </>
   );
 }
 
@@ -60,7 +65,7 @@ export function SetAdminPasswordForm({ email }: { email: string }) {
   const errorState = state && "error" in state && closedFor !== state ? state : null;
 
   return (
-    <form action={action} onSubmit={() => setClosedFor(state)} className="space-y-6">
+    <form action={action} onSubmit={() => setClosedFor(state)} className={AUTH_STACK}>
       {/* Lets password managers file the new password under the right
           account. Not read by the action. */}
       <input
@@ -71,10 +76,7 @@ export function SetAdminPasswordForm({ email }: { email: string }) {
         readOnly
         hidden
       />
-      <div>
-        <AuthLabel htmlFor="password" className="mb-2">
-          Neues Passwort
-        </AuthLabel>
+      <AuthField label="Neues Passwort" htmlFor="password">
         <PasswordInput
           id="password"
           name="password"
@@ -86,11 +88,8 @@ export function SetAdminPasswordForm({ email }: { email: string }) {
           onChange={(e) => setPw(e.target.value)}
           aria-describedby="password-rules"
         />
-      </div>
-      <div>
-        <AuthLabel htmlFor="password2" className="mb-2">
-          Passwort wiederholen
-        </AuthLabel>
+      </AuthField>
+      <AuthField label="Passwort wiederholen" htmlFor="password2">
         <PasswordInput
           id="password2"
           name="password2"
@@ -101,7 +100,7 @@ export function SetAdminPasswordForm({ email }: { email: string }) {
           value={pw2}
           onChange={(e) => setPw2(e.target.value)}
         />
-      </div>
+      </AuthField>
       <PasswordRules id="password-rules" pw={pw} pw2={pw2} />
       <SubmitButton blocked={mismatch} busy={saved} />
       {errorState && (

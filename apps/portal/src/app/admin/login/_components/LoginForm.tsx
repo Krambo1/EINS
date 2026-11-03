@@ -1,22 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
 import { useActionState, useEffect, useRef, useState, type FormEvent } from "react";
 import { useFormStatus } from "react-dom";
+import { cn } from "@eins/ui";
 import { GoogleSignInButton } from "@/app/_components/GoogleSignInButton";
+import { CHECKBOX } from "@/app/(portal)/einstellungen/_lib/sizes";
 import { AuthToast } from "@/app/(auth)/_components/AuthToast";
 import { PasswordInput } from "@/app/(auth)/_components/PasswordInput";
 import {
-  Accent,
+  AuthBody,
   AuthDivider,
+  AuthField,
   AuthHeader,
-  AuthLabel,
   CheckInbox,
-  PendingDots,
-  authButtonClass,
-  authCtaClass,
+  PendingStatus,
   authFieldClass,
+  authPrimaryClass,
+  authQuietClass,
+  authSecondaryClass,
   authTextLinkClass,
 } from "@/app/(auth)/_components/auth-ui";
 import {
@@ -28,26 +30,23 @@ import {
 
 const LINK_FORM_ID = "eins-admin-login-link";
 
+/** Greys out while the request runs and after success, same size, same label. */
 function SubmitButton({ label, busy }: { label: string; busy: boolean }) {
   const { pending } = useFormStatus();
   const waiting = pending || busy;
   return (
-    <button type="submit" disabled={waiting} aria-busy={waiting} className={authCtaClass}>
-      {waiting ? (
-        <PendingDots label="Wird geprüft" />
-      ) : (
-        <>
-          {label}
-          <ArrowRight aria-hidden className="h-4 w-4" />
-        </>
-      )}
-    </button>
+    <>
+      <button type="submit" disabled={waiting} aria-busy={waiting} data-auth-primary className={authPrimaryClass}>
+        {label}
+      </button>
+      <PendingStatus pending={waiting} label="Wird geprüft" />
+    </>
   );
 }
 
 /**
  * Admin sign-in, the same flow as the clinic login (/login): e-mail first,
- * then the password field slides in. Step one never talks to the server and
+ * then the password field under it. Step one never talks to the server and
  * the second step looks the same for every address, so nothing reveals
  * which addresses are on the admin allowlist. The e-mail link is its own
  * small form (#eins-admin-login-link) that posts `email` only.
@@ -136,102 +135,88 @@ export function LoginForm({
 
   return (
     <div>
-      <AuthHeader
-        title={
-          <>
-            Willkommen <Accent>zurück.</Accent>
-          </>
-        }
-      >
-        Melden Sie sich im Admin-Bereich an.
-      </AuthHeader>
+      <AuthHeader title="Anmelden" />
+      <AuthBody>
+        <form action={pwAction} onSubmit={onSubmit} className="space-y-4">
+          <AuthField label="E-Mail" htmlFor="email">
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="username email"
+              autoCapitalize="none"
+              spellCheck={false}
+              inputMode="email"
+              required
+              autoFocus
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className={authFieldClass}
+            />
+          </AuthField>
 
-      {googleEnabled && (
-        <>
-          <GoogleSignInButton
-            href="/admin/login/google/start"
-            className={`${authButtonClass} py-0`}
-          />
-          <AuthDivider />
-        </>
-      )}
+          {step === "password" && (
+            <>
+              <AuthField
+                label="Passwort"
+                htmlFor="password"
+                aside={
+                  <Link href="/admin/forgot-password" className={authTextLinkClass}>
+                    Passwort vergessen?
+                  </Link>
+                }
+              >
+                <PasswordInput
+                  ref={passwordRef}
+                  id="password"
+                  name="password"
+                  autoComplete="current-password"
+                  required
+                  autoFocus
+                  aria-invalid={pwFailed && editedAfter !== pwState}
+                  onInput={() => setEditedAfter(pwState)}
+                />
+              </AuthField>
+              <label className="flex w-fit cursor-pointer select-none items-center gap-3 text-[15px] leading-6 text-fg-primary">
+                <input type="checkbox" name="remember" value="on" className={cn(CHECKBOX, "mt-0")} />
+                Angemeldet bleiben
+              </label>
+            </>
+          )}
 
-      <form action={pwAction} onSubmit={onSubmit} className="space-y-6">
-        <div>
-          <AuthLabel htmlFor="email" className="mb-2">
-            E-Mail
-          </AuthLabel>
-          <input
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="username email"
-            autoCapitalize="none"
-            spellCheck={false}
-            inputMode="email"
-            required
-            autoFocus
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className={authFieldClass}
-          />
-        </div>
+          <SubmitButton label={step === "email" ? "Weiter" : "Anmelden"} busy={signedIn} />
+        </form>
 
-        {step === "password" && (
-          <div className="animate-fade-in space-y-6">
-            <div>
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <AuthLabel htmlFor="password">Passwort</AuthLabel>
-                <Link href="/admin/forgot-password" className={`${authTextLinkClass} text-sm`}>
-                  Passwort vergessen?
-                </Link>
-              </div>
-              <PasswordInput
-                ref={passwordRef}
-                id="password"
-                name="password"
-                autoComplete="current-password"
-                required
-                autoFocus
-                aria-invalid={pwFailed && editedAfter !== pwState}
-                onInput={() => setEditedAfter(pwState)}
-              />
-            </div>
-            <label className="flex w-fit cursor-pointer select-none items-center gap-2.5 text-base text-fg-primary">
-              <input
-                type="checkbox"
-                name="remember"
-                value="on"
-                className="h-4 w-4 rounded accent-[#58BAB5]"
-              />
-              Angemeldet bleiben
-            </label>
-          </div>
-        )}
-
-        <SubmitButton label={step === "email" ? "Weiter" : "Anmelden"} busy={signedIn} />
-      </form>
-
-      <p className="mt-6 text-center text-sm text-fg-secondary">
-        Kein Passwort?{" "}
         <button
           type="submit"
           form={LINK_FORM_ID}
           disabled={linkPending || emailEmpty || signedIn}
+          aria-busy={linkPending}
           onClick={() => {
             hideCurrent();
             setLastSource("link");
           }}
-          className={authTextLinkClass}
+          className={authQuietClass}
         >
-          {linkPending ? "Wird gesendet…" : "Anmeldelink per E-Mail senden"}
+          Anmeldelink per E-Mail senden
         </button>
-      </p>
+        <PendingStatus pending={linkPending} label="Wird gesendet" />
 
-      {/* Sibling form for the link request: only the address goes along. */}
-      <form id={LINK_FORM_ID} action={linkAction} hidden>
-        <input type="hidden" name="email" value={email} />
-      </form>
+        {/* Sibling form for the link request: only the address goes along. */}
+        <form id={LINK_FORM_ID} action={linkAction} hidden>
+          <input type="hidden" name="email" value={email} />
+        </form>
+
+        {googleEnabled && (
+          <>
+            <AuthDivider />
+            <GoogleSignInButton
+              href="/admin/login/google/start"
+              className={cn(authSecondaryClass, "py-0")}
+            />
+          </>
+        )}
+      </AuthBody>
 
       {toastError && (
         <AuthToast tone="bad" onClose={hideCurrent}>

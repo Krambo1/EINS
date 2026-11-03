@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { Button, cn } from "@eins/ui";
+import { SECONDARY_BUTTON } from "../einstellungen/_components/settings-ui";
+import { showActionFlash } from "./flash-event";
 import { clearSearchStorage } from "./search-storage";
 
 interface Props {
@@ -33,6 +36,11 @@ export function isEndingSoon(expiresAtMs: number, nowMs: number): boolean {
  * session server-side and returns the admin host URL. We try
  * window.close() first (the tab was opened by JS, so the browser
  * permits it), then fall back to navigation.
+ *
+ * Laid out like the impersonation bars of Tradewing and Botdoc: the whole
+ * width above everything, who you act as, the way out at the right end. It
+ * keeps its size in every state (DESIGN.md section 10): ending and the last
+ * five minutes change colour, not width; a failed end shows in the toast.
  */
 export function ImpersonationBanner({ targetEmail, clinicName, expiresAt }: Props) {
   const [pending, startTransition] = useTransition();
@@ -56,6 +64,13 @@ export function ImpersonationBanner({ targetEmail, clinicName, expiresAt }: Prop
     const id = window.setInterval(tick, 15_000);
     return () => window.clearInterval(id);
   }, [expiresAt]);
+  // A failed end goes to the toast like every failed action in the portal, in
+  // German whatever the error said; the bar keeps its height.
+  useEffect(() => {
+    if (error) {
+      showActionFlash({ tone: "bad", title: "Kundenansicht nicht beendet", description: "Bitte versuchen Sie es noch einmal." });
+    }
+  }, [error]);
 
   const onEnd = () => {
     setError(null);
@@ -89,57 +104,38 @@ export function ImpersonationBanner({ targetEmail, clinicName, expiresAt }: Prop
     <div
       role="status"
       aria-live="polite"
-      className="border-b border-[var(--tone-warn-border)] bg-[var(--tone-warn-bg)] text-sm text-fg-primary"
+      className="border-b border-[var(--tone-warn-border)] bg-[var(--tone-warn-bg)] text-sm leading-5 text-fg-primary"
     >
-      <div className="mx-auto flex max-w-screen-2xl flex-col gap-2 px-4 py-2 md:flex-row md:items-center md:justify-between md:gap-4 md:px-6">
-        <div className="flex min-w-0 items-start gap-2">
-          <span
-            aria-hidden
-            className="mt-1.5 inline-block h-2 w-2 shrink-0 rounded-full bg-tone-warn"
-          />
-          <p className="min-w-0">
-            <span className="font-semibold">Kundenansicht:</span> Sie handeln
-            gerade als{" "}
-            {/* Own line on phones; the address never breaks mid-word, it is
-                cut with an ellipsis instead (full address in the title). */}
-            <span className="block md:inline">
-              <span
-                className="inline-block max-w-full truncate align-bottom font-medium"
-                title={targetEmail}
-              >
-                {targetEmail}
-              </span>
-              {clinicName ? <> ({clinicName})</> : null}.
-            </span>{" "}
-            Jede Aktion wird mit Ihrer Admin-Kennung protokolliert.
-          </p>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-3 pl-4 md:pl-0">
-          {remaining ? (
-            <span
-              className={
-                endingSoon
-                  ? "font-semibold tabular-nums text-tone-bad"
-                  : "font-medium tabular-nums"
-              }
-            >
-              {remaining.charAt(0).toUpperCase() + remaining.slice(1)}
-            </span>
-          ) : null}
-          {error && (
-            <span className="text-tone-bad" role="alert">
-              {error}
-            </span>
-          )}
-          <button
+      <div className="mx-auto flex max-w-screen-2xl flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between md:gap-6 md:px-6">
+        {/* The address breaks where it must, never cut. */}
+        <p className="min-w-0 [overflow-wrap:anywhere]">
+          <span className="font-semibold">Kundenansicht</span> als{" "}
+          <span className="font-medium">{targetEmail}</span>
+          {clinicName ? <> ({clinicName})</> : null}. Jede Aktion wird mit Ihrer
+          Admin-Kennung protokolliert.
+        </p>
+        {/* The time has its own slot (the longest, "Noch unter 1 Min.", fits),
+            so the button never moves; on the phone the button sits right. */}
+        <div className="flex shrink-0 items-center justify-between gap-4 md:justify-end">
+          <span className={cn("font-medium tabular-nums md:min-w-[8.5rem] md:text-right", endingSoon && "text-tone-bad")}>
+            {remaining ? remaining.charAt(0).toUpperCase() + remaining.slice(1) : null}
+          </span>
+          <Button
             type="button"
+            variant="outline"
             onClick={onEnd}
             disabled={pending}
-            className="h-[var(--control-h)] rounded-[var(--r-control)] border border-border bg-bg-primary px-4 font-medium md:px-3 text-fg-primary transition hover:bg-bg-secondary disabled:opacity-60"
+            aria-busy={pending}
+            className={cn(SECONDARY_BUTTON, "shrink-0 disabled:opacity-60")}
           >
-            {pending ? "Wird beendet …" : "Kundenansicht beenden"}
-          </button>
+            Kundenansicht beenden
+          </Button>
         </div>
+        {error && (
+          <span className="sr-only" role="alert">
+            Kundenansicht nicht beendet. Bitte versuchen Sie es noch einmal.
+          </span>
+        )}
       </div>
     </div>
   );

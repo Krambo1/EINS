@@ -63,7 +63,7 @@ export default function DashboardPage({
           <AnomalyAlertsLoader />
         </Suspense>
 
-        {/* Deep dive: Trichter, Behandlungen, Standorte, Reputation. */}
+        {/* Deep dive: Inhalte, Trichter, Behandlungen, Reputation, Standorte. */}
         <Suspense fallback={<DetailBundleSkeleton />}>
           <RangeSlot slot="detail">
             <DashboardDetailLoader searchParams={searchParams} />

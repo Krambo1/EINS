@@ -3,7 +3,15 @@
 import { useState, type ReactNode } from "react";
 import { ChevronDown, Download, Image as ImageIcon } from "lucide-react";
 import { Button, cn } from "@eins/ui";
-import { CONTROL, CONTROL_SQUARE, DashCard, RAISED_CONTROL, TABLE_HEAD_BAND } from "../../dashboard/_components/dash-ui";
+import {
+  CONTROL,
+  CONTROL_SQUARE,
+  DashCard,
+  RAISED_CONTROL,
+  TABLE_HEAD_BAND,
+  WASH_AREA,
+  WASH_ROW,
+} from "../../dashboard/_components/dash-ui";
 import { FORMAT_ICON, POST_STATUS, type PostRow } from "../_lib/view";
 import { DownloadAllButton } from "./DownloadAllButton";
 import { MediaViewer, type ViewerItem } from "./MediaViewer";
@@ -14,7 +22,6 @@ import {
   Pager,
   POST_ROW,
   POSTS_CARD_HEIGHT,
-  RowWell,
   StatusDot,
   replaceParam,
 } from "./parts";
@@ -40,14 +47,14 @@ const COLUMNS =
  * with its file (Frame.io's and Drive's file lists): one row per post with
  * its picture, its status as a dot and plain text, the date its status began
  * and the Anfragen it brought. The picture opens the file large (`MediaViewer`).
- * A row opens a well under it with everything else about the post: the file
- * to view and download, the change asked for, why it was stopped, the
- * Anfragen by channel, where it is online and its text. A post that waits for
- * the Praxis opens in "Zur Freigabe" from there. "Alle herunterladen" in the
- * header saves the file of every post as a ZIP.
+ * A row opens everything else about the post under it: the file to view and
+ * download, the change asked for, why it was stopped, the Anfragen by
+ * channel, where it is online and its text. A post that waits for the Praxis
+ * opens in "Zur Freigabe" from there. "Alle herunterladen" in the header
+ * saves the file of every post as a ZIP.
  *
- * Fixed size: six rows a page, the room for one opened row kept free, the
- * pages at the foot only when there is more than one.
+ * Fixed size: six rows a page, the pages at the foot only when there is more
+ * than one. An opened post longer than the free room scrolls the list.
  */
 export function PostsCard({ rows, practiceName }: { rows: PostRow[]; practiceName: string }) {
   const [page, setPage] = useState(1);
@@ -94,7 +101,7 @@ export function PostsCard({ rows, practiceName }: { rows: PostRow[]; practiceNam
         />
       ) : (
         <>
-          <div aria-hidden className={cn("hidden shrink-0 items-center gap-x-1 px-2 lg:grid", TABLE_HEAD_BAND, ROW_GRID)}>
+          <div aria-hidden className={cn("hidden shrink-0 items-center gap-x-1 lg:grid", TABLE_HEAD_BAND, WASH_AREA, ROW_GRID)}>
             <span>Beitrag</span>
             <span className={cn("grid items-center gap-x-4 px-2", COLUMNS)}>
               <span />
@@ -107,7 +114,7 @@ export function PostsCard({ rows, practiceName }: { rows: PostRow[]; practiceNam
           </div>
           {/* Rows that wrap on a narrow screen scroll here instead of
               stretching the card. */}
-          <ul className="scroll-shadows -mx-2 min-h-0 flex-1 divide-y divide-border px-2 [--scroll-bg:var(--surface-tile)] lg:mt-1">
+          <ul className="scroll-shadows -mx-3 min-h-0 flex-1 divide-y divide-border px-3 [--scroll-bg:var(--surface-tile)] lg:mt-1">
             {shown.map((row) => (
               <PostListItem
                 key={row.id}
@@ -142,11 +149,13 @@ function PostListItem({
   const anfragen =
     row.anfragen == null ? null : `${row.anfragen} ${row.anfragen === 1 ? "Anfrage" : "Anfragen"}`;
   return (
-    <li>
-      {/* An open row is marked whole, picture included. */}
+    <li className={WASH_ROW}>
+      {/* A hovered or open row is marked whole, picture included, 12 px
+          past it at the sides and 4 px short of the hairlines. */}
       <div
         className={cn(
-          "grid items-center gap-x-1 rounded-[var(--r-panel)] px-2",
+          "grid items-center gap-x-1 rounded-[var(--r-panel)] transition-colors hover:bg-[var(--hover-wash)]",
+          WASH_AREA,
           ROW_GRID,
           POST_ROW,
           open && "bg-[var(--hover-wash)]"
@@ -159,7 +168,7 @@ function PostListItem({
           aria-controls={panelId}
           onClick={onToggle}
           className={cn(
-            "grid h-full w-full items-center gap-x-4 rounded-[var(--r-panel)] px-2 py-3 text-left transition-colors hover:bg-[var(--hover-wash)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
+            "grid h-full w-full items-center gap-x-4 rounded-[var(--r-panel)] px-2 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
             COLUMNS
           )}
         >
@@ -199,7 +208,7 @@ function PostListItem({
           />
         </button>
       </div>
-      {open && <PostWell row={row} panelId={panelId} onView={onView} />}
+      {open && <PostDetails row={row} panelId={panelId} onView={onView} />}
     </li>
   );
 }
@@ -257,8 +266,11 @@ function Thumb({ row, onView }: { row: PostRow; onView: () => void }) {
   );
 }
 
-/** Everything else about one post, in a well that scrolls when it is longer. */
-function PostWell({ row, panelId, onView }: { row: PostRow; panelId: string; onView: () => void }) {
+/**
+ * Everything else about one post, in plain text under its row, lined up with
+ * the title from sm. Shown whole: no box, nothing cut (Karam, 2026-10-30).
+ */
+function PostDetails({ row, panelId, onView }: { row: PostRow; panelId: string; onView: () => void }) {
   const facts: Array<{ label: string; value: ReactNode; className?: string }> = [];
   facts.push({ label: "Format", value: row.formatLabel });
   // The row's grey line leaves the date out on the phone.
@@ -343,21 +355,25 @@ function PostWell({ row, panelId, onView }: { row: PostRow; panelId: string; onV
   );
 
   return (
-    <RowWell panelId={panelId} label={row.title} actions={row.file || row.waiting ? actions : undefined}>
-      <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-4 gap-y-2.5">
-        {facts.map((f) => (
-          <Detail key={f.label} label={f.label} className={f.className}>
-            {f.value}
+    <div id={panelId} role="region" aria-label={row.title} className={cn("grid gap-x-1 pb-6 pt-5", ROW_GRID)}>
+      <div className="col-span-2 px-2 text-[15px] leading-5 sm:col-span-1 sm:col-start-2">
+        {/* Air between the facts, no lines (Karam, 2026-10-30). */}
+        <dl className="grid grid-cols-[6.5rem_minmax(0,1fr)] gap-x-4 gap-y-4">
+          {facts.map((f) => (
+            <Detail key={f.label} label={f.label} className={f.className}>
+              {f.value}
+            </Detail>
+          ))}
+          <Detail label="Text">
+            {row.caption ? (
+              <span className="block whitespace-pre-wrap leading-6">{row.caption}</span>
+            ) : (
+              <span className="text-fg-secondary">Dieser Beitrag hat keinen Text.</span>
+            )}
           </Detail>
-        ))}
-        <Detail label="Text">
-          {row.caption ? (
-            <span className="block whitespace-pre-wrap leading-6">{row.caption}</span>
-          ) : (
-            <span className="text-fg-secondary">Dieser Beitrag hat keinen Text.</span>
-          )}
-        </Detail>
-      </dl>
-    </RowWell>
+        </dl>
+        {(row.file || row.waiting) && <div className="mt-6 flex flex-wrap gap-2">{actions}</div>}
+      </div>
+    </div>
   );
 }

@@ -1,35 +1,43 @@
 "use client";
 
-import type { ReactNode } from "react";
-import { CheckCircle2, X, XCircle } from "lucide-react";
+import { Children, type ReactNode } from "react";
+import { X } from "lucide-react";
 import { cn } from "@eins/ui";
+import { AUTH_FOCUS } from "./auth-ui";
 
 type Tone = "good" | "bad";
 
-const TONES: Record<
-  Tone,
-  { icon: typeof XCircle; border: string; glow: string; iconClass: string; role: "alert" | "status" }
-> = {
+// The portal toast's look (packages/ui Toast, solid like ActionFlashToast):
+// the page colour under the tone's tint, so nothing shows through.
+const TONES: Record<Tone, { className: string; role: "alert" | "status" }> = {
   bad: {
-    icon: XCircle,
-    border: "border-[rgba(201,53,43,0.35)]",
-    glow: "bg-[rgba(201,53,43,0.08)]",
-    iconClass: "text-tone-bad",
+    className:
+      "border-[var(--tone-bad-border)] bg-bg-primary text-tone-bad [background-image:linear-gradient(var(--tone-bad-bg),var(--tone-bad-bg))]",
     role: "alert",
   },
   good: {
-    icon: CheckCircle2,
-    border: "border-[rgba(25,163,106,0.35)]",
-    glow: "bg-[rgba(25,163,106,0.08)]",
-    iconClass: "text-tone-good",
+    className:
+      "border-[var(--tone-good-border)] bg-bg-primary text-tone-good [background-image:linear-gradient(var(--tone-good-bg),var(--tone-good-bg))]",
     role: "status",
   },
 };
 
 /**
- * Toast, bottom right (bottom, full width on phones). It stays
- * until it is closed or the next attempt starts: no timer, so nobody misses
- * an error while reading the form. `bad` is announced as an alert.
+ * Splits a message at its first sentence: the portal toast's title, then the
+ * rest as its description ("Zu viele Versuche." / "Bitte später erneut.").
+ */
+function split(text: string): [string, string | null] {
+  const m = /^(.+?[.!?])\s+(\S[\s\S]*)$/.exec(text.trim());
+  return m ? [m[1], m[2]] : [text, null];
+}
+
+/**
+ * Toast in the portal's look and place: 16 px from the phone's edges, from
+ * sm bottom right at most 388 px wide, as the portal's ToastViewport puts
+ * it. It stays until it is closed or the next attempt starts: no timer, so
+ * nobody misses an error while reading the form. `bad` is announced as an
+ * alert. A plain-text message is split into title and description at its
+ * first sentence; anything else (a message with a link) is shown as given.
  */
 export function AuthToast({
   tone,
@@ -41,30 +49,32 @@ export function AuthToast({
   onClose?: () => void;
 }) {
   const t = TONES[tone];
-  const Icon = t.icon;
+  // The message's first sentence is the title; the rest, and anything after
+  // the text (the admin's "Neuen Link anfordern" link), the description.
+  const [first, ...after] = Children.toArray(children);
+  const [title, rest] = typeof first === "string" ? split(first) : [first, null];
+  const description = rest || after.length > 0 ? <>{rest}{after}</> : null;
   return (
-    <div className="pointer-events-none fixed inset-x-4 bottom-4 z-50 flex justify-center sm:inset-x-auto sm:bottom-6 sm:right-6">
+    <div className="pointer-events-none fixed inset-x-4 bottom-4 z-[100] sm:inset-x-auto sm:bottom-8 sm:right-8 sm:w-[388px]">
       <div
+        data-auth-toast
         role={t.role}
         className={cn(
-          "pointer-events-auto relative isolate flex w-full max-w-[400px] animate-fade-in items-start gap-4 overflow-hidden rounded-2xl border bg-white p-4 shadow-[0_12px_32px_-8px_rgba(16,16,26,0.18)] sm:w-[380px]",
-          t.border
+          "pointer-events-auto relative flex w-full animate-fade-in items-start gap-3 overflow-hidden rounded-lg border p-4 shadow-lg",
+          onClose && "pr-8",
+          t.className
         )}
       >
-        <span
-          aria-hidden
-          className={cn("absolute -left-20 -top-4 -z-10 h-[200px] w-[160px] rounded-full blur-lg", t.glow)}
-        />
-        <Icon aria-hidden className={cn("mt-px h-[18px] w-[18px] shrink-0", t.iconClass)} />
-        <div className={cn("flex-1 text-[15px] font-medium leading-5 text-fg-primary", onClose && "pr-6")}>
-          {children}
+        <div className="grid gap-1">
+          <p className="text-sm font-semibold">{title}</p>
+          {description && <p className="text-sm opacity-90">{description}</p>}
         </div>
         {onClose && (
           <button
             type="button"
             onClick={onClose}
             aria-label="Hinweis schließen"
-            className="absolute right-3 top-3 flex h-7 w-7 items-center justify-center rounded-lg text-fg-secondary transition-colors hover:text-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(88,186,181,0.4)]"
+            className={cn("absolute right-2 top-2 rounded-md p-1 opacity-60 transition-opacity hover:opacity-100", AUTH_FOCUS)}
           >
             <X aria-hidden className="h-4 w-4" />
           </button>

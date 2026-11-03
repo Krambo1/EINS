@@ -1,5 +1,5 @@
 import { StatusPill, cn } from "@eins/ui";
-import { TABLE_ROW } from "../../dashboard/_components/dash-ui";
+import { TABLE_ROW, WASH_AREA, WASH_ROW } from "../../dashboard/_components/dash-ui";
 import { CALL_CARD_HEIGHT, QUEUE_LIST_HEIGHT, QUEUE_ROW_HEIGHT, QUEUE_SLOTS } from "./CallQueue";
 
 const BAR = "animate-pulse rounded-[var(--r-small)] bg-[var(--well)]";
@@ -25,23 +25,23 @@ export function RequestListSkeleton({ callQueue = false }: { callQueue?: boolean
           <div className={cn(BAR, "h-4 w-36")} />
           <div className="elev-raised h-[var(--control-h)] w-20 rounded-[var(--r-control)] bg-[var(--surface-raised)] sm:w-48" />
         </div>
-        <div className="-mx-2 mt-4">
-          <div className="elev-inset mb-1 hidden h-8 rounded-[var(--r-control)] bg-[var(--well)] lg:block" />
+        <div className="mt-4">
+          <div className={cn("elev-inset hidden h-8 rounded-[var(--r-control)] bg-[var(--well)] min-[1100px]:block", WASH_AREA)} />
           <ul className="divide-y divide-border">
             {/* A full page (PAGE_SIZE in page.tsx): every page of a longer
                 list has this height, the last one filled up. Each row has
                 the shape of the page's filler rows, so it is as tall as a
                 real one. */}
             {Array.from({ length: 25 }).map((_, i) => (
-              <li key={i}>
-                <div className={cn("flex items-start gap-2.5 px-2 py-3 lg:items-center lg:py-2", TABLE_ROW)}>
+              <li key={i} className={WASH_ROW}>
+                <div className={cn(TABLE_ROW, "flex items-start gap-2.5 py-3 min-[1100px]:min-h-9 min-[1100px]:items-center min-[1100px]:py-2", WASH_AREA)}>
                   <span className="h-5 w-4 shrink-0" />
                   <div className="min-w-0 flex-1">
                     <div className="flex h-5 items-center">
                       <div className={cn(BAR, "h-4 w-40")} />
                     </div>
                     {/* The status sets the line's height, as in a real row. */}
-                    <span className="mt-1 flex min-w-0 items-center text-sm leading-5 lg:hidden">
+                    <span className="mt-1 flex min-w-0 items-center text-sm leading-5 min-[1100px]:hidden">
                       <span aria-hidden className="invisible w-0 overflow-hidden">
                         <StatusPill status="neu" />
                       </span>
@@ -55,7 +55,7 @@ export function RequestListSkeleton({ callQueue = false }: { callQueue?: boolean
         </div>
         {/* "Seite 1 von N" with Zurück and Weiter, as on every page of a
             longer list. */}
-        <div className="-mx-2 mt-auto flex items-center justify-between gap-3 border-t border-border px-2 pt-3">
+        <div className="mt-auto flex items-center justify-between gap-3 border-t border-border pt-3">
           <div className={cn(BAR, "h-4 w-28")} />
           <div className="flex gap-2">
             <div className="elev-raised h-[var(--control-h)] w-24 rounded-[var(--r-control)] bg-[var(--surface-raised)]" />
@@ -112,15 +112,17 @@ function CallQueueSkeleton() {
           <div className={cn(BAR, "h-4 w-24")} />
           <div className={cn(BAR, "h-4 w-20")} />
         </div>
-        <ul className={cn("-mx-2 mt-4 divide-y divide-border", QUEUE_LIST_HEIGHT)}>
+        <ul className={cn("-mx-3 mt-4 divide-y divide-border px-3", QUEUE_LIST_HEIGHT)}>
           {Array.from({ length: QUEUE_SLOTS }).map((_, i) => (
-            <li key={i} className={cn("flex items-center gap-3 px-2 py-3", QUEUE_ROW_HEIGHT)}>
-              <span className="w-4 shrink-0" />
-              <div className="min-w-0 flex-1 space-y-2">
-                <div className={cn(BAR, "h-4 w-36")} />
-                <div className={cn(BAR, "h-3.5 w-48 max-w-full")} />
+            <li key={i} className={WASH_ROW}>
+              <div className={cn("flex items-center gap-3 py-3", WASH_AREA, QUEUE_ROW_HEIGHT)}>
+                <span className="w-4 shrink-0" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className={cn(BAR, "h-4 w-36")} />
+                  <div className={cn(BAR, "h-3.5 w-48 max-w-full")} />
+                </div>
+                <div className="elev-raised h-[var(--control-h)] w-[var(--control-h)] shrink-0 rounded-[var(--r-control)] bg-[var(--surface-raised)]" />
               </div>
-              <div className="elev-raised h-[var(--control-h)] w-[var(--control-h)] shrink-0 rounded-[var(--r-control)] bg-[var(--surface-raised)]" />
             </li>
           ))}
         </ul>

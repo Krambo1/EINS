@@ -3,6 +3,7 @@ import { db, schema } from "@/db/client";
 import { env, hasMeta } from "@/lib/env";
 import { decryptString } from "@/lib/crypto";
 import { berlinYesterday } from "./berlin-days";
+import { META_RECONNECT, notifyOwnersOnce } from "./connection-alerts";
 
 /**
  * Daily Meta Ads sync — pulls yesterday's spend/impressions/clicks/leads per
@@ -160,6 +161,13 @@ export async function processSyncMeta(job: SyncMetaJob): Promise<void> {
       .update(schema.platformCredentials)
       .set({ lastSyncError: message.slice(0, 500) })
       .where(eq(schema.platformCredentials.id, cred.id));
+    // As for Google (E-29): after 3 days without a successful sync, tell the
+    // Inhaber:in once a week instead of failing silently. The status itself
+    // shows in Einstellungen only since the Werbebudget page was retired.
+    const lastOk = cred.lastSyncedAt?.getTime() ?? cred.createdAt?.getTime() ?? 0;
+    if (Date.now() - lastOk > 3 * 86_400_000) {
+      await notifyOwnersOnce({ clinicId, ...META_RECONNECT, dedupeDays: 7 }).catch(() => 0);
+    }
     throw err; // let pg-boss retry
   }
 }

@@ -27,13 +27,6 @@ export interface NavBadgeBundle {
   timelineHasUpdate: boolean;
   medienHasUpdate: boolean;
   dokumenteHasUpdate: boolean;
-  /**
-   * The Praxis has a Meta/Google ad account connected or any campaign data.
-   * Drives whether "Werbebudget" shows in the sidebar (organic start: the
-   * page stays reachable by URL and search, it just isn't listed yet).
-   * Always false for roles without `campaigns.live`.
-   */
-  hasAdData: boolean;
 }
 
 /** Last-seen threshold for a section: the user's stamp or now() - 14 days. */
@@ -96,16 +89,7 @@ async function computeNavBadges(
                        AND d.created_at > ${threshold(userId, "dokumente")}
                        AND ${role}::text = ANY(d.visible_to_roles))`
               : no
-          } AS dokumente_update,
-          ${
-            can(role, "campaigns.live")
-              ? sql`(EXISTS (SELECT 1 FROM ${schema.platformCredentials} pc
-                      WHERE pc.clinic_id = ${clinicId}
-                        AND pc.platform IN ('meta','google'))
-                     OR EXISTS (SELECT 1 FROM ${schema.campaignSnapshots} cs
-                      WHERE cs.clinic_id = ${clinicId}))`
-              : no
-          } AS has_ad_data
+          } AS dokumente_update
       `),
     "nav:badges"
   );
@@ -117,7 +101,6 @@ async function computeNavBadges(
     timelineHasUpdate: r.timeline_update === true,
     medienHasUpdate: r.medien_update === true,
     dokumenteHasUpdate: r.dokumente_update === true,
-    hasAdData: r.has_ad_data === true,
   };
 }
 

@@ -20,6 +20,7 @@ import { HistoryCard } from "../_components/HistoryCard";
 import { TRACKED_PLATFORMS, reviewShareUrl, type Platform } from "../_lib/platforms";
 import { NEW_FEEDBACK_SLOTS, TOP_FEEDBACK_SPAN, TOP_GRID } from "../_lib/sizes";
 import { BewertungenSectionTabs } from "../_components/BewertungenSectionTabs";
+import { mergeReplyTemplates } from "../_lib/reply-templates-store";
 
 export const metadata = { title: "Bewertungen" };
 
@@ -39,6 +40,7 @@ export default async function BewertungenPage() {
           googleReviewUrl: schema.clinics.googleReviewUrl,
           jamedaReviewUrl: schema.clinics.jamedaReviewUrl,
           jamedaProfileUrl: schema.clinics.jamedaProfileUrl,
+          replyTemplates: schema.clinics.replyTemplates,
         })
         .from(schema.clinics)
         .where(eq(schema.clinics.id, session.clinicId))
@@ -95,13 +97,6 @@ export default async function BewertungenPage() {
           aria-label="Neues Patientenfeedback und Plattformen"
           className={cn(TOP_GRID, !canViewPatientFeedback && "min-[1400px]:grid-cols-2")}
         >
-          {canViewPatientFeedback && (
-            <NewFeedbackCard
-              count={newFeedbackCount}
-              rows={recentNewFeedback}
-              className={TOP_FEEDBACK_SPAN}
-            />
-          )}
           {TRACKED_PLATFORMS.map((p, i) => (
             <PlatformTile
               key={p}
@@ -112,12 +107,24 @@ export default async function BewertungenPage() {
               shareUrl={reviewShareUrl(p, reviewLinks)}
               clinicName={clinic?.displayName ?? ""}
               reviewLinks={reviewLinks}
-              className={i === 0 ? "[--delay:20ms]" : "[--delay:40ms]"}
+              className={i === 0 ? undefined : "[--delay:20ms]"}
             />
           ))}
+          {/* Last, so it sits right of the platforms (Karam, 2026-10-30). */}
+          {canViewPatientFeedback && (
+            <NewFeedbackCard
+              count={newFeedbackCount}
+              rows={recentNewFeedback}
+              className={cn(TOP_FEEDBACK_SPAN, "[--delay:40ms]")}
+            />
+          )}
         </section>
 
-        <ReplyTemplatesCard praxisName={clinic?.displayName ?? null} />
+        <ReplyTemplatesCard
+          praxisName={clinic?.displayName ?? null}
+          templates={mergeReplyTemplates(clinic?.replyTemplates)}
+          canEdit={can(session.role, "reviews.manage")}
+        />
 
         <HistoryCard rows={history} />
       </div>

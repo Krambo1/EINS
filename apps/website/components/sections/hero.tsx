@@ -2,6 +2,7 @@ import { ArrowUpRight, Clock } from "lucide-react";
 import { ShinyButton } from "@/components/ui/shiny-button";
 import { ShimmerText } from "@/components/ui/shimmer-text";
 import { CALENDLY_URL } from "@/lib/constants";
+import { NEVER_ON_CAMERA } from "@/lib/guarantee-data";
 
 export function Hero() {
   return (
@@ -22,6 +23,13 @@ export function Hero() {
           >
             <span className="block">Das integrierte Wachstumssystem</span>
             <span className="block">für Ästhetik-Praxen.</span>
+          </p>
+
+          <p
+            className="mt-4 mx-auto max-w-[34ch] font-display text-xl font-medium leading-snug tracking-tight text-fg-primary hero-fade-in md:mt-6 md:max-w-[52ch] md:text-3xl"
+            style={{ animationDelay: "150ms" }}
+          >
+            {NEVER_ON_CAMERA}
           </p>
 
           <div

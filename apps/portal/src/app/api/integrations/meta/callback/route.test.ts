@@ -122,18 +122,6 @@ describe("GET /api/integrations/meta/callback", () => {
     );
   });
 
-  it("returns to the page the connect started from (Werbebudget)", async () => {
-    mocks.verifyState.mockResolvedValue({
-      clinicId: "clinic-1",
-      userId: "user-1",
-      platform: "meta",
-      returnTo: "/werbebudget",
-    });
-    mocks.discover.mockResolvedValue({ page: { id: "1", name: "Praxis Dr. Test" }, leadgenSubscribed: true });
-    const res = await GET(callback());
-    expect(location(res)).toBe(`${ORIGIN}/werbebudget`);
-  });
-
   it("E6b: a failed leadgen subscription still completes the connection and is audited", async () => {
     mocks.discover.mockResolvedValue({ page: { id: "1", name: "Praxis Dr. Test" }, leadgenSubscribed: false });
     const res = await GET(callback());

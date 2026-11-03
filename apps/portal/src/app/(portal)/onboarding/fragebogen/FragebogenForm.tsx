@@ -1,27 +1,29 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useFormStatus } from "react-dom";
 import { useRouter } from "next/navigation";
-import { Button, Card, CardContent, Input, Label, Textarea, cn } from "@eins/ui";
-import { AlertCircle, Check, CheckCircle2, Save } from "lucide-react";
+import { Button, cn } from "@eins/ui";
+import { CONTROL, DashCard, RAISED_CONTROL } from "../../dashboard/_components/dash-ui";
+import { PendingSubmit } from "../../_components/PendingSubmit";
+import { showActionFlash } from "../../_components/flash-event";
+import { HeadCount, OnboardingHead, PageNote } from "../_components/OnboardingHead";
+import { SectionRail, useActiveSection, type RailEntry } from "../_components/SectionRail";
+import { StatusWord } from "../_components/StatusWord";
+import { COLUMNS, ONBOARDING_PAGE, SUBMIT_BUTTONS, SUBMIT_ROW } from "../_lib/sizes";
 import {
   DISCOVERY_BLOCKS,
-  formatBudgetEur,
+  DISCOVERY_ESTIMATE_NOTE,
   isAnswered,
-  parseEuroAmount,
   type DiscoveryAnswers,
-  type DiscoveryQuestion,
+  type DiscoveryBlock,
 } from "./content";
-import { saveDiscoveryAction, type SaveDiscoveryState } from "./actions";
-import { SectionNav, type SectionNavItem } from "./SectionNav";
-import { ScrollHint } from "@/app/_components/ScrollHint";
-
-const sectionAnchorId = (key: string) => `abschnitt-${key}`;
+import { saveDiscoveryAction } from "./actions";
+import { questionAnchorId, sectionAnchorId } from "./anchors";
+import { QuestionField, SectionCard } from "./QuestionField";
 
 interface FragebogenFormProps {
   initialAnswers: DiscoveryAnswers;
-  /** True when a draft row already exists (changes the save-button copy). */
-  hasDraft: boolean;
   /** `updatedAt` (ISO) of the loaded row, null when none; sent for the stale-tab check. */
   baseUpdatedAt: string | null;
   /** localStorage key for the on-device backup of unsaved answers (per clinic). */
@@ -59,29 +61,34 @@ function writeBackup(key: string, backup: LocalBackup | null) {
   }
 }
 
+const REQUIRED = DISCOVERY_BLOCKS.flatMap((b) => b.questions).filter((q) => q.required);
+
+/** A section is done when its required questions are answered (without any: when anything is). */
+export function sectionDone(block: DiscoveryBlock, answers: DiscoveryAnswers): boolean {
+  const required = block.questions.filter((q) => q.required);
+  return required.length > 0
+    ? required.every((q) => isAnswered(answers[q.id]))
+    : block.questions.some((q) => isAnswered(answers[q.id]));
+}
+
 /**
  * Teil-1 form. All answers live in one local state map keyed by question id;
  * "Zwischenspeichern" persists a draft, "Antworten einreichen" runs the
- * Pflichtfragen check server-side and freezes the row. Missing required
- * questions returned by the server get highlighted inline.
+ * Pflichtfragen check server-side and freezes the row. Questions the server
+ * reports missing get GOV.UK's red bar until they are answered. Saves and
+ * errors go to the toast (DESIGN.md section 10); the page head counts the
+ * Pflichtfragen, each section's head says Offen or Erledigt.
  */
-export function FragebogenForm({
-  initialAnswers,
-  hasDraft,
-  baseUpdatedAt,
-  storageKey,
-}: FragebogenFormProps) {
+export function FragebogenForm({ initialAnswers, baseUpdatedAt, storageKey }: FragebogenFormProps) {
   const router = useRouter();
   const [answers, setAnswers] = useState<DiscoveryAnswers>(initialAnswers);
-  const [state, setState] = useState<SaveDiscoveryState>({ kind: "idle" });
-  const [pending, startTransition] = useTransition();
   // Server version this form is based on; advances after each own save.
   const [base, setBase] = useState<string | null>(baseUpdatedAt);
   // Unsaved answers from an earlier visit whose server version moved on.
   const [staleBackup, setStaleBackup] = useState<LocalBackup | null>(null);
-  const [restored, setRestored] = useState(false);
+  // Questions the last submit reported open; each clears once touched.
+  const [missing, setMissing] = useState<ReadonlySet<string>>(() => new Set());
   const dirty = useRef(false);
-  const submitting = useRef(false);
 
   // Restore unsaved answers from this device (session expired, network lost,
   // tab closed). Same server version: restore directly; otherwise ask.
@@ -91,7 +98,16 @@ export function FragebogenForm({
     if (backup.base === baseUpdatedAt) {
       dirty.current = true;
       setAnswers(backup.answers);
-      setRestored(true);
+      // After the toast's own effect has started listening.
+      window.setTimeout(
+        () =>
+          showActionFlash({
+            tone: "good",
+            title: "Antworten wiederhergestellt",
+            description: "Ihre noch nicht gespeicherten Antworten von diesem Gerät sind wieder da. Bitte speichern Sie sie.",
+          }),
+        0
+      );
     } else {
       setStaleBackup(backup);
     }
@@ -108,50 +124,67 @@ export function FragebogenForm({
     return () => window.clearTimeout(t);
   }, [answers, base, storageKey]);
 
-  const missingIds = useMemo(
-    () => new Set(state.kind === "error" ? state.missingIds ?? [] : []),
-    [state]
-  );
-
   const setAnswer = (id: string, value: string | string[]) => {
     dirty.current = true;
     setAnswers((prev) => ({ ...prev, [id]: value }));
+    setMissing((prev) => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
   };
 
-  const persist = (submit: boolean) => {
-    if (submitting.current) return;
-    submitting.current = true;
+  // The form of the submit row: no fields in it, only the two buttons, so
+  // PendingSubmit greys both out while the save runs.
+  const persist = async (formData: FormData) => {
+    const submit = formData.get("intent") === "submit";
     // Back up synchronously before the request, so a redirect to the login
     // page (expired session) never loses what was typed.
     writeBackup(storageKey, { answers, base, savedAt: Date.now() });
-    startTransition(async () => {
-      try {
-        const result = await saveDiscoveryAction({
-          answers,
-          submit,
-          baseUpdatedAt: base,
-        });
-        setState(result);
-        if (result.kind === "saved" || result.kind === "submitted") {
-          dirty.current = false;
-          setBase(result.updatedAt);
-          setRestored(false);
-          writeBackup(storageKey, null);
-        }
-        if (result.kind === "submitted") {
+    try {
+      const result = await saveDiscoveryAction({ answers, submit, baseUpdatedAt: base });
+      if (result.kind === "saved" || result.kind === "submitted") {
+        dirty.current = false;
+        setBase(result.updatedAt);
+        setMissing(new Set());
+        writeBackup(storageKey, null);
+        if (result.kind === "saved") {
+          showActionFlash({
+            tone: "good",
+            title: "Entwurf gespeichert",
+            description: "Sie können jederzeit weitermachen, auch von einem anderen Gerät.",
+          });
+        } else {
+          showActionFlash({ tone: "good", title: "Antworten eingereicht", description: "Sie können sie weiterhin anpassen." });
           // Server state changed to read-only; re-render the page recap.
           router.refresh();
         }
-      } catch {
-        setState({
-          kind: "error",
-          message:
-            "Speichern hat nicht geklappt, zum Beispiel wegen der Internetverbindung. Ihre Eingaben sind noch da und auf diesem Gerät gesichert. Bitte versuchen Sie es gleich noch einmal.",
-        });
-      } finally {
-        submitting.current = false;
+        return;
       }
-    });
+      if (result.kind !== "error") return;
+      const ids = result.missingIds ?? [];
+      if (ids.length > 0 && ids.every((id) => !isAnswered(answers[id]))) {
+        setMissing(new Set(ids));
+        showActionFlash({
+          tone: "bad",
+          title: ids.length === 1 ? "Noch 1 Pflichtfrage offen" : `Noch ${ids.length} Pflichtfragen offen`,
+          description: "Die offenen Fragen sind rot markiert.",
+        });
+        document.getElementById(questionAnchorId(ids[0]!))?.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+      // An own amount that is no number (the id is answered, so not missing).
+      if (ids.length > 0) setMissing(new Set(ids));
+      showActionFlash({ tone: "bad", title: "Nicht gespeichert", description: result.message });
+    } catch {
+      showActionFlash({
+        tone: "bad",
+        title: "Nicht gespeichert",
+        description:
+          "Zum Beispiel wegen der Internetverbindung. Ihre Eingaben sind noch da und auf diesem Gerät gesichert. Bitte versuchen Sie es gleich noch einmal.",
+      });
+    }
   };
 
   const adoptStaleBackup = () => {
@@ -159,385 +192,165 @@ export function FragebogenForm({
     dirty.current = true;
     setAnswers(staleBackup.answers);
     setStaleBackup(null);
-    setRestored(true);
   };
   const discardStaleBackup = () => {
     setStaleBackup(null);
     writeBackup(storageKey, null);
   };
 
-  const answeredRequired = DISCOVERY_BLOCKS.flatMap((b) => b.questions).filter(
-    (q) => q.required && isAnswered(answers[q.id])
-  ).length;
-  const totalRequired = DISCOVERY_BLOCKS.flatMap((b) => b.questions).filter(
-    (q) => q.required
-  ).length;
-
-  // Section navigation: completion per block, derived from the form state.
-  const sectionItems: SectionNavItem[] = DISCOVERY_BLOCKS.map((block) => {
-    const required = block.questions.filter((q) => q.required);
-    const answered = required.filter((q) => isAnswered(answers[q.id])).length;
-    return {
-      key: block.key,
-      anchorId: sectionAnchorId(block.key),
-      title: block.title,
-      answeredRequired: answered,
-      totalRequired: required.length,
-      complete:
-        required.length > 0
-          ? answered === required.length
-          : block.questions.some((q) => isAnswered(answers[q.id])),
-    };
-  });
-
-  // Which section is in view (for "Abschnitt X von Y").
-  const [activeKey, setActiveKey] = useState<string>(DISCOVERY_BLOCKS[0]?.key ?? "");
-  useEffect(() => {
-    if (typeof IntersectionObserver === "undefined") return;
-    const visible = new Set<string>();
-    const order = DISCOVERY_BLOCKS.map((b) => b.key);
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          const key = (entry.target as HTMLElement).dataset.sectionKey;
-          if (!key) continue;
-          if (entry.isIntersecting) visible.add(key);
-          else visible.delete(key);
-        }
-        const first = order.find((k) => visible.has(k));
-        if (first) setActiveKey(first);
-      },
-      // A band in the upper part of the screen, below the sticky bars.
-      { rootMargin: "-160px 0px -50% 0px" }
-    );
-    for (const key of order) {
-      const el = document.getElementById(sectionAnchorId(key));
-      if (el) observer.observe(el);
-    }
-    return () => observer.disconnect();
-  }, []);
+  const open = REQUIRED.filter((q) => !isAnswered(answers[q.id]));
+  const entries: RailEntry[] = DISCOVERY_BLOCKS.map((block) => ({
+    id: sectionAnchorId(block.key),
+    title: block.title,
+    status: sectionDone(block, answers) ? "erledigt" : "offen",
+  }));
+  const active = useActiveSection(entries.map((e) => e.id));
 
   return (
-    <div className="xl:grid xl:grid-cols-[15rem_minmax(0,1fr)] xl:items-start xl:gap-8">
-    <SectionNav items={sectionItems} activeKey={activeKey} onJump={setActiveKey} />
-    <div className="space-y-6">
+    <div className={ONBOARDING_PAGE}>
+      <OnboardingHead
+        back
+        title="Fragebogen"
+        count={<HeadCount>{`${REQUIRED.length - open.length} von ${REQUIRED.length} Pflichtfragen`}</HeadCount>}
+      />
+      <PageNote>{DISCOVERY_ESTIMATE_NOTE}</PageNote>
+
       {staleBackup && (
-        <div className="flex flex-wrap items-start gap-3 rounded-md border border-border bg-bg-secondary p-3 text-sm text-fg-primary">
-          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
-          <span className="min-w-0 flex-1">
-            Auf diesem Gerät liegen noch nicht gespeicherte Antworten vom{" "}
-            {new Date(staleBackup.savedAt).toLocaleString("de-DE", {
-              timeZone: "Europe/Berlin",
-              day: "2-digit",
-              month: "2-digit",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}{" "}
-            Uhr. Der Fragebogen wurde seitdem an anderer Stelle gespeichert.
-            Möchten Sie die Antworten von diesem Gerät übernehmen?
-          </span>
-          <div className="flex gap-2">
-            <Button type="button" size="sm" onClick={adoptStaleBackup}>
-              Übernehmen
-            </Button>
-            <Button type="button" size="sm" variant="outline" onClick={discardStaleBackup}>
-              Verwerfen
-            </Button>
-          </div>
-        </div>
+        <ConflictRow savedAt={staleBackup.savedAt} onAdopt={adoptStaleBackup} onDiscard={discardStaleBackup} />
       )}
 
-      {restored && state.kind === "idle" && (
-        <div className="flex items-start gap-3 rounded-md border border-border bg-bg-secondary p-3 text-sm text-fg-primary">
-          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
-          <span>
-            Wir haben Ihre noch nicht gespeicherten Antworten auf diesem Gerät
-            wiederhergestellt. Bitte speichern Sie sie.
-          </span>
-        </div>
-      )}
-
-      {DISCOVERY_BLOCKS.map((block) => (
-        <Card
-          key={block.key}
-          id={sectionAnchorId(block.key)}
-          data-section-key={block.key}
-          className="scroll-mt-40 p-5 md:p-6 xl:scroll-mt-24"
-        >
-          <CardContent>
-            <div className="mb-2">
-              <h2 className="text-lg font-semibold">{block.title}</h2>
-              {block.why && (
-                <p className="mt-1 text-sm text-fg-secondary">
-                  Warum wir fragen: {block.why}
-                </p>
-              )}
-            </div>
-            <div className="divide-y divide-border">
+      <div className={COLUMNS}>
+        <div className="space-y-4 md:space-y-6">
+          {DISCOVERY_BLOCKS.map((block, i) => (
+            <SectionCard
+              key={block.key}
+              block={block}
+              status={<StatusWord status={entries[i]!.status} />}
+            >
               {block.questions.map((q) => (
                 <QuestionField
                   key={q.id}
                   question={q}
                   value={answers[q.id]}
-                  missing={missingIds.has(q.id)}
+                  missing={missing.has(q.id)}
                   onChange={(v) => setAnswer(q.id, v)}
                 />
               ))}
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+            </SectionCard>
+          ))}
 
-      {state.kind === "error" && (
-        <div className="flex items-start gap-3 rounded-md border border-[var(--tone-bad-border)] bg-[var(--tone-bad-bg)] p-3 text-sm text-tone-bad">
-          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
-          <span>{state.message}</span>
+          <DashCard bodyClassName="pt-5 md:pt-6">
+            <form action={persist} className={SUBMIT_ROW}>
+              <SubmitStatus open={open.length} firstOpenId={open[0]?.id} />
+              <SubmitButtons />
+            </form>
+          </DashCard>
         </div>
-      )}
-
-      {state.kind === "saved" && (
-        <div className="flex items-start gap-3 rounded-md border border-[var(--tone-good-border)] bg-[var(--tone-good-bg)] p-3 text-sm text-tone-good">
-          <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
-          <span>
-            Zwischengespeichert. Sie können jederzeit weitermachen, auch von
-            einem anderen Gerät.
-          </span>
-        </div>
-      )}
-
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <p className="text-sm font-medium text-fg-primary">
-          {answeredRequired} von {totalRequired} Pflichtfragen beantwortet.
-        </p>
-        <div className="flex flex-wrap gap-3">
-          <Button
-            type="button"
-            variant="outline"
-            disabled={pending}
-            onClick={() => persist(false)}
-          >
-            <Save className="h-4 w-4" />
-            {pending
-              ? "Wird gespeichert …"
-              : hasDraft
-                ? "Zwischenspeichern"
-                : "Entwurf speichern"}
-          </Button>
-          <Button type="button" disabled={pending} onClick={() => persist(true)}>
-            <Check className="h-4 w-4" />
-            Antworten einreichen
-          </Button>
-        </div>
-      </div>
-      <p className="text-sm text-fg-secondary">
-        Nach dem Einreichen können Sie Ihre Antworten weiterhin anpassen.
-      </p>
-    </div>
-    </div>
-  );
-}
-
-interface QuestionFieldProps {
-  question: DiscoveryQuestion;
-  value: string | string[] | undefined;
-  missing: boolean;
-  onChange: (value: string | string[]) => void;
-}
-
-function QuestionField({ question: q, value, missing, onChange }: QuestionFieldProps) {
-  const inputId = `discovery-${q.id}`;
-  return (
-    <div className="py-4 first:pt-0 last:pb-0 md:py-5">
-      <div
-        className={cn(
-          "space-y-2 rounded-lg",
-          missing &&
-            "border border-[var(--tone-bad-border)] bg-[var(--tone-bad-bg)] p-3"
-        )}
-      >
-      <Label htmlFor={inputId} className="flex flex-wrap items-baseline gap-x-2">
-        <span>{q.label}</span>
-        {q.required ? (
-          <span className="text-sm font-medium text-fg-primary">Pflichtfrage</span>
-        ) : (
-          <span className="text-sm font-medium text-fg-primary">Optional</span>
-        )}
-      </Label>
-      {q.hint && <p className="text-sm text-fg-secondary">{q.hint}</p>}
-
-      {q.type === "text" && (
-        <Input
-          id={inputId}
-          type="text"
-          maxLength={4000}
-          value={typeof value === "string" ? value : ""}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      )}
-
-      {q.type === "textarea" && (
-        <ScrollHint watch={value}>
-          <Textarea
-            id={inputId}
-            rows={4}
-            maxLength={4000}
-            value={typeof value === "string" ? value : ""}
-            onChange={(e) => onChange(e.target.value)}
-          />
-        </ScrollHint>
-      )}
-
-      {q.type === "auswahl" && q.options && (
-        <div className="space-y-2.5">
-          <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={q.label}>
-            {q.options.map((opt) => {
-              const selected = value === opt;
-              return (
-                <button
-                  key={opt}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  onClick={() => onChange(selected ? "" : opt)}
-                  className={cn(
-                    "rounded-full border px-3.5 py-1.5 text-sm transition-colors",
-                    selected
-                      ? "border-fg-primary bg-fg-primary font-semibold text-bg-primary"
-                      : "border-border bg-bg-secondary font-medium text-fg-primary hover:border-fg-secondary"
-                  )}
-                >
-                  {opt}
-                </button>
-              );
-            })}
-          </div>
-          {q.allowCustom && (
-            <CustomBudgetField
-              question={q}
-              inputId={inputId}
-              isPreset={
-                typeof value === "string" && (q.options?.includes(value) ?? false)
-              }
-              value={typeof value === "string" ? value : ""}
-              onChange={onChange}
-            />
-          )}
-        </div>
-      )}
-
-      {q.type === "mehrfach" && q.options && (
-        <div className="flex flex-wrap gap-2" role="group" aria-labelledby={inputId}>
-          {q.options.map((opt) => {
-            const current = Array.isArray(value) ? value : [];
-            const selected = current.includes(opt);
-            const atCap =
-              !selected && q.maxSelect != null && current.length >= q.maxSelect;
-            return (
-              <button
-                key={opt}
-                type="button"
-                aria-pressed={selected}
-                disabled={atCap}
-                onClick={() =>
-                  onChange(
-                    selected
-                      ? current.filter((v) => v !== opt)
-                      : [...current, opt]
-                  )
-                }
-                className={cn(
-                  "rounded-full border px-3.5 py-1.5 text-sm transition-colors",
-                  selected
-                    ? "border-fg-primary bg-fg-primary font-semibold text-bg-primary"
-                    : "border-border bg-bg-secondary font-medium text-fg-primary hover:border-fg-secondary",
-                  atCap && "cursor-not-allowed opacity-50 hover:border-border"
-                )}
-              >
-                {opt}
-              </button>
-            );
-          })}
-          {q.maxSelect != null && (
-            <span className="self-center text-sm font-medium text-fg-primary">
-              Höchstens {q.maxSelect}
-            </span>
-          )}
-        </div>
-      )}
+        <SectionRail entries={entries} active={active} />
       </div>
     </div>
   );
-}
-
-interface CustomBudgetFieldProps {
-  question: DiscoveryQuestion;
-  inputId: string;
-  /** True when the current answer is one of the preset pills (custom is then empty). */
-  isPreset: boolean;
-  value: string;
-  onChange: (value: string) => void;
 }
 
 /**
- * Free-entry budget field next to the preset pills. Typing here replaces the
- * answer (which deselects the pills, since the value no longer matches an
- * option). Shows a live note: an error for a non-numeric value, otherwise a
- * confirmation of the parsed amount. There is no minimum amount.
+ * Left of the submit row (GOV.UK's check answers, Stripe's "You won't be
+ * able to submit until ..."): what is left, with a link to the first open
+ * question, or that everything is answered; while saving, what happens.
  */
-function CustomBudgetField({
-  question: q,
-  inputId,
-  isPreset,
-  value,
-  onChange,
-}: CustomBudgetFieldProps) {
-  const raw = isPreset ? "" : value;
-  const note = budgetNoteFor(raw);
+function SubmitStatus({ open, firstOpenId }: { open: number; firstOpenId?: string }) {
+  const { pending, data } = useFormStatus();
   return (
-    <div className="space-y-1.5">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-medium text-fg-primary">
-          {q.customLabel ?? "Oder eigener Betrag"}:
-        </span>
-        <Input
-          id={`${inputId}-custom`}
-          type="text"
-          inputMode="numeric"
-          maxLength={12}
-          placeholder="z. B. 2.000"
-          value={raw}
-          onChange={(e) => onChange(e.target.value)}
-          aria-label={q.customLabel ?? "Eigener Betrag pro Monat"}
-          className="max-w-[10rem]"
-        />
-        <span className="text-sm text-fg-secondary">€ pro Monat</span>
-      </div>
-      {note && (
-        <p
-          className={cn(
-            "text-sm",
-            note.tone === "bad" ? "text-tone-bad" : "text-fg-secondary"
-          )}
-        >
-          {note.text}
-        </p>
-      )}
+    <div className="min-w-0">
+      <p aria-live="polite" className="text-[15px] font-medium leading-6 text-fg-primary">
+        {pending ? (
+          data?.get("intent") === "submit" ? "Wird eingereicht …" : "Wird gespeichert …"
+        ) : open > 0 ? (
+          <>
+            {open === 1 ? "Noch 1 Pflichtfrage offen" : `Noch ${open} Pflichtfragen offen`}
+            {firstOpenId && (
+              <>
+                <span aria-hidden className="mx-2 font-normal text-fg-secondary">
+                  ·
+                </span>
+                <a
+                  href={`#${questionAnchorId(firstOpenId)}`}
+                  className="rounded-[var(--r-small)] font-normal underline decoration-fg-tertiary underline-offset-4 hover:decoration-fg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  Zur ersten
+                </a>
+              </>
+            )}
+          </>
+        ) : (
+          "Alle Pflichtfragen beantwortet"
+        )}
+      </p>
+      <p className="mt-0.5 text-sm leading-5 text-fg-secondary">
+        Nach dem Einreichen können Sie Ihre Antworten weiterhin anpassen.
+      </p>
     </div>
   );
 }
 
-/** Live message for the custom budget input; null when the field is empty. */
-function budgetNoteFor(
-  raw: string
-): { tone: "bad" | "muted"; text: string } | null {
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) return null;
-  const eur = parseEuroAmount(trimmed);
-  if (eur === null) {
-    return {
-      tone: "bad",
-      text: "Bitte einen Betrag eingeben, zum Beispiel 2.000. Für eine Spanne wählen Sie oben eine Stufe.",
-    };
-  }
-  return { tone: "muted", text: `Geplant: ${formatBudgetEur(eur)} pro Monat.` };
+function SubmitButtons() {
+  return (
+    <div className={SUBMIT_BUTTONS}>
+      <PendingSubmit name="intent" value="submit" className={cn(CONTROL, "px-4")}>
+        Antworten einreichen
+      </PendingSubmit>
+      <PendingSubmit name="intent" value="draft" variant="outline" className={cn(RAISED_CONTROL, CONTROL, "px-4")}>
+        Zwischenspeichern
+      </PendingSubmit>
+    </div>
+  );
+}
+
+/**
+ * Unsaved answers on this device against a newer server version (GitHub's
+ * merge box row, Stripe's "Action required"): what happened in one line, the
+ * when under it, the two choices at the right. Stays until decided.
+ */
+function ConflictRow({
+  savedAt,
+  onAdopt,
+  onDiscard,
+}: {
+  savedAt: number;
+  onAdopt: () => void;
+  onDiscard: () => void;
+}) {
+  const when = new Date(savedAt).toLocaleString("de-DE", {
+    timeZone: "Europe/Berlin",
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return (
+    <DashCard bodyClassName="pt-5 md:pt-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-[15px] font-semibold leading-6 text-fg-primary">
+            Auf diesem Gerät liegen nicht gespeicherte Antworten
+          </p>
+          <p className="mt-0.5 text-sm leading-5 text-fg-secondary">
+            Vom {when} Uhr. Der Fragebogen wurde seitdem an anderer Stelle gespeichert.
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          <Button type="button" onClick={onAdopt} className={cn(CONTROL, "flex-1 px-4 sm:flex-none")}>
+            Übernehmen
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onDiscard}
+            className={cn(RAISED_CONTROL, CONTROL, "flex-1 px-4 sm:flex-none")}
+          >
+            Verwerfen
+          </Button>
+        </div>
+      </div>
+    </DashCard>
+  );
 }

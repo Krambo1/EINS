@@ -3,7 +3,8 @@ import { getSession } from "@/auth/session";
 import { safeNextPath } from "@/auth/safe-next";
 import { hasGoogleLogin } from "@/lib/env";
 import { defaultLandingPath } from "@/lib/roles";
-import { Accent, AuthHeader, CheckInbox } from "../_components/auth-ui";
+import { AuthShell } from "../_components/AuthShell";
+import { AuthHeader, CheckInbox } from "../_components/auth-ui";
 import { LoginForm } from "./LoginForm";
 
 export const metadata = { title: "Anmelden" };
@@ -12,7 +13,6 @@ interface LoginPageProps {
   searchParams: Promise<{
     error?: string;
     sent?: string;
-    reset?: string;
     next?: string;
   }>;
 }
@@ -67,39 +67,25 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
       ? ERROR_MESSAGES[params.error]
       : undefined;
   const sent = params.sent === "1";
-  const reset = params.reset === "1";
 
   // After a link request. Same screen for known and unknown addresses
   // (enumeration defence), and the address is deliberately not echoed: it is
   // not in the URL and must not be put there.
   if (sent) {
     return (
-      <CheckInbox>
-        Wenn die Adresse bei uns hinterlegt ist, haben wir Ihnen einen
-        Anmeldelink geschickt. Er gilt 15 Minuten lang und nur einmal.
-      </CheckInbox>
+      <AuthShell>
+        <CheckInbox>
+          Wenn die Adresse bei uns hinterlegt ist, haben wir Ihnen einen
+          Anmeldelink geschickt. Er gilt 15 Minuten lang und nur einmal.
+        </CheckInbox>
+      </AuthShell>
     );
   }
 
   return (
-    <div>
-      <AuthHeader
-        title={
-          <>
-            Willkommen <Accent>zurück.</Accent>
-          </>
-        }
-      >
-        Melden Sie sich in Ihrem EINS Portal an.
-      </AuthHeader>
-      <LoginForm
-        initialError={error}
-        initialNotice={
-          reset ? "Passwort gesetzt. Bitte melden Sie sich jetzt an." : undefined
-        }
-        googleEnabled={hasGoogleLogin()}
-        next={next}
-      />
-    </div>
+    <AuthShell>
+      <AuthHeader title="Anmelden" />
+      <LoginForm initialError={error} googleEnabled={hasGoogleLogin()} next={next} />
+    </AuthShell>
   );
 }

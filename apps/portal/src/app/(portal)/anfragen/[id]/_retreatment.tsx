@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle } from "@eins/ui";
+import { cn } from "@eins/ui";
 import { formatDate, formatMoney } from "@/lib/formatting";
 import {
   calledTerminHoldSince,
@@ -7,6 +7,7 @@ import {
   type RetreatmentCall,
   type RetreatmentContext,
 } from "@/server/queries/retreatments";
+import { DashCard } from "../../dashboard/_components/dash-ui";
 import { Facts } from "../_components/Facts";
 import { dueText, lastCallText, reminderText } from "../_lib/retreatment-text";
 import { RetreatmentStanding, RetreatmentToggle } from "./_retreatment-toggle";
@@ -26,96 +27,78 @@ function standing(call: RetreatmentCall, today: string): { dot: string; text: st
 }
 
 /**
- * The patient's Wiederbehandlungen on their Anfrage: per treatment when it
- * was last done and paid, when it is due again, the reminder, the last call
- * from the call cards, and the way to take it off the calendar or back on.
+ * The patient's Wiederbehandlungen on their Anfrage: per treatment where it
+ * stands, when it was last done and paid, the reminder, the last call from
+ * the call cards, and the way to take it off the calendar or back on.
  * Everything the old Wiederbehandlungen card showed about one person
  * (Karam, 2026-10-29: nothing of it may get lost). Only when there is one.
  */
 export function RetreatmentSection({
   data,
+  name,
   canWork,
   isInhaber,
+  className,
 }: {
   data: RetreatmentContext & { calls: RetreatmentCall[] };
+  name: string;
   canWork: boolean;
   isInhaber: boolean;
+  className?: string;
 }) {
   const { today } = data;
   return (
-    <Card className="p-5 md:p-6">
-      <CardHeader className="mb-3">
-        <CardTitle>Wiederbehandlung</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <p className="text-sm text-fg-primary">
-          Wann diese Person für dieselbe Behandlung wieder fällig ist, aus Ihren eigenen PVS-Daten. Fällige
-          stehen unter Anfragen bei den Anrufen.
-          {!data.remindersEnabled && (
-            <>
-              {" "}
-              Erinnerungs-E-Mails sind aus.
-              {isInhaber && (
-                <>
-                  {" "}
+    <DashCard title="Wiederbehandlung" className={className}>
+      <ul className="-my-3 divide-y divide-border">
+        {data.calls.map((call) => {
+          const dismissed = call.status === "dismissed";
+          const switchable = canWork && (call.status === "open" || call.status === "booked" || dismissed);
+          // The line when it is on the calendar. A hidden one gets it as
+          // "open" (what a restore sets), so the toggle can show it at once.
+          const on = standing(dismissed ? { ...call, status: "open" } : call, today);
+          const off = { dot: "bg-fg-tertiary", text: "Ausgeblendet" };
+          const lastCall = lastCallText(call);
+          const paid =
+            call.cycleRevenueCents && call.cycleRevenueCents > 0
+              ? formatMoney(call.cycleRevenueCents / 100, data.currency)
+              : null;
+          return (
+            <li key={call.id} className="py-3">
+              {/* Treatment and its switch on one line, where it stands under
+                  both at full width, so the switch never squeezes it. */}
+              <div className="flex min-h-[var(--control-h)] items-center justify-between gap-3">
+                <p className="min-w-0 break-words text-[15px] font-medium leading-5 text-fg-primary">{call.treatmentName}</p>
+                {switchable && (
+                  <RetreatmentToggle cycleId={call.id} dismissed={dismissed} treatment={call.treatmentName} name={name} />
+                )}
+              </div>
+              <p className="mt-1 flex text-sm leading-5 text-fg-primary">
+                {switchable ? (
+                  <RetreatmentStanding cycleId={call.id} dismissed={dismissed} on={on} off={off} />
+                ) : (
+                  <span className="inline-flex items-center gap-1.5">
+                    <span aria-hidden className={cn("h-2 w-2 shrink-0 rounded-full", on.dot)} />
+                    {on.text}
+                  </span>
+                )}
+              </p>
+              <Facts>
+                {`Zuletzt am ${formatDate(call.cycleOn)}${paid ? `, ${paid} bezahlt` : ""}`}
+                {`Erinnerung: ${reminderText(call, today, data.remindersEnabled)}`}
+                {!data.remindersEnabled && isInhaber && (
                   <Link
                     href="/einstellungen#wiederbehandlungen"
-                    className="rounded-[var(--r-small)] font-medium underline underline-offset-4 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    className="inline-block h-5 rounded-[var(--r-small)] align-top font-medium text-fg-primary underline underline-offset-4 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                   >
                     Einschalten
                   </Link>
-                </>
-              )}
-            </>
-          )}
-        </p>
-        <ul className="divide-y divide-border">
-          {data.calls.map((call) => {
-            const dismissed = call.status === "dismissed";
-            // The line when it is on the calendar. A hidden one gets it as
-            // "open" (what a restore sets), so the toggle can show it at once.
-            const on = standing(dismissed ? { ...call, status: "open" } : call, today);
-            const off = { dot: "bg-fg-tertiary", text: "Ausgeblendet" };
-            const lastCall = lastCallText(call);
-            const paid =
-              call.cycleRevenueCents && call.cycleRevenueCents > 0
-                ? formatMoney(call.cycleRevenueCents / 100, data.currency)
-                : null;
-            return (
-              <li
-                key={call.id}
-                className="grid gap-x-4 gap-y-2 py-3 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
-              >
-                <div className="min-w-0">
-                  <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[15px] font-medium leading-5 text-fg-primary">
-                    {call.treatmentName}
-                    {canWork && (call.status === "open" || call.status === "booked" || dismissed) ? (
-                      <RetreatmentStanding cycleId={call.id} dismissed={dismissed} on={on} off={off} />
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 text-sm">
-                        <span aria-hidden className={`h-2 w-2 shrink-0 rounded-full ${on.dot}`} />
-                        {on.text}
-                      </span>
-                    )}
-                  </p>
-                  <Facts>
-                    {`Zuletzt am ${formatDate(call.cycleOn)}${paid ? `, ${paid} bezahlt` : ""}`}
-                    {`Erinnerung: ${reminderText(call, today, data.remindersEnabled)}`}
-                    {lastCall && `Letzter Anruf: ${lastCall}`}
-                  </Facts>
-                </div>
-                {canWork && (call.status === "open" || call.status === "booked" || dismissed) && (
-                  <RetreatmentToggle
-                    cycleId={call.id}
-                    dismissed={dismissed}
-                    treatment={call.treatmentName}
-                  />
                 )}
-              </li>
-            );
-          })}
-        </ul>
-      </CardContent>
-    </Card>
+                {lastCall && `Letzter Anruf: ${lastCall}`}
+              </Facts>
+            </li>
+          );
+        })}
+      </ul>
+    </DashCard>
   );
 }

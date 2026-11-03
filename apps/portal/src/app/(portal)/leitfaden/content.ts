@@ -2,7 +2,7 @@
  * Vertriebsleitfaden — single source of truth.
  *
  * Both the slimmed page (`page.tsx`, which renders only items where
- * `core === true`) and the full downloadable PDF
+ * `core === true`, built in `_lib/sections.ts`) and the full downloadable PDF
  * (`@/server/reports/leitfaden-pdf`, which renders everything) read from this
  * module. Editing copy here updates both at once, so the staff-facing page
  * and the printable PDF can never drift.
@@ -16,7 +16,7 @@
  */
 
 // ---------------------------------------------------------------
-// 1. Sechs goldene Prinzipien (alle core)
+// 1. Sechs goldene Prinzipien (nur im PDF)
 // ---------------------------------------------------------------
 export type PrincipleIcon =
   | "HeartHandshake"
@@ -40,47 +40,47 @@ export const PRINCIPLES: Principle[] = [
     icon: "HeartHandshake",
     title: "Anerkennen, anders einordnen, Termin anbieten",
     body: "Niemals dagegen argumentieren, nie drängen. Erst die Sorge ernst nehmen, dann den Rahmen wechseln, dann konkret einen Termin vorschlagen.",
-    core: true,
+    core: false,
   },
   {
     id: "kein-endpreis",
     icon: "Scale",
     title: "Niemals einen Endpreis am Telefon nennen",
     body: "Nur Spannen, Beratungsgebühr und was im Termin passiert. Begründung ist medizinisch (Individualität), nicht verkäuferisch. Den verbindlichen Kostenvoranschlag erstellt der Arzt nach der Untersuchung.",
-    core: true,
+    core: false,
   },
   {
     id: "ein-termin-angebot",
     icon: "CheckCircle2",
     title: "Eine Antwort, ein Termin-Angebot",
     body: "Jede Antwort endet mit zwei konkreten Termin-Vorschlägen („Donnerstag oder eher nächste Woche?“), nie mit offener „Wollen Sie?“-Frage.",
-    core: true,
+    core: false,
   },
   {
     id: "spiegeln",
     icon: "MessageCircle",
     title: "Spiegeln statt widerlegen",
     body: "„Ich verstehe, dass …“ statt „Aber …“. Patienten kaufen Sicherheit, nicht Argumente.",
-    core: true,
+    core: false,
   },
   {
     id: "routen",
     icon: "ShieldCheck",
     title: "Bei medizinischen Fragen: routen, nicht antworten",
     body: "Risiken, Diagnosen, konkrete Methoden gehören in die ärztliche Aufklärung. Nicht-ärztliches Personal darf keine medizinische Empfehlung geben (§ 7 Abs. 4 MBO-Ä, § 1 HeilprG).",
-    core: true,
+    core: false,
   },
   {
     id: "stille",
     icon: "Clock",
     title: "Stille aushalten",
     body: "Nach dem Termin-Angebot drei Sekunden schweigen. Wer nachschiebt, wirkt unsicher und gibt die Gesprächsführung ab.",
-    core: true,
+    core: false,
   },
 ];
 
 // ---------------------------------------------------------------
-// 2. KPI-Ziele (alle core)
+// 2. Zielwerte (nur im PDF)
 // ---------------------------------------------------------------
 export interface Kpi {
   id: string;
@@ -91,9 +91,9 @@ export interface Kpi {
 }
 
 export const KPIS: Kpi[] = [
-  { id: "reaktionszeit", label: "Reaktionszeit", value: "< 5 Min", hint: "ab Anfrage-Eingang", core: true },
-  { id: "abschlussquote", label: "Abschlussquote", value: "> 25 %", hint: "aus Beratungsterminen", core: true },
-  { id: "no-show", label: "No-Show-Rate", value: "< 20 %", hint: "bei Erstberatung", core: true },
+  { id: "reaktionszeit", label: "Reaktionszeit", value: "< 5 Min", hint: "ab Anfrage-Eingang", core: false },
+  { id: "abschlussquote", label: "Abschlussquote", value: "> 25 %", hint: "aus Beratungsterminen", core: false },
+  { id: "no-show", label: "No-Show-Rate", value: "< 20 %", hint: "bei Erstberatung", core: false },
 ];
 
 // ---------------------------------------------------------------
@@ -103,10 +103,14 @@ export const KPIS: Kpi[] = [
 export const ANFRAGE_INTRO =
   "Für jede neue Anfrage im Portal, für die noch kein Termin online gebucht ist. Rufen Sie so schnell wie möglich zurück, am besten in den ersten 5 Minuten: Dann hat die Person ihre Anfrage noch vor Augen. Spätestens nach 48 Werkstunden (Montag bis Freitag, 9 bis 18 Uhr) muss der erste Kontaktversuch im Portal stehen.";
 
+/** Rule 3 below; the page shows it under the WhatsApp group. */
+export const ANFRAGE_WHATSAPP_RULE =
+  "WhatsApp nur, wenn die Person Ihnen selbst per WhatsApp geschrieben oder WhatsApp als Kontaktweg angegeben hat. Und nur über Ihr WhatsApp-Business-API-Konto mit Auftragsverarbeitungsvertrag, nie vom privaten Handy.";
+
 export const ANFRAGE_RULES: string[] = [
   "Erst den Namen bestätigen, dann die Behandlung nennen. Auf der Mailbox und in schriftlichen Nachrichten nennen Sie die Behandlung nie, weil dort leicht jemand anderes mithört oder mitliest.",
   "Jeden Versuch im Portal vermerken. Nach einem Anruf tippen Sie auf „Erreicht“, „Nicht erreicht“ oder „Termin vereinbart“. Eine E-Mail oder WhatsApp-Nachricht halten Sie über „Nachricht vermerken“ fest. So sieht Ihr Team, welche Anfrage noch offen ist.",
-  "WhatsApp nur, wenn die Person Ihnen selbst per WhatsApp geschrieben oder WhatsApp als Kontaktweg angegeben hat. Und nur über Ihr WhatsApp-Business-API-Konto mit Auftragsverarbeitungsvertrag, nie vom privaten Handy.",
+  ANFRAGE_WHATSAPP_RULE,
   "Nach der letzten Nachricht am siebten Tag hören Sie auf. Wer bis dahin nicht antwortet, möchte gerade nicht. Weitere Nachrichten zählen schnell als Werbung, und dafür bräuchten Sie eine Einwilligung.",
 ];
 
@@ -251,7 +255,7 @@ Viele Grüße
 ];
 
 // ---------------------------------------------------------------
-// 3. Vor jedem Anruf in 30 Sekunden (Prep, alle core)
+// 3. Vor jedem Anruf in 30 Sekunden (Vorbereitung, nur im PDF)
 // ---------------------------------------------------------------
 export interface PrepStep {
   id: string;
@@ -260,17 +264,17 @@ export interface PrepStep {
 }
 
 export const PREP_STEPS: PrepStep[] = [
-  { id: "p2", text: "Behandlungswunsch und Budget-Indikation lesen, falls vorhanden.", core: true },
+  { id: "p2", text: "Behandlungswunsch und Budget-Indikation lesen, falls vorhanden.", core: false },
   {
     id: "p3",
     text: "Notiz-Block parat halten: Anrede, Name, Geburtsdatum, Mobil, E-Mail, PLZ, Behandlungswunsch, bevorzugter Kanal, Empfehlungsquelle.",
-    core: true,
+    core: false,
   },
-  { id: "p4", text: "Stimme hochbringen, leise Umgebung, kein Hintergrundgeräusch.", core: true },
+  { id: "p4", text: "Stimme hochbringen, leise Umgebung, kein Hintergrundgeräusch.", core: false },
 ];
 
 // ---------------------------------------------------------------
-// 4. Gesprächs-Eröffnung, wortwörtlich (3 von 4 core)
+// 4. Gesprächs-Eröffnung, wortwörtlich (2 von 4 core)
 // ---------------------------------------------------------------
 export interface OpeningScript {
   id: string;
@@ -304,7 +308,9 @@ export const OPENING_SCRIPTS: OpeningScript[] = [
     patientLine: "Patient: „Was kostet das?“",
     quote: "Den genauen Preis kann ich Ihnen nicht am Telefon nennen, weil unsere Ärzte ihn erst nach der individuellen Beratung festlegen. Bei [Behandlung] bewegen wir uns typischerweise zwischen [von €] und [bis €], abhängig von Aufwand und Material. Den verbindlichen Kostenvoranschlag erstellt Ihr Arzt nach der Untersuchung. Möchten Sie einen Beratungstermin?",
     note: "HWG-konform (kein Lockpreis). § 630c Abs. 3 BGB verlangt schriftlichen Kostenvoranschlag in der Sprechstunde.",
-    core: true,
+    // Off the page: Einwand A3 answers the same question and ends with two
+    // dates to choose.
+    core: false,
   },
   {
     id: "unsicher",
@@ -317,7 +323,7 @@ export const OPENING_SCRIPTS: OpeningScript[] = [
 ];
 
 // ---------------------------------------------------------------
-// 5. Discovery (Block A + rote Flaggen core)
+// 5. Bedarf klären (Block A + rote Flaggen core)
 // ---------------------------------------------------------------
 export interface DiscoveryBlock {
   id: string;
@@ -328,6 +334,8 @@ export interface DiscoveryBlock {
   start?: number;
   items: string[];
   note?: string;
+  /** Row title on the page, where it differs from the PDF heading. */
+  pageTitle?: string;
   core: boolean;
 }
 
@@ -338,6 +346,7 @@ export const DISCOVERY_BLOCKS: DiscoveryBlock[] = [
   {
     id: "d-a",
     title: "A. Behandlungs-Interesse (3 Fragen)",
+    pageTitle: "Bedarf klären",
     list: "ol",
     start: 1,
     items: [
@@ -413,7 +422,7 @@ export interface ObjectionGroupMeta {
 export const OBJECTION_GROUPS: ObjectionGroupMeta[] = [
   { id: "A", label: "A. Preis-Einwände" },
   { id: "B", label: "B. Vertrauens- und Sicherheits-Einwände" },
-  { id: "C", label: "C. Timing-Einwände" },
+  { id: "C", label: "C. Zeitpunkt-Einwände" },
   { id: "D", label: "D. Ergebnis- und Realismus-Einwände" },
   { id: "E", label: "E. Psychologische und Scham-Einwände" },
 ];
@@ -729,7 +738,7 @@ export const OBJECTIONS: Objection[] = [
 ];
 
 // ---------------------------------------------------------------
-// 7. HWG-Quick-Reference: Sag-So, Sag-So-Nicht (7 Tabellen, 3 core)
+// 7. HWG: Sag so, nicht so (7 Tabellen, 3 core)
 // ---------------------------------------------------------------
 export interface HwgTable {
   id: string;
@@ -955,7 +964,8 @@ export const CLOSE_STEPS: CloseStep[] = [
 ];
 
 // ---------------------------------------------------------------
-// 9. No-Show-Prävention: Cadence + Vorlagen (Cadence + 2 Templates core)
+// 9. Erinnerungen gegen Nichterscheinen: Ablauf und Vorlagen (2 Vorlagen core,
+// der Ablauf nur im PDF)
 // ---------------------------------------------------------------
 export const NO_SHOW_INTRO =
   "Erinnerungen über mehrere Kanäle reduzieren No-Shows in deutschen Praxen messbar (Doctolib 30 bis 60 %, Universität Lübeck zitiert von LINK Mobility bis 82 %, Frontiers in Digital Health 2025 bei n=98.067 Terminen signifikant). Hauptgrund: 64 % vergessen den Termin schlicht.";
@@ -1170,7 +1180,7 @@ Herzliche Grüße
 ];
 
 // ---------------------------------------------------------------
-// 10. Warnungen, Cheat-Sheet, Rechtsgrundlagen
+// 10. Warnungen, Spickzettel, Rechtsgrundlagen
 // PDF-only (nicht in der Kurzfassung der Seite). Teil des
 // vollständigen Playbooks im Download.
 // ---------------------------------------------------------------
@@ -1315,3 +1325,37 @@ export const CHEAT_SHEET = `Vertriebsleitfaden, Kurzfassung für den Empfangstre
 ─────────────────────────────────────────────────────────
 Zielwerte: Reaktion < 5 Min. · Abschluss > 25 % · No-Show < 20 %
 Patient ernst nehmen, nicht weg-skripten.`;
+
+// ---------------------------------------------------------------
+// 11. Beschriftungen der Seite /leitfaden (nicht im PDF)
+// ---------------------------------------------------------------
+/** Headings and labels of the page. Copy lives here, never in JSX. */
+export const LEITFADEN_PAGE = {
+  title: "Leitfaden",
+  pdf: "Vollständiges PDF",
+  searchPlaceholder: "Suchen: Einwand, Vorlage",
+  searchLabel: "Leitfaden durchsuchen",
+  searchClear: "Suche zurücksetzen",
+  /** `{suche}` stands for what was searched. */
+  searchEmpty: "Zu „{suche}“ steht hier nichts. Alle Einwände und Vorlagen stehen im vollständigen PDF.",
+  toc: "Auf dieser Seite",
+  sections: {
+    anfragen: "Anfragen beantworten",
+    gespraech: "Gespräch führen",
+    einwaende: "Einwände",
+    termin: "Termin festmachen",
+    sagSo: "Sag so, nicht so",
+  },
+  cadence: "Wann Sie sich melden",
+  cadenceColumns: { time: "Wann", channel: "Kanal", purpose: "Was Sie tun" },
+  wells: { say: "Sie sagen", subject: "Betreff", text: "Text", answer: "Antwort" },
+  copy: "Kopieren",
+  copied: "Kopiert",
+  notCopied: "Nicht kopiert",
+  notCopiedHint: "Ihr Browser hat das Kopieren nicht erlaubt. Markieren Sie den Text und kopieren Sie ihn selbst.",
+  avoid: "Nicht sagen",
+  saySo: "So sagen",
+  sayNot: "Nicht sagen",
+  /** Read out before a rule with the warning mark. */
+  warning: "Achtung",
+} as const;

@@ -41,7 +41,7 @@ export function PortalShowcase() {
                 <h4 className="mt-2 font-display text-3xl font-semibold tracking-tight md:text-6xl">
                   <span className="whitespace-nowrap">Sie sehen jeden Tag,</span>
                   <br />
-                  <span className="text-accent">was Ihre Werbung bringt.</span>
+                  <span className="text-accent">woher jede Anfrage kommt.</span>
                 </h4>
               </div>
 

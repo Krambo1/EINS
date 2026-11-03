@@ -4,7 +4,6 @@ import {
   Database,
   Facebook,
   Globe,
-  Instagram,
   Link as LinkIcon,
   MessageCircle,
   PenLine,
@@ -34,12 +33,13 @@ const SIMPLE_LOGOS: Partial<Record<BrandKey, string>> = {
   jameda: "/jameda-logo.png",
   // The official TikTok note (cyan and red behind black), not a stand-in icon.
   tiktok: "/tiktok-logo.png",
+  // The official gradient glyph, not the Lucide outline.
+  instagram: "/instagram-logo.webp",
 };
 
 const ICONS: Partial<Record<BrandKey, LucideIcon>> = {
   formular: ClipboardList,
   manuell: PenLine,
-  instagram: Instagram,
   facebook: Facebook,
   profil_link: LinkIcon,
   dm_link: Send,

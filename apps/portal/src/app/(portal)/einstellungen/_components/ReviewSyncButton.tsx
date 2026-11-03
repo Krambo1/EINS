@@ -1,9 +1,10 @@
 "use client";
 
-import { useActionState } from "react";
-import { useFormStatus } from "react-dom";
+import { createContext, useActionState, useContext, useEffect, type ReactNode } from "react";
 import { RefreshCw } from "lucide-react";
-import { Badge, Button } from "@eins/ui";
+import { Button, cn } from "@eins/ui";
+import { CONTROL, RAISED_CONTROL } from "../../dashboard/_components/dash-ui";
+import { showActionFlash } from "../../_components/flash-event";
 import { syncReviewsNowAction, type ReviewSyncState } from "../actions";
 
 const PLATFORM_LABELS: Record<"google" | "jameda", string> = {
@@ -11,51 +12,62 @@ const PLATFORM_LABELS: Record<"google" | "jameda", string> = {
   jameda: "Jameda",
 };
 
-function SyncSubmit() {
-  const { pending } = useFormStatus();
+/** The form "Jetzt abrufen" submits; it sits outside the settings form. */
+const FORM_ID = "bewertungen-jetzt-abrufen";
+
+const SyncPending = createContext(false);
+
+/**
+ * "Jetzt abrufen" for review syncs (B-20 / F-25 / F-30). The button stands in
+ * the "Sternwerte" row of the Bewertungen form, but submits its own form
+ * (`form` attribute), so it never saves the settings and the settings never
+ * trigger a sync. The result comes back from the action and shows in the
+ * toast (no flash cookie, no raw platform error text), so the card keeps its
+ * height. Without JavaScript the button still posts its form.
+ */
+export function ReviewSyncProvider({ children }: { children: ReactNode }) {
+  const [state, action, pending] = useActionState<ReviewSyncState, FormData>(syncReviewsNowAction, undefined);
+  useEffect(() => {
+    if (!state) return;
+    if (state.ok) {
+      showActionFlash({ tone: "good", title: "Sternwerte abgerufen" });
+      return;
+    }
+    const failed = state.platforms.filter((p) => !p.ok).map((p) => PLATFORM_LABELS[p.platform]);
+    const done = state.platforms.filter((p) => p.ok).map((p) => PLATFORM_LABELS[p.platform]);
+    showActionFlash({
+      tone: "bad",
+      title: "Nicht abgerufen",
+      description: [
+        state.message,
+        done.length > 0 ? `Aktualisiert: ${done.join(", ")}. Nicht erreichbar: ${failed.join(", ")}.` : null,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    });
+  }, [state]);
   return (
-    <Button type="submit" variant="outline" size="sm" disabled={pending}>
-      <RefreshCw className="h-4 w-4" />
-      {pending ? "Wird abgeglichen…" : "Jetzt aktualisieren"}
-    </Button>
+    <SyncPending.Provider value={pending}>
+      {children}
+      <form id={FORM_ID} action={action} hidden />
+    </SyncPending.Provider>
   );
 }
 
-/**
- * "Jetzt aktualisieren" for review syncs (B-20 / F-25 / F-30). The result
- * comes back from the action; no flash cookie, no raw platform error text.
- */
+/** Greyed out while the sync runs, same size (not optimistic, DESIGN.md section 10). */
 export function ReviewSyncButton() {
-  const [state, action] = useActionState<ReviewSyncState, FormData>(
-    syncReviewsNowAction,
-    undefined
-  );
+  const pending = useContext(SyncPending);
   return (
-    <div className="space-y-3">
-      <form action={action} className="flex justify-end">
-        <SyncSubmit />
-      </form>
-      {state && (
-        <div role="status" className="space-y-1 text-sm">
-          <p className="text-fg-primary">{state.message}</p>
-          {state.platforms.length > 0 && (
-            <ul className="space-y-1">
-              {state.platforms.map((p) => (
-                <li key={p.platform} className="flex items-center gap-2">
-                  {p.ok ? (
-                    <Badge tone="good">Aktualisiert</Badge>
-                  ) : (
-                    <Badge tone="warn">Nicht erreichbar</Badge>
-                  )}
-                  <span className="font-medium text-fg-primary">
-                    {PLATFORM_LABELS[p.platform]}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-    </div>
+    <Button
+      type="submit"
+      form={FORM_ID}
+      variant="outline"
+      disabled={pending}
+      aria-busy={pending || undefined}
+      className={cn(RAISED_CONTROL, CONTROL, "shrink-0 px-3.5")}
+    >
+      <RefreshCw className="h-4 w-4" aria-hidden />
+      Jetzt abrufen
+    </Button>
   );
 }

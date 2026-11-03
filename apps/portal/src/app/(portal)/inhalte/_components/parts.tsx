@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button, cn } from "@eins/ui";
 import { CONTROL, RAISED_CONTROL } from "../../dashboard/_components/dash-ui";
-import { ScrollHint } from "@/app/_components/ScrollHint";
 
 /**
  * Fixed sizes of the Inhalte cards (DESIGN.md section 10, "Fixed size"), one
@@ -20,7 +19,7 @@ export const POSTS_CARD_HEIGHT = "h-[53.625rem] sm:h-[52.875rem] lg:h-[53.875rem
 
 /** "Zur Freigabe": the preview frame (from lg a column the card's height) and the title block (two lines, a longer title scrolls). */
 export const PREVIEW_FRAME = "h-[15rem] w-full shrink-0 lg:h-auto lg:w-[16.5rem]";
-export const TITLE_BLOCK = "flex h-14 shrink-0 overflow-y-auto";
+export const TITLE_BLOCK = "scroll-shadows flex h-14 shrink-0 [--scroll-bg:var(--surface-tile)]";
 /**
  * A details list (`<dl>` of `Detail`) with a hairline above, below and
  * between the rows, label column left (Stripe's details panel).
@@ -32,50 +31,6 @@ export const DETAIL_LINES =
 export const PAGE_SIZE = 6;
 /** One post row: the 48 px picture, beside two lines below lg and one line from lg. */
 export const POST_ROW = "min-h-[4.5rem]";
-/**
- * The well under an opened row and the room each list keeps for it, so
- * opening a row never resizes the card (DESIGN.md section 5, like the
- * Quellen on the Übersicht). Its text scrolls inside when longer.
- */
-export const ROW_WELL = "h-[13rem] sm:h-[11rem]";
-export const ROW_WELL_SPACE = "mx-2 mb-2 mt-0.5";
-
-/**
- * The well under an opened row: its facts scroll inside, its buttons stand
- * at the foot, so they keep their place whatever the facts are and while a
- * field opens in place of them.
- */
-export function RowWell({
-  panelId,
-  label,
-  actions,
-  children,
-}: {
-  panelId: string;
-  label: string;
-  actions?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <div id={panelId} className={ROW_WELL_SPACE}>
-      <div
-        role="region"
-        aria-label={label}
-        className={cn("elev-inset flex flex-col overflow-hidden rounded-[var(--r-panel)] bg-[var(--well)]", ROW_WELL)}
-      >
-        <ScrollHint className="flex min-h-0 flex-1 flex-col">
-          <div
-            tabIndex={0}
-            className="scroll-shadows min-h-0 flex-1 px-4 py-3 text-[15px] [--scroll-bg:var(--well)] leading-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent"
-          >
-            {children}
-          </div>
-        </ScrollHint>
-        {actions && <div className="flex shrink-0 flex-wrap gap-2 px-4 pb-3 pt-2">{actions}</div>}
-      </div>
-    </div>
-  );
-}
 
 /** A status as a coloured dot and dark text, never a pill. */
 export function StatusDot({ dot, children, className }: { dot: string; children: ReactNode; className?: string }) {

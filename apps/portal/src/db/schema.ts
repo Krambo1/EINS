@@ -85,6 +85,9 @@ export const clinics = pgTable("clinics", {
   googlePlaceId: text("google_place_id"),
   /** Public Jameda profile URL — HTML scraped (no public API exists). */
   jamedaProfileUrl: text("jameda_profile_url"),
+  /** The Praxis's changed and own Antwortvorlagen; null = the standard ones.
+   *  Shape and parsing: bewertungen/_lib/reply-templates-store.ts. Migration 0106. */
+  replyTemplates: jsonb("reply_templates"),
   /** Days after `appointment_completed` before sending the review email. */
   reviewRequestDelayDays: integer("review_request_delay_days")
     .notNull()

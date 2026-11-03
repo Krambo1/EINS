@@ -100,7 +100,7 @@ export async function GET(request: NextRequest) {
     });
 
     return NextResponse.redirect(
-      new URL(payload.returnTo ?? "/einstellungen?connected=google#werbekonten", env.APP_ORIGIN)
+      new URL("/einstellungen?connected=google#werbekonten", env.APP_ORIGIN)
     );
   } catch (err) {
     console.error("[oauth/google] exchange failed:", err);

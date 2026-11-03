@@ -42,6 +42,7 @@ import {
   statusAfterDecision,
   verzugEndDay,
   type ApprovalDecision,
+  type InvalidDecisionCode,
   type RecordedDecision,
 } from "@/lib/content-approval";
 import type { Role } from "@/lib/constants";
@@ -647,7 +648,9 @@ export type DecisionResult =
       clinicId: string;
       approvalId: string;
     }
-  | { ok: false; reason: DecisionFailure; message: string };
+  /** invalid: why normalizeDecision refused the input (the link page picks its text by it). */
+  | { ok: false; reason: "invalid"; invalid: InvalidDecisionCode; message: string }
+  | { ok: false; reason: Exclude<DecisionFailure, "invalid">; message: string };
 
 export const NOT_INHABER_MESSAGE =
   "In diesem Beitrag erscheint der KI-Klon. Freigeben kann ihn nur die Inhaberin oder der Inhaber.";
@@ -668,7 +671,7 @@ export async function decideApproval(
   actor: DecisionActor
 ): Promise<DecisionResult> {
   const input = normalizeDecision(decisionRaw, changeTextRaw);
-  if (!input.ok) return { ok: false, reason: "invalid", message: input.error };
+  if (!input.ok) return { ok: false, reason: "invalid", invalid: input.code, message: input.error };
 
   const a = schema.contentApprovals;
   const where =

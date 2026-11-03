@@ -1,24 +1,24 @@
-import Link from "next/link";
 import { eq } from "drizzle-orm";
-import { ArrowLeft, CheckCircle2, Pencil } from "lucide-react";
-import { Card, CardContent, Badge, Button } from "@eins/ui";
+import { cn } from "@eins/ui";
 import { requirePermissionOrRedirect } from "@/auth/guards";
 import { db, schema } from "@/db/client";
-import {
-  DISCOVERY_BLOCKS,
-  DISCOVERY_INTRO,
-  type DiscoveryAnswers,
-} from "./content";
+import { formatDate } from "@/lib/formatting";
+import { ActionForm } from "@/app/(portal)/_components/ActionForm";
+import { PendingSubmit } from "../../_components/PendingSubmit";
+import { CONTROL, DashCard, RAISED_CONTROL } from "../../dashboard/_components/dash-ui";
+import { OnboardingHead, PageNote } from "../_components/OnboardingHead";
+import { StatusWord } from "../_components/StatusWord";
+import { ONBOARDING_PAGE } from "../_lib/sizes";
+import { DISCOVERY_BLOCKS, type DiscoveryAnswers } from "./content";
 import { FragebogenForm } from "./FragebogenForm";
 import { reopenDiscoveryAction } from "./actions";
-import { DISPLAY_TIME_ZONE } from "@/lib/formatting";
-import { ActionForm } from "@/app/(portal)/_components/ActionForm";
 
 export const metadata = { title: "Fragebogen zum Start" };
 
 /**
  * Discovery-Fragebogen, Teil 1 (Vorab-Formular). Inhaber-only, like the rest
- * of /onboarding. Draft until submitted; submitted answers render read-only.
+ * of /onboarding. Draft until submitted; submitted answers render read-only
+ * as GOV.UK's "Check your answers", with one "Antworten anpassen" in the head.
  */
 export default async function DiscoveryFragebogenPage() {
   const session = await requirePermissionOrRedirect("onboarding.complete");
@@ -32,124 +32,69 @@ export default async function DiscoveryFragebogenPage() {
   const answers = (row?.answers ?? {}) as DiscoveryAnswers;
   const submitted = row?.status === "eingereicht";
 
+  if (!submitted) {
+    return (
+      <FragebogenForm
+        initialAnswers={answers}
+        baseUpdatedAt={row?.updatedAt?.toISOString() ?? null}
+        storageKey={`eins:fragebogen:${session.clinicId}`}
+      />
+    );
+  }
+
   return (
-    <div
-      className={
-        submitted
-          ? "mx-auto max-w-3xl space-y-8"
-          : "mx-auto max-w-3xl space-y-8 xl:max-w-5xl"
-      }
-    >
-      <header className="max-w-3xl">
-        <Link
-          href="/onboarding"
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-fg-secondary hover:text-fg-primary"
+    <div className={ONBOARDING_PAGE}>
+      <OnboardingHead
+        back
+        title="Fragebogen"
+        count={
+          <ActionForm action={reopenDiscoveryAction}>
+            <PendingSubmit variant="outline" className={cn(RAISED_CONTROL, CONTROL, "px-4")}>
+              {/* Below lg the short word, so the title keeps its line. */}
+              <span className="lg:hidden">Anpassen</span>
+              <span className="hidden lg:inline">Antworten anpassen</span>
+            </PendingSubmit>
+          </ActionForm>
+        }
+      />
+      <PageNote>
+        <span className="flex flex-wrap items-center gap-x-2">
+          <StatusWord status="erledigt" />
+          {row?.submittedAt && (
+            <>
+              <span aria-hidden className="text-fg-secondary">
+                ·
+              </span>
+              <span className="text-sm text-fg-secondary">Eingereicht am {formatDate(row.submittedAt)}</span>
+            </>
+          )}
+        </span>
+      </PageNote>
+
+      {DISCOVERY_BLOCKS.map((block, i) => (
+        <DashCard
+          key={block.key}
+          title={<span className="whitespace-normal">{block.title}</span>}
+          className={i > 0 ? "[--delay:40ms]" : undefined}
+          bodyClassName="pt-2"
         >
-          <ArrowLeft className="h-4 w-4" />
-          Zurück zu den ersten Schritten
-        </Link>
-        <h1 className="mt-3 text-3xl font-semibold md:text-4xl">
-          Fragebogen zum Start
-        </h1>
-        <p className="mt-2 text-base text-fg-primary md:text-lg">
-          {DISCOVERY_INTRO}
-        </p>
-      </header>
-
-      {submitted ? (
-        <>
-          <Card className="p-5 md:p-6">
-            <CardContent className="flex items-start gap-3">
-              <CheckCircle2 className="mt-0.5 h-6 w-6 shrink-0 text-tone-good" />
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-semibold">
-                    Vielen Dank, Ihre Antworten sind bei uns.
-                  </span>
-                  <Badge tone="good">Eingereicht</Badge>
+          {/* GOV.UK's summary list: the question, the answer, hairlines between. */}
+          <dl className="divide-y divide-border">
+            {block.questions.map((q) => {
+              const value = answers[q.id];
+              const text = Array.isArray(value) ? value.join(", ") : value;
+              return (
+                <div key={q.id} className="py-3 md:grid md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] md:gap-6">
+                  <dt className="text-sm leading-5 text-fg-secondary">{q.label}</dt>
+                  <dd className="mt-1 whitespace-pre-wrap break-words text-[15px] leading-6 text-fg-primary md:mt-0">
+                    {text && text.length > 0 ? text : <span className="text-fg-secondary">Keine Angabe</span>}
+                  </dd>
                 </div>
-                <p className="mt-1 text-base text-fg-primary">
-                  Wir bauen darauf Ihren KI-Klon, Ihre ersten Beiträge und Ihre
-                  Zielseite auf. Den Rest besprechen wir im
-                  Onboarding-Gespräch. Hat sich etwas geändert? Sie können Ihre
-                  Antworten jederzeit anpassen.
-                </p>
-                {row?.submittedAt && (
-                  <p className="mt-1 text-sm text-fg-secondary">
-                    Eingereicht am{" "}
-                    {row.submittedAt.toLocaleDateString("de-DE", {
-                      day: "2-digit",
-                      month: "2-digit",
-                      year: "numeric",
-                      timeZone: DISPLAY_TIME_ZONE,
-                    })}
-                    {row.resubmittedAt && (
-                      <>
-                        {", zuletzt angepasst am "}
-                        {row.resubmittedAt.toLocaleDateString("de-DE", {
-                          day: "2-digit",
-                          month: "2-digit",
-                          year: "numeric",
-                          timeZone: DISPLAY_TIME_ZONE,
-                        })}
-                      </>
-                    )}
-                    .
-                  </p>
-                )}
-                <ActionForm action={reopenDiscoveryAction} className="mt-4">
-                  <Button type="submit" variant="outline" size="sm">
-                    <Pencil className="h-4 w-4" />
-                    Antworten anpassen
-                  </Button>
-                </ActionForm>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Read-only recap of what was answered. */}
-          <div className="space-y-6">
-            {DISCOVERY_BLOCKS.map((block) => (
-              <Card key={block.key} className="p-5 md:p-6">
-                <CardContent className="space-y-4">
-                  <h2 className="text-lg font-semibold">{block.title}</h2>
-                  <dl className="space-y-4">
-                    {block.questions.map((q) => {
-                      const value = answers[q.id];
-                      const text = Array.isArray(value)
-                        ? value.join(", ")
-                        : value;
-                      return (
-                        <div key={q.id}>
-                          <dt className="text-sm font-medium text-fg-primary">
-                            {q.label}
-                          </dt>
-                          <dd className="mt-0.5 whitespace-pre-wrap text-base text-fg-primary">
-                            {text && text.length > 0 ? (
-                              text
-                            ) : (
-                              <span className="text-fg-secondary">
-                                Keine Angabe
-                              </span>
-                            )}
-                          </dd>
-                        </div>
-                      );
-                    })}
-                  </dl>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </>
-      ) : (
-        <FragebogenForm
-          initialAnswers={answers}
-          hasDraft={Boolean(row)}
-          baseUpdatedAt={row?.updatedAt?.toISOString() ?? null}
-          storageKey={`eins:fragebogen:${session.clinicId}`}
-        />
-      )}
+              );
+            })}
+          </dl>
+        </DashCard>
+      ))}
     </div>
   );
 }

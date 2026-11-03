@@ -29,7 +29,7 @@ export function TopMetricsSkeleton() {
         </div>
       </section>
       <div className="grid grid-cols-1 gap-4 md:gap-6 lg:grid-cols-2">
-        <div className={`${TILE} h-[22.5rem] lg:h-[35rem]`} />
+        <div className={`${TILE} h-[25.75rem] lg:h-[35rem]`} />
         <div className={`${TILE} h-[36.5rem] sm:h-[35rem]`} />
       </div>
     </div>
@@ -45,11 +45,11 @@ export function DetailBundleSkeleton() {
   return (
     <div className="space-y-4 md:space-y-6" aria-busy="true" aria-live="polite">
       {/* Inhalte: a list below lg, a table from lg, four tiles from xl. */}
-      <div className={`${TILE} h-[403px] md:h-[411px] lg:h-[447px] xl:h-[432px]`} />
+      <div className={`${TILE} h-[467px] md:h-[475px] lg:h-[511px] xl:h-[432px]`} />
       {/* Trichter: rows below xl, columns from xl. */}
       <div className={`${TILE} h-[676px] sm:h-[559px] md:h-[700px] lg:h-[575px] xl:h-[483px]`} />
-      {/* Behandlungen: with its chart from xl (where the names fit). */}
-      <div className={`${TILE} h-[545px] md:h-[553px] lg:h-[589px] xl:h-[823px]`} />
+      {/* Behandlungen. */}
+      <div className={`${TILE} h-[545px] md:h-[553px] lg:h-[589px]`} />
       <div className={`${TILE} h-[264px] sm:h-[164px] md:h-[172px]`} />
     </div>
   );

@@ -1,15 +1,24 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@eins/ui";
+import { Button, cn } from "@eins/ui";
+import { showActionFlash } from "@/app/(portal)/_components/flash-event";
+import { CardBody, CardFoot, Field, PRIMARY_BUTTON, Status } from "../../../_components/settings-ui";
+import { ONE_LINE } from "../../../_lib/sizes";
 import { rotatePvsSecretAction } from "../../actions";
-import { Copy, Check, AlertTriangle } from "lucide-react";
+import { CopyButton } from "../_copy-button";
+import { SECRET_HOW, SECRET_ONCE, SECRET_OWNER_ONLY, SECRET_WELL } from "./_copy";
 
-export function N8nSecretReveal() {
+/**
+ * The key card's body and foot. What it does is unchanged: the same action
+ * mints the key, it is shown once in this browser, and a second key in the
+ * same visit asks first. The key has a well of its own that keeps its size
+ * with or without a key in it, and a refusal goes to the toast. Without the
+ * Inhaber role the empty well says so (the action refuses those roles).
+ */
+export function N8nSecretReveal({ clinicId, canRotate }: { clinicId: string; canRotate: boolean }) {
   const [busy, setBusy] = useState(false);
   const [secret, setSecret] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
 
   async function rotate() {
     if (
@@ -21,56 +30,67 @@ export function N8nSecretReveal() {
       return;
     }
     setBusy(true);
-    setError(null);
+    let error: string | null = null;
     try {
       const r = await rotatePvsSecretAction();
       if (!r.ok) {
-        setError(r.error);
+        error = r.error;
       } else {
         setSecret(r.secretHex);
       }
     } catch {
-      setError("Keine Verbindung. Bitte versuchen Sie es noch einmal.");
+      error = "Keine Verbindung. Bitte versuchen Sie es noch einmal.";
     } finally {
       setBusy(false);
     }
-  }
-
-  async function copy() {
-    if (!secret) return;
-    await navigator.clipboard.writeText(secret);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (error) showActionFlash({ tone: "bad", title: "Kein Schlüssel erzeugt", description: error });
   }
 
   return (
-    <div className="space-y-3">
-      <Button onClick={rotate} disabled={busy}>
-        {secret ? "Neuen Schlüssel erzeugen" : "Schlüssel erzeugen"}
-      </Button>
-
-      {error && <p className="text-sm text-tone-bad">{error}</p>}
-
-      {secret && (
-        <div className="space-y-3 rounded-md border bg-bg-secondary p-3">
-          <p className="flex items-center gap-2 text-sm font-medium">
-            <AlertTriangle className="h-4 w-4 text-amber-600" />
-            Dieser Schlüssel wird nur jetzt angezeigt.
-          </p>
+    <>
+      <CardBody className="space-y-5">
+        <Field label="Ihre Praxis-Kennung für n8n">
           <div className="flex items-center gap-2">
-            <code className="flex-1 overflow-x-auto rounded bg-bg-primary p-2 font-mono text-sm">
-              {secret}
+            <code className={cn(ONE_LINE, "min-w-0 flex-1 font-mono text-[15px] leading-6 text-fg-primary")}>
+              {clinicId}
             </code>
-            <Button size="sm" variant="outline" onClick={copy} aria-label="Schlüssel kopieren">
-              {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-            </Button>
+            <CopyButton value={clinicId} label="Praxis-Kennung kopieren" />
           </div>
-          <p className="text-sm text-fg-secondary">
-            In n8n eintragen als „X-EINS-Signature"-HMAC-Key, Algorithmus
-            SHA-256, ausgegeben als <code>sha256=&lt;hex&gt;</code>.
-          </p>
-        </div>
-      )}
-    </div>
+        </Field>
+        <Field label="Geheimer Schlüssel">
+          <div
+            aria-live="polite"
+            className={cn(
+              SECRET_WELL,
+              "elev-inset flex flex-col justify-center gap-2 rounded-[var(--r-control)] bg-[var(--well)] p-3"
+            )}
+          >
+            {secret ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <code
+                    className={cn(ONE_LINE, "min-w-0 flex-1 font-mono text-[15px] text-fg-primary [--scroll-bg:var(--well)]")}
+                  >
+                    {secret}
+                  </code>
+                  <CopyButton value={secret} label="Schlüssel kopieren" />
+                </div>
+                <Status tone="warn" className="font-medium leading-5">
+                  Dieser Schlüssel wird nur jetzt angezeigt.
+                </Status>
+              </>
+            ) : (
+              <p className="text-sm leading-5 text-fg-secondary">{canRotate ? SECRET_ONCE : SECRET_OWNER_ONLY}</p>
+            )}
+          </div>
+          <p className="mt-1.5 text-sm leading-5 text-fg-secondary">{SECRET_HOW}</p>
+        </Field>
+      </CardBody>
+      <CardFoot>
+        <Button className={PRIMARY_BUTTON} onClick={rotate} disabled={busy} aria-busy={busy}>
+          {secret ? "Neuen Schlüssel erzeugen" : "Schlüssel erzeugen"}
+        </Button>
+      </CardFoot>
+    </>
   );
 }

@@ -1,9 +1,10 @@
 import { cn } from "@eins/ui";
 import { PageHeader } from "../../_components/PageHeader";
-import { DashCard, TABLE_HEAD_BAND } from "../../dashboard/_components/dash-ui";
+import { DashCard, TABLE_HEAD_BAND, WASH_AREA, WASH_ROW } from "../../dashboard/_components/dash-ui";
 import { BewertungenTabsSkeleton } from "../_components/BewertungenTabs";
 import { ReplyTemplatesCard } from "../_components/ReplyTemplatesCard";
 import {
+  FEEDBACK_ROW_HEIGHT,
   HISTORY_BODY_HEIGHT,
   NEW_FEEDBACK_SLOTS,
   TOP_CARD_HEIGHT,
@@ -36,16 +37,18 @@ export default function Loading() {
             className={cn("flex flex-col", TOP_CARD_HEIGHT, TOP_FEEDBACK_SPAN)}
             bodyClassName="flex min-h-0 flex-1 flex-col"
           >
-            <ul className="-mx-2 min-h-0 flex-1 divide-y divide-border">
+            <ul className="-mx-3 min-h-0 flex-1 divide-y divide-border overflow-hidden px-3">
               {Array.from({ length: NEW_FEEDBACK_SLOTS }, (_, i) => (
-                <li key={i} className="flex min-h-14 items-start gap-2.5 px-2 py-1.5">
-                  <span className="h-5 w-4 shrink-0" />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex h-5 items-center">
-                      <span className={cn(BAR, "h-4 w-40")} />
-                    </span>
-                    <span className="mt-1 flex h-5 items-center">
-                      <span className={cn(BAR, "h-3.5 w-20")} />
+                <li key={i} className={WASH_ROW}>
+                  <span className={cn("flex items-start gap-2.5 py-3", WASH_AREA, FEEDBACK_ROW_HEIGHT)}>
+                    <span className="h-5 w-4 shrink-0" />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex h-5 items-center">
+                        <span className={cn(BAR, "h-4 w-40")} />
+                      </span>
+                      <span className="mt-1 flex h-5 items-center">
+                        <span className={cn(BAR, "h-3.5 w-20")} />
+                      </span>
                     </span>
                   </span>
                 </li>
@@ -85,7 +88,7 @@ export default function Loading() {
         <ReplyTemplatesCard />
 
         <DashCard title={<span className={cn(BAR, "inline-block h-4 w-20 align-middle")} />}>
-          <div className="-mx-2">
+          <div className="-mx-3">
             <div className={cn(TABLE_HEAD_BAND)} />
             <div className={cn("mt-1", HISTORY_BODY_HEIGHT)} />
           </div>

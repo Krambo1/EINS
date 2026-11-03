@@ -15,19 +15,19 @@
   --hover-wash: rgba(16, 16, 26, 0.05);
 
   --elev-card:
-    0 0 0 1px rgba(16, 16, 26, 0.06),
-    0 1px 2px rgba(16, 16, 26, 0.05),
-    0 4px 10px -4px rgba(16, 16, 26, 0.06),
-    0 18px 36px -18px rgba(16, 16, 26, 0.16);
+    0 0 0 1px rgba(16, 16, 26, 0.054),
+    0 1px 2px rgba(16, 16, 26, 0.045),
+    0 4px 10px -4px rgba(16, 16, 26, 0.054),
+    0 18px 36px -18px rgba(16, 16, 26, 0.144);
   --elev-card-hover:
-    0 0 0 1px rgba(16, 16, 26, 0.08),
-    0 2px 4px rgba(16, 16, 26, 0.06),
-    0 10px 20px -8px rgba(16, 16, 26, 0.1),
-    0 30px 56px -24px rgba(16, 16, 26, 0.24);
+    0 0 0 1px rgba(16, 16, 26, 0.0648),
+    0 2px 4px rgba(16, 16, 26, 0.0486),
+    0 10px 20px -8px rgba(16, 16, 26, 0.081),
+    0 30px 56px -24px rgba(16, 16, 26, 0.1944);
   --elev-raised:
-    0 0 0 1px rgba(16, 16, 26, 0.07),
-    0 1px 2px rgba(16, 16, 26, 0.1),
-    0 4px 8px -4px rgba(16, 16, 26, 0.14),
+    0 0 0 1px rgba(16, 16, 26, 0.063),
+    0 1px 2px rgba(16, 16, 26, 0.09),
+    0 4px 8px -4px rgba(16, 16, 26, 0.126),
     inset 0 1px 0 rgba(255, 255, 255, 0.9);
   --elev-inset:
     inset 0 1px 3px rgba(16, 16, 26, 0.1),
@@ -35,10 +35,10 @@
   /* Hover cards, menus and dialogs floating over a card: a hairline, a close
      contact shadow and a wide soft drop, a step above --elev-card-hover. */
   --elev-popover:
-    0 0 0 1px rgba(16, 16, 26, 0.08),
-    0 2px 4px rgba(16, 16, 26, 0.08),
-    0 12px 24px -8px rgba(16, 16, 26, 0.18),
-    0 28px 48px -20px rgba(16, 16, 26, 0.28);
+    0 0 0 1px rgba(16, 16, 26, 0.072),
+    0 2px 4px rgba(16, 16, 26, 0.072),
+    0 12px 24px -8px rgba(16, 16, 26, 0.162),
+    0 28px 48px -20px rgba(16, 16, 26, 0.252);
   /* Light grey of a well pressed into a card, and of value chips. */
   --well: color-mix(in srgb, var(--surface-inset) 45%, var(--surface-tile));
 
@@ -46,10 +46,8 @@
   --bar-fill: linear-gradient(180deg, #74cfca 0%, var(--accent) 60%, #4faca7 100%);
   --bar-edge:
     inset 0 1px 0 rgba(255, 255, 255, 0.4),
-    0 1px 2px rgba(16, 16, 26, 0.12),
-    0 8px 16px -10px rgba(16, 16, 26, 0.35);
-  /* The lighter bar of a pair (Anfragen beside Gewonnen), lit the same way. */
-  --bar-light: linear-gradient(180deg, #c6e9e6 0%, #a9dcd8 60%, #9ad3cf 100%);
+    0 1px 2px rgba(16, 16, 26, 0.108),
+    0 8px 16px -10px rgba(16, 16, 26, 0.315);
   --bar-ghost: color-mix(in srgb, var(--accent) 18%, transparent);
   --bar-ghost-edge: inset 0 1px 3px rgba(16, 16, 26, 0.08);
 
@@ -188,10 +186,6 @@
 
 .bar-solid {
   background: var(--bar-fill);
-  box-shadow: var(--bar-edge);
-}
-.bar-light {
-  background: var(--bar-light);
   box-shadow: var(--bar-edge);
 }
 .bar-ghost {

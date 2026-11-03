@@ -507,7 +507,7 @@ async function main() {
       `;
     }
 
-    // --- spend goal so the Werbebudget pace card has a target ---
+    // --- spend goal (the target in the admin Leistung tab) ---
     await sql`
       INSERT INTO goals (clinic_id, metric, target_value, period_start, period_end, created_by)
       VALUES (${clinicId}, 'spend', 4500,
@@ -689,7 +689,7 @@ async function main() {
         (${inhaberId},   ${clinicId}, 'asset_ready', 'Neuer Beitrag bereit',   'Ein neuer Beitrag mit Ihrem KI-Klon liegt unter Inhalte zur Ansicht bereit.', '/inhalte#beitraege')
     `;
 
-    // --- platform_credentials (Werbe-Sync card on dashboard + Werbebudget page) ---
+    // --- platform_credentials (Werbekonten card in Einstellungen) ---
     // Bytea field is NOT NULL but never decrypted in dev — a labelled placeholder
     // keeps the row valid without exposing a fake secret.
     const placeholderToken = Buffer.from("DEMO_TOKEN_NOT_REAL", "utf8");
@@ -912,6 +912,29 @@ async function main() {
          'gesehen',
          NULL,
          now() - interval '2 days')
+    `;
+
+    // --- dashboard_alerts (Auffälligkeiten) ---
+    // One alert in the exact shape of the worker's no_show_spike rule
+    // (worker/anomaly/rules.ts), so the card shows more than one alert before
+    // the anomaly scan has run. The scan adds its own (e.g. Reaktions-
+    // Überschreitungen) next to it; the dedupe key matches the rule's, so a
+    // real no-show alert replaces this one.
+    await sql`
+      INSERT INTO dashboard_alerts (
+        clinic_id, kind, severity, title, body, action_steps,
+        metric, baseline_value, observed_value, dedupe_key, created_at
+      ) VALUES (
+        ${clinicId}, 'no_show_spike', 'high',
+        'No-Show-Rate auf 14,0% gestiegen',
+        'Letzte 7 Tage: 14,0% (Vorperiode 30 Tage: 9,0%).',
+        ${JSON.stringify([
+          "Termin-Erinnerungen (SMS/E-Mail) 24h vorher aktiv prüfen",
+          "Letzte 10 No-Shows: gab es Muster (Uhrzeit, Behandlung, Mitarbeiter:in)?",
+          "Anzahlung bei Erstterminen erwägen, wenn Quote über 10% bleibt",
+        ])}::jsonb,
+        'no_show_rate', 0.09, 0.14, 'no_show_spike:rolling-7d', now() - interval '1 day'
+      )
     `;
 
     console.log(`✓ seeded clinic ${clinicId} (Praxis Dr. Demo)`);

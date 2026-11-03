@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { requireSession } from "@/auth/guards";
 import { can } from "@/lib/roles";
 import { env, hasGoogle } from "@/lib/env";
-import { signState, setStateCookie, parseReturnTo } from "@/server/oauth";
+import { signState, setStateCookie } from "@/server/oauth";
 import { writeAudit } from "@/server/audit";
 
 /**
@@ -12,7 +12,7 @@ import { writeAudit } from "@/server/audit";
  * Scope request is narrow — just the adwords API. We ask for offline access
  * so we get a refresh token for the daily sync job.
  */
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   const session = await requireSession();
   if (!can(session.role, "settings.integrations")) {
     return NextResponse.redirect(new URL("/einstellungen?error=forbidden", env.APP_ORIGIN));
@@ -30,7 +30,6 @@ export async function GET(request: NextRequest) {
     userId: session.userId,
     platform: "google",
     nonce,
-    returnTo: parseReturnTo(request.nextUrl.searchParams.get("zurueck")),
   });
   await setStateCookie(state);
 

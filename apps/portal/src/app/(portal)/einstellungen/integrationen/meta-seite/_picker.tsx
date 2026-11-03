@@ -1,8 +1,11 @@
 "use client";
 
-import { useActionState, useEffect, useState, type MouseEvent } from "react";
+import { useActionState, useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { useFormStatus } from "react-dom";
-import { Badge, Button } from "@eins/ui";
+import { Button, cn } from "@eins/ui";
+import { showActionFlash } from "@/app/(portal)/_components/flash-event";
+import { WASH_AREA, WASH_ROW } from "@/app/(portal)/dashboard/_components/dash-ui";
+import { CardBody, CardFoot, PRIMARY_BUTTON, Status } from "../../_components/settings-ui";
 import { chooseMetaPageAction, type MetaPagePickState } from "./actions";
 
 /**
@@ -33,15 +36,19 @@ function SubmitButton({
   // would submit unasked (portal-wide guard): stay disabled until hydrated.
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => setHydrated(true), []);
+  // Same words while it runs, so the button keeps its size; the toast or
+  // the Werbekonten card says how it went.
   return (
     <Button
       type="submit"
+      className={PRIMARY_BUTTON}
       disabled={disabled || pending || !hydrated}
+      aria-busy={pending}
       onClick={(e: MouseEvent<HTMLButtonElement>) => {
         if (confirmSwitch && !window.confirm(SWITCH_CONFIRM)) e.preventDefault();
       }}
     >
-      {pending ? "Wird verbunden…" : "Diese Seite verbinden"}
+      Diese Seite verbinden
     </Button>
   );
 }
@@ -49,9 +56,12 @@ function SubmitButton({
 export function MetaPagePicker({
   pages,
   hasCurrent,
+  children,
 }: {
   pages: PickerPage[];
   hasCurrent: boolean;
+  /** A sentence above the list (a page that is gone, the only page). */
+  children?: ReactNode;
 }) {
   const [state, action] = useActionState<MetaPagePickState, FormData>(
     chooseMetaPageAction,
@@ -66,73 +76,82 @@ export function MetaPagePicker({
   // Re-binding moves the Meta-Anfragen to another page: ask first.
   const confirmSwitch = hasCurrent && selectedPage !== null && !selectedPage.current;
 
+  // A refusal comes back as state (success redirects): it goes to the toast,
+  // so the card keeps its height.
+  useEffect(() => {
+    if (state?.error) showActionFlash({ tone: "bad", title: "Seite nicht verbunden", description: state.error });
+  }, [state]);
+
   return (
-    <form action={action} className="space-y-4">
-      <fieldset className="space-y-2">
-        <legend className="mb-2 text-sm font-medium text-fg-primary">
-          Seite Ihrer Praxis
-        </legend>
-        {pages.map((p) => {
-          const inputId = `meta-page-${p.id}`;
-          return (
-            <label
-              key={p.id}
-              htmlFor={inputId}
-              className={[
-                "flex min-h-11 items-start gap-3 rounded-xl border p-3",
-                p.boundElsewhere
-                  ? "cursor-not-allowed border-border bg-bg-secondary"
-                  : "cursor-pointer border-border bg-bg-primary hover:bg-bg-secondary",
-                selected === p.id ? "!border-fg-primary" : "",
-              ].join(" ")}
-            >
-              <input
-                id={inputId}
-                type="radio"
-                name="pageId"
-                value={p.id}
-                disabled={p.boundElsewhere}
-                checked={selected === p.id}
-                onChange={() => setSelected(p.id)}
-                className="mt-1 h-5 w-5 shrink-0 accent-fg-primary"
-              />
-              <span className="min-w-0 flex-1">
-                <span className="block break-words text-base font-medium text-fg-primary">
-                  {p.name || "Seite ohne Namen"}
-                </span>
-                <span className="block break-all text-sm text-fg-secondary">
-                  Seiten-ID {p.id}
-                </span>
-                {(p.current || p.boundElsewhere) && (
-                  <span className="mt-1 flex flex-wrap gap-2">
-                    {p.current && <Badge tone="good">Aktuell verbunden</Badge>}
-                    {p.boundElsewhere && (
-                      <Badge tone="neutral">
-                        Mit einer anderen Praxis verbunden
-                      </Badge>
+    <form action={action}>
+      <CardBody className="space-y-3 pt-2">
+        {children}
+        <fieldset>
+          <legend className="sr-only">Seite Ihrer Praxis</legend>
+          {/* Hairline rows like the Werbekonten; the grey of a row keeps its
+              room to the lines (DESIGN.md section 5). */}
+          <ul className="divide-y divide-border">
+            {pages.map((p) => {
+              const inputId = `meta-page-${p.id}`;
+              return (
+                <li key={p.id} className={WASH_ROW}>
+                  <label
+                    htmlFor={inputId}
+                    className={cn(
+                      WASH_AREA,
+                      "flex items-start gap-3 rounded-[var(--r-control)] py-3",
+                      p.boundElsewhere
+                        ? "cursor-not-allowed"
+                        : "cursor-pointer transition-colors hover:bg-[var(--hover-wash)]"
                     )}
-                  </span>
-                )}
-              </span>
-            </label>
-          );
-        })}
-      </fieldset>
-
-      {pages.some((p) => p.boundElsewhere) && (
-        <p className="text-sm text-fg-primary">
-          Eine Seite, die schon mit einer anderen Praxis verbunden ist, können
-          Sie nicht wählen. Ist das Ihre Seite, melden Sie sich bitte bei EINS.
-        </p>
-      )}
-
-      {state?.error && (
-        <p role="alert" className="text-sm text-tone-bad">
-          {state.error}
-        </p>
-      )}
-
-      <SubmitButton disabled={selected === null} confirmSwitch={confirmSwitch} />
+                  >
+                    <input
+                      id={inputId}
+                      type="radio"
+                      name="pageId"
+                      value={p.id}
+                      disabled={p.boundElsewhere}
+                      checked={selected === p.id}
+                      onChange={() => setSelected(p.id)}
+                      className="mt-0.5 h-5 w-5 shrink-0 cursor-[inherit] accent-fg-primary"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span
+                        className={cn(
+                          "block break-words text-[15px] font-medium leading-6",
+                          p.boundElsewhere ? "text-fg-secondary" : "text-fg-primary"
+                        )}
+                      >
+                        {p.name || "Seite ohne Namen"}
+                      </span>
+                      <span className="block break-all text-sm leading-5 text-fg-secondary">Seiten-ID {p.id}</span>
+                      {p.current && (
+                        <Status tone="good" className="mt-1 flex">
+                          Aktuell verbunden
+                        </Status>
+                      )}
+                      {p.boundElsewhere && (
+                        <Status tone="none" className="mt-1 flex">
+                          Mit einer anderen Praxis verbunden
+                        </Status>
+                      )}
+                    </span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+        </fieldset>
+        {pages.some((p) => p.boundElsewhere) && (
+          <p className="text-sm leading-5 text-fg-secondary">
+            Eine Seite, die schon mit einer anderen Praxis verbunden ist, können Sie nicht wählen. Ist das Ihre
+            Seite, melden Sie sich bitte bei EINS.
+          </p>
+        )}
+      </CardBody>
+      <CardFoot>
+        <SubmitButton disabled={selected === null} confirmSwitch={confirmSwitch} />
+      </CardFoot>
     </form>
   );
 }

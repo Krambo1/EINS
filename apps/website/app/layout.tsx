@@ -12,14 +12,15 @@ export const metadata: Metadata = {
     template: "%s | EINS",
   },
   description:
-    "Mehr Selbstzahler für Ihre Ästhetik-Praxis: Video, bezahlte Anzeigen und KI-gestütztes Anfrage-System als integriertes Wachstumssystem im DACH-Raum.",
+    "Mehr Selbstzahler für Ihre Ästhetik-Praxis: KI-Videos mit Ihrem Klon, organische Reichweite, Anzeigen optional und ein KI-gestütztes Anfrage-System im DACH-Raum.",
   applicationName: "EINS",
   keywords: [
     "Ästhetik-Praxis Marketing",
     "Patientenakquise",
     "Selbstzahler gewinnen",
+    "Patientenanfragen",
+    "KI-Videos für Praxen",
     "Praxis-Werbung",
-    "Medizin Video Produktion",
     "Meta Ads Ästhetik-Praxis",
     "EINS",
   ],
@@ -30,7 +31,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "EINS | Wachstumssystem für Ästhetik-Praxen",
     description:
-      "Mehr Selbstzahler für Ihre Ästhetik-Praxis: Video, bezahlte Anzeigen und KI-gestütztes Anfrage-System. DACH-Raum.",
+      "Mehr Selbstzahler für Ihre Ästhetik-Praxis: KI-Videos mit Ihrem Klon, organische Reichweite, Anzeigen optional und KI-gestütztes Anfrage-System. DACH-Raum.",
     url: SITE_URL,
     siteName: "EINS",
     locale: "de_DE",
@@ -40,7 +41,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "EINS | Wachstumssystem für Ästhetik-Praxen",
-    description: "Mehr Selbstzahler für Ihre Ästhetik-Praxis. Video, bezahlte Anzeigen, KI-Anfrage-System.",
+    description: "Mehr Selbstzahler für Ihre Ästhetik-Praxis. KI-Videos, organische Reichweite, Anzeigen optional, KI-Anfrage-System.",
     // twitter:image falls back to the og:image from app/opengraph-image.tsx.
   },
   robots: {
@@ -71,7 +72,7 @@ const organizationJsonLd = {
   logo: `${SITE_URL}/eins-logo.png`,
   image: `${SITE_URL}/eins-logo.png`,
   description:
-    "Wachstumssystem für Ästhetik-Praxen im DACH-Raum. Video, bezahlte Anzeigen und KI-gestütztes Anfrage-System als integriertes Produkt.",
+    "Wachstumssystem für Ästhetik-Praxen im DACH-Raum. KI-Videos mit dem Klon des Inhabers, organische Reichweite, Anzeigen optional und KI-gestütztes Anfrage-System als integriertes Produkt.",
   slogan: "Mehr Selbstzahler. Mehr Umsatz. Mehr Sicherheit.",
   email: CONTACT_EMAIL,
   telephone: CONTACT_PHONE,
@@ -100,7 +101,7 @@ const serviceJsonLd = {
   url: SITE_URL,
   image: `${SITE_URL}/eins-logo.png`,
   description:
-    "Wachstumssystem für Ästhetik-Praxen: Medienproduktion, bezahlte Anzeigen und KI-gestütztes Anfrage-System.",
+    "Wachstumssystem für Ästhetik-Praxen: KI-Videos, organische Reichweite, Anzeigen optional und KI-gestütztes Anfrage-System.",
   areaServed: [
     { "@type": "Country", name: "Deutschland" },
     { "@type": "Country", name: "Österreich" },
@@ -108,8 +109,8 @@ const serviceJsonLd = {
   ],
   serviceType: [
     "Patientenakquise",
-    "Medienproduktion für Praxen",
-    "Bezahlte Anzeigen",
+    "KI-Videos für Praxen",
+    "Organische Reichweite und Anzeigen",
     "KI-gestütztes Anfrage-System",
   ],
   priceRange: "€€€",
@@ -125,7 +126,7 @@ export default function RootLayout({
       <head>
         {/* Preload the single font weight used by the LCP hero H1 (display-xl → 600 → falls
             back to the Bold 700 face). Other weights load via @font-face in globals.css
-            with display:swap, no preload — keeps the LCP path bandwidth-clear. */}
+            with display:swap, no preload: keeps the LCP path bandwidth-clear. */}
         <link
           rel="preload"
           href="/fonts/NeueHaasDisplay-Bold.woff2"

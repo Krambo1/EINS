@@ -41,6 +41,19 @@ export const TABLE_HEAD = "h-7 border-b border-border text-sm text-fg-secondary"
 export const TABLE_ROW = "min-h-11 py-2 transition-colors";
 
 /**
+ * A list row that turns grey (hover, open, selected; DESIGN.md section 5,
+ * "Grey areas keep breathing room"). `WASH_ROW` goes on the `li`: 4 px stay
+ * white inside its hairlines, so the grey never touches a hairline or the
+ * grey of the next row. `WASH_AREA` goes on the part that turns grey: 12 px
+ * past the content on both sides, the text still in line with the card
+ * title. Above and below the content keeps 12 px when it runs two lines or
+ * more, at least 8 px in a one-line row. A head band over such rows takes
+ * `WASH_AREA` too, so its columns stay over the rows'. Built on Hilfe.
+ */
+export const WASH_ROW = "py-1";
+export const WASH_AREA = "-mx-3 px-3";
+
+/**
  * Header of a long list as a band pressed into the card (Linear's group
  * header), instead of `TABLE_HEAD`'s hairline. Opt-in per list.
  */

@@ -16,7 +16,7 @@ import type {
   RetreatmentContext,
   RetreatmentTag as RetreatmentTagData,
 } from "@/server/queries/retreatments";
-import { CONTROL, CONTROL_SQUARE, DashCard, RAISED_CONTROL } from "../../dashboard/_components/dash-ui";
+import { CONTROL, CONTROL_SQUARE, DashCard, RAISED_CONTROL, WASH_AREA, WASH_ROW } from "../../dashboard/_components/dash-ui";
 import { CallOutcomeActions } from "./CallOutcomeActions";
 import { CallHeroSlot, CallQueueList, CallQueueState, type SlotNode } from "./CallQueueState";
 import { Facts } from "./Facts";
@@ -86,10 +86,21 @@ export const HERO_CARDS = 3;
  * hero, the rows and a reserve. As many calls as this may mean more waiting.
  */
 export const CALLS_LOADED = 8;
-/** One queue row, 72 px including the divider; the list is QUEUE_SLOTS of them. */
-export const QUEUE_ROW_HEIGHT = "min-h-[4.5rem]";
+/**
+ * The grey part of one queue row: the two lines (46 px with the status) and
+ * 12 px above and below (70 px). With the 4 px white above and below it
+ * (WASH_ROW) and the hairline a row is 79 px; the list is QUEUE_SLOTS of them
+ * (the first without a hairline: 78 + 4 x 79 = 394 px).
+ */
+export const QUEUE_ROW_HEIGHT = "min-h-[4.375rem]";
 /** From xl the card stands beside the call card and the list takes its height. */
-export const QUEUE_LIST_HEIGHT = "h-[22.5rem] xl:h-auto xl:min-h-0 xl:flex-1";
+export const QUEUE_LIST_HEIGHT = "h-[24.625rem] xl:h-auto xl:min-h-0 xl:flex-1";
+/** The part of a queue row that turns grey: 12 px around its two lines, rounded by its 70 px. */
+const QUEUE_ROW = cn(
+  "flex items-center gap-3 rounded-[var(--r-panel)] py-3 transition-colors hover:bg-[var(--hover-wash)]",
+  WASH_AREA,
+  QUEUE_ROW_HEIGHT
+);
 
 export function CallQueue({
   items,
@@ -207,7 +218,9 @@ export function CallQueue({
           <CallQueueList
             nodes={rowNodes}
             className={cn(
-              "scroll-shadows -mx-2 divide-y divide-border [--scroll-bg:var(--surface-tile)]",
+              // -mx-3 px-3: the rows' grey (WASH_AREA) reaches into the
+              // padding, inside the scroll box, so it is not cut off.
+              "scroll-shadows -mx-3 divide-y divide-border px-3 [--scroll-bg:var(--surface-tile)]",
               QUEUE_LIST_HEIGHT
             )}
             empty={
@@ -250,7 +263,7 @@ export function CenteredNote({ title, text }: { title: string; text?: string }) 
  * lines of the small sizes, one of the large): long names step down a size
  * and may take two lines, so the contact buttons under the block never move.
  */
-export const NAME_BLOCK = "flex h-10 shrink-0 overflow-y-auto";
+export const NAME_BLOCK = "scroll-shadows flex h-10 shrink-0 [--scroll-bg:var(--surface-tile)]";
 /**
  * A Behandlung the patient typed in themself can be a sentence. Longer than
  * this it would wrap its row several times, so it goes into the text well
@@ -535,34 +548,31 @@ function RetreatmentQueueRow({ call, today }: { call: RetreatmentCall; today: st
     "flex min-w-0 flex-1 items-start gap-2.5 rounded-[var(--r-control)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
 
   return (
-    <li
-      className={cn(
-        "flex items-center gap-3 px-2 py-3 transition-colors hover:bg-[var(--hover-wash)]",
-        QUEUE_ROW_HEIGHT
-      )}
-    >
-      {call.requestId ? (
-        <Link href={`/anfragen/${call.requestId}`} className={bodyClass}>
-          {body}
-        </Link>
-      ) : (
-        <div className={bodyClass}>{body}</div>
-      )}
+    <li className={WASH_ROW}>
+      <div className={QUEUE_ROW}>
+        {call.requestId ? (
+          <Link href={`/anfragen/${call.requestId}`} className={bodyClass}>
+            {body}
+          </Link>
+        ) : (
+          <div className={bodyClass}>{body}</div>
+        )}
 
-      {phoneHref ? (
-        <Button
-          asChild
-          variant="outline"
-          className={cn(RAISED_CONTROL, CONTROL, CONTROL_SQUARE, "shrink-0")}
-          title={call.patientPhone ?? undefined}
-        >
-          <a href={phoneHref} aria-label={`${name} anrufen: ${call.patientPhone}`}>
-            <Phone className="h-4 w-4" aria-hidden />
-          </a>
-        </Button>
-      ) : (
-        <span aria-hidden className="w-[var(--control-h)] shrink-0" />
-      )}
+        {phoneHref ? (
+          <Button
+            asChild
+            variant="outline"
+            className={cn(RAISED_CONTROL, CONTROL, CONTROL_SQUARE, "shrink-0")}
+            title={call.patientPhone ?? undefined}
+          >
+            <a href={phoneHref} aria-label={`${name} anrufen: ${call.patientPhone}`}>
+              <Phone className="h-4 w-4" aria-hidden />
+            </a>
+          </Button>
+        ) : (
+          <span aria-hidden className="w-[var(--control-h)] shrink-0" />
+        )}
+      </div>
     </li>
   );
 }
@@ -660,48 +670,45 @@ function QueueRow({ lead, responseRule }: { lead: CallQueueLead; responseRule?: 
   const phoneHref = lead.contactPhone ? `tel:${lead.contactPhone}` : null;
 
   return (
-    <li
-      className={cn(
-        "flex items-center gap-3 px-2 py-3 transition-colors hover:bg-[var(--hover-wash)]",
-        QUEUE_ROW_HEIGHT
-      )}
-    >
-      <Link
-        href={`/anfragen/${lead.id}`}
-        className="flex min-w-0 flex-1 items-start gap-2.5 rounded-[var(--r-control)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-      >
-        <RowSignal timing={timingOf(lead, responseRule)} followupDue={isFollowupDue(lead)} />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-baseline justify-between gap-3">
-            <span className="min-w-0 break-words text-[15px] font-medium leading-5 text-fg-primary">
-              {name}
-            </span>
-            <span className="shrink-0 text-sm leading-5 tabular-nums text-fg-secondary">
-              {formatRelative(lead.createdAt)}
-            </span>
-          </span>
-          <Facts>
-            <StatusPill status={lead.status} />
-            {lead.treatmentName ?? lead.treatmentWish ?? "Keine Angabe"}
-          </Facts>
-        </span>
-      </Link>
-
-      {phoneHref ? (
-        <Button
-          asChild
-          variant="outline"
-          className={cn(RAISED_CONTROL, CONTROL, CONTROL_SQUARE, "shrink-0")}
-          title={lead.contactPhone ?? undefined}
+    <li className={WASH_ROW}>
+      <div className={QUEUE_ROW}>
+        <Link
+          href={`/anfragen/${lead.id}`}
+          className="flex min-w-0 flex-1 items-start gap-2.5 rounded-[var(--r-control)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
         >
-          <a href={phoneHref} aria-label={`${name} anrufen: ${lead.contactPhone}`}>
-            <Phone className="h-4 w-4" aria-hidden />
-          </a>
-        </Button>
-      ) : (
-        // Keeps the dates of all rows in one column.
-        <span aria-hidden className="w-[var(--control-h)] shrink-0" />
-      )}
+          <RowSignal timing={timingOf(lead, responseRule)} followupDue={isFollowupDue(lead)} />
+          <span className="min-w-0 flex-1">
+            <span className="flex items-baseline justify-between gap-3">
+              <span className="min-w-0 break-words text-[15px] font-medium leading-5 text-fg-primary">
+                {name}
+              </span>
+              <span className="shrink-0 text-sm leading-5 tabular-nums text-fg-secondary">
+                {formatRelative(lead.createdAt)}
+              </span>
+            </span>
+            <Facts>
+              <StatusPill status={lead.status} />
+              {lead.treatmentName ?? lead.treatmentWish ?? "Keine Angabe"}
+            </Facts>
+          </span>
+        </Link>
+
+        {phoneHref ? (
+          <Button
+            asChild
+            variant="outline"
+            className={cn(RAISED_CONTROL, CONTROL, CONTROL_SQUARE, "shrink-0")}
+            title={lead.contactPhone ?? undefined}
+          >
+            <a href={phoneHref} aria-label={`${name} anrufen: ${lead.contactPhone}`}>
+              <Phone className="h-4 w-4" aria-hidden />
+            </a>
+          </Button>
+        ) : (
+          // Keeps the dates of all rows in one column.
+          <span aria-hidden className="w-[var(--control-h)] shrink-0" />
+        )}
+      </div>
     </li>
   );
 }

@@ -1,5 +1,6 @@
 import { cn } from "@eins/ui";
 import { PageHeader } from "../_components/PageHeader";
+import { WASH_AREA } from "../dashboard/_components/dash-ui";
 import { FILE_LIST, FILE_ROW, FILE_SLOTS, FilesCard, SKELETON_BAR } from "./_components/file-ui";
 
 const RAISED_SLOT = "elev-raised block h-[var(--control-h)] rounded-[var(--r-control)] bg-[var(--surface-raised)]";
@@ -47,7 +48,7 @@ function SkeletonRows() {
   return (
     <ul className={FILE_LIST}>
       {Array.from({ length: FILE_SLOTS }).map((_, i) => (
-        <li key={i} className={cn("flex items-center gap-3 px-2", FILE_ROW)}>
+        <li key={i} className={cn("flex items-center gap-3", WASH_AREA, FILE_ROW)}>
           <span className={cn(SKELETON_BAR, "h-4 w-4 shrink-0 self-start mt-0.5")} />
           <div className="min-w-0 flex-1">
             <div className="flex h-5 items-center">

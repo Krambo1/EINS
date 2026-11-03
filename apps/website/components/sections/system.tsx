@@ -12,16 +12,26 @@ import { OFFER_CARDS, type OfferCard } from "@/lib/system-data";
 // cutout or an icon) with breathing room.
 function CardVisual({ id }: { id: OfferCard["id"] }) {
   if (id === "medienproduktion") {
+    // Video frame with a speaker silhouette and a play button: no camera,
+    // because the practice never has to be filmed (the KI clone speaks).
     return (
-      <Image
-        src="/top-view-hands-with-photo-camera.webp"
-        alt=""
-        width={900}
-        height={608}
-        sizes="(max-width: 768px) 144px, 320px"
-        className="h-full w-full object-contain"
-        loading="lazy"
-      />
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={0.9}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+        className="h-24 w-24 translate-y-1.5 text-fg-primary sm:h-24 sm:w-24 sm:translate-y-1 md:h-32 md:w-32 md:translate-y-0"
+      >
+        <rect x="2.5" y="4.5" width="19" height="12.5" rx="1.6" />
+        <circle cx="8.6" cy="9.6" r="1.7" />
+        <path d="M5.4 15.2c.4-2.1 1.7-3.2 3.2-3.2s2.8 1.1 3.2 3.2" />
+        <path d="M14.8 8.2v4.6l3.7-2.3z" fill="#58BAB5" stroke="#58BAB5" />
+        <line x1="4.5" y1="20" x2="19.5" y2="20" />
+        <line x1="4.5" y1="20" x2="12" y2="20" stroke="#58BAB5" />
+      </svg>
     );
   }
   if (id === "rechtspruefung") {

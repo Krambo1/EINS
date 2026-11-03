@@ -1,102 +1,155 @@
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import Link from "next/link";
 import { cn } from "@eins/ui";
-import styles from "./auth.module.css";
+import { PAGE_TITLE } from "@/app/(portal)/_components/PageHeader";
+import { CONTROL, RAISED_CONTROL } from "@/app/(portal)/dashboard/_components/dash-ui";
+import { AUTH_BODY_GAP, AUTH_STACK, AUTH_TITLE_GAP, FIELD_LABEL_ROW } from "../_lib/sizes";
 
 /**
- * Building blocks for the auth pages in the eins.ag look: white surfaces,
- * dark text, 48px controls, mint for focus and accents, and the website's
- * dark pill CTA (see auth.module.css). Plain components without hooks,
- * usable from server and client components alike.
+ * Building blocks of the sign-in pages, from the portal's own parts
+ * (DESIGN.md section 9, Anmeldung): CONTROL for every field and button, a
+ * field pressed into the card, a dark main button, a raised secondary one,
+ * one title size. Mint stays in the logo; focus is the portal's ring in the
+ * text colour. Plain components without hooks, usable from server and
+ * client components alike.
  */
 
-const MINT_FOCUS =
-  "focus-visible:border-[#58BAB5] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-[rgba(88,186,181,0.2)]";
+/** The portal's focus ring, in the text colour. */
+export const AUTH_FOCUS =
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg-primary";
 
+/**
+ * A field to type into, pressed into the card like the portal's (FIELD in
+ * einstellungen/_lib/sizes.ts). Focus and the invalid mark are outlines, so
+ * the autofill fix below (a box-shadow) cannot hide them; the invalid mark
+ * wins while the field has focus, so it stays after a wrong password.
+ */
 export const authFieldClass = cn(
-  "h-12 w-full rounded-[14px] border border-border bg-white px-4 text-base text-fg-primary transition duration-200 ease-out",
-  "placeholder:text-fg-tertiary/70 hover:border-border-hover",
-  MINT_FOCUS,
-  "aria-[invalid=true]:border-tone-bad",
-  "disabled:cursor-not-allowed disabled:opacity-70",
-  // Browser autofill paints its own blue background; keep the field white.
-  "[&:-webkit-autofill]:[-webkit-text-fill-color:#10101a] [&:-webkit-autofill]:[box-shadow:inset_0_0_0_1000px_#ffffff]"
+  CONTROL,
+  "elev-inset w-full border-0 bg-[var(--well)] px-3.5 text-base text-fg-primary placeholder:text-fg-tertiary focus:bg-[var(--surface-tile)] sm:text-[15px]",
+  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-fg-primary",
+  "aria-[invalid=true]:outline aria-[invalid=true]:outline-2 aria-[invalid=true]:outline-offset-0 aria-[invalid=true]:outline-tone-bad",
+  "disabled:opacity-60",
+  // Browser autofill paints its own blue; keep the field's own colour.
+  "[&:-webkit-autofill]:[-webkit-text-fill-color:var(--fg-primary)] [&:-webkit-autofill]:[box-shadow:var(--elev-inset),inset_0_0_0_1000px_var(--well)]"
 );
-
-/** Primary action: the eins.ag CTA (dark pill, mint sweep round the border). */
-export const authCtaClass = cn(
-  styles.cta,
-  "inline-flex h-12 w-full select-none items-center justify-center gap-2 px-6 text-base font-medium"
-);
-
-/** Secondary action (Google, "Zurück zur Anmeldung"). */
-export const authButtonClass = cn(
-  "inline-flex h-12 w-full select-none items-center justify-center gap-2.5 rounded-full border border-border bg-white px-6 text-base font-medium text-fg-primary",
-  "transition-colors duration-200 hover:border-border-hover hover:bg-bg-secondary",
-  MINT_FOCUS,
-  "disabled:pointer-events-none disabled:opacity-40"
-);
-
-/** Inline text action. Dark text, mint underline: mint text on white is too faint to read. */
-export const authTextLinkClass =
-  "rounded font-medium text-fg-primary underline decoration-[#58BAB5] decoration-2 underline-offset-4 transition-colors hover:decoration-[#3f938f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgba(88,186,181,0.4)] disabled:opacity-50";
 
 /**
- * The website's card pattern (card-glow, light surface over the mint shapes).
- * No backdrop-blur: it would make the card the containing block for the
- * fixed toast inside it.
+ * The main action, one per card: dark, full width, CONTROL height. Pending
+ * and blocked both grey it out at the same size; the label stays.
  */
-export const authCardClass = cn(
-  styles.card,
-  "rounded-2xl border border-border bg-white/80 p-6 sm:p-10"
+export const authPrimaryClass = cn(
+  CONTROL,
+  "inline-flex w-full select-none items-center justify-center whitespace-nowrap bg-fg-primary px-4 text-sm font-medium text-bg-primary shadow-[0_1px_2px_rgba(16,16,26,0.08)] transition-colors hover:bg-[color-mix(in_srgb,var(--fg-primary)_86%,var(--bg-primary))]",
+  AUTH_FOCUS,
+  "focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-tile)]",
+  "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-fg-primary"
 );
 
-/** Wraps the mint part of a headline, like "Mehr Sicherheit." on eins.ag. */
-export function Accent({ children }: { children: ReactNode }) {
-  return <span className={styles.accent}>{children}</span>;
-}
+/** A second action beside the main one (Google, "Zurück zur Anmeldung"). */
+export const authSecondaryClass = cn(
+  RAISED_CONTROL,
+  CONTROL,
+  "inline-flex w-full select-none items-center justify-center gap-2.5 px-4 text-sm font-medium transition-colors",
+  AUTH_FOCUS,
+  "disabled:cursor-not-allowed disabled:opacity-50"
+);
+
+/**
+ * A quiet text action under the form ("Anmeldelink per E-Mail senden", "Zur
+ * Anmeldung"): CONTROL high, so it is easy to tap, no frame.
+ */
+export const authQuietClass = cn(
+  CONTROL,
+  "inline-flex w-full items-center justify-center px-3 text-sm font-medium text-fg-primary transition-colors hover:bg-[var(--hover-wash)]",
+  AUTH_FOCUS,
+  "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+);
+
+/** A link inside a label row or a sentence ("Passwort vergessen?"). */
+export const authTextLinkClass = cn(
+  "rounded-[var(--r-small)] text-sm font-medium text-fg-primary underline decoration-[var(--border-hover)] underline-offset-4 transition-colors hover:decoration-fg-primary",
+  AUTH_FOCUS
+);
 
 export function AuthLabel({ className, ...props }: ComponentPropsWithoutRef<"label">) {
   return (
-    <label {...props} className={cn("block text-sm font-medium text-fg-primary", className)} />
+    <label {...props} className={cn("block text-sm font-medium leading-5 text-fg-primary", className)} />
   );
 }
 
-/** Bold headline in the website's style and an optional line under it. */
+/**
+ * A label above its field, with an optional link at the row's right end
+ * (einstellungen's Field: "Passwort vergessen?" beside "Passwort").
+ */
+export function AuthField({
+  label,
+  htmlFor,
+  aside,
+  children,
+}: {
+  label: string;
+  htmlFor: string;
+  aside?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className={FIELD_LABEL_ROW}>
+        <AuthLabel htmlFor={htmlFor}>{label}</AuthLabel>
+        {aside}
+      </div>
+      <div className="mt-1.5">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * A value that cannot be typed here, under its label like a field's (the
+ * address on Passwort setzen). Plain text that wraps, never cut off.
+ */
+export function AuthValue({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <div className={FIELD_LABEL_ROW}>
+        <p className="text-sm font-medium leading-5 text-fg-primary">{label}</p>
+      </div>
+      <p className="mt-1.5 text-[15px] leading-6 text-fg-primary [overflow-wrap:anywhere]">{children}</p>
+    </div>
+  );
+}
+
+/**
+ * The card's title, the portal's one title size, no trailing period, 24 px
+ * under the logo. `children`: at most one sentence under it.
+ */
 export function AuthHeader({ title, children }: { title: ReactNode; children?: ReactNode }) {
   return (
-    <div className="mb-8">
-      <h1 className="text-balance text-[32px] font-bold leading-[1.05] tracking-[-0.02em] text-fg-primary [word-spacing:normal] sm:text-[38px]">
-        {title}
-      </h1>
-      {children && <div className="mt-3 text-base text-fg-primary sm:text-lg">{children}</div>}
+    <div className={AUTH_TITLE_GAP}>
+      <h1 className={cn(PAGE_TITLE, "text-balance")}>{title}</h1>
+      {children && <div className="mt-2 text-[15px] leading-6 text-fg-secondary">{children}</div>}
     </div>
   );
 }
 
-export function AuthDivider({ children = "oder" }: { children?: ReactNode }) {
-  return (
-    <div className="my-6 flex items-center" role="separator">
-      <span className="h-px flex-1 bg-border" />
-      <span className="mx-4 text-sm text-fg-secondary">{children}</span>
-      <span className="h-px flex-1 bg-border" />
-    </div>
-  );
+/** What follows the title: a form or the actions. */
+export function AuthBody({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={cn(AUTH_BODY_GAP, AUTH_STACK, className)}>{children}</div>;
 }
 
-/** Three pulsing dots in place of a button label while a request runs. */
-export function PendingDots({ label }: { label: string }) {
+/** A hairline between the form and another way in (Google). */
+export function AuthDivider() {
+  return <div role="separator" className="h-px bg-border" />;
+}
+
+/**
+ * The text a screen reader hears while a button is pending: the button
+ * itself keeps its label and only greys out.
+ */
+export function PendingStatus({ pending, label }: { pending: boolean; label: string }) {
   return (
-    <span className="inline-flex items-center gap-1.5" role="status">
-      {[0, 150, 300].map((delay) => (
-        <span
-          key={delay}
-          aria-hidden
-          className="h-1.5 w-1.5 animate-pulse rounded-full bg-current"
-          style={{ animationDelay: `${delay}ms` }}
-        />
-      ))}
-      <span className="sr-only">{label}</span>
+    <span role="status" className="sr-only">
+      {pending ? label : ""}
     </span>
   );
 }
@@ -118,21 +171,23 @@ export function CheckInbox({
 }) {
   return (
     <div>
-      <AuthHeader title="Sehen Sie in Ihr Postfach.">
+      <AuthHeader title="Sehen Sie in Ihr Postfach">
         <p role="status">{children}</p>
       </AuthHeader>
-      {onBack ? (
-        <button type="button" onClick={onBack} className={authButtonClass}>
-          Zurück zur Anmeldung
-        </button>
-      ) : (
-        <Link href={backHref} className={authButtonClass}>
-          Zurück zur Anmeldung
-        </Link>
-      )}
-      <p className="mt-6 text-sm text-fg-secondary">
-        Keine E-Mail da? Sehen Sie auch im Spam-Ordner nach.
-      </p>
+      <AuthBody>
+        <p className="text-sm leading-5 text-fg-secondary">
+          Keine E-Mail da? Sehen Sie auch im Spam-Ordner nach.
+        </p>
+        {onBack ? (
+          <button type="button" onClick={onBack} data-auth-primary className={authSecondaryClass}>
+            Zurück zur Anmeldung
+          </button>
+        ) : (
+          <Link href={backHref} data-auth-primary className={authSecondaryClass}>
+            Zurück zur Anmeldung
+          </Link>
+        )}
+      </AuthBody>
     </div>
   );
 }

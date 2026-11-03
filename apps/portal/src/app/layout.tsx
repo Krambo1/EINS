@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import { AppEffects } from "./_components/AppEffects";
+import { ScrollCues } from "./_components/ScrollCues";
 
 const display = localFont({
   src: [
@@ -54,6 +55,7 @@ export default function RootLayout({
       <body className="min-h-dvh bg-bg-primary text-fg-primary antialiased">
         <AppEffects />
         {children}
+        <ScrollCues />
       </body>
     </html>
   );

@@ -1,101 +1,64 @@
-import Link from "next/link";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@eins/ui";
+import { cn } from "@eins/ui";
 import { requireSession } from "@/auth/guards";
-import { GdtAgentEnroll } from "./_enroll";
-import { listOpenAgentEnrollmentsAction } from "../../actions";
 import { formatRelative } from "@/lib/formatting";
+import { can } from "@/lib/roles";
+import { ANBINDUNG_WAEHLEN, EINSTELLUNGEN, PRAXIS_SOFTWARE, SettingsHead } from "../../../_components/SettingsHead";
+import { CardBody, SettingsCard } from "../../../_components/settings-ui";
+import { COLUMNS, LIST, LIST_ROW, ONE_LINE, STACK, slots } from "../../../_lib/sizes";
+import { listOpenAgentEnrollmentsAction } from "../../actions";
+import { Steps } from "../_steps";
+import { GdtAgentEnroll } from "./_enroll";
+import { GDT_STEPS } from "./_copy";
 
-export const metadata = { title: "GDT-Agent installieren" };
+export const metadata = { title: "GDT-Agent" };
 
 export default async function GdtAgentSetupPage() {
-  await requireSession();
+  const session = await requireSession();
   const open = await listOpenAgentEnrollmentsAction();
 
   return (
-    <div className="space-y-6">
-      <header>
-        <div className="mb-2 flex items-center gap-2 text-sm">
-          <Link
-            href="/einstellungen/integrationen/setup"
-            className="inline-flex min-h-11 items-center font-medium text-fg-primary hover:underline"
-          >
-            ← Anbieter wählen
-          </Link>
+    <div className={STACK}>
+      <SettingsHead title="GDT-Agent" trail={[EINSTELLUNGEN, PRAXIS_SOFTWARE, ANBINDUNG_WAEHLEN]} />
+      <div className={COLUMNS}>
+        <div className={STACK}>
+          <SettingsCard id="so-gehts" title="So funktioniert es">
+            <CardBody>
+              <Steps>{GDT_STEPS}</Steps>
+            </CardBody>
+          </SettingsCard>
+
+          <SettingsCard id="code" title="Einrichtungs-Code">
+            <GdtAgentEnroll canIssue={can(session.role, "settings.integrations")} />
+          </SettingsCard>
+
+          {open.length > 0 && (
+            <SettingsCard id="offene-codes" title="Offene Einrichtungs-Codes">
+              <CardBody className="pt-2">
+                <ul className={LIST} style={slots(3)}>
+                  {open.map((e) => (
+                    <li key={e.id} className={LIST_ROW}>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[15px] font-medium leading-6 text-fg-primary">
+                          Läuft ab {formatRelative(e.expiresAt)}
+                        </p>
+                        <p className={cn(ONE_LINE, "text-sm leading-5 text-fg-secondary")}>
+                          {e.expectedFingerprint ? (
+                            <>
+                              Nur auf <span className="font-mono">{e.expectedFingerprint}</span>
+                            </>
+                          ) : (
+                            "Auf jedem Praxisrechner"
+                          )}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </CardBody>
+            </SettingsCard>
+          )}
         </div>
-        <h1 className="text-2xl font-semibold">GDT-Agent</h1>
-        <p className="mt-1 text-base text-fg-primary">
-          Für lokal installierte Praxis-Software (CGM Albis, x.concept, pixelmedic,
-          DURIA und alle, die GDT/BDT ausgeben können). Der
-          EINS-Agent läuft als kleines Programm auf einem Praxisrechner, liest
-          neue GDT-Dateien aus einem Ordner und sendet sie verschlüsselt ans
-          Portal.
-        </p>
-      </header>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">So funktioniert es</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ol className="ml-4 list-decimal space-y-2 text-sm">
-            <li>
-              Sie generieren unten einen einmaligen <strong>Einrichtungs-Code</strong>{" "}
-              (24 Stunden gültig).
-            </li>
-            <li>
-              In Ihrer Praxis: laden Sie den Installer (Windows MSI oder Mac DMG)
-              herunter und starten ihn mit dem Code.
-            </li>
-            <li>
-              Der Agent verbindet sich, erhält einen eigenen geheimen Schlüssel
-              und überwacht den GDT-Ordner Ihrer Praxis-Software.
-            </li>
-            <li>
-              Richten Sie in Ihrer Praxis-Software einen GDT-Partner mit dem Ziel-Ordner
-              des Agents. Termine, Behandlungen und Rechnungen fließen automatisch
-              ins Portal.
-            </li>
-          </ol>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Einrichtungs-Code erzeugen</CardTitle>
-          <CardDescription>
-            Inhaber-Rolle erforderlich. Der Code wird nur einmal angezeigt. Bei
-            Verlust einfach einen neuen erzeugen.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <GdtAgentEnroll />
-        </CardContent>
-      </Card>
-
-      {open.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Offene Einrichtungs-Codes</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ul className="space-y-2 text-sm">
-              {open.map((e) => (
-                <li
-                  key={e.id}
-                  className="flex items-center justify-between rounded-md border p-2"
-                >
-                  <span>Gültig bis {formatRelative(e.expiresAt)}</span>
-                  {e.expectedFingerprint && (
-                    <code className="text-sm text-fg-secondary">
-                      {e.expectedFingerprint}
-                    </code>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
-      )}
+      </div>
     </div>
   );
 }

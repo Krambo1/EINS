@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { cn } from "@eins/ui";
-import { DashCard, TABLE_HEAD_BAND } from "../dashboard/_components/dash-ui";
+import { DashCard, TABLE_HEAD_BAND, WASH_AREA, WASH_ROW } from "../dashboard/_components/dash-ui";
 import { PageHeader } from "../_components/PageHeader";
 import {
   DETAIL_LINES,
@@ -80,23 +80,26 @@ export default function Loading() {
         className={cn("flex flex-col", POSTS_CARD_HEIGHT)}
         bodyClassName="flex min-h-0 flex-1 flex-col"
       >
-        <div className={cn("hidden shrink-0 lg:block", TABLE_HEAD_BAND)} />
-        <ul className="-mx-2 min-h-0 flex-1 divide-y divide-border overflow-hidden px-2 lg:mt-1">
+        <div className={cn("hidden shrink-0 lg:block", TABLE_HEAD_BAND, WASH_AREA)} />
+        <ul className="-mx-3 min-h-0 flex-1 divide-y divide-border overflow-hidden px-3 lg:mt-1">
           {Array.from({ length: PAGE_SIZE }).map((_, i) => (
-            <li
-              key={i}
-              className={cn(
-                "grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-x-1 px-2 lg:grid-cols-[5.25rem_minmax(0,1fr)]",
-                POST_ROW
-              )}
-            >
-              <div className={cn(BAR, "h-12 w-12 rounded-[var(--r-control)] lg:w-[5.25rem]")} />
-              <div className="min-w-0 space-y-1 px-2">
-                <div className="flex h-5 items-center">
-                  <div className={cn(BAR, "h-4 w-48 max-w-full")} />
-                </div>
-                <div className="flex h-5 items-center lg:hidden">
-                  <div className={cn(BAR, "h-3.5 w-36")} />
+            // The white 4 px on the li, the row's box inside, as on the card.
+            <li key={i} className={WASH_ROW}>
+              <div
+                className={cn(
+                  "grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-x-1 lg:grid-cols-[5.25rem_minmax(0,1fr)]",
+                  WASH_AREA,
+                  POST_ROW
+                )}
+              >
+                <div className={cn(BAR, "h-12 w-12 rounded-[var(--r-control)] lg:w-[5.25rem]")} />
+                <div className="min-w-0 space-y-1 px-2">
+                  <div className="flex h-5 items-center">
+                    <div className={cn(BAR, "h-4 w-48 max-w-full")} />
+                  </div>
+                  <div className="flex h-5 items-center lg:hidden">
+                    <div className={cn(BAR, "h-3.5 w-36")} />
+                  </div>
                 </div>
               </div>
             </li>

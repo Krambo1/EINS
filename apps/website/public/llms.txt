@@ -2,10 +2,10 @@
 
 > EINS ist ein integriertes Wachstumssystem für Praxen der ästhetischen Medizin,
 > plastischen und ästhetischen Chirurgie sowie Dermatologie im DACH-Raum
-> (Deutschland, Österreich, Schweiz). Das System kombiniert Medienproduktion,
-> bezahlte Anzeigen und ein KI-gestütztes Anfrage-System in einem vollständig
-> betreuten Produkt. Ziel: planbare Gewinnung von Selbstzahler-Patienten für
-> hochpreisige Behandlungen.
+> (Deutschland, Österreich, Schweiz). Das System kombiniert KI-Videos mit dem
+> KI-Klon des Inhabers, organische Reichweite mit bezahlten Anzeigen danach und
+> ein KI-gestütztes Anfrage-System in einem vollständig betreuten Produkt. Ziel:
+> planbare Gewinnung von Selbstzahler-Patienten für hochpreisige Behandlungen.
 
 Betreiber: EINS, Köln, Deutschland
 Kontakt: team@eins.ag, +49 1628456643
@@ -14,39 +14,62 @@ Webseite: https://eins.ag
 
 ## Angebot
 
-- Medienproduktion: Video, Animation und Fotos, produziert in der Praxis.
-- KI-gestützte Rechtsprüfung der Werbung gegen typische HWG-Abmahnmuster, mit anwaltlicher Eskalation bei Grenzfällen.
-- Maßgeschneiderte Ziel-Websites für hochpreisige Behandlungen, ausschließlich für bezahlte Anzeigen gebaut.
-- Bezahlte Anzeigen auf Instagram, Facebook und Google, regional ausgesteuert.
+- KI-Videos: Der KI-Klon des Inhabers beantwortet die Fragen, die Patientinnen sich nicht zu stellen trauen, dazu Erklär-Animationen und Bildmaterial. Der Inhaber nimmt einmal wenige Minuten Video und Stimme mit dem Handy auf und muss nie vor die Kamera. Jedes Video ist als KI-generiert gekennzeichnet und geht erst nach Freigabe des Inhabers raus.
+- KI-gestützte Rechtsprüfung jedes Beitrags und jeder Anzeige gegen typische HWG-Abmahnmuster, mit anwaltlicher Eskalation bei Grenzfällen.
+- Maßgeschneiderte Zielseiten für hochpreisige Behandlungen: Ziel des Profil-Links und der Anzeigen.
+- Reichweite: organisch zuerst auf den Kanälen der Praxis, bezahlte Anzeigen auf Meta und Google optional und genau hinter den Beiträgen, die Anfragen bringen.
 - Praxis-Reputationssystem: kontinuierlicher Aufbau echter Bewertungen auf Google und Jameda.
 - KI-Anfrage-Filterung: zweistufiges Scoring jeder Anfrage, sortiert Preisjäger und Spam aus.
 - Strategische Begleitung mit Vertriebsleitfaden und Gesprächsskripten für das Praxisteam.
+- Auswertung im Portal: jede Anfrage mit Herkunft, bewertet nach behandelten Patienten, nicht nach Klicks.
 
 ## Für wen das System gedacht ist
 
 Praxen für ästhetische Medizin, plastische und ästhetische Chirurgie oder
-Dermatologie im DACH-Raum, mit einem Werbebudget von mindestens 3.000 Euro pro
-Monat. Ziel: mehr Selbstzahler-Patienten für hochpreisige Behandlungen wie
-Faltenunterspritzung, Lippenunterspritzung, Kryolipolyse, Laser, HIFU,
-Körperformung, Facelift und Liposuktion.
+Dermatologie im DACH-Raum. Ziel: mehr Selbstzahler-Patienten für hochpreisige
+Behandlungen wie Faltenunterspritzung, Lippenunterspritzung, Kryolipolyse,
+Laser, HIFU, Körperformung, Facelift und Liposuktion.
 
-Nicht geeignet für: Zahnmedizin, rein kassenärztliche Praxen ohne ästhetischen
-Schwerpunkt und Testbudgets unter dem genannten Minimum.
+Nicht geeignet für: Zahnmedizin und rein kassenärztliche Praxen ohne
+ästhetischen Schwerpunkt.
 
-## Garantie
+## Werbebudget
 
-Wird die im Strategie-Gespräch vereinbarte Anfragen-Schwelle nicht innerhalb von
-90 Tagen erreicht, werden alle bis dahin gezahlten Gebühren vollständig
-erstattet. Das System ist monatlich kündbar, ohne Mindestlaufzeit.
+Zu Beginn brauchen Sie kein Werbebudget. Wir starten organisch. Sobald wir
+sehen, welche Beiträge Anfragen bringen, schlagen wir vor, wie viel Werbebudget
+dahinter gehört. Das Budget zahlen Sie direkt an Meta und Google.
+
+## Garantie: Keine Anfrage, keine Rechnung
+
+Sie zahlen nichts, bis die erste qualifizierte Anfrage über EINS in Ihrem Portal
+liegt. Kommt in 90 Tagen keine, endet die Zusammenarbeit, und Sie haben nichts
+bezahlt. Die 90 Tage beginnen am Tag der Unterschrift. Bis zur ersten Rechnung
+kann die Praxis jederzeit per E-Mail beenden, ohne Begründung und ohne Kosten.
+Danach ist EINS monatlich kündbar.
+
+## Das gehört Ihnen
+
+Das Material: Sobald die erste Rechnung bezahlt ist, dürfen Sie alles, was für
+Ihre Praxis entstanden ist, dauerhaft nutzen und bearbeiten, auch nach einer
+Kündigung und mit einer anderen Agentur. Die Daten der Anfragen erhält die
+Praxis bei Vertragsende als Export.
+
+Der Klon: Ihr KI-Klon gehört Ihnen. EINS nutzt Gesicht und Stimme nur für die
+Praxis, nie für eigene Werbung ohne gesonderte schriftliche Einwilligung, und
+löscht das Klon-Modell spätestens 30 Tage nach Vertragsende.
 
 ## Ablauf
 
-- Woche 1 bis 2: Videodreh und Fotoshooting in der Praxis, Software-Anbindung, KI-Rechtsprüfung.
-- Woche 3: Anzeigen gehen live, erste Anfragen innerhalb weniger Tage.
-- Ab Woche 6: Optimierungsphase, sinkende Kosten pro Anfrage.
-- Tag 90: vollständige Auswertung und Wachstumsplan.
+- Tag der Unterschrift: Die 90 Tage beginnen.
+- Woche 1: Onboarding-Gespräch per Video, Einwilligung, Zugänge, Klon-Aufnahme am Handy (wenige Minuten).
+- Woche 1 bis 2: Klon und Zielseite stehen, erste Beiträge gehen zur Freigabe.
+- Ab Woche 2: Erste Beiträge live, Anfragen laufen mit Herkunft ins Portal.
+- Erste qualifizierte Anfrage: Erste Rechnung. EINS schlägt vor, welches Werbebudget hinter welche Beiträge gehört.
+- Laufend: Wöchentliche Freigabe, monatliche Auswertung im Portal, Anzeigen hinter den Beiträgen, die Anfragen bringen.
 
-Aufwand für die Praxis: einmalig 4 bis 6 Stunden Drehtag plus 90 Minuten Einführungsgespräch.
+Aufwand für die Praxis: in der ersten Woche wenige Minuten Aufnahme, die
+Einwilligung und die Zugänge, danach einmal pro Woche die Beiträge freigeben
+(wenige Minuten).
 
 ## Seiten
 

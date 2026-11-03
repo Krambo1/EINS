@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import { requireSession } from "@/auth/guards";
 import { can } from "@/lib/roles";
 import { env, hasMeta } from "@/lib/env";
-import { signState, setStateCookie, parseReturnTo } from "@/server/oauth";
+import { signState, setStateCookie } from "@/server/oauth";
 import { writeAudit } from "@/server/audit";
 import { META_OAUTH_SCOPES } from "@/server/meta-pages";
 
@@ -13,7 +13,7 @@ import { META_OAUTH_SCOPES } from "@/server/meta-pages";
  * If Meta isn't configured in this environment, we bounce back to
  * /einstellungen with a friendly error so dev environments aren't broken.
  */
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   const session = await requireSession();
   if (!can(session.role, "settings.integrations")) {
     return NextResponse.redirect(new URL("/einstellungen?error=forbidden", env.APP_ORIGIN));
@@ -31,7 +31,6 @@ export async function GET(request: NextRequest) {
     userId: session.userId,
     platform: "meta",
     nonce,
-    returnTo: parseReturnTo(request.nextUrl.searchParams.get("zurueck")),
   });
   await setStateCookie(state);
 

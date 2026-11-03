@@ -1,7 +1,7 @@
 import "server-only";
 import { cache } from "react";
-import { and, eq, gte, sql } from "drizzle-orm";
-import { withClinicContext, schema, db, type dbApp } from "@/db/client";
+import { sql } from "drizzle-orm";
+import { withClinicContext, db, type dbApp } from "@/db/client";
 import { cacheClinicQuery, SHORT_REVALIDATE_S } from "./_cache";
 import { adInquiriesByDay } from "./_ad-inquiries";
 import { costPerQualified } from "./_qualified";
@@ -345,52 +345,6 @@ export const kpiSummary = cacheClinicQuery(
  * (portal review M-1).
  */
 export const openQueueDaily = openQueueDailyInRangeWithComparison;
-
-export interface CampaignLiveSummary {
-  platform: "meta" | "google";
-  spendEur: number;
-  leads: number;
-  cplEur: number | null;
-  lastSyncedAt: Date | null;
-}
-
-/** Body of `campaignLiveSummary` on a given transaction. Last `days` Berlin days, today included. */
-export async function campaignLiveSummaryTx(
-  tx: typeof dbApp,
-  clinicId: string,
-  days = 30
-): Promise<CampaignLiveSummary[]> {
-  const fromDate = addIsoDays(berlinDay(), -(days - 1));
-  {
-    const rows = await tx
-      .select({
-        platform: schema.campaignSnapshots.platform,
-        spendEur: sql<number>`coalesce(sum(${schema.campaignSnapshots.spendEur}), 0)`,
-        leads: sql<number>`coalesce(sum(${schema.campaignSnapshots.leads}), 0)`,
-        lastSyncedAt: sql<Date>`max(${schema.campaignSnapshots.createdAt})`,
-      })
-      .from(schema.campaignSnapshots)
-      .where(
-        and(
-          eq(schema.campaignSnapshots.clinicId, clinicId),
-          gte(schema.campaignSnapshots.snapshotDate, fromDate)
-        )
-      )
-      .groupBy(schema.campaignSnapshots.platform);
-
-    return rows.map((r) => {
-      const leads = Number(r.leads);
-      const spend = Number(r.spendEur);
-      return {
-        platform: r.platform as "meta" | "google",
-        spendEur: spend,
-        leads,
-        cplEur: leads > 0 ? Number((spend / leads).toFixed(2)) : null,
-        lastSyncedAt: r.lastSyncedAt ?? null,
-      };
-    });
-  }
-}
 
 // ---------------------------------------------------------------
 // Detail-mode extensions: comparison vs prior period + sparklines.

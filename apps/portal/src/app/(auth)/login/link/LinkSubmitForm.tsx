@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { PendingDots, authCtaClass } from "../../_components/auth-ui";
+import { PendingStatus, authPrimaryClass } from "../../_components/auth-ui";
 
 /**
  * J-6: the one-time link form, submitted at most once. A second tap would
@@ -48,9 +48,10 @@ export function LinkSubmitForm({
       }}
     >
       <input type="hidden" name="token" value={token} />
-      <button type="submit" className={authCtaClass} disabled={pending} aria-busy={pending}>
-        {pending ? <PendingDots label="Wird angemeldet" /> : label}
+      <button type="submit" data-auth-primary className={authPrimaryClass} disabled={pending} aria-busy={pending}>
+        {label}
       </button>
+      <PendingStatus pending={pending} label="Wird angemeldet" />
     </form>
   );
 }

@@ -1,4 +1,4 @@
-# Asset-Liefer-Checkliste v2 (Portal-Fassung, Stand 30.09.2026)
+# Asset-Liefer-Checkliste v2 (Portal-Fassung, Stand 30.10.2026)
 
 Quelle: Obsidian `10 EINS/Kunden/Asset-Liefer-Checkliste (Kunden-Onboarding).md` (Vault `D:\Desktop\Claude\Obsidian\Karam`), Blöcke A-F, dazu Block G als Schlusshinweis.
 Dieses Dokument ist der Vertrag für DB-Schema, Portal-Seite, Admin-Tab und PDF.
@@ -25,7 +25,7 @@ Rollen: `inhaber` = nur Inhaber kann abschließen; `team` = jede Portal-Rolle mi
 
 ---
 
-## Block A: Blocker. Ohne diese Punkte startet nichts
+## Block A: Grundlagen zum Start (Blocker)
 
 Frist für die Klon-Aufnahme und die Einwilligung: 3 Werktage nach Unterschrift.
 
@@ -124,9 +124,7 @@ Falls Ihre Praxis kein Google Ads-Konto hat: "Nicht vorhanden" wählen.
 **Anleitung:** Nur Name und Version eintragen, sonst nichts. Den Lesezugang richten wir je nach System gemeinsam mit Ihrem PVS-Support ein; EINS leitet das an und meldet sich dazu bei Ihnen.
 **Warum:** So sehen Sie später im Portal, welcher Umsatz aus den Anfragen wirklich entstanden ist.
 
-### C6 · Portal-Zugänge für Ihr Team · `angabe` · Pflicht · team
-**Felder:** Pro Person: Name, E-Mail, Rolle (Rezeption / Marketing / Ärztin/Arzt).
-**Anleitung:** Wer in Ihrer Praxis soll das EINS-Portal nutzen können (Anfragen sehen, Auswertungen lesen)? Sie können Ihr Team auch direkt unter Einstellungen → Team einladen; dann hier nur abhaken.
+C6 (Portal-Zugänge für Ihr Team) ist am 30.10.2026 entfallen: Das Team lädt die Praxis unter Einstellungen → Team ein (Schritt "Team einladen" auf Erste Schritte).
 
 ---
 
@@ -160,8 +158,8 @@ Steht über dem Block: Vorher-Nachher-Bilder laden Sie bitte nicht hoch. Wir zei
 **Warum:** Ohne Preisspannen können wir Anfragen nicht nach Wert vorsortieren.
 
 ### E2 · Standorte · `angabe` · Pflicht · team
-**Felder:** Pro Standort: Adresse, Öffnungszeiten, Telefonnummer; dazu das Einzugsgebiet (Städte/Umkreis).
-**Anleitung:** Tragen Sie alle Standorte ein, an denen behandelt wird. Das Einzugsgebiet bestimmt, für welche Region wir Beiträge und Anzeigen ausrichten.
+**Felder:** Pro Standort: Adresse, Öffnungszeiten, Telefonnummer. (Das Einzugsgebiet fragt seit 30.10.2026 der Fragebogen, Frage E1.)
+**Anleitung:** Tragen Sie alle Standorte ein, an denen behandelt wird.
 
 ### E3 · Team-Übersicht · `angabe` · Pflicht · team
 **Felder:** Wer behandelt was; wer nimmt Anfragen entgegen (Name + Funktion).
@@ -171,9 +169,7 @@ Steht über dem Block: Vorher-Nachher-Bilder laden Sie bitte nicht hoch. Wir zei
 **Felder:** Vollständiger Praxisname, Rechtsform, Berufsbezeichnung, zuständige Ärztekammer, Rechnungsanschrift.
 **Anleitung:** Diese Angaben brauchen wir für das Impressum Ihrer Zielseiten und für die Abrechnung; bitte exakt wie im bestehenden Impressum Ihrer Website.
 
-### E5 · Freie Beratungskapazität · `angabe` · Pflicht · team
-**Felder:** Beratungstermine pro Woche für neue Patienten (Zahl oder Spanne).
-**Anleitung:** Wie viele Erstberatungen pro Woche sind realistisch frei? Ehrliche Schätzung genügt; danach richten wir aus, wie viele Anfragen wir zu Ihnen leiten, damit keine Anfragen liegen bleiben.
+E5 (Freie Beratungskapazität) ist am 30.10.2026 entfallen: Dieselbe Frage stellt der Fragebogen (A3, als Auswahl).
 
 ### E6 · Nummer für die Anfragen-Übergabe · `angabe` · Pflicht · team
 **Felder:** Telefonnummer und/oder WhatsApp-Nummer, erreichbare Zeiten.
@@ -222,14 +218,14 @@ Statischer Kasten "Was danach zählt" mit fünf Punkten aus Block G. Reine Infor
 | Block | Punkte | Pflicht | Blocker |
 |---|---|---|---|
 | A | 5 | 5 | 5 |
-| B | 6 | 5 | 0 |
-| C | 6 | 4 | 0 |
+| B | 6 | 3 | 0 |
+| C | 5 | 3 | 0 |
 | D | 5 | 1 (+2 empfohlen) | 0 |
-| E | 6 | 6 | 0 |
+| E | 5 | 5 | 0 |
 | F | 5 | 3 (+1 empfohlen) | 0 |
-| **Gesamt** | **33** | **24** | **5** |
+| **Gesamt** | **31** | **20** | **5** |
 
-Die Zählung ist unverändert (F1 und D5 sind entfallen, F5 und F6 sind neu).
+Stand 30.10.2026, gleich der Zählung im Code (`onboarding-content.test.ts`). B3 und B4 sind seit dem organischen Start keine Pflicht mehr; C6 und E5 sind entfallen.
 
 ---
 
@@ -241,3 +237,10 @@ Die Zählung ist unverändert (F1 und D5 sind entfallen, F5 und F6 sind neu).
 - **D5** (Vorher-Nachher-Material) ist entfallen und wird nie wiederverwendet, ohne Nachfolger: Vorher-Nachher-Darstellungen werden nicht verwendet (Kanon Abschnitt 8). Gespeicherte D5-Zeilen und -Dateien bleiben in der Datenbank und werden ignoriert. Ersatz ist der Hinweis über Block D.
 - **F6** (Einwilligungen für vorhandenes Material) ist neu: empfohlen, kein Pflichtpunkt, kein Blocker, "Keine vorhanden" erlaubt. Eine neue Pflicht hätte bereits abgeschlossene Onboardings wieder geöffnet.
 - Die Portal-Fassung (`apps/portal/src/app/(portal)/onboarding/checkliste/content.ts`), das PDF und die Vault-Notiz tragen denselben Inhalt.
+
+## Kürzung am 30.10.2026 (Karams Onboarding-Schnitt)
+
+- **C6** (Portal-Zugänge für Ihr Team) und **E5** (Freie Beratungskapazität) sind entfallen und werden nie wiederverwendet. Beides wurde doppelt gefragt: das Team lädt die Praxis in Einstellungen ein, die freie Kapazität fragt der Fragebogen (A3). Gespeicherte Zeilen bleiben in der Datenbank und werden ignoriert.
+- **E2** hat kein Feld "Einzugsgebiet" mehr (fragt der Fragebogen, E1). Ein gespeicherter Wert fällt beim nächsten Speichern von E2 weg.
+- **Block A** heißt jetzt "Grundlagen zum Start".
+- Der Schritt "Praxis-Angaben hinterlegen" auf Erste Schritte ist entfallen: Ansprechperson und ärztliche Leitung stehen in A2 und A3, EINS trägt deren E-Mails beim Prüfen von Block A in die Stammdaten ein.

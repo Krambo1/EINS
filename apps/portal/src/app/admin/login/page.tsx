@@ -42,7 +42,7 @@ export default async function AdminLoginPage({ searchParams }: PageProps) {
       ? CALLBACK_ERROR_MESSAGES[params.error]
       : undefined;
 
-  // The frame (logo, "Admin" badge, card) comes from admin/layout.tsx.
+  // The frame (logo, the "Admin" marker, card) comes from admin/layout.tsx.
   return (
     <LoginForm
       initialError={callbackError}

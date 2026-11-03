@@ -1,88 +1,65 @@
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  Button,
-} from "@eins/ui";
-import { eq } from "drizzle-orm";
 import { requireSession } from "@/auth/guards";
 import {
   impersonationBlockedMessage,
   isImpersonating,
 } from "@/auth/impersonation-guard";
-import { db, schema } from "@/db/client";
-import { formatRelative } from "@/lib/formatting";
-import { ChangePasswordForm } from "./ChangePasswordForm";
-import { logoutAllDevicesAction } from "./actions";
 import { ActionForm } from "@/app/(portal)/_components/ActionForm";
+import { PendingSubmit } from "@/app/(portal)/_components/PendingSubmit";
+import { SettingsHead } from "../_components/SettingsHead";
+import { CardBody, CardFoot, SECONDARY_BUTTON, SettingsCard } from "../_components/settings-ui";
+import { COLUMNS, STACK } from "../_lib/sizes";
+import { ChangePasswordForm } from "./ChangePasswordForm";
+import { LOGOUT_ALL } from "./_copy";
+import { logoutAllDevicesAction } from "./actions";
 
 export const metadata = { title: "Sicherheit" };
 export const dynamic = "force-dynamic";
 
+const SENTENCE = "text-[15px] leading-6 text-fg-primary";
+
+/**
+ * Password and signing out everywhere, as two cards in the Einstellungen
+ * column (same width, the rail's place left empty). What both do is
+ * unchanged, and both stay closed in an admin's view as the Praxis person
+ * (`isImpersonating`; the actions check it again on the server).
+ */
 export default async function SicherheitPage() {
   const session = await requireSession();
   const impersonating = isImpersonating(session);
 
-  const [user] = await db
-    .select({
-      passwordSetAt: schema.clinicUsers.passwordSetAt,
-    })
-    .from(schema.clinicUsers)
-    .where(eq(schema.clinicUsers.id, session.userId))
-    .limit(1);
-
   return (
-    <div className="space-y-10">
-      <header>
-        <h1 className="text-3xl font-semibold md:text-4xl">Sicherheit.</h1>
-        <p className="mt-2 text-base text-fg-primary md:text-lg">
-          Passwort und aktive Sitzungen.
-        </p>
-      </header>
+    <div className={STACK}>
+      <SettingsHead title="Sicherheit" />
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Passwort</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {user?.passwordSetAt && (
-            <p className="text-sm text-fg-secondary">
-              Zuletzt geändert {formatRelative(user.passwordSetAt)}.
-            </p>
-          )}
-          {impersonating ? (
-            <p className="text-sm text-fg-secondary">
-              {impersonationBlockedMessage("password")}
-            </p>
-          ) : (
-            <ChangePasswordForm />
-          )}
-        </CardContent>
-      </Card>
+      <div className={COLUMNS}>
+        <div className={STACK}>
+          <SettingsCard id="passwort" title="Passwort">
+            {impersonating ? (
+              <CardBody>
+                <p className={SENTENCE}>{impersonationBlockedMessage("password")}</p>
+              </CardBody>
+            ) : (
+              <ChangePasswordForm />
+            )}
+          </SettingsCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Auf allen Geräten abmelden</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm text-fg-secondary">
-            Beendet alle aktiven Sitzungen. Danach müssen Sie sich auf jedem
-            Gerät neu anmelden, auch in diesem Browser.
-          </p>
-          {impersonating ? (
-            <p className="text-sm text-fg-secondary">
-              {impersonationBlockedMessage("logout_all_devices")}
-            </p>
-          ) : (
-            <ActionForm action={logoutAllDevicesAction}>
-              <Button variant="outline" type="submit">
-                Überall abmelden
-              </Button>
-            </ActionForm>
-          )}
-        </CardContent>
-      </Card>
+          <SettingsCard id="abmelden" title="Auf allen Geräten abmelden">
+            <CardBody className="space-y-3">
+              <p className={SENTENCE}>{LOGOUT_ALL}</p>
+              {impersonating && <p className={SENTENCE}>{impersonationBlockedMessage("logout_all_devices")}</p>}
+            </CardBody>
+            {!impersonating && (
+              <ActionForm action={logoutAllDevicesAction}>
+                <CardFoot>
+                  <PendingSubmit variant="outline" className={SECONDARY_BUTTON}>
+                    Überall abmelden
+                  </PendingSubmit>
+                </CardFoot>
+              </ActionForm>
+            )}
+          </SettingsCard>
+        </div>
+      </div>
     </div>
   );
 }

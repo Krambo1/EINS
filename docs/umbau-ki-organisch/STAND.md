@@ -23,7 +23,7 @@
 | Portal-Code | Garantie-Uhr unter `/admin/garantie`, Migrationen 0074 und 0075 (nur lokal angewendet), organische Kanäle getrennt in der Auswertung, 481 Tests grün |
 | Verkaufsfolien | 17 Folien, neue Folie "Ihre Vorschau-Anzeigen" |
 | Sotta-KB | 55 Fakten, Loader und Tests grün |
-| Werkzeug-Recherche | `werkzeuge.md` (Empfehlung Remotion plus Synthesia) |
+| Werkzeug-Recherche | `werkzeuge.md` (Empfehlung Remotion plus Synthesia; Remotion seit 11.10.2026 durch HyperFrames ersetzt) |
 
 ## Stand 01.10.2026: Umbau umgesetzt und geprüft
 

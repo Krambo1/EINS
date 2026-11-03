@@ -8,7 +8,7 @@
  * "Praxis" never "Klinik", anti-anglicism (Anfrage not Lead, bezahlte Anzeigen
  * not Paid Ads, Werbeertrag for ROAS, Auswertung not Reporting, Zielseite not
  * Landingpage). Keep answers short and concrete. Do not promise specifics that
- * live in the contract (Garantie-Bedingungen, Abrechnung): point to Dokumente
+ * live in the contract (Garantie-Bedingungen, Abrechnung): point to Dateien
  * instead.
  *
  * `a` may contain blank lines (\n\n) for paragraph breaks; the renderer uses
@@ -40,7 +40,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "was-ist-portal",
         q: "Was ist das EINS-Portal?",
-        a: "Das Portal ist Ihre zentrale Übersicht für die Zusammenarbeit mit EINS. Sie sehen hier alle Patientenanfragen mit ihrer Herkunft, Ihre Kennzahlen, Ihre Beiträge und Medien, Ihre Bewertungen, Ihre Dokumente und den Vertriebsleitfaden für Ihr Team. Alles an einem Ort, jederzeit erreichbar.",
+        a: "Das Portal ist Ihre zentrale Übersicht für die Zusammenarbeit mit EINS. Sie sehen hier alle Patientenanfragen mit ihrer Herkunft, Ihre Kennzahlen, Ihre Beiträge mit ihren Videos und Bildern, Ihre Bewertungen, Ihre Verträge und Dateien und den Vertriebsleitfaden für Ihr Team. Alles an einem Ort, jederzeit erreichbar.",
         keywords: ["dashboard", "überblick", "was kann das", "zweck", "wofür"],
       },
       {
@@ -52,7 +52,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "passwort-vergessen",
         q: "Ich habe mein Passwort vergessen. Was kann ich tun?",
-        a: "Lassen Sie sich auf der Anmeldeseite einen Magic-Link zusenden. Damit kommen Sie ohne Passwort ins Portal. Anschließend können Sie unter Einstellungen, Mein Profil ein neues Passwort vergeben.",
+        a: "Lassen Sie sich auf der Anmeldeseite einen Magic-Link zusenden. Damit kommen Sie ohne Passwort ins Portal. Anschließend vergeben Sie unter Einstellungen im Bereich Profil mit „Passwort ändern“ ein neues Passwort.",
         keywords: ["passwort zurücksetzen", "reset", "vergessen", "kein passwort", "magic link"],
       },
       {
@@ -70,19 +70,19 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "mobil-nutzbar",
         q: "Funktioniert das Portal auch auf dem Smartphone?",
-        a: "Ja. Das Portal ist für kleine Bildschirme optimiert. Gerade die Anfragen-Inbox und die Anruf-Warteschlange lassen sich am Telefon bequem bedienen, etwa wenn Sie unterwegs zurückrufen.",
+        a: "Ja. Das Portal ist für kleine Bildschirme optimiert. Gerade die Anfragen mit „Jetzt anrufen“ und „Als Nächstes“ lassen sich am Telefon bequem bedienen, etwa wenn Sie unterwegs zurückrufen.",
         keywords: ["handy", "tablet", "mobil", "unterwegs", "responsive"],
       },
       {
         id: "bereiche-ueberblick",
         q: "Welche Bereiche gibt es im Portal?",
-        a: "In der Seitenleiste finden Sie: Übersicht (Ihre Kennzahlen), Fortschritt (Ihr Onboarding), Anfragen (Patientenanfragen), Werbebudget (Ihre Anzeigen, sobald welche laufen), Bewertungen (Reputation und Patientenfeedback), Inhalte (Ihre Beiträge, Videos und Bilder), Dateien (Verträge und Material), Leitfaden (Ihr Vertriebs-Playbook), Nachrichten an EINS (Ihre Wünsche an uns) und Hilfe. Ihre Einstellungen erreichen Sie über Ihren Namen in der Seitenleiste.",
+        a: "In der Seitenleiste finden Sie: Übersicht (Ihre Kennzahlen), Anfragen (Patientenanfragen und wen Sie jetzt anrufen), Bewertungen (Plattformen und Patientenfeedback), Fortschritt (wo die Zusammenarbeit steht), Inhalte (Ihre Beiträge, Videos und Bilder), Dateien (Verträge, Unterlagen und was Sie uns schicken), Leitfaden (Ihr Vertriebs-Playbook), Nachrichten an EINS (Ihre Wünsche an uns) und Hilfe. Ganz unten stehen die Einstellungen, auch im Menü unter Ihrem Namen. Was Sie dort sehen, hängt von Ihrer Rolle ab: Ihr Profil und Ihr Passwort sieht jede Person.",
         keywords: ["navigation", "tabs", "menü", "seitenleiste", "module"],
       },
       {
         id: "hilfe-bei-problemen",
         q: "An wen wende ich mich bei Fragen oder Problemen?",
-        a: "Schreiben Sie uns über den Bereich Nachrichten an EINS in der Seitenleiste. Dort landet Ihre Nachricht direkt bei uns. Ihre persönlichen Ansprechpartner und die Kontaktmöglichkeiten finden Sie außerdem in der Kontaktkarte unten in der Seitenleiste.",
+        a: "Schreiben Sie uns über den Bereich Nachrichten an EINS in der Seitenleiste. Dort landet Ihre Nachricht direkt bei uns, und dort lesen Sie auch unsere Antwort. Per E-Mail erreichen Sie uns unter team@eins.ag.",
         keywords: ["kontakt", "support", "ansprechpartner", "hilfe", "erreichen"],
       },
     ],
@@ -106,7 +106,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "reaktionszeit",
         q: "Wie schnell sollte ich auf eine neue Anfrage reagieren?",
-        a: "So schnell wie möglich, am besten in den ersten 5 Minuten nach Eingang. Je früher Sie sich melden, desto höher ist die Chance, dass aus der Anfrage ein Termin wird. Bitte versuchen Sie, jede Anfrage spätestens innerhalb von 48 Werkstunden zu kontaktieren (Montag bis Freitag, 9 bis 18 Uhr). Das ist keine Bedingung der Garantie, die Folgen eines Verzugs erklärt die nächste Frage. Konkrete Zielwerte und bewährte Gesprächsabläufe finden Sie im Vertriebsleitfaden.",
+        a: "So schnell wie möglich, am besten in den ersten 5 Minuten nach Eingang. Je früher Sie sich melden, desto höher ist die Chance, dass aus der Anfrage ein Termin wird. Bitte versuchen Sie, jede Anfrage spätestens innerhalb von 48 Werkstunden zu kontaktieren (Montag bis Freitag, 9 bis 18 Uhr). Das ist keine Bedingung der Garantie, die Folgen eines Verzugs erklärt die nächste Frage. Wann Sie anrufen und nachfassen und wie ein gutes Gespräch abläuft, steht im Leitfaden.",
         keywords: ["sla", "geschwindigkeit", "zurückrufen", "schnell", "antwortzeit", "reaktion"],
       },
       {
@@ -118,14 +118,14 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "anfrage-status",
         q: "Was bedeuten die Status einer Anfrage?",
-        a: "Der Status zeigt, wo eine Anfrage gerade steht: zum Beispiel neu eingegangen, in Bearbeitung, Termin vereinbart oder abgeschlossen. So sehen Sie und Ihr Team auf einen Blick, was noch zu tun ist und wer sich kümmert.",
-        keywords: ["status", "offen", "in bearbeitung", "termin", "abgeschlossen", "phasen"],
+        a: "Der Status zeigt, wo eine Anfrage gerade steht:\nNeu: Noch niemand hat sich gemeldet.\nKontaktiert: Sie haben die Person erreicht.\nNicht erreicht: Sie haben es versucht, aber niemanden erreicht.\nTermin vereinbart: Ein Beratungstermin steht.\nBeratung erschienen: Die Person war zur Beratung da.\nGewonnen: Die Person hat sich für die Behandlung entschieden.\nVerloren: Daraus wird nichts.\nSpam: keine echte Anfrage.\n\nIst Ihre Praxissoftware angebunden, kommen von dort auch „Nicht erschienen“ und „Behandelt“. So sehen Sie und Ihr Team auf einen Blick, was noch zu tun ist.",
+        keywords: ["status", "neu", "kontaktiert", "nicht erreicht", "termin vereinbart", "beratung erschienen", "gewonnen", "verloren", "spam", "behandelt", "phasen"],
       },
       {
         id: "call-queue",
-        q: "Was ist die Anruf-Warteschlange?",
-        a: "Die Anruf-Warteschlange listet die Anfragen, die jetzt einen Rückruf brauchen, in sinnvoller Reihenfolge auf. So weiß Ihr Empfang sofort, wen er als Nächstes anrufen sollte, ohne lange suchen zu müssen.",
-        keywords: ["call queue", "warteschlange", "rückruf", "anrufen", "empfang", "frontdesk"],
+        q: "Was zeigen „Jetzt anrufen“ und „Als Nächstes“?",
+        a: "Oben unter Anfragen steht, wen Sie anrufen sollten. „Jetzt anrufen“ zeigt die Person, die als Erste dran ist, mit ihrer Nachricht, „Als Nächstes“ die folgenden. Zuerst kommen Anfragen ohne Kontaktversuch und fällige Wiedervorlagen, dann Patientinnen und Patienten, die zur Wiederbehandlung fällig sind, dann die übrigen. Nach dem Anruf tippen Sie an, wie er ausging, und die nächste Person rückt nach. So weiß Ihr Empfang sofort, wen er anrufen sollte, ohne zu suchen.",
+        keywords: ["jetzt anrufen", "als nächstes", "call queue", "warteschlange", "wiederbehandlung", "rückruf", "anrufen", "empfang", "frontdesk"],
       },
       {
         id: "ueberfaellig",
@@ -171,8 +171,8 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       },
       {
         id: "sla-ampel",
-        q: "Was bedeutet die Ampel bei der Reaktionszeit?",
-        a: "Die Ampel zeigt, wie schnell Ihre Praxis im Schnitt auf neue Anfragen reagiert. Grün heißt: alles im Zielbereich. Gelb und Rot sind ein Hinweis, dass Anfragen schneller bearbeitet werden sollten, denn schnelle Reaktion ist der größte Hebel für mehr Termine.",
+        q: "Woran sehe ich, ob wir schnell genug auf Anfragen reagieren?",
+        a: "Auf der Übersicht zeigt die Karte Offene Anfragen, wie viele Anfragen noch auf eine Rückmeldung warten und wie viele davon überfällig sind. Die überfälligen stehen oben, ihr Alter in Rot. Unter Anfragen steht vor einer solchen Anfrage ein Warnzeichen.\n\nÜberfällig heißt: mehr als 2 Stunden seit Eingang ohne Rückmeldung. Das ist ein Ziel für Ihre Praxis und hat keine Folgen für Vertrag oder Garantie. Schnelle Rückmeldung ist der größte Hebel für mehr Termine.",
         keywords: ["ampel", "sla", "reaktionszeit", "grün gelb rot", "antwortzeit"],
       },
       {
@@ -208,7 +208,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "ladezeit",
         q: "Warum lädt die Übersicht manchmal kurz?",
-        a: "Die Zahlen auf der Übersicht werden bei jedem Aufruf frisch und nur für Ihre Praxis geladen. In seltenen Fällen dauert das einen Moment länger. Die angezeigten Werte sind dafür immer aktuell.",
+        a: "Beim Öffnen lädt die Übersicht die Zahlen frisch und nur für Ihre Praxis. Das kann einen Moment dauern. Der Wechsel zwischen den Zeiträumen geht danach sofort. Die Zahlen haben den Stand des Moments, in dem Sie die Seite geöffnet haben. Umsatzzahlen kommen einmal täglich dazu.",
         keywords: ["langsam", "ladezeit", "lädt", "dauert", "performance"],
       },
     ],
@@ -231,9 +231,9 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       },
       {
         id: "werbebudget-bereich",
-        q: "Was sehe ich unter Werbebudget?",
-        a: "Unter Werbebudget sehen Sie Ihre aktuell laufenden Kampagnen und das jeweils eingesetzte Budget, sobald Anzeigen laufen. So ist transparent, wofür Ihr Werbebudget eingesetzt wird.",
-        keywords: ["werbebudget", "budget", "kampagnen", "adspend", "ausgaben"],
+        q: "Wo sehe ich, wofür mein Werbebudget eingesetzt wird?",
+        a: "Auf der Übersicht, sobald Anzeigen laufen. Unter Quellen steht das Werbebudget für Meta und Google neben den Anfragen und gewonnenen Behandlungen, die daraus kamen. Der Werbeertrag zeigt, wie viel Umsatz je Euro Werbebudget zurückkommt. Ob Meta und Google verbunden sind, steht in den Einstellungen unter Werbekonten. Die Werbekonten sieht nur die Inhaberin oder der Inhaber.",
+        keywords: ["werbebudget", "budget", "kampagnen", "adspend", "ausgaben", "werbekonten", "übersicht", "quellen"],
       },
       {
         id: "wer-verwaltet-anzeigen",
@@ -274,13 +274,13 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "bewertungen-aktualisieren",
         q: "Wie werden meine Google- und Jameda-Bewertungen aktualisiert?",
-        a: "Sobald Sie Ihre Bewertungsadresse hinterlegt haben, holt das Portal Ihre öffentlichen Bewertungen automatisch und zeigt sie an. Sie können die Aktualisierung in den Einstellungen bei Bedarf auch manuell anstoßen.",
+        a: "Sobald Ihre Google Place-ID und, falls vorhanden, Ihr Jameda-Profil hinterlegt sind, holt das Portal Ihre Sternwerte automatisch. Sofort holen Sie sie unter Einstellungen, Bewertungen, Sternwerte mit „Jetzt abrufen“. Diesen Bereich sieht die Inhaberin oder der Inhaber.",
         keywords: ["sync", "aktualisieren", "google", "jameda", "place id", "synchronisieren"],
       },
       {
         id: "bewertungs-anfragen",
         q: "Was sind Bewertungs-Anfragen und wie aktiviere ich sie?",
-        a: "Mit Bewertungs-Anfragen bitten Sie zufriedene Patienten nach der Behandlung automatisch um eine Bewertung. Das ist der einfachste Weg zu mehr und besseren öffentlichen Bewertungen. Aktivieren können Sie die Funktion in den Einstellungen unter Bewertungen.",
+        a: "Mit Bewertungs-Anfragen bitten Sie zufriedene Patienten nach der Behandlung automatisch um eine Bewertung. Das ist der einfachste Weg zu mehr und besseren öffentlichen Bewertungen. Aktivieren kann sie die Inhaberin oder der Inhaber unter Einstellungen, Bewertungen, mit „Bewertungs-Anfragen aktivieren“.",
         keywords: ["bewertungsanfrage", "review request", "patienten fragen", "mehr bewertungen", "aktivieren"],
       },
       {
@@ -291,8 +291,8 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       },
       {
         id: "bewertungsadresse-hinterlegen",
-        q: "Wie hinterlege ich meine Google-Bewertungs-URL oder Place-ID?",
-        a: "Das machen Sie in den Einstellungen unter Bewertungen und Reputation. Dort tragen Sie Ihre Google-Bewertungsadresse, Ihre Google Place-ID und gegebenenfalls Ihre Jameda-Adresse ein, damit Bewertungen korrekt gelesen werden.",
+        q: "Wie hinterlege ich meinen Google-Bewertungslink oder die Place-ID?",
+        a: "Unter Einstellungen, Bewertungen. Dort tragen Sie den Google-Bewertungslink und gegebenenfalls den Jameda-Bewertungslink ein, die Ihre Patienten mit der Bitte um eine Bewertung bekommen. Darunter, bei Sternwerte, stehen Ihre Google Place-ID und Ihr Jameda-Profil, damit das Portal Ihre Sterne liest. Diesen Bereich sieht die Inhaberin oder der Inhaber.",
         keywords: ["place id", "url", "google", "jameda", "einrichten", "hinterlegen"],
       },
       {
@@ -365,12 +365,12 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
   },
   {
     id: "dokumente",
-    label: "Dokumente und Verträge",
+    label: "Dateien und Verträge",
     items: [
       {
         id: "dokumente-bereich",
         q: "Was finde ich unter Dateien?",
-        a: "Unter Dateien liegt alles, was EINS Ihnen gibt: Ihre Verträge, die Auftragsverarbeitungsvereinbarung (AVV), Marketing-Material und der vollständige Vertriebsleitfaden als PDF. Sie können alles jederzeit ansehen und herunterladen. Dort senden Sie uns auch Dokumente, Bilder und Videos und sehen, ob EINS sie schon geöffnet hat.",
+        a: "Unter Dateien liegt in „Von EINS“ alles, was EINS Ihnen gibt, zum Beispiel Ihre Verträge, die Auftragsverarbeitungsvereinbarung (AVV), Auswertungen, der vollständige Vertriebsleitfaden und die Anleitung zum Portal als PDF. Sie können alles jederzeit ansehen und herunterladen. In „An EINS gesendet“ schicken Sie uns Dokumente, Bilder und Videos und sehen, ob EINS sie schon geöffnet hat.",
         keywords: ["dokumente", "dateien", "vertrag", "avv", "downloads", "material", "hochladen", "senden"],
       },
       {
@@ -424,13 +424,13 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "was-zeigt-fortschritt",
         q: "Was zeigt mir der Bereich Fortschritt?",
-        a: "Der Bereich Fortschritt zeigt Ihre Meilensteine beim Start mit EINS: was schon erledigt ist und was als Nächstes ansteht. So sehen Sie jederzeit, wo Sie im Onboarding stehen.",
+        a: "Der Bereich Fortschritt zeigt, wo die Zusammenarbeit mit EINS steht, in drei Karten: In Arbeit, Als Nächstes und Erledigt. Oben steht, in der wievielten Woche seit Ihrem Start Sie sind. Tippen Sie auf einen Schritt, steht darunter, worum es geht.\n\nWas Sie vor dem Start selbst erledigen (Fragebogen, Checkliste, Team und Erinnerungen), findet die Inhaberin oder der Inhaber unter Erste Schritte und danach unter Einstellungen, Start-Unterlagen.",
         keywords: ["fortschritt", "onboarding", "meilensteine", "start", "schritte", "timeline"],
       },
       {
         id: "meilensteine-bedeutung",
-        q: "Was bedeuten die einzelnen Meilensteine?",
-        a: "Jeder Meilenstein steht für einen Schritt auf dem Weg zu Ihren ersten Beiträgen und ersten Anfragen, zum Beispiel Zugänge einrichten, Klon-Aufnahme und Einwilligung, erste Beiträge freigeben und später Anzeigen hinter die wirkenden Beiträge setzen. Erledigte Schritte werden als abgeschlossen markiert.",
+        q: "Was bedeuten die einzelnen Schritte?",
+        a: "Jeder Schritt steht für etwas auf dem Weg zu Ihren ersten Beiträgen und ersten Anfragen, zum Beispiel das Onboarding-Gespräch und die Zugänge, Ihre Klon-Aufnahme, die Freigabe der ersten Beiträge und später Anzeigen hinter den wirkenden Beiträgen. Unter jedem Schritt steht, wann er dran ist, etwa „Woche 1 bis 2 · Noch 9 Tage“. Ist ein Schritt fertig, steht er unter Erledigt.",
         keywords: ["meilensteine", "schritte", "bedeutung", "phasen", "aufgaben"],
       },
       {
@@ -454,7 +454,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "welche-rollen",
         q: "Welche Rollen gibt es?",
-        a: "Es gibt drei Rollen: Inhaberin oder Inhaber (voller Zugriff inklusive Verträge und Einstellungen), Marketing-Verantwortliche und Empfang beziehungsweise Sekretariat (Fokus auf Anfragen und Anrufe). Die Rolle steuert, welche Bereiche eine Person sieht.",
+        a: "Es gibt drei Rollen: Inhaberin oder Inhaber (voller Zugriff inklusive Verträge und aller Einstellungen), Marketing-Verantwortliche und Empfang beziehungsweise Sekretariat (Fokus auf Anfragen und Anrufe). Die Rolle steuert, welche Bereiche eine Person sieht.",
         keywords: ["rollen", "berechtigung", "inhaber", "marketing", "empfang", "mfa", "frontdesk"],
       },
       {
@@ -466,7 +466,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "passwort-aendern",
         q: "Wie ändere ich mein Passwort?",
-        a: "Unter Einstellungen, Mein Profil können Sie jederzeit ein neues Passwort vergeben.",
+        a: "Unter Einstellungen im Bereich Profil tippen Sie auf „Passwort ändern“. Dort vergeben Sie ein neues Passwort und können sich auch auf allen Geräten abmelden.",
         keywords: ["passwort ändern", "neues passwort", "profil", "sicherheit"],
       },
       {
@@ -478,7 +478,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "zugang-entfernen",
         q: "Ein Teammitglied hat die Praxis verlassen. Wie entferne ich den Zugang?",
-        a: "Unter Einstellungen, Team können Sie den Zugang einer Person entfernen oder deaktivieren. Tun Sie das zeitnah, wenn jemand nicht mehr für Ihre Praxis arbeitet.",
+        a: "Unter Einstellungen, Team tippen Sie bei der Person auf „Entfernen“. Sie wird sofort abgemeldet und kommt nicht mehr ins Portal. Tun Sie das zeitnah, wenn jemand nicht mehr für Ihre Praxis arbeitet.",
         keywords: ["zugang entfernen", "deaktivieren", "ausscheiden", "löschen", "sperren"],
       },
     ],
@@ -580,7 +580,7 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
       {
         id: "was-am-telefon-sagen",
         q: "Was darf ich am Telefon sagen, und was nicht?",
-        a: "Eine kompakte Übersicht mit konkreten Formulierungen, also was Sie sagen sollten und was Sie besser vermeiden, finden Sie im Vertriebsleitfaden unter HWG-Quick-Reference. Die vollständige Fassung steht in der PDF unter Dateien.",
+        a: "Eine kompakte Übersicht mit konkreten Formulierungen, also was Sie sagen sollten und was Sie besser vermeiden, finden Sie im Leitfaden unter „Sag so, nicht so“. Die vollständige Fassung steht in der PDF unter Dateien.",
         keywords: ["telefon", "formulierungen", "erlaubt sagen", "verboten", "leitfaden", "sag so"],
       },
       {
@@ -641,12 +641,12 @@ export const FAQ_CATEGORIES: FaqCategory[] = [
   },
   {
     id: "support",
-    label: "Support und Kontakt",
+    label: "Kontakt zu EINS",
     items: [
       {
         id: "eins-erreichen",
         q: "Wie erreiche ich EINS?",
-        a: "Am schnellsten über den Bereich Nachrichten an EINS in der Seitenleiste: Dort schreiben Sie uns direkt. Ihre persönlichen Ansprechpartner und weitere Kontaktmöglichkeiten finden Sie in der Kontaktkarte unten in der Seitenleiste.",
+        a: "Am schnellsten über den Bereich Nachrichten an EINS in der Seitenleiste: Dort schreiben Sie uns direkt und lesen auch unsere Antworten. Per E-Mail erreichen Sie uns unter team@eins.ag.",
         keywords: ["kontakt", "erreichen", "support", "ansprechpartner", "telefon", "email"],
       },
       {

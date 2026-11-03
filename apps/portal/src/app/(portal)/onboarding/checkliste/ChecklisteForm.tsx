@@ -1,35 +1,32 @@
 "use client";
 
-import { useRef, useState, useTransition } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useTransition, type ReactNode } from "react";
+import { useFormStatus } from "react-dom";
+import { Trash2, Upload, X } from "lucide-react";
+import { Button, cn } from "@eins/ui";
+import { ScrollHint } from "@/app/_components/ScrollHint";
+import { uploadErrorMessage, uploadFileToTarget } from "@/lib/upload-client";
+import { CONTROL, CONTROL_SQUARE, RAISED_CONTROL, WASH_AREA, WASH_ROW } from "../../dashboard/_components/dash-ui";
+import { showActionFlash } from "../../_components/flash-event";
+import { PendingSubmit } from "../../_components/PendingSubmit";
+import { FIELD } from "../../einstellungen/_lib/sizes";
+import { FILE_ROW, FileRow, FileTypeIcon, MetaFacts, formatFileSize } from "../../dateien/_components/file-ui";
+import { SectionRail, useActiveSection } from "../_components/SectionRail";
+import { StatusWord } from "../_components/StatusWord";
 import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  Input,
-  Label,
-  Textarea,
-  cn,
-} from "@eins/ui";
-import {
-  AlertCircle,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  Circle,
-  FileText,
-  Link2,
-  Lock,
-  ShieldCheck,
-  Trash2,
-  Upload,
-} from "lucide-react";
+  COLUMNS,
+  FIELD_LABEL,
+  ITEM_PANEL,
+  ITEM_ROW,
+  ITEM_WELL,
+  OPTION_INPUT,
+  OPTION_ROW,
+  TEXTAREA_HEIGHT,
+} from "../_lib/sizes";
 import {
   CHECKLIST_BLOCKS,
   MAX_CHECKLIST_UPLOAD_BYTES,
-  REQUIRED_CHECKLIST_IDS,
   UPLOAD_PROFILES,
-  isDelivered,
   itemAcceptsLink,
   itemAcceptsUpload,
   validateChecklistFields,
@@ -37,15 +34,13 @@ import {
   type ChecklistItem,
   type ChecklistStatus,
 } from "./content";
-import { uploadErrorMessage, uploadFileToTarget } from "@/lib/upload-client";
 import {
   createChecklistUploadTargetAction,
   finalizeChecklistFileAction,
   removeChecklistFile,
   saveChecklistItem,
 } from "./actions";
-import { formatBytes } from "@/lib/formatting";
-import { ScrollHint } from "@/app/_components/ScrollHint";
+import { BlockCard, ItemRowContent, blockAnchorId, blockStatus } from "./parts";
 
 export interface ClientChecklistFile {
   id: string;
@@ -60,559 +55,505 @@ export interface ClientChecklistItemState {
   files: ClientChecklistFile[];
   /** ISO string, set once EINS has confirmed the item. */
   verifiedAt: string | null;
-  /** ISO string of the row's last change; remounts the card when it moves. */
+  /** ISO string of the row's last change; the item takes the server's answer again when it moves. */
   updatedAt: string | null;
 }
 
 export type ClientChecklistState = Record<string, ClientChecklistItemState>;
 
-interface ChecklisteFormProps {
-  initialState: ClientChecklistState;
-  requiredDelivered: number;
-}
+const EMPTY_STATE: ClientChecklistItemState = { status: "offen", answer: {}, files: [], verifiedAt: null, updatedAt: null };
 
-export function ChecklisteForm({
-  initialState,
-  requiredDelivered,
-}: ChecklisteFormProps) {
-  const total = REQUIRED_CHECKLIST_IDS.length;
-  const pct = total > 0 ? Math.round((requiredDelivered / total) * 100) : 0;
+const rowId = (id: string) => `punkt-${id}`;
+
+/**
+ * The blocks with their items, and from xl the rail beside them. One item is
+ * open at a time (Shopify's setup guide); the tapped row stays where it was
+ * when the item above it closes. `after` is the page's closing cards.
+ */
+export function ChecklisteForm({ initialState, after }: { initialState: ClientChecklistState; after?: ReactNode }) {
+  const [openId, setOpenId] = useState<string | null>(null);
+  const anchor = useRef<{ id: string; top: number } | null>(null);
+  const active = useActiveSection(CHECKLIST_BLOCKS.map((b) => blockAnchorId(b.key)));
+  const statusOf = (id: string) => initialState[id]?.status;
+
+  function toggle(id: string, row: HTMLElement) {
+    anchor.current = { id, top: row.getBoundingClientRect().top };
+    setOpenId((cur) => (cur === id ? null : id));
+  }
+
+  useLayoutEffect(() => {
+    const a = anchor.current;
+    anchor.current = null;
+    if (!a) return;
+    const row = document.getElementById(rowId(a.id));
+    if (!row) return;
+    const delta = row.getBoundingClientRect().top - a.top;
+    if (Math.abs(delta) > 1) window.scrollBy(0, delta);
+  }, [openId]);
 
   return (
-    <div className="space-y-6">
-      <Card className="p-5 md:p-6">
-        <CardContent>
-          <div className="flex flex-wrap items-baseline justify-between gap-3">
-            <div>
-              <div className="text-sm text-fg-secondary">Ihr Lieferstand</div>
-              <div className="mt-1 font-display text-2xl font-semibold tabular-nums md:text-3xl">
-                {requiredDelivered} / {total} Pflichtpunkte
-              </div>
-            </div>
-            <Badge tone={pct === 100 ? "good" : "accent"}>{pct} %</Badge>
-          </div>
-          <div className="mt-4 h-3 overflow-hidden rounded-full bg-bg-secondary">
-            <div
-              className="h-full rounded-full bg-accent transition-all"
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-          <p className="mt-3 text-sm text-fg-secondary">
-            Sobald Sie einen Punkt geliefert haben, prüfen wir ihn und bestätigen
-            ihn mit dem Siegel „Geprüft“. Die fünf Grundlagen zum Start (Block A) zählen
-            erst als endgültig erledigt, wenn wir sie geprüft haben.
-          </p>
-        </CardContent>
-      </Card>
-
-      {CHECKLIST_BLOCKS.map((block) => (
-        <Card
-          key={block.key}
-          className="border-0 bg-transparent p-0 [box-shadow:none] md:border md:bg-bg-primary md:p-6 md:[box-shadow:var(--shadow-card)]"
-        >
-          <CardContent className="space-y-4">
-            <div>
-              <h2 className="text-lg font-semibold">
-                Block {block.key}: {block.title}
-              </h2>
-              {block.intro && (
-                <p className="mt-1 text-sm text-fg-secondary">{block.intro}</p>
-              )}
-            </div>
-            <div className="space-y-4">
-              {block.items.map((item) => (
-                <ItemCard
-                  // Remount when the server row changed (own save, EINS
-                  // verification, a second person), so local inputs never
-                  // hold a stale answer that a later save would write back.
-                  key={`${item.id}:${initialState[item.id]?.updatedAt ?? ""}`}
-                  item={item}
-                  state={
-                    initialState[item.id] ?? {
-                      status: "offen",
-                      answer: {},
-                      files: [],
-                      verifiedAt: null,
-                      updatedAt: null,
-                    }
-                  }
-                />
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+    <div className={COLUMNS}>
+      <div className="space-y-4 md:space-y-6">
+        {CHECKLIST_BLOCKS.map((block) => (
+          <BlockCard key={block.key} block={block} status={<StatusWord status={blockStatus(block, statusOf)} />}>
+            {block.items.map((item) => (
+              <ItemRow
+                key={item.id}
+                item={item}
+                state={initialState[item.id] ?? EMPTY_STATE}
+                open={openId === item.id}
+                onToggle={toggle}
+              />
+            ))}
+          </BlockCard>
+        ))}
+        {after}
+      </div>
+      <SectionRail
+        active={active}
+        entries={CHECKLIST_BLOCKS.map((b) => ({ id: blockAnchorId(b.key), title: b.title, status: blockStatus(b, statusOf) }))}
+      />
     </div>
   );
 }
 
 // ---------------------------------------------------------------
-// Item card
+// One item
 // ---------------------------------------------------------------
 
-function ItemCard({
+/** What a tap on a toggle shows before the server has answered. */
+interface Optimistic {
+  status: ChecklistStatus;
+  selfChecked: boolean;
+  entfaellt: boolean;
+}
+
+/** A file on its way: bytes in flight, then registered with EINS. */
+interface InFlight {
+  id: string;
+  name: string;
+  size: number;
+  progress: number;
+  /** Registered; the row stays until the refreshed item brings the file. */
+  done: boolean;
+}
+
+/**
+ * One item: the row (title, status, chevron) and, when open, the Anleitung
+ * in a well with the controls under it. Toggles show on the tap and save in
+ * the background (optimistic, rolled back with a toast on failure); files
+ * show their progress until EINS has registered them; typed answers save
+ * with "Speichern", which greys out while it runs. Saves and errors go in
+ * the toast.
+ */
+function ItemRow({
   item,
   state,
+  open,
+  onToggle,
 }: {
   item: ChecklistItem;
   state: ClientChecklistItemState;
+  open: boolean;
+  onToggle: (id: string, row: HTMLElement) => void;
 }) {
-  const [pending, start] = useTransition();
-  const [error, setError] = useState<string | null>(null);
+  const [, start] = useTransition();
   const [answer, setAnswer] = useState<ChecklistAnswer>(state.answer);
-  // What a tap on a toggle shows before the server has answered. It lives
-  // until the saved row lands: the card then remounts (key above) with the
-  // real state. A failed save clears it again.
-  const [optimistic, setOptimistic] = useState<{
-    selfChecked: boolean;
-    entfaellt: boolean;
-  } | null>(null);
+  const [optimistic, setOptimistic] = useState<Optimistic | null>(null);
+  const [uploads, setUploads] = useState<InFlight[]>([]);
+  const [removing, setRemoving] = useState(0);
+  const [dragging, setDragging] = useState(false);
   // A second tap on a toggle while a save runs is ignored (the server
-  // computes the status from the whole card, so two saves must not race),
-  // instead of greying out the card for the duration.
+  // computes the status from the whole item, so two saves must not race).
   const saving = useRef(false);
-  // A file upload or removal is running: the toggles show as disabled for
-  // that time (a toggle save alone does not grey them).
-  const [fileBusy, setFileBusy] = useState(false);
+  const controllers = useRef(new Map<string, AbortController>());
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const delivered = isDelivered(state.status);
-  const verified = state.status === "geprueft";
+  // The saved row landed (own save, EINS's check, a second person): take the
+  // server's answer, drop what a tap showed ahead and the registered uploads.
+  const [seen, setSeen] = useState(state.updatedAt);
+  if (seen !== state.updatedAt) {
+    setSeen(state.updatedAt);
+    setAnswer(state.answer);
+    setOptimistic(null);
+    setUploads((u) => u.filter((f) => !f.done));
+  }
+
+  const busyWithFiles = uploads.some((u) => !u.done) || removing > 0;
+  const shownStatus = optimistic?.status ?? state.status;
   const entfaellt = optimistic?.entfaellt ?? state.status === "entfaellt";
-  const selfChecked =
-    optimistic?.selfChecked ??
-    (state.status === "geliefert" || state.status === "geprueft");
-
-  // Inline email/phone validation, mirrored on the server. Blocks save while
-  // any contact field holds a malformed value.
+  const selfChecked = optimistic?.selfChecked ?? (state.status === "geliefert" || state.status === "geprueft");
+  const keineVorhanden = answer.keineVorhanden === true;
+  const profile = item.uploadProfile ? UPLOAD_PROFILES[item.uploadProfile] : null;
   const fieldErrors = validateChecklistFields(item, answer);
-  const hasFieldErrors = Object.keys(fieldErrors).length > 0;
 
-  /**
-   * Saves the card. `onRevert` undoes what the tap showed ahead of the
-   * save; it runs on a validation error, a rejected save and a thrown error.
-   */
-  function persist(
-    opts: {
-      answer?: ChecklistAnswer;
-      selfChecked?: boolean;
-      nichtVorhanden?: boolean;
-    },
-    onRevert?: () => void
+  // Closing or reloading the tab mid-upload would lose the files: the
+  // browser asks first (Dateien, WeTransfer, Drive).
+  const uploadingNow = uploads.some((u) => !u.done);
+  useEffect(() => {
+    if (!uploadingNow) return;
+    const guard = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [uploadingNow]);
+
+  function fail(title: string, description?: string) {
+    showActionFlash({ tone: "bad", title, description });
+  }
+
+  /** Saves the item; `revert` undoes what a tap showed ahead of the save. */
+  async function save(
+    opts: { answer?: ChecklistAnswer; selfChecked?: boolean; nichtVorhanden?: boolean },
+    revert?: () => void,
+    savedTitle?: string
   ) {
-    setError(null);
-    const toValidate = opts.answer ?? answer;
-    const errs = validateChecklistFields(item, toValidate);
-    const firstErr = Object.values(errs)[0];
-    if (firstErr) {
-      onRevert?.();
-      setError(firstErr);
+    const toSave = opts.answer ?? answer;
+    const firstError = Object.values(validateChecklistFields(item, toSave))[0];
+    if (firstError) {
+      revert?.();
+      fail("Nicht gespeichert", firstError);
       return;
     }
     saving.current = true;
-    start(async () => {
-      try {
-        const res = await saveChecklistItem({
-          itemId: item.id,
-          answer: opts.answer ?? answer,
-          selfChecked: opts.selfChecked,
-          nichtVorhanden: opts.nichtVorhanden,
-        });
-        // Success: the action revalidates this page, no extra refresh needed.
-        if (!res.ok) {
-          onRevert?.();
-          setError(saveErrorText(res.error));
-        }
-      } catch {
-        onRevert?.();
-        setError(saveErrorText("network"));
-      } finally {
-        saving.current = false;
+    try {
+      const res = await saveChecklistItem({
+        itemId: item.id,
+        answer: toSave,
+        selfChecked: opts.selfChecked,
+        nichtVorhanden: opts.nichtVorhanden,
+      });
+      // Success: the action revalidates the page.
+      if (!res.ok) {
+        revert?.();
+        fail("Nicht gespeichert", res.field ? res.error : saveErrorText(res.error));
+      } else if (savedTitle) {
+        showActionFlash({ tone: "good", title: savedTitle, description: item.title });
       }
-    });
+    } catch {
+      revert?.();
+      fail("Nicht gespeichert", saveErrorText("network"));
+    } finally {
+      saving.current = false;
+    }
   }
 
   /** Flips a toggle at once and saves in the background. */
-  function tapToggle(
-    show: { selfChecked: boolean; entfaellt: boolean },
-    opts: { selfChecked?: boolean; nichtVorhanden?: boolean }
-  ) {
-    if (pending || saving.current) return;
+  function tapToggle(show: Optimistic, opts: { answer?: ChecklistAnswer; selfChecked?: boolean; nichtVorhanden?: boolean }, revert?: () => void) {
+    if (saving.current) return;
     setOptimistic(show);
-    persist(opts, () => setOptimistic(null));
+    start(() =>
+      save(opts, () => {
+        setOptimistic(null);
+        revert?.();
+      })
+    );
   }
 
-  function onFilePicked(e: React.ChangeEvent<HTMLInputElement>) {
-    setError(null);
-    const file = e.target.files?.[0];
+  function patchUpload(id: string, changes: Partial<InFlight>) {
+    setUploads((prev) => prev.map((u) => (u.id === id ? { ...u, ...changes } : u)));
+  }
+
+  /** One file: mint a target, send the bytes straight to storage, register it. */
+  async function uploadOne(file: File) {
+    if (file.size === 0) return fail("Nicht hochgeladen", `„${file.name}“: ${uploadErrorText("empty_file")}`);
+    if (file.size > MAX_CHECKLIST_UPLOAD_BYTES) return fail("Nicht hochgeladen", `„${file.name}“: ${uploadErrorText("file_too_large")}`);
+    const id = crypto.randomUUID();
+    const ctrl = new AbortController();
+    controllers.current.set(id, ctrl);
+    setUploads((prev) => [...prev, { id, name: file.name, size: file.size, progress: 0, done: false }]);
+    let registered = false;
+    try {
+      // The bytes never pass through a server action (serverless request caps).
+      const minted = await createChecklistUploadTargetAction({
+        itemId: item.id,
+        filename: file.name,
+        size: file.size,
+        contentType: file.type || undefined,
+      });
+      if (!minted.ok) return fail("Nicht hochgeladen", `„${file.name}“: ${uploadErrorText(minted.error)}`);
+      try {
+        await uploadFileToTarget(minted.target, file, (p) => patchUpload(id, { progress: p }), ctrl.signal);
+      } catch (err) {
+        if (!ctrl.signal.aborted) fail("Nicht hochgeladen", `„${file.name}“: ${uploadErrorMessage(err)}`);
+        return;
+      }
+      const res = await finalizeChecklistFileAction({
+        itemId: item.id,
+        key: minted.target.key,
+        filename: file.name,
+        contentType: file.type || undefined,
+      });
+      if (!res.ok) return fail("Nicht hochgeladen", `„${file.name}“: ${uploadErrorText(res.error)}`);
+      registered = true;
+      showActionFlash({ tone: "good", title: "Datei hochgeladen", description: file.name });
+    } catch {
+      fail("Nicht hochgeladen", `„${file.name}“: ${uploadErrorText("network")}`);
+    } finally {
+      controllers.current.delete(id);
+      if (registered) patchUpload(id, { done: true, progress: 1 });
+      else setUploads((prev) => prev.filter((u) => u.id !== id));
+    }
+  }
+
+  async function uploadAll(files: File[]) {
+    for (const f of files) await uploadOne(f);
+  }
+
+  function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
     e.target.value = "";
-    if (!file) return;
-    if (file.size === 0) {
-      setError(uploadErrorText("empty_file"));
-      return;
-    }
-    if (file.size > MAX_CHECKLIST_UPLOAD_BYTES) {
-      setError("Datei zu groß (max. 25 MB). Große Sets bitte als Link liefern.");
-      return;
-    }
-    setFileBusy(true);
-    start(async () => {
-      // Direct-to-storage: mint a target, upload the bytes straight to
-      // object storage, then register the file. The bytes never pass
-      // through a server action (serverless request caps).
-      try {
-        const minted = await createChecklistUploadTargetAction({
-          itemId: item.id,
-          filename: file.name,
-          size: file.size,
-          contentType: file.type || undefined,
-        });
-        if (!minted.ok) {
-          setError(uploadErrorText(minted.error));
-          return;
-        }
-        try {
-          await uploadFileToTarget(minted.target, file);
-        } catch (err) {
-          setError(uploadErrorMessage(err));
-          return;
-        }
-        const res = await finalizeChecklistFileAction({
-          itemId: item.id,
-          key: minted.target.key,
-          filename: file.name,
-          contentType: file.type || undefined,
-        });
-        // Success: the action revalidates this page.
-        if (!res.ok) setError(uploadErrorText(res.error));
-      } catch {
-        setError(uploadErrorText("network"));
-      } finally {
-        setFileBusy(false);
-      }
-    });
+    void uploadAll(files);
   }
 
-  function onRemoveFile(fileId: string, name: string) {
-    setError(null);
-    if (!window.confirm(`Datei "${name}" wirklich entfernen?`)) return;
-    setFileBusy(true);
-    start(async () => {
-      try {
-        const res = await removeChecklistFile({ fileId });
-        if (!res.ok) {
-          setError("Datei konnte nicht entfernt werden. Bitte erneut versuchen.");
-        }
-      } catch {
-        setError(
-          "Datei konnte nicht entfernt werden. Bitte prüfen Sie Ihre Internetverbindung und versuchen Sie es erneut."
-        );
-      } finally {
-        setFileBusy(false);
-      }
-    });
-  }
+  const acceptsFiles = itemAcceptsUpload(item.deliveryType) && !keineVorhanden;
+  const isFileDrag = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes("Files");
 
   function setField(key: string, value: string) {
     setAnswer((prev) => ({ ...prev, [key]: value }));
   }
 
-  const keineVorhanden = answer.keineVorhanden === true;
-  const profile = item.uploadProfile ? UPLOAD_PROFILES[item.uploadProfile] : null;
-
   return (
-    <div
-      className={cn(
-        "rounded-xl border p-3.5 transition-colors md:p-4",
-        verified
-          ? "border-[var(--tone-good-border)] bg-[var(--tone-good-bg)]"
-          : delivered
-            ? "border-border bg-bg-secondary"
-            : "border-border bg-bg-primary"
-      )}
-    >
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <StatusIcon status={state.status} />
-          <div>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="font-mono text-sm text-fg-secondary">
-                {item.id}
-              </span>
-              <span className="font-medium text-fg-primary">{item.title}</span>
-            </div>
-            <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              {item.required ? (
-                <Badge tone="warn">Pflicht</Badge>
-              ) : item.recommended ? (
-                <Badge>Empfohlen</Badge>
-              ) : (
-                <Badge>Optional</Badge>
-              )}
-              {item.blocker && <Badge tone="bad">Grundlage zum Start</Badge>}
-              {item.role === "inhaber" && (
-                <span className="inline-flex items-center gap-1 text-sm text-fg-secondary">
-                  <Lock className="h-3 w-3" /> Inhaber
-                </span>
-              )}
-            </div>
+    <li className={WASH_ROW}>
+      <button
+        type="button"
+        id={rowId(item.id)}
+        aria-expanded={open}
+        aria-controls={`${rowId(item.id)}-inhalt`}
+        onClick={(e) => onToggle(item.id, e.currentTarget)}
+        className={ITEM_ROW}
+      >
+        <ItemRowContent item={item} meta={{ status: shownStatus, files: state.files.length }} open={open} />
+      </button>
+
+      {open && (
+        <div
+          id={`${rowId(item.id)}-inhalt`}
+          role="region"
+          aria-labelledby={rowId(item.id)}
+          className={cn(ITEM_PANEL, "rounded-[var(--r-panel)]", dragging && "ring-2 ring-inset ring-accent")}
+          // Files dropped onto the opened item go up (Dateien's drop, one item);
+          // while files go up a drop is refused, not opened by the browser.
+          onDragOver={(e) => {
+            if (!acceptsFiles || !isFileDrag(e)) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = busyWithFiles ? "none" : "copy";
+            setDragging(!busyWithFiles);
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+          }}
+          onDrop={(e) => {
+            if (!acceptsFiles || !isFileDrag(e)) return;
+            e.preventDefault();
+            setDragging(false);
+            if (!busyWithFiles) void uploadAll(Array.from(e.dataTransfer.files));
+          }}
+        >
+          <div className={ITEM_WELL}>
+            <p className="whitespace-pre-line text-[15px] leading-6 text-fg-primary">{item.anleitung}</p>
+            {item.warum && (
+              <p className="mt-3 text-sm leading-5 text-fg-secondary">
+                <span className="font-medium text-fg-primary">Warum:</span> {item.warum}
+              </p>
+            )}
           </div>
-        </div>
-        <StatusBadge status={state.status} required={item.required} />
-      </div>
 
-      {/* Anleitung */}
-      <div className="mt-3 md:pl-9">
-        <Anleitung item={item} />
-        {item.warum && (
-          <p className="mt-2 text-sm text-fg-secondary">
-            <span className="font-medium">Warum:</span> {item.warum}
-          </p>
-        )}
+          <div className="mt-4 space-y-5">
+            {item.allowKeineVorhanden && (
+              <Toggle
+                label="Keine vorhanden"
+                checked={keineVorhanden}
+                disabled={busyWithFiles}
+                onChange={() => {
+                  if (saving.current) return;
+                  const previous = answer;
+                  const next = { ...answer, keineVorhanden: !keineVorhanden };
+                  setAnswer(next);
+                  const stillThere = state.files.length > 0 || Boolean(state.answer.link);
+                  tapToggle(
+                    { status: next.keineVorhanden || stillThere ? "geliefert" : "offen", selfChecked, entfaellt },
+                    { answer: next },
+                    () => setAnswer(previous)
+                  );
+                }}
+              />
+            )}
 
-        {/* Controls */}
-        <div className="mt-3 space-y-3">
-          {verified && (
-            <p className="inline-flex items-center gap-1.5 text-sm text-tone-good">
-              <ShieldCheck className="h-4 w-4" />
-              Von EINS geprüft und bestätigt.
-            </p>
-          )}
-
-          {/* "Keine vorhanden" toggle (F2) */}
-          {item.allowKeineVorhanden && (
-            <ToggleRow
-              checked={keineVorhanden}
-              disabled={fileBusy}
-              label="Keine vorhanden"
-              onToggle={() => {
-                if (pending || saving.current) return;
-                const previous = answer;
-                const next = { ...answer, keineVorhanden: !keineVorhanden };
-                setAnswer(next);
-                persist({ answer: next }, () => setAnswer(previous));
-              }}
-            />
-          )}
-
-          {!keineVorhanden && (
-            <>
-              {/* Self-check for status / einladung */}
-              {(item.deliveryType === "status" ||
-                item.deliveryType === "einladung") && (
-                <ToggleRow
-                  checked={selfChecked}
-                  disabled={entfaellt || fileBusy}
-                  label={
-                    item.deliveryType === "einladung"
-                      ? "Einladung verschickt"
-                      : "Erledigt"
-                  }
-                  onToggle={() =>
-                    tapToggle(
-                      { selfChecked: !selfChecked, entfaellt: false },
-                      { selfChecked: !selfChecked }
-                    )
-                  }
-                />
-              )}
-
-              {/* Uploads */}
-              {itemAcceptsUpload(item.deliveryType) && (
-                <div className="space-y-2">
-                  {state.files.length > 0 && (
-                    <ul className="space-y-1.5">
-                      {state.files.map((f) => (
-                        <li
-                          key={f.id}
-                          className="flex items-center justify-between gap-2 rounded-md border border-border bg-bg-primary px-3 py-1.5 text-sm"
-                        >
-                          <a
-                            href={f.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex min-w-0 items-center gap-2 text-fg-primary hover:text-accent"
-                          >
-                            <FileText className="h-4 w-4 shrink-0" />
-                            <span className="truncate">{f.name}</span>
-                            <span className="shrink-0 text-fg-secondary">
-                              {formatBytes(f.sizeBytes)}
-                            </span>
-                          </a>
-                          <button
-                            type="button"
-                            disabled={pending}
-                            onClick={() => onRemoveFile(f.id, f.name)}
-                            className="shrink-0 text-fg-tertiary hover:text-tone-bad disabled:opacity-50"
-                            aria-label="Datei entfernen"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept={profile?.accept}
-                    className="sr-only"
-                    onChange={onFilePicked}
+            {!keineVorhanden && (
+              <>
+                {(item.deliveryType === "status" || item.deliveryType === "einladung") && (
+                  <Toggle
+                    label={item.deliveryType === "einladung" ? "Einladung verschickt" : "Erledigt"}
+                    checked={selfChecked}
+                    disabled={entfaellt || busyWithFiles}
+                    onChange={() =>
+                      tapToggle(
+                        { status: selfChecked ? "offen" : "geliefert", selfChecked: !selfChecked, entfaellt: false },
+                        { selfChecked: !selfChecked }
+                      )
+                    }
                   />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={pending}
-                    onClick={() => fileRef.current?.click()}
-                  >
-                    <Upload className="h-4 w-4" />
-                    {state.files.length > 0 ? "Weitere Datei" : "Datei hochladen"}
-                  </Button>
-                  {profile && (
-                    <p className="text-sm text-fg-secondary">
-                      {profile.hint}, höchstens 25 MB pro Datei.
-                    </p>
-                  )}
-                </div>
-              )}
+                )}
 
-              {/* Link */}
-              {itemAcceptsLink(item.deliveryType) && (
-                <div className="space-y-1.5">
-                  <Label htmlFor={`${item.id}-link`} className="text-sm">
-                    {itemAcceptsUpload(item.deliveryType)
-                      ? "Oder Freigabe-Link (für große Sets)"
-                      : "Freigabe-Link"}
-                  </Label>
-                  <div className="flex items-center gap-2">
-                    <Link2 className="h-4 w-4 shrink-0 text-fg-tertiary" />
-                    <Input
+                {itemAcceptsUpload(item.deliveryType) && (
+                  <div>
+                    <input
+                      ref={fileRef}
+                      type="file"
+                      multiple
+                      accept={profile?.accept}
+                      className="sr-only"
+                      tabIndex={-1}
+                      onChange={onPick}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      // Greyed while files go up; their rows show the progress.
+                      disabled={busyWithFiles}
+                      onClick={() => fileRef.current?.click()}
+                      className={cn(RAISED_CONTROL, CONTROL, "px-4")}
+                    >
+                      <Upload className="h-4 w-4" aria-hidden />
+                      {state.files.length > 0 ? "Weitere Datei" : "Datei hochladen"}
+                    </Button>
+                    {profile && (
+                      <p className="mt-2 text-sm leading-5 text-fg-secondary">{profile.hint}, höchstens 25 MB pro Datei.</p>
+                    )}
+                    {(state.files.length > 0 || uploads.length > 0) && (
+                      // Dateien's file rows (their grey reaches 12 px past the
+                      // text, 4 px white between two); the files on their way under them.
+                      <ul className="mt-3 space-y-1">
+                        {state.files.map((f) => (
+                          <FileRow
+                            key={f.id}
+                            icon={<FileTypeIcon name={f.name} />}
+                            name={f.name}
+                            href={f.url}
+                            meta={<MetaFacts parts={[formatFileSize(f.sizeBytes)]} />}
+                            action={
+                              <RemoveFile
+                                fileId={f.id}
+                                name={f.name}
+                                onStart={() => setRemoving((n) => n + 1)}
+                                onEnd={() => setRemoving((n) => n - 1)}
+                              />
+                            }
+                          />
+                        ))}
+                        {uploads.map((u) => (
+                          <UploadingRow
+                            key={u.id}
+                            file={u}
+                            onCancel={() => controllers.current.get(u.id)?.abort()}
+                          />
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+
+                {itemAcceptsLink(item.deliveryType) && (
+                  <div>
+                    <label htmlFor={`${item.id}-link`} className={FIELD_LABEL}>
+                      {itemAcceptsUpload(item.deliveryType) ? "Oder Freigabe-Link (für große Sets)" : "Freigabe-Link"}
+                    </label>
+                    <input
                       id={`${item.id}-link`}
                       type="url"
                       inputMode="url"
                       placeholder="https://drive.google.com/…"
                       value={typeof answer.link === "string" ? answer.link : ""}
                       aria-invalid={fieldErrors.link ? true : undefined}
+                      aria-describedby={fieldErrors.link ? `${item.id}-link-fehler` : undefined}
                       onChange={(e) => setField("link", e.target.value)}
+                      className={cn(FIELD, "mt-1.5", fieldErrors.link && "ring-2 ring-tone-bad")}
                     />
+                    {fieldErrors.link && (
+                      <span id={`${item.id}-link-fehler`} className="sr-only">
+                        {fieldErrors.link}
+                      </span>
+                    )}
                   </div>
-                  {fieldErrors.link && (
-                    <p className="flex items-start gap-1.5 text-sm text-tone-bad">
-                      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                      {fieldErrors.link}
-                    </p>
-                  )}
-                </div>
-              )}
+                )}
 
-              {/* Angabe fields */}
-              {item.fields && item.fields.length > 0 && (
-                <div className="space-y-3">
-                  {item.fields.map((field) => {
-                    const fid = `${item.id}-${field.key}`;
-                    const val =
-                      typeof answer[field.key] === "string"
-                        ? (answer[field.key] as string)
-                        : "";
-                    const fieldError = fieldErrors[field.key];
-                    return (
-                      <div key={field.key} className="space-y-1">
-                        <Label htmlFor={fid} className="text-sm">
-                          {field.label}
-                          {field.optional && (
-                            <span className="ml-1 text-sm font-medium text-fg-primary">
-                              Optional
-                            </span>
-                          )}
-                        </Label>
-                        {field.type === "textarea" ? (
-                          <ScrollHint watch={val}>
-                            <Textarea
-                              id={fid}
-                              rows={3}
-                              maxLength={8000}
-                              placeholder={field.placeholder}
-                              value={val}
-                              onChange={(e) => setField(field.key, e.target.value)}
-                            />
-                          </ScrollHint>
-                        ) : (
-                          <Input
-                            id={fid}
-                            type={field.format === "email" ? "email" : "text"}
-                            inputMode={
-                              field.format === "tel"
-                                ? "tel"
-                                : field.format === "email"
-                                  ? "email"
-                                  : undefined
-                            }
-                            aria-invalid={fieldError ? true : undefined}
-                            maxLength={8000}
-                            placeholder={field.placeholder}
-                            value={val}
+                {(item.fields ?? []).map((field) => {
+                  const fid = `${item.id}-${field.key}`;
+                  const val = typeof answer[field.key] === "string" ? (answer[field.key] as string) : "";
+                  const error = fieldErrors[field.key];
+                  const common = {
+                    id: fid,
+                    maxLength: 8000,
+                    placeholder: field.placeholder,
+                    value: val,
+                    "aria-invalid": error ? true : undefined,
+                    "aria-describedby": error ? `${fid}-fehler` : undefined,
+                  } as const;
+                  return (
+                    <div key={field.key}>
+                      <label htmlFor={fid} className={FIELD_LABEL}>
+                        {field.label}
+                        {field.optional && <span className="ml-2 text-sm font-normal text-fg-secondary">Optional</span>}
+                      </label>
+                      {field.type === "textarea" ? (
+                        <ScrollHint watch={val} className="mt-1.5">
+                          <textarea
+                            {...common}
+                            rows={4}
                             onChange={(e) => setField(field.key, e.target.value)}
+                            className={cn(FIELD, TEXTAREA_HEIGHT)}
                           />
-                        )}
-                        {fieldError && (
-                          <p className="flex items-start gap-1.5 text-sm text-tone-bad">
-                            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                            {fieldError}
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                        </ScrollHint>
+                      ) : (
+                        <input
+                          {...common}
+                          type={field.format === "email" ? "email" : "text"}
+                          inputMode={field.format === "tel" ? "tel" : field.format === "email" ? "email" : undefined}
+                          onChange={(e) => setField(field.key, e.target.value)}
+                          className={cn(FIELD, "mt-1.5", error && "ring-2 ring-tone-bad")}
+                        />
+                      )}
+                      {error && (
+                        <span id={`${fid}-fehler`} className="sr-only">
+                          {error}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
 
-              {/* "Nicht vorhanden" for einladung items */}
-              {item.allowNichtVorhanden && (
-                <button
-                  type="button"
-                  disabled={fileBusy}
-                  onClick={() =>
-                    tapToggle(
-                      { selfChecked: false, entfaellt: !entfaellt },
-                      { nichtVorhanden: !entfaellt, selfChecked: false }
-                    )
-                  }
-                  className="text-sm text-fg-secondary underline-offset-2 hover:underline disabled:opacity-50"
-                >
-                  {entfaellt
-                    ? "Doch vorhanden? Auswahl zurücknehmen"
-                    : "Nicht vorhanden, gemeinsam anlegen"}
-                </button>
-              )}
-            </>
-          )}
+                {item.allowNichtVorhanden && (
+                  <Toggle
+                    label="Nicht vorhanden, gemeinsam anlegen"
+                    checked={entfaellt}
+                    disabled={busyWithFiles}
+                    onChange={() =>
+                      tapToggle(
+                        { status: entfaellt ? "offen" : "entfaellt", selfChecked: false, entfaellt: !entfaellt },
+                        { nichtVorhanden: !entfaellt, selfChecked: false }
+                      )
+                    }
+                  />
+                )}
+              </>
+            )}
+          </div>
 
-          {/* Save button for editable text inputs */}
           {needsSaveButton(item) && !keineVorhanden && (
-            <div>
-              <Button
-                type="button"
-                size="sm"
-                disabled={pending || hasFieldErrors}
-                onClick={() => persist({ selfChecked })}
-              >
-                <Check className="h-4 w-4" />
-                {pending ? "Wird gespeichert …" : "Angaben speichern"}
-              </Button>
-            </div>
-          )}
-
-          {error && (
-            <p className="flex items-start gap-1.5 text-sm text-tone-bad">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-              {error}
-            </p>
+            // One "Speichern" at the end of the item, in the same place for
+            // every type; greyed out while it runs, the result in the toast.
+            <form action={() => save({ selfChecked }, undefined, "Angaben gespeichert")} className="mt-5">
+              <PendingSubmit disabled={busyWithFiles} className={cn(CONTROL, "px-4")}>
+                Speichern
+              </PendingSubmit>
+            </form>
           )}
         </div>
-      </div>
-    </div>
+      )}
+    </li>
   );
 }
 
@@ -620,102 +561,138 @@ function ItemCard({
 // Bits
 // ---------------------------------------------------------------
 
-/** Items that have free-text inputs the user types into and then saves. */
+/** Items with fields the Praxis types into and then saves. */
 function needsSaveButton(item: ChecklistItem): boolean {
   if (item.deliveryType === "angabe") return true;
   if (itemAcceptsLink(item.deliveryType)) return true;
-  // einladung with extra angabe fields (e.g. C1).
-  if (item.deliveryType === "einladung" && (item.fields?.length ?? 0) > 0) {
-    return true;
-  }
-  return false;
+  // einladung with extra angabe fields (C1).
+  return item.deliveryType === "einladung" && (item.fields?.length ?? 0) > 0;
 }
 
-function Anleitung({ item }: { item: ChecklistItem }) {
-  // The einladung steps are long; keep them collapsed so the page stays
-  // scannable. Everything else is short enough to show inline.
-  if (item.deliveryType === "einladung") {
-    return (
-      <details className="group">
-        <summary className="flex cursor-pointer list-none items-center gap-1.5 text-sm font-medium text-accent">
-          <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
-          Schritt-für-Schritt-Anleitung
-        </summary>
-        <p className="mt-2 whitespace-pre-line text-sm text-fg-secondary">
-          {item.anleitung}
-        </p>
-      </details>
-    );
-  }
-  return (
-    <p className="whitespace-pre-line text-sm text-fg-secondary">
-      {item.anleitung}
-    </p>
-  );
-}
-
-function ToggleRow({
+/**
+ * A toggle of an item (Stripe's Konto-Checkliste): the browser's own box and
+ * its label on one line of one control height, as the Fragebogen's options.
+ */
+function Toggle({
+  label,
   checked,
   disabled,
-  label,
-  onToggle,
+  onChange,
 }: {
+  label: string;
   checked: boolean;
   disabled: boolean;
-  label: string;
-  onToggle: () => void;
+  onChange: () => void;
 }) {
   return (
-    <button
-      type="button"
-      role="checkbox"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={onToggle}
-      className={cn(
-        "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm transition-colors disabled:opacity-50",
-        checked
-          ? "border-[var(--tone-good-border)] bg-[var(--tone-good-bg)] text-tone-good"
-          : "border-border bg-bg-primary text-fg-primary hover:border-fg-secondary"
-      )}
-    >
-      {checked ? (
-        <CheckCircle2 className="h-4 w-4" />
-      ) : (
-        <Circle className="h-4 w-4" />
-      )}
-      {label}
-    </button>
+    <label className={cn(OPTION_ROW, disabled && "cursor-default opacity-50 hover:bg-transparent")}>
+      <input type="checkbox" checked={checked} disabled={disabled} onChange={onChange} className={OPTION_INPUT} />
+      <span className="min-w-0">{label}</span>
+    </label>
   );
 }
 
-function StatusIcon({ status }: { status: ChecklistStatus }) {
-  if (status === "geprueft") {
-    return (
-      <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-tone-good" />
-    );
-  }
-  if (status === "geliefert") {
-    return <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-accent" />;
-  }
-  if (status === "entfaellt") {
-    return <Circle className="mt-0.5 h-5 w-5 shrink-0 text-fg-tertiary" />;
-  }
-  return <Circle className="mt-0.5 h-5 w-5 shrink-0 text-fg-tertiary" />;
+/**
+ * A file on its way, in the place and size of a file row (Dateien's file
+ * rows and its progress line): the size, the progress, "Abbrechen" at the
+ * end until EINS has registered it.
+ */
+function UploadingRow({ file, onCancel }: { file: InFlight; onCancel: () => void }) {
+  const percent = Math.round(file.progress * 100);
+  return (
+    <li className={cn("flex items-center gap-3 rounded-[var(--r-panel)]", WASH_AREA, FILE_ROW)}>
+      <span aria-hidden className="flex h-5 w-4 shrink-0 items-center justify-center self-start text-fg-tertiary">
+        <FileTypeIcon name={file.name} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="break-words text-[15px] font-medium leading-5 text-fg-secondary">{file.name}</p>
+        <div className="mt-1 flex min-h-5 items-center gap-x-2 text-sm leading-5 text-fg-secondary">
+          <span className="tabular-nums">{formatFileSize(file.size)}</span>
+          <span
+            role="progressbar"
+            aria-label={`${file.name} wird hochgeladen`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent}
+            className="elev-inset h-1.5 w-24 overflow-hidden rounded-[var(--r-small)] bg-[var(--surface-inset)]"
+          >
+            <span
+              className={cn("block h-full rounded-[var(--r-small)] transition-[width]", file.done ? "bg-tone-good" : "bg-accent")}
+              style={{ width: `${percent}%` }}
+            />
+          </span>
+        </div>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        disabled={file.done || file.progress >= 1}
+        onClick={onCancel}
+        aria-label={`Hochladen von ${file.name} abbrechen`}
+        title="Abbrechen"
+        className={cn(RAISED_CONTROL, CONTROL, CONTROL_SQUARE, "shrink-0 text-fg-secondary")}
+      >
+        <X className="h-4 w-4" aria-hidden />
+      </Button>
+    </li>
+  );
 }
 
-function StatusBadge({
-  status,
-  required,
+/**
+ * Removes one file with one tap, no question first (Dateien's rule). Not
+ * ahead of the server: the button greys out, the row goes once EINS has
+ * removed it, the toast names the file.
+ */
+function RemoveFile({
+  fileId,
+  name,
+  onStart,
+  onEnd,
 }: {
-  status: ChecklistStatus;
-  required: boolean;
+  fileId: string;
+  name: string;
+  onStart: () => void;
+  onEnd: () => void;
 }) {
-  if (status === "geprueft") return <Badge tone="good">Geprüft</Badge>;
-  if (status === "geliefert") return <Badge tone="accent">Geliefert</Badge>;
-  if (status === "entfaellt") return <Badge>Entfällt</Badge>;
-  if (required) return <Badge tone="warn">Offen</Badge>;
-  return null;
+  return (
+    <form
+      action={async () => {
+        onStart();
+        try {
+          const res = await removeChecklistFile({ fileId });
+          if (res.ok) showActionFlash({ tone: "good", title: "Datei entfernt", description: name });
+          else showActionFlash({ tone: "bad", title: "Datei nicht entfernt", description: `${name}: Bitte versuchen Sie es erneut.` });
+        } catch {
+          showActionFlash({
+            tone: "bad",
+            title: "Datei nicht entfernt",
+            description: `${name}: Bitte prüfen Sie Ihre Internetverbindung und versuchen Sie es erneut.`,
+          });
+        } finally {
+          onEnd();
+        }
+      }}
+    >
+      <RemoveSubmit name={name} />
+    </form>
+  );
+}
+
+function RemoveSubmit({ name }: { name: string }) {
+  const { pending } = useFormStatus();
+  return (
+    <Button
+      type="submit"
+      variant="outline"
+      disabled={pending}
+      aria-busy={pending || undefined}
+      aria-label={`Entfernen: ${name}`}
+      title="Entfernen"
+      className={cn(RAISED_CONTROL, CONTROL, CONTROL_SQUARE, "text-fg-secondary hover:text-tone-bad disabled:opacity-50")}
+    >
+      <Trash2 className="h-4 w-4" aria-hidden />
+    </Button>
+  );
 }
 
 function saveErrorText(code: string): string {

@@ -22,10 +22,13 @@ export function RetreatmentToggle({
   cycleId,
   dismissed: fromServer,
   treatment,
+  name,
 }: {
   cycleId: string;
   dismissed: boolean;
   treatment: string;
+  /** Patient name for the toast. */
+  name: string;
 }) {
   const dismissed = usePendingDismissed(cycleId, fromServer);
   const { add, actor } = usePending();
@@ -48,7 +51,7 @@ export function RetreatmentToggle({
         const res = await (dismiss ? dismissRetreatmentAction : restoreRetreatmentAction)(fd);
         showActionFlash(
           !res.ok
-            ? { tone: "bad", title: "Nicht gespeichert", description: res.message }
+            ? { tone: "bad", title: "Nicht gespeichert", description: `${name}: ${res.message}` }
             : dismiss
               ? {
                   tone: "good",
@@ -59,7 +62,7 @@ export function RetreatmentToggle({
               : { tone: "good", title: "Wieder aufgenommen", description: treatment }
         );
       } catch {
-        showActionFlash({ tone: "bad", title: "Nicht gespeichert", description: OFFLINE });
+        showActionFlash({ tone: "bad", title: "Nicht gespeichert", description: `${name}: ${OFFLINE}` });
       }
     });
   };

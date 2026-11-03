@@ -3,7 +3,7 @@
  *
  * Source of truth for the question SET is the Obsidian note
  * "Discovery-Fragebogen (Kunden-Onboarding)" (10 EINS/Kunden/); this file mirrors Teil 1
- * verbatim (26 Fragen, 19 Pflicht). Teil 2 (Gesprächsleitfaden, incl. Block J
+ * verbatim (21 Fragen, 17 Pflicht). Teil 2 (Gesprächsleitfaden, incl. Block J
  * "Ihr KI-Klon") is deliberately NOT in the portal - Karam asks those live.
  *
  * Answers are stored as a jsonb map keyed by question id: string for
@@ -13,6 +13,12 @@
  * dropped on the next save (see saveDiscoveryAction), so retiring is safe.
  * F1 (monthly Werbebudget) keeps its id: same question, options replaced,
  * optional since 2026-09-30; older stored preset strings stay readable.
+ * Retired on 2026-10-30 (Karam's onboarding cut; never reuse these ids):
+ * A6 (weitere Behandlungen: the Checkliste's E1 Behandlungsliste), C4
+ * (Instagram activity: EINS sees the account through Checkliste B2), D6
+ * (Online-Terminbuchung: Checkliste C3), E3 (Discount-Druck: no step changes
+ * with the answer), F2 (Abmahnungen: Checkliste F2). Block D's why lost the
+ * 48 Werkstunden rule, which stands in the Checkliste's "Was danach zählt".
  */
 
 export type DiscoveryQuestionType = "auswahl" | "mehrfach" | "text" | "textarea";
@@ -48,11 +54,14 @@ export interface DiscoveryBlock {
   questions: readonly DiscoveryQuestion[];
 }
 
+/** The one line the Praxis sees under the title (the last sentence of the intro). */
+export const DISCOVERY_ESTIMATE_NOTE = "Schätzungen reichen überall aus, niemand erwartet exakte Zahlen.";
+
 export const DISCOVERY_INTRO =
   "Diese Antworten sind die Grundlage für Ihren KI-Klon, Ihre Beiträge und Ihre Zielseite. " +
   "Je genauer Sie antworten, desto weniger müssen wir im Gespräch nachfragen. " +
   "Pflichtfragen sind markiert; alles andere können Sie überspringen. " +
-  "Dauer: etwa 15 bis 20 Minuten. Schätzungen reichen überall aus, niemand erwartet exakte Zahlen.";
+  `Dauer: etwa 15 bis 20 Minuten. ${DISCOVERY_ESTIMATE_NOTE}`;
 
 export const DISCOVERY_BLOCKS: readonly DiscoveryBlock[] = [
   {
@@ -107,13 +116,6 @@ export const DISCOVERY_BLOCKS: readonly DiscoveryBlock[] = [
         hint: "Falls nein, schreiben Sie einfach „keine“.",
         type: "text",
         required: true,
-      },
-      {
-        id: "A6",
-        label: "Welche weiteren Behandlungen bieten Sie an?",
-        hint: "Vollständige Liste, falls Sie keine aktuelle Behandlungsliste liefern.",
-        type: "textarea",
-        required: false,
       },
     ],
   },
@@ -199,26 +201,12 @@ export const DISCOVERY_BLOCKS: readonly DiscoveryBlock[] = [
         options: ["ja, wird dokumentiert", "ja, aber nicht dokumentiert", "nein"],
         required: true,
       },
-      {
-        id: "C4",
-        label: "Wie aktiv ist Ihr Instagram-Konto heute?",
-        type: "auswahl",
-        options: [
-          "regelmäßig gepflegt",
-          "sporadisch",
-          "existiert, liegt brach",
-          "existiert nicht",
-        ],
-        required: false,
-      },
     ],
   },
   {
     key: "D",
     title: "Anfragen-Annahme und Beratung heute",
-    why:
-      "Bitte versuchen Sie, jede Anfrage innerhalb von 48 Werkstunden zu kontaktieren. Das ist keine Bedingung der Garantie. Schaffen Sie es nicht, hat das Folgen: Die Anfrage steht in Ihrer Auswertung als \"von der Praxis nicht beantwortet\". Und liegen drei oder mehr solcher Anfragen offen, dürfen wir nach einer Warnung die bezahlten Anzeigen pausieren, bis Sie die Anfragen kontaktiert haben. " +
-      "Wir müssen wissen, wie das heute läuft, damit wir die Weiterleitung richtig bauen.",
+    why: "Wir müssen wissen, wie das heute läuft, damit wir die Weiterleitung richtig bauen.",
     questions: [
       {
         id: "D1",
@@ -270,13 +258,6 @@ export const DISCOVERY_BLOCKS: readonly DiscoveryBlock[] = [
         ],
         required: false,
       },
-      {
-        id: "D6",
-        label: "Nutzen Sie eine Online-Terminbuchung (Doctolib o. ä.)?",
-        hint: "Wenn ja, für welche Termine?",
-        type: "text",
-        required: true,
-      },
     ],
   },
   {
@@ -297,14 +278,6 @@ export const DISCOVERY_BLOCKS: readonly DiscoveryBlock[] = [
         hint: "Namen, gern ehrlich. Bleibt intern.",
         type: "text",
         required: true,
-      },
-      {
-        id: "E3",
-        label:
-          "Spüren Sie Druck durch Discount-Anbieter oder Auslandsangebote (z. B. Ketten, Türkei)?",
-        type: "auswahl",
-        options: ["deutlich", "etwas", "kaum", "gar nicht"],
-        required: false,
       },
     ],
   },
@@ -328,14 +301,6 @@ export const DISCOVERY_BLOCKS: readonly DiscoveryBlock[] = [
         allowCustom: true,
         customLabel: "Oder eigener Betrag",
         required: false,
-      },
-      {
-        id: "F2",
-        label:
-          "Gab es früher Abmahnungen, Kammer-Beschwerden oder rechtliche Themen rund um Ihre Werbung?",
-        type: "auswahl",
-        options: ["ja", "nein", "unsicher, dazu im Gespräch"],
-        required: true,
       },
       {
         id: "F3",

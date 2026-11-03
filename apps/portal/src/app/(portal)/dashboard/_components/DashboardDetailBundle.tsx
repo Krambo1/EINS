@@ -28,7 +28,7 @@ import { RatingStars } from "../../_components/RatingStars";
 import { CardEmptyNote } from "./card-notes";
 import { FIRST_INQUIRY_NOTE, RANGE_SENTENCE_START } from "./range-text";
 import { DashCard, RollingNumber } from "./dash-ui";
-import { PairedBreakdown, type PairedRow, type PairedTone } from "./PairedBreakdown";
+import { BreakdownTable, type FigureTone, type TableRow } from "./BreakdownTable";
 import { ShareBreakdown, type ShareRow } from "./ShareBreakdown";
 import { InhalteCard, type InhaltePost } from "./InhalteCard";
 
@@ -251,7 +251,7 @@ function withEveryLocation(
 
 /** Zero values (and "–" for no activity) recede so the rows with activity
  *  stand out. */
-function zeroTone(value: number | null): PairedTone | null {
+function zeroTone(value: number | null): FigureTone | null {
   return value == null || value === 0 ? "muted" : null;
 }
 
@@ -265,14 +265,6 @@ function wonShare(won: number | null, leads: number | null): string | undefined 
 function sumOrNull(values: (number | null)[]): number | null {
   const present = values.filter((v): v is number => v != null);
   return present.length > 0 ? present.reduce((a, v) => a + v, 0) : null;
-}
-
-/** Screen-reader sentence for the Behandlungen chart. */
-function pairedChartLabel(what: string, rows: PairedRow[]): string {
-  return `Anfragen und gewonnene Behandlungen je ${what}: ${rows
-    .filter((r) => r.anfragen != null)
-    .map((r) => `${r.name} ${r.anfragen} Anfragen, ${r.gewonnen ?? 0} gewonnen`)
-    .join("; ")}`;
 }
 
 /** Reputation keeps one height whatever the platforms: room for three rows on
@@ -747,7 +739,7 @@ interface FunnelStageData {
 
 /** Bar length as a share of the top step. A 2 % floor keeps a non-zero step
  *  visible as a stub; a step at zero stays empty. */
-export function barSize(value: number, top: number): string {
+function barSize(value: number, top: number): string {
   if (value <= 0 || top <= 0) return "0%";
   return `${Math.max(2, (value / top) * 100)}%`;
 }
@@ -757,7 +749,7 @@ export function barSize(value: number, top: number): string {
  * the drop-off tint (`.bar-ghost`, recessed into the card behind the bar)
  * fades in just after its bar. The whole Trichter stands within about 0.6 s.
  */
-export function stepDelays(index: number): { bar: CSSProperties; ghost: CSSProperties } {
+function stepDelays(index: number): { bar: CSSProperties; ghost: CSSProperties } {
   return {
     bar: { "--delay": `${index * 40}ms` } as CSSProperties,
     ghost: { "--delay": `${120 + index * 40}ms` } as CSSProperties,
@@ -882,7 +874,7 @@ function mergeTreatmentRows(
 
 /** Werbeertrag tone, same break-even bands as the Quellen: from 2× good,
  *  from 1× neutral, below 1× a warning. */
-function roasTone(roas: number | null): PairedTone | null {
+function roasTone(roas: number | null): FigureTone | null {
   if (roas == null) return "muted";
   if (roas >= 2) return "good";
   if (roas >= 1) return "quiet";
@@ -890,8 +882,7 @@ function roasTone(roas: number | null): PairedTone | null {
 }
 
 /**
- * Behandlungen, full width, in the Quellen process: Attio's paired bars per
- * Behandlung (Anfragen light, Gewonnen solid) over Stripe's rows with
+ * Behandlungen, full width, in the Quellen process: Stripe's rows with
  * Anfragen, Gewonnen, Umsatz and Werbeertrag and a Gesamt row. The set of
  * Behandlungen is fixed over the widest window (see mergeTreatmentRows), so
  * every period shows the same rows; "Sonstige" rolls up Anfragen without a
@@ -917,13 +908,11 @@ function TreatmentBreakdownCard({
   // Werbeertrag only says something where there is Umsatz to compare.
   const roasText = (r: TreatmentDisplayRow) =>
     r.roas != null && (r.revenueEur ?? 0) > 0 ? `${r.roas.toFixed(1).replace(".", ",")}×` : null;
-  const paired: PairedRow[] = rows.map((r) => {
+  const tableRows: TableRow[] = rows.map((r) => {
     const roas = roasText(r);
     return {
       key: r.treatmentId ?? r.treatmentName,
       name: r.treatmentName,
-      anfragen: r.leads,
-      gewonnen: r.casesWon,
       // No activity in this window (mergeTreatmentRows): "–", not a blank row.
       cells: [
         r.leads != null ? formatNumber(r.leads) : "–",
@@ -937,16 +926,6 @@ function TreatmentBreakdownCard({
         zeroTone(r.revenueEur),
         ...(adsRun ? [roasTone(r.roas)] : []),
       ],
-      card: [
-        { label: "Anfragen", value: formatNumber(r.leads ?? 0) },
-        {
-          label: "Gewonnen",
-          value: formatNumber(r.casesWon ?? 0),
-          extra: wonShare(r.casesWon, r.leads),
-        },
-        { label: "Umsatz", value: formatMoney(r.revenueEur ?? 0, currency) },
-        ...(roas ? [{ label: "Werbeertrag", value: roas }] : []),
-      ],
     };
   });
   const totalLeads = sumOrNull(rows.map((r) => r.leads));
@@ -956,7 +935,6 @@ function TreatmentBreakdownCard({
     <DashCard
       title="Behandlungen"
       href="/anfragen"
-      className="relative hover:z-20"
       titleExtra={
         adsRun ? (
           <ExplainerPopover term="Werbeertrag">
@@ -975,10 +953,10 @@ function TreatmentBreakdownCard({
         ) : undefined
       }
     >
-      {/* Chart, rows and Gesamt keep their frame in every state: with nothing
-          to show, one sentence takes the rows' space. The rows' space has a
+      {/* Rows and Gesamt keep their frame in every state: with nothing to
+          show, one sentence takes the rows' space. The rows' space has a
           fixed height (more rows, or longer ones on the phone, scroll). */}
-      <PairedBreakdown
+      <BreakdownTable
         nameLabel="Behandlung"
         columns={[
           { label: "Anfragen" },
@@ -986,7 +964,7 @@ function TreatmentBreakdownCard({
           { label: "Umsatz", phone: true },
           ...(adsRun ? [{ label: "Werbeertrag" }] : []),
         ]}
-        rows={paired}
+        rows={tableRows}
         emptyText={
           !hasAnyRequest || rows.length === 0
             ? FIRST_INQUIRY_NOTE
@@ -1003,7 +981,6 @@ function TreatmentBreakdownCard({
           totalRevenue != null ? formatMoney(totalRevenue, currency) : "–",
           ...(adsRun ? [null] : []),
         ]}
-        chartLabel={pairedChartLabel("Behandlung", paired)}
       />
     </DashCard>
   );

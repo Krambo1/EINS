@@ -17,8 +17,6 @@ export const PERMISSIONS = {
   // Animationen
   "animations.view": ["inhaber", "marketing", "frontdesk"],
   "animations.request_customization": ["inhaber", "marketing", "frontdesk"],
-  // Werbebudget Live
-  "campaigns.live": ["inhaber", "marketing", "frontdesk"],
   // Dokumente
   "documents.view.marketing": ["inhaber", "marketing", "frontdesk"],
   // Leitfaden — viewable by every clinic role (Schulung fürs Praxisteam)

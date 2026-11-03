@@ -61,10 +61,7 @@ function Chip({ children, quiet = false }: { children: ReactNode; quiet?: boolea
   );
 }
 
-/**
- * Base line under a column chart: a 2 px rule the columns stand on. Their
- * drop shadow stops at it (`COLUMN_CLIP` on each column).
- */
+/** Base line under a column chart: a 2 px rule the columns stand on. */
 export function ChartFloor() {
   return (
     <span
@@ -73,9 +70,6 @@ export function ChartFloor() {
     />
   );
 }
-
-/** Clips a column's shadow at its base, so it never falls across the line. */
-export const COLUMN_CLIP = "inset(-16px -16px 0 -16px)";
 
 /** Light from above on a coloured fill, like `.bar-solid`: brighter at the
  *  top, a touch darker at the base. Layer it over a background colour. */

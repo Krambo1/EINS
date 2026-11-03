@@ -1,19 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight } from "lucide-react";
 import { useActionState, useEffect, useRef, useState, type FormEvent } from "react";
 import { useFormStatus } from "react-dom";
+import { cn } from "@eins/ui";
 import { GoogleSignInButton } from "@/app/_components/GoogleSignInButton";
+import { CHECKBOX } from "@/app/(portal)/einstellungen/_lib/sizes";
 import { AuthToast } from "../_components/AuthToast";
 import { PasswordInput } from "../_components/PasswordInput";
 import {
+  AuthBody,
   AuthDivider,
-  AuthLabel,
-  PendingDots,
-  authButtonClass,
-  authCtaClass,
+  AuthField,
+  PendingStatus,
   authFieldClass,
+  authPrimaryClass,
+  authQuietClass,
+  authSecondaryClass,
   authTextLinkClass,
 } from "../_components/auth-ui";
 import {
@@ -24,32 +27,24 @@ import {
 
 const LINK_FORM_ID = "eins-login-link";
 
+/** Greys out while the request runs, same size, same label. */
 function SubmitButton({ label }: { label: string }) {
   const { pending } = useFormStatus();
   return (
-    <button
-      type="submit"
-      disabled={pending}
-      aria-busy={pending}
-      className={authCtaClass}
-    >
-      {pending ? (
-        <PendingDots label="Wird geprüft" />
-      ) : (
-        <>
-          {label}
-          <ArrowRight aria-hidden className="h-4 w-4" />
-        </>
-      )}
-    </button>
+    <>
+      <button type="submit" disabled={pending} aria-busy={pending} data-auth-primary className={authPrimaryClass}>
+        {label}
+      </button>
+      <PendingStatus pending={pending} label="Wird geprüft" />
+    </>
   );
 }
 
 /**
- * Two steps: e-mail first, then the password field slides in under it.
- * Step one never talks to the server and the second step looks the same for
- * every address, so nothing reveals whether an account exists. Google sits
- * on top, the e-mail link is offered under the button in both steps.
+ * Two steps: e-mail first, then the password field under it. Step one never
+ * talks to the server and the second step looks the same for every address,
+ * so nothing reveals whether an account exists. The e-mail link is offered
+ * under the button in both steps, Google under a hairline below.
  *
  * Contract with ./actions.ts is unchanged: the password form posts `email`,
  * `password`, `remember` ("on") and, if present, the hidden `next`. The link
@@ -58,12 +53,10 @@ function SubmitButton({ label }: { label: string }) {
  */
 export function LoginForm({
   initialError,
-  initialNotice,
   googleEnabled = false,
   next = null,
 }: {
   initialError?: string;
-  initialNotice?: string;
   googleEnabled?: boolean;
   /** Validated return path (safeNextPath) carried through the password login. */
   next?: string | null;
@@ -90,16 +83,12 @@ export function LoginForm({
   // every new result is a new object, so it shows again.
   const [lastSource, setLastSource] = useState<"pw" | "link" | null>(null);
   const [closed, setClosed] = useState<unknown[]>([]);
-  const hideCurrent = () => setClosed((c) => [...c, pwState, linkState, "notice"]);
+  const hideCurrent = () => setClosed((c) => [...c, pwState, linkState]);
   const [editedAfter, setEditedAfter] = useState<unknown>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
 
   const current = lastSource === "link" ? linkState : pwState;
   const toastError = current && !current.ok && !closed.includes(current) ? current.error : null;
-  const toastNotice =
-    !toastError && lastSource === null && initialNotice && !closed.includes("notice")
-      ? initialNotice
-      : null;
   const pwFailed =
     lastSource === "pw" && !!pwState && !pwState.ok && pwState !== initialState;
 
@@ -122,24 +111,11 @@ export function LoginForm({
   const emailEmpty = email.trim() === "";
 
   return (
-    <div>
-      {googleEnabled && (
-        <>
-          <GoogleSignInButton
-            href="/api/auth/google/start"
-            className={`${authButtonClass} py-0`}
-          />
-          <AuthDivider />
-        </>
-      )}
-
-      <form action={pwAction} onSubmit={onSubmit} className="space-y-6">
+    <AuthBody>
+      <form action={pwAction} onSubmit={onSubmit} className="space-y-4">
         {next && <input type="hidden" name="next" value={next} />}
 
-        <div>
-          <AuthLabel htmlFor="email" className="mb-2">
-            E-Mail
-          </AuthLabel>
+        <AuthField label="E-Mail" htmlFor="email">
           <input
             id="email"
             name="email"
@@ -150,22 +126,23 @@ export function LoginForm({
             inputMode="email"
             required
             autoFocus
-            placeholder="name@praxis.de"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             className={authFieldClass}
           />
-        </div>
+        </AuthField>
 
         {step === "password" && (
-          <div className="animate-fade-in space-y-6">
-            <div>
-              <div className="mb-2 flex items-center justify-between gap-3">
-                <AuthLabel htmlFor="password">Passwort</AuthLabel>
-                <Link href="/forgot-password" className={`${authTextLinkClass} text-sm`}>
+          <>
+            <AuthField
+              label="Passwort"
+              htmlFor="password"
+              aside={
+                <Link href="/forgot-password" className={authTextLinkClass}>
                   Passwort vergessen?
                 </Link>
-              </div>
+              }
+            >
               <PasswordInput
                 ref={passwordRef}
                 id="password"
@@ -176,17 +153,12 @@ export function LoginForm({
                 aria-invalid={pwFailed && editedAfter !== pwState}
                 onInput={() => setEditedAfter(pwState)}
               />
-            </div>
-            <label className="flex w-fit cursor-pointer select-none items-center gap-2.5 text-base text-fg-primary">
-              <input
-                type="checkbox"
-                name="remember"
-                value="on"
-                className="h-4 w-4 rounded accent-[#58BAB5]"
-              />
+            </AuthField>
+            <label className="flex w-fit cursor-pointer select-none items-center gap-3 text-[15px] leading-6 text-fg-primary">
+              <input type="checkbox" name="remember" value="on" className={cn(CHECKBOX, "mt-0")} />
               Angemeldet bleiben
             </label>
-          </div>
+          </>
         )}
 
         {/* Never disabled for an empty field: the browser's own check names
@@ -194,37 +166,38 @@ export function LoginForm({
         <SubmitButton label={step === "email" ? "Weiter" : "Anmelden"} />
       </form>
 
-      <p className="mt-6 text-center text-sm text-fg-secondary">
-        Kein Passwort?{" "}
-        <button
-          type="submit"
-          form={LINK_FORM_ID}
-          disabled={linkPending || emailEmpty}
-          onClick={() => {
-            hideCurrent();
-            setLastSource("link");
-          }}
-          className={authTextLinkClass}
-        >
-          {linkPending ? "Wird gesendet…" : "Anmeldelink per E-Mail senden"}
-        </button>
-      </p>
+      <button
+        type="submit"
+        form={LINK_FORM_ID}
+        disabled={linkPending || emailEmpty}
+        aria-busy={linkPending}
+        onClick={() => {
+          hideCurrent();
+          setLastSource("link");
+        }}
+        className={authQuietClass}
+      >
+        Anmeldelink per E-Mail senden
+      </button>
+      <PendingStatus pending={linkPending} label="Wird gesendet" />
 
       {/* Sibling form for the link request: only the address goes along. */}
       <form id={LINK_FORM_ID} action={linkAction} hidden>
         <input type="hidden" name="email" value={email} />
       </form>
 
+      {googleEnabled && (
+        <>
+          <AuthDivider />
+          <GoogleSignInButton href="/api/auth/google/start" className={cn(authSecondaryClass, "py-0")} />
+        </>
+      )}
+
       {toastError && (
         <AuthToast tone="bad" onClose={hideCurrent}>
           {toastError}
         </AuthToast>
       )}
-      {toastNotice && (
-        <AuthToast tone="good" onClose={hideCurrent}>
-          {toastNotice}
-        </AuthToast>
-      )}
-    </div>
+    </AuthBody>
   );
 }

@@ -4,7 +4,8 @@ import {
   type MagicLinkIntent,
   type MagicLinkPeekResult,
 } from "@/auth/magic-link";
-import { AuthHeader, authCtaClass, authTextLinkClass } from "../../_components/auth-ui";
+import { AuthShell } from "../../_components/AuthShell";
+import { AuthBody, AuthHeader, authPrimaryClass, authQuietClass } from "../../_components/auth-ui";
 import { LinkSubmitForm } from "./LinkSubmitForm";
 
 /**
@@ -29,28 +30,27 @@ interface PageProps {
   searchParams: Promise<{ token?: string }>;
 }
 
+// Only the invitation keeps a sentence: "Zugang einrichten" does not say
+// that a password comes next, the other buttons do.
 const READY_COPY: Record<
   MagicLinkIntent,
-  { title: string; text: string; button: string }
+  { title: string; text?: string; button: string }
 > = {
   login: {
-    title: "Anmelden.",
-    text: "Klicken Sie auf „Jetzt anmelden“, um sich beim EINS Portal anzumelden. Der Link gilt nur einmal.",
+    title: "Anmelden",
     button: "Jetzt anmelden",
   },
   invite: {
-    title: "Willkommen.",
-    text: "Richten Sie jetzt Ihren Zugang ein. Im nächsten Schritt wählen Sie Ihr Passwort.",
+    title: "Zugang einrichten",
+    text: "Im nächsten Schritt wählen Sie Ihr Passwort.",
     button: "Zugang einrichten",
   },
   set_password: {
-    title: "Passwort einrichten.",
-    text: "Im nächsten Schritt wählen Sie Ihr Passwort.",
+    title: "Passwort einrichten",
     button: "Weiter zum Passwort",
   },
   reset_password: {
-    title: "Neues Passwort wählen.",
-    text: "Im nächsten Schritt wählen Sie Ihr neues Passwort.",
+    title: "Neues Passwort wählen",
     button: "Weiter zum Passwort",
   },
 };
@@ -63,27 +63,27 @@ function problemCopy(
     case "expired":
       return intent === "invite"
         ? {
-            title: "Die Einladung ist abgelaufen.",
+            title: "Die Einladung ist abgelaufen",
             text: "Fordern Sie über „Passwort vergessen“ einen neuen Link an oder bitten Sie Ihre Praxis, die Einladung erneut zu senden.",
           }
         : {
-            title: "Der Link ist abgelaufen.",
+            title: "Der Link ist abgelaufen",
             text: "Aus Sicherheitsgründen gilt der Link nur kurz. Fordern Sie einfach einen neuen an.",
           };
     case "consumed":
       return {
-        title: "Dieser Link wurde schon verwendet.",
+        title: "Dieser Link wurde schon verwendet",
         text: "Jeder Link funktioniert nur einmal. Melden Sie sich an oder fordern Sie einen neuen Link an.",
       };
     case "no_user":
       return {
-        title: "Kein aktiver Zugang.",
+        title: "Kein aktiver Zugang",
         text: "Zu diesem Link gibt es keinen aktiven Zugang mehr. Bitte wenden Sie sich an Ihre Praxis oder an EINS.",
       };
     case "invalid":
     default:
       return {
-        title: "Dieser Link ist ungültig.",
+        title: "Dieser Link ist ungültig",
         text: "Bitte öffnen Sie den Link direkt aus der E-Mail oder fordern Sie einen neuen an.",
       };
   }
@@ -102,33 +102,37 @@ export default async function MagicLinkLandingPage({ searchParams }: PageProps) 
       peek.intent === "set_password" ||
       peek.intent === "reset_password";
     return (
-      <div>
+      <AuthShell>
         <AuthHeader title={copy.title}>{copy.text}</AuthHeader>
+        {/* A sign-in link's new link is requested on /login itself, so
+            "Zur Anmeldung" only shows when it leads somewhere else. */}
         {peek.reason !== "no_user" && (
-          <>
+          <AuthBody>
             <Link
               href={wantsPassword ? "/forgot-password" : "/login"}
-              className={authCtaClass}
+              data-auth-primary
+              className={authPrimaryClass}
             >
               Neuen Link anfordern
             </Link>
-            <p className="mt-6 text-center text-sm text-fg-secondary">
-              Oder direkt{" "}
-              <Link href="/login" className={authTextLinkClass}>
-                zur Anmeldung
+            {wantsPassword && (
+              <Link href="/login" className={authQuietClass}>
+                Zur Anmeldung
               </Link>
-            </p>
-          </>
+            )}
+          </AuthBody>
         )}
-      </div>
+      </AuthShell>
     );
   }
 
   const copy = READY_COPY[peek.intent] ?? READY_COPY.login;
   return (
-    <div>
+    <AuthShell>
       <AuthHeader title={copy.title}>{copy.text}</AuthHeader>
-      <LinkSubmitForm token={token ?? ""} label={copy.button} />
-    </div>
+      <AuthBody>
+        <LinkSubmitForm token={token ?? ""} label={copy.button} />
+      </AuthBody>
+    </AuthShell>
   );
 }

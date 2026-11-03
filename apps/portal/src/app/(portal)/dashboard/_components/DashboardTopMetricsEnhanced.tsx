@@ -21,11 +21,11 @@ import { rangeRatioSeries, rangeSeries, rangeTickFormat } from "@/lib/chart-data
 import { SLA_HOURS } from "@/lib/constants";
 import type { KpiSummary } from "@/server/queries/kpis";
 import type { DashboardRange } from "@/lib/dashboard-range";
-import { BreakdownStackChart } from "./BreakdownStackChart";
+import { SourceBreakdown } from "./SourceBreakdown";
 import { FIRST_INQUIRY_NOTE, RANGE_SENTENCE_START } from "./range-text";
 import type { BreakdownTone } from "./detail-helpers";
 import { reportingChannelLabel } from "@/lib/sources";
-import { DashCard, DeltaText, RollingNumber, pctChange } from "./dash-ui";
+import { DashCard, DeltaText, RollingNumber, WASH_ROW, pctChange } from "./dash-ui";
 import { KpiGrid, KpiTile } from "./KpiTiles";
 import type { RetreatmentCall } from "@/server/queries/retreatments";
 import { tagText } from "../../anfragen/_lib/retreatment-text";
@@ -155,12 +155,11 @@ export function DashboardTopMetricsEnhanced({
   const sourceTotals = sourceRows.reduce(
     (acc, r) => {
       acc.leads += r.leads;
-      acc.appointments += r.appointments;
       acc.casesWon += r.casesWon;
       if (r.spendEur != null) acc.spend += r.spendEur;
       return acc;
     },
-    { leads: 0, appointments: 0, casesWon: 0, spend: 0 },
+    { leads: 0, casesWon: 0, spend: 0 },
   );
 
   return (
@@ -272,7 +271,7 @@ export function DashboardTopMetricsEnhanced({
               revenueRange
             )}
             valueFormat="roas"
-            href="/werbebudget"
+            href="/anfragen?status=gewonnen&source=meta_anzeige,google_anzeige"
           />
         )}
       </KpiGrid>
@@ -287,16 +286,16 @@ export function DashboardTopMetricsEnhanced({
         <DashCard
           title="Quellen"
           href="/anfragen"
-          // One height per breakpoint, whatever the period brings: the chart
-          // and the Gesamt row are fixed, the rows in between scroll.
-          className="relative flex h-[36.5rem] flex-col sm:h-[35rem] [--delay:90ms] hover:z-20"
+          // One height per breakpoint, whatever the period brings: the Gesamt
+          // row is fixed, the rows above it scroll.
+          className="flex h-[36.5rem] flex-col sm:h-[35rem] [--delay:90ms]"
           bodyClassName="flex min-h-0 flex-1 flex-col"
           titleExtra={
             <ExplainerPopover term="Quellen-Aufschlüsselung">
               <p>
                 Woher Ihre Anfragen im gewählten Zeitraum kommen: aus Ihren
                 Beiträgen, über den Profil-Link, aus Direktnachrichten, über
-                Anzeigen oder vom Empfang eingetragen. Jede Säule ist eine
+                Anzeigen oder vom Empfang eingetragen. Jede Zeile ist eine
                 Quelle.
               </p>
               <p className="mt-2">
@@ -307,8 +306,7 @@ export function DashboardTopMetricsEnhanced({
             </ExplainerPopover>
           }
         >
-          <BreakdownStackChart
-            centerLabel="Anfragen"
+          <SourceBreakdown
             emptyText={
               hasAnyRequest
                 ? emptyPeriod(sourcesRange)
@@ -318,7 +316,6 @@ export function DashboardTopMetricsEnhanced({
               label: "Gesamt",
               budget: sourceTotals.spend > 0 ? formatEuro(sourceTotals.spend) : null,
               anfragen: formatNumber(sourceTotals.leads),
-              termine: formatNumber(sourceTotals.appointments),
               gewonnen: formatNumber(sourceTotals.casesWon),
             }}
             rows={sourceRows.map((c) => {
@@ -328,11 +325,8 @@ export function DashboardTopMetricsEnhanced({
                 key: c.source,
                 labelText: labelStr,
                 value: c.leads,
-                color: sourceColor(c.source),
                 unknown: c.source === "unbekannt",
-                tone: sourceTone(c.source),
                 anfragen: formatNumber(c.leads),
-                termine: formatNumber(c.appointments),
                 gewonnen: formatNumber(c.casesWon),
                 budget: c.spendEur != null ? formatEuro(c.spendEur) : null,
                 cpl: c.costPerQualifiedEur != null ? formatEuro(c.costPerQualifiedEur) : null,
@@ -350,55 +344,6 @@ export function DashboardTopMetricsEnhanced({
       </div>
     </div>
   );
-}
-
-// Column colour per source in Quellen, like Attio gives every category its
-// own colour: no two channels share a hue, paid Meta keeps the brand mint,
-// Unbekannt is the light grey. Keys are the reporting channels in
-// lib/sources.ts.
-const SOURCE_COLORS: Record<string, string> = {
-  // Blue for Meta (Karam, 2026-10-30: blue fits Meta better), mint for Google.
-  meta_anzeige: "#4f7fe8",
-  google_anzeige: "var(--accent)",
-  instagram_organisch: "#e0679a",
-  facebook_organisch: "#7c83ee",
-  tiktok_organisch: "#3a3d4a",
-  profil_link: "#f0a43a",
-  dm_link: "#a77be3",
-  direkt: "#8aa0b8",
-  manuell: "#6b7080",
-  whatsapp: "#45b26b",
-  empfehlung: "#e3be3f",
-  pvs_import: "#3fa7c9",
-  unbekannt: "#d3d6dd",
-};
-
-function sourceColor(source: string): string | undefined {
-  return SOURCE_COLORS[source];
-}
-
-// Fallback colour per source (a tone) for keys without their own colour.
-function sourceTone(source: string): BreakdownTone {
-  // Keys are reporting channels (lib/sources.ts); organic and paid get
-  // different hues so the two never read as one slice.
-  switch (source) {
-    case "meta_anzeige":
-      return "accent";
-    case "google_anzeige":
-      return "good";
-    case "instagram_organisch":
-    case "facebook_organisch":
-    case "tiktok_organisch":
-    case "profil_link":
-    case "dm_link":
-      return "warn";
-    case "whatsapp":
-      return "bad";
-    case "unbekannt":
-      return "muted";
-    default:
-      return "neutral";
-  }
 }
 
 /** ROAS → tone, shared between per-row and totals row so a 1,2× cell looks the
@@ -514,7 +459,7 @@ function OpenLeadsCard({
     <DashCard
       title="Offene Anfragen"
       href="/anfragen?status=neu"
-      className="flex h-[22.5rem] flex-col lg:h-auto [--delay:60ms]"
+      className="flex h-[25.75rem] flex-col lg:h-auto [--delay:60ms]"
       titleExtra={
         <ExplainerPopover term="Offene Anfragen">
           <p>
@@ -548,7 +493,12 @@ function OpenLeadsCard({
       {/* Fixed slots: 3 on the phone, 5 from lg. Fewer open Anfragen leave
           slots empty and none puts one sentence in the same space, so the
           card never shrinks. */}
-      <div className="relative h-[10.5rem] border-t border-border lg:h-[20rem]">
+      {/* A slot is 64 px of grey (12 px above and below the two lines, 12 px
+          at the sides: the card body's 8/12 px plus px-3 keep the text in
+          line with the title) and 4 px white above and below inside the
+          hairlines (WASH_ROW): 3 x 72 + 2 hairlines + the top one = 219 px,
+          5 x 72 + 4 + 1 = 365 px. */}
+      <div className="relative h-[13.75rem] border-t border-border lg:h-[22.875rem]">
         {rows.length === 0 && (
           <p className="absolute inset-0 flex items-center justify-center px-4 text-center text-[15px] text-fg-secondary">
             Keine offene Anfrage.
@@ -557,13 +507,13 @@ function OpenLeadsCard({
         <ul className="divide-y divide-border">
           {rows.map((r, i) => {
             return (
-              <li key={r.key} className={i >= PHONE_LEAD_ROWS ? "hidden lg:block" : undefined}>
+              <li key={r.key} className={i >= PHONE_LEAD_ROWS ? `${WASH_ROW} hidden lg:block` : WASH_ROW}>
                 <Link
                   href={r.href}
-                  className="group flex h-14 items-center justify-between gap-3 rounded-[var(--r-control)] px-3 py-2 transition-colors hover:bg-bg-secondary lg:rounded-[var(--r-panel)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent lg:h-16"
+                  className="group flex h-16 items-center justify-between gap-3 rounded-[var(--r-panel)] px-3 py-3 transition-colors hover:bg-[var(--hover-wash)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
                   <span className="min-w-0">
-                    <span className="block truncate text-[15px] font-medium text-fg-primary">
+                    <span className="block truncate text-[15px] font-medium leading-5 text-fg-primary">
                       {r.name}
                     </span>
                     {(r.retreatment || r.sub) && (

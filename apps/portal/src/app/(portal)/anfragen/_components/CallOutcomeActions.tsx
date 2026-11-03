@@ -28,8 +28,11 @@ import { useTrackedCall } from "./CallQueueState";
  * UND der Lead nicht PVS-gesteuert ist (dann besitzt die PVS den Lebenszyklus).
  * Andernfalls wird nur der Anruf festgehalten — die Action würde einen
  * unerlaubten oder PVS-gesperrten Wechsel ohnehin serverseitig ablehnen.
+ *
+ * Exportiert für die Anfrage-Seite, die damit den getippten Ausgang sofort
+ * in ihren Verlauf schreibt (anfragen/[id]/_lead-cockpit.tsx).
  */
-const OUTCOMES: ReadonlyArray<{
+export const OUTCOMES: ReadonlyArray<{
   key: string;
   outcome: CallOutcome;
   status: RequestStatus;

@@ -1,7 +1,7 @@
 import { ChevronDown, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { cn } from "@eins/ui";
 import { PageHeader } from "../../../_components/PageHeader";
-import { CARD_TITLE, CONTROL } from "../../../dashboard/_components/dash-ui";
+import { CARD_TITLE, CONTROL, WASH_AREA, WASH_ROW } from "../../../dashboard/_components/dash-ui";
 import { BewertungenTabsSkeleton } from "../../_components/BewertungenTabs";
 import { FEEDBACK_VIEWS, FEEDBACK_VIEW_LABELS } from "../../_lib/feedback-filter";
 import { FEEDBACK_BODY_HEIGHT, FEEDBACK_PAGE_SIZE, FEEDBACK_ROW_HEIGHT } from "../../_lib/sizes";
@@ -57,18 +57,20 @@ export default function Loading() {
             ))}
           </ul>
 
-          <div className="-mx-2 mt-4">
-            <ul className={cn("divide-y divide-border overflow-hidden", FEEDBACK_BODY_HEIGHT)}>
+          <div className="-mx-3 mt-4">
+            <ul className={cn("divide-y divide-border overflow-hidden px-3", FEEDBACK_BODY_HEIGHT)}>
               {Array.from({ length: FEEDBACK_PAGE_SIZE }, (_, i) => (
-                <li key={i} className={cn("flex items-start gap-2.5 px-2 py-2.5", FEEDBACK_ROW_HEIGHT)}>
-                  <span className="h-5 w-4 shrink-0" />
-                  <span className="min-w-0 flex-1">
-                    <span className="flex h-5 items-center justify-between gap-3">
-                      <span className={cn(BAR, "h-4 w-44")} />
-                      <span className={cn(BAR, "h-3.5 w-20")} />
-                    </span>
-                    <span className="mt-1 flex h-5 items-center">
-                      <span className={cn(BAR, "h-3.5 w-40")} />
+                <li key={i} className={WASH_ROW}>
+                  <span className={cn("flex items-start gap-2.5 py-3", WASH_AREA, FEEDBACK_ROW_HEIGHT)}>
+                    <span className="h-5 w-4 shrink-0" />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex h-5 items-center justify-between gap-3">
+                        <span className={cn(BAR, "h-4 w-44")} />
+                        <span className={cn(BAR, "h-3.5 w-20")} />
+                      </span>
+                      <span className="mt-1 flex h-5 items-center">
+                        <span className={cn(BAR, "h-3.5 w-40")} />
+                      </span>
                     </span>
                   </span>
                 </li>

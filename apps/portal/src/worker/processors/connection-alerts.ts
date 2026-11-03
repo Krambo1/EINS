@@ -39,5 +39,12 @@ export const GOOGLE_RECONNECT = {
   kind: "google_connection_broken",
   title: "Google-Verbindung unterbrochen",
   body: "Die Werbedaten von Google kommen seit einiger Zeit nicht mehr an. Bitte verbinden Sie Google in den Einstellungen erneut.",
-  link: "/einstellungen#integrationen",
+  link: "/einstellungen#werbekonten",
+} as const;
+
+export const META_RECONNECT = {
+  kind: "meta_connection_broken",
+  title: "Meta-Verbindung unterbrochen",
+  body: "Die Werbedaten von Meta kommen seit einiger Zeit nicht mehr an. Bitte verbinden Sie Meta in den Einstellungen erneut.",
+  link: "/einstellungen#werbekonten",
 } as const;

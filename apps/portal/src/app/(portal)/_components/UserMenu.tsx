@@ -17,7 +17,6 @@ import {
   cn,
 } from "@eins/ui";
 import { ROLE_LABELS, type Role } from "@/lib/constants";
-import { can } from "@/lib/roles";
 import { clearSearchStorage } from "./search-storage";
 
 interface UserMenuProps {
@@ -57,7 +56,6 @@ const TRIGGER_CLASSES = cn(
  */
 export function UserMenu({ user, clinicName, className }: UserMenuProps) {
   const displayName = user.fullName ?? user.email;
-  const showSettings = can(user.role, "settings.team");
 
   const [open, setOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -118,14 +116,12 @@ export function UserMenu({ user, clinicName, className }: UserMenuProps) {
 
         <DropdownMenuSeparator />
 
-        {showSettings && (
-          <DropdownMenuItem asChild>
-            <Link href="/einstellungen" className="cursor-pointer">
-              <Settings className="h-4 w-4 text-fg-secondary" aria-hidden />
-              <span>Einstellungen</span>
-            </Link>
-          </DropdownMenuItem>
-        )}
+        <DropdownMenuItem asChild>
+          <Link href="/einstellungen" className="cursor-pointer">
+            <Settings className="h-4 w-4 text-fg-secondary" aria-hidden />
+            <span>Einstellungen</span>
+          </Link>
+        </DropdownMenuItem>
         <DropdownMenuItem
           onSelect={(e) => {
             e.preventDefault();

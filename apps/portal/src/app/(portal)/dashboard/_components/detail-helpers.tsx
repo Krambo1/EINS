@@ -2,9 +2,9 @@ import * as React from "react";
 import { cn } from "@eins/ui";
 
 /**
- * Small co-located helpers for the dashboard deep-dive bundle (also reused by
- * Werbebudget). Kept inside the page folder to avoid bloating @eins/ui until
- * we've used the same shape on three different pages. Server components — no
+ * Small co-located helpers for the dashboard deep-dive bundle. Kept inside
+ * the page folder to avoid bloating @eins/ui until we've used the same shape
+ * on three different pages. Server components — no
  * hooks, no events, no state.
  */
 

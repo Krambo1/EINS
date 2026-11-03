@@ -5,6 +5,32 @@ import { ArrowDown } from "lucide-react";
 import { cn } from "@eins/ui";
 
 /**
+ * The arrow in a circle that says "there is more below", shared with
+ * `ScrollCues`, so a text field and a list show the same one. Regions under
+ * `SMALL_REGION` px (a two line name) get the small one, so it never covers
+ * a whole line.
+ */
+export const SCROLL_ARROW =
+  "elev-raised flex items-center justify-center rounded-full bg-[var(--surface-raised)] text-fg-primary transition-opacity duration-300";
+export const SCROLL_ARROW_SIZE = { normal: "h-8 w-8", small: "h-5 w-5" } as const;
+export const SCROLL_ARROW_ICON = { normal: "h-4 w-4", small: "h-3 w-3" } as const;
+/** Gap between the arrow and the region's bottom right corner, in px. */
+export const SCROLL_ARROW_INSET = { normal: 8, small: 2 } as const;
+export const SCROLL_ARROW_PX = { normal: 32, small: 20 } as const;
+export const SMALL_REGION = 72;
+
+/** Whether a region has text or rows hidden below its bottom edge. */
+export function hasMoreBelow(field: HTMLElement): boolean {
+  return field.scrollHeight - field.clientHeight - field.scrollTop > 2;
+}
+
+/** The arrow's click: scroll on by most of the region. */
+export function scrollOn(field: HTMLElement) {
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  field.scrollBy({ top: field.clientHeight * 0.8, behavior: reduce ? "auto" : "smooth" });
+}
+
+/**
  * Wraps one text field that scrolls (a `scroll-shadows` well or a textarea)
  * and puts an arrow in a circle in its bottom right corner while there is
  * more text below (Karam, 2026-10-30: the edge shadow alone was too easy to
@@ -16,6 +42,8 @@ import { cn } from "@eins/ui";
  * field had in its parent (`flex min-h-0 flex-1 flex-col` for a field that
  * fills a column). The arrow takes the place of the scroll bar and the
  * resize grip, so the wrapper hides both.
+ *
+ * `data-scroll-hint` tells `ScrollCues` this field has its own arrow.
  *
  * `watch` is for a textarea whose value React sets without typing
  * ("Vorlage einfügen"): pass the value so the arrow checks again.
@@ -35,7 +63,7 @@ export function ScrollHint({
   useEffect(() => {
     const field = wrapRef.current?.firstElementChild;
     if (!(field instanceof HTMLElement)) return;
-    const check = () => setMore(field.scrollHeight - field.clientHeight - field.scrollTop > 2);
+    const check = () => setMore(hasMoreBelow(field));
     check();
     field.addEventListener("scroll", check, { passive: true });
     field.addEventListener("input", check);
@@ -54,16 +82,10 @@ export function ScrollHint({
     };
   }, [watch]);
 
-  function scrollOn() {
-    const field = wrapRef.current?.firstElementChild;
-    if (!(field instanceof HTMLElement)) return;
-    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    field.scrollBy({ top: field.clientHeight * 0.8, behavior: reduce ? "auto" : "smooth" });
-  }
-
   return (
     <div
       ref={wrapRef}
+      data-scroll-hint=""
       className={cn(
         "relative [&>*::-webkit-scrollbar]:hidden [&>*]:[scrollbar-width:none] [&>textarea]:resize-none",
         className
@@ -74,13 +96,18 @@ export function ScrollHint({
         type="button"
         tabIndex={-1}
         aria-hidden
-        onClick={scrollOn}
+        onClick={() => {
+          const field = wrapRef.current?.firstElementChild;
+          if (field instanceof HTMLElement) scrollOn(field);
+        }}
         className={cn(
-          "elev-raised absolute bottom-2 right-2 flex h-8 w-8 items-center justify-center rounded-full bg-[var(--surface-raised)] text-fg-primary transition-opacity duration-300",
+          SCROLL_ARROW,
+          SCROLL_ARROW_SIZE.normal,
+          "absolute bottom-2 right-2",
           more ? "opacity-100" : "pointer-events-none opacity-0"
         )}
       >
-        <ArrowDown className="h-4 w-4" aria-hidden />
+        <ArrowDown className={SCROLL_ARROW_ICON.normal} aria-hidden />
       </button>
     </div>
   );

@@ -16,7 +16,14 @@ import {
 import type { PatientFeedbackStatus } from "@/lib/constants";
 import { formatNumber, formatRelative } from "@/lib/formatting";
 import { searchParamsUrl, setSearchParams } from "@/app/_components/instant-views";
-import { CARD_TITLE, CONTROL, QUIET_CONTROL, RAISED_CONTROL } from "../../../dashboard/_components/dash-ui";
+import {
+  CARD_TITLE,
+  CONTROL,
+  QUIET_CONTROL,
+  RAISED_CONTROL,
+  WASH_AREA,
+  WASH_ROW,
+} from "../../../dashboard/_components/dash-ui";
 import {
   CenteredNote,
   FeedbackSignal,
@@ -190,7 +197,7 @@ export function FeedbackList({
         </ul>
       </nav>
 
-      <div className="-mx-2 mt-4">
+      <div className="-mx-3 mt-4">
         {pageRows.length === 0 ? (
           <div className={cn("flex", FEEDBACK_BODY_HEIGHT)}>
             <div className="m-auto flex flex-col items-center">
@@ -210,14 +217,16 @@ export function FeedbackList({
           <ul
             ref={listRef}
             aria-label={`${FEEDBACK_VIEW_LABELS[filter.view]}: Rückmeldungen ${from} bis ${to}`}
-            className={cn("scroll-shadows divide-y divide-border [--scroll-bg:var(--surface-tile)]", FEEDBACK_BODY_HEIGHT)}
+            className={cn("scroll-shadows divide-y divide-border px-3 [--scroll-bg:var(--surface-tile)]", FEEDBACK_BODY_HEIGHT)}
           >
             {pageRows.map((r) => (
-              <li key={r.id}>
+              // 4 px white inside the hairlines, the wash 12 px past the text (DESIGN.md section 5).
+              <li key={r.id} className={WASH_ROW}>
                 <Link
                   href={`/bewertungen/feedback/${r.id}${detailQuery}`}
                   className={cn(
-                    "flex items-start gap-2.5 px-2 py-2.5 transition-colors hover:bg-[var(--hover-wash)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
+                    "flex items-start gap-2.5 rounded-[var(--r-panel)] py-3 transition-colors hover:bg-[var(--hover-wash)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent",
+                    WASH_AREA,
                     FEEDBACK_ROW_HEIGHT
                   )}
                 >

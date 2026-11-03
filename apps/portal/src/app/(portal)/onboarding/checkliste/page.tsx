@@ -1,7 +1,4 @@
-import Link from "next/link";
 import { and, asc, eq } from "drizzle-orm";
-import { ArrowLeft, Info } from "lucide-react";
-import { Card, CardContent } from "@eins/ui";
 import { requirePermissionOrRedirect } from "@/auth/guards";
 import { db, schema, withClinicContext } from "@/db/client";
 import {
@@ -11,17 +8,17 @@ import {
   type TrackingNumberChannel,
 } from "@/lib/messweg";
 import { getStorage } from "@/server/storage";
+import { HeadCount, OnboardingHead, PageNote } from "../_components/OnboardingHead";
+import { ONBOARDING_PAGE } from "../_lib/sizes";
 import {
-  ABSCHLUSS_HINWEIS,
   ALL_CHECKLIST_ITEMS,
-  CHECKLISTE_INTRO,
-  MESSWEGE_HINWEIS,
   REQUIRED_CHECKLIST_IDS,
   isDelivered,
   type ChecklistAnswer,
   type ChecklistStatus,
 } from "./content";
 import { ChecklisteForm, type ClientChecklistState } from "./ChecklisteForm";
+import { AbschlussCard, MesswegeCard, type MesswegeRows } from "./parts";
 
 export const metadata = { title: "Checkliste zum Start" };
 
@@ -133,107 +130,36 @@ export default async function ChecklistePage() {
     isDelivered(state[id]?.status)
   ).length;
 
+  const messwegeRows: MesswegeRows = {
+    numbers: messwege.numbers.map((n) => ({
+      id: n.id,
+      text: `${n.e164} · ${TRACKING_NUMBER_CHANNEL_LABELS[n.channel as TrackingNumberChannel] ?? n.channel}`,
+    })),
+    links: messwege.links.map((l) => ({
+      id: l.id,
+      url: l.url,
+      label: BOOKING_LINK_MEDIUM_LABELS[l.medium as BookingLinkMedium] ?? l.medium,
+    })),
+  };
+
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
-      <header>
-        <Link
-          href="/onboarding"
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-fg-secondary hover:text-fg-primary"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Zurück zu den ersten Schritten
-        </Link>
-        <h1 className="mt-3 text-3xl font-semibold md:text-4xl">
-          Checkliste zum Start
-        </h1>
-        <p className="mt-2 text-base text-fg-primary md:text-lg">
-          {CHECKLISTE_INTRO}
-        </p>
-      </header>
-
-      <Card className="p-5 md:p-6">
-        <CardContent className="flex items-start gap-3">
-          <Info className="mt-0.5 h-5 w-5 shrink-0 text-accent" />
-          <p className="text-sm text-fg-primary">
-            <span className="font-medium">So funktioniert es:</span> Sie liefern
-            jeden Punkt direkt hier im Portal (Häkchen, Datei hochladen, Link oder
-            kurze Angabe). Wir prüfen jede Lieferung und bestätigen sie. Bitte
-            geben Sie niemals Passwörter weiter, wir fragen auch nie danach.
-          </p>
-        </CardContent>
-      </Card>
-
-      <ChecklisteForm initialState={state} requiredDelivered={requiredDelivered} />
-
-      {/* Block G — laufende Mitwirkung. Information only. */}
-      <Card className="p-5 md:p-6">
-        <CardContent className="space-y-3">
-          <h2 className="text-lg font-semibold">{ABSCHLUSS_HINWEIS.title}</h2>
-          <p className="text-sm text-fg-secondary">{ABSCHLUSS_HINWEIS.intro}</p>
-          <ul className="space-y-2">
-            {ABSCHLUSS_HINWEIS.points.map((p) => (
-              <li key={p} className="flex items-start gap-2 text-base text-fg-primary">
-                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-                <span>{p}</span>
-              </li>
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
-
-      {/* Block G, live: the Praxis's own tracking numbers and booking links. */}
-      <Card className="p-5 md:p-6">
-        <CardContent className="space-y-3">
-          <h2 className="text-lg font-semibold">{MESSWEGE_HINWEIS.title}</h2>
-          {messwege.numbers.length === 0 && messwege.links.length === 0 ? (
-            <p className="text-base text-fg-primary">{MESSWEGE_HINWEIS.empty}</p>
-          ) : (
-            <>
-              <p className="text-sm text-fg-secondary">{MESSWEGE_HINWEIS.intro}</p>
-              {messwege.numbers.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-medium text-fg-secondary">
-                    {MESSWEGE_HINWEIS.numbersLabel}
-                  </h3>
-                  <ul className="mt-1 space-y-1">
-                    {messwege.numbers.map((n) => (
-                      <li key={n.id} className="text-base text-fg-primary">
-                        <span className="font-mono tabular-nums">{n.e164}</span>
-                        {" · "}
-                        {TRACKING_NUMBER_CHANNEL_LABELS[n.channel as TrackingNumberChannel] ??
-                          n.channel}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {messwege.links.length > 0 && (
-                <div>
-                  <h3 className="text-sm font-medium text-fg-secondary">
-                    {MESSWEGE_HINWEIS.linksLabel}
-                  </h3>
-                  <ul className="mt-1 space-y-1">
-                    {messwege.links.map((l) => (
-                      <li key={l.id} className="min-w-0 text-base text-fg-primary">
-                        <a
-                          href={l.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="break-all text-accent hover:underline"
-                        >
-                          {l.url}
-                        </a>
-                        {" · "}
-                        {BOOKING_LINK_MEDIUM_LABELS[l.medium as BookingLinkMedium] ?? l.medium}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </>
-          )}
-        </CardContent>
-      </Card>
+    <div className={ONBOARDING_PAGE}>
+      <OnboardingHead
+        back
+        title="Checkliste"
+        count={<HeadCount>{`${requiredDelivered} von ${REQUIRED_CHECKLIST_IDS.length} Pflichtpunkten`}</HeadCount>}
+      />
+      {/* The one line kept from "So funktioniert es", word for word. */}
+      <PageNote>Bitte geben Sie niemals Passwörter weiter, wir fragen auch nie danach.</PageNote>
+      <ChecklisteForm
+        initialState={state}
+        after={
+          <>
+            <AbschlussCard />
+            <MesswegeCard rows={messwegeRows} />
+          </>
+        }
+      />
     </div>
   );
 }

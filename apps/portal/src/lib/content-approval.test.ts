@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  CHANGE_TEXT_EMPTY_MESSAGE,
+  CHANGE_TEXT_MAX,
+  CHANGE_TEXT_TOO_LONG_MESSAGE,
   approvalDueDayOf,
   approvalVerzugReason,
   firstDecisionOutcome,
@@ -36,6 +39,46 @@ describe("normalizeDecision", () => {
   it("rejects unknown decisions and overlong text", () => {
     expect(normalizeDecision("live", null).ok).toBe(false);
     expect(normalizeDecision("aenderung", "x".repeat(2001)).ok).toBe(false);
+  });
+
+  // A form post sends each line break as CRLF; the textarea's maxLength counts it once.
+  const line = `${"x".repeat(99)}\r\n`; // 100 characters once the CRLF counts as one
+  it("counts a CRLF line break once: 2000 characters with line breaks are accepted, stored with LF", () => {
+    const posted = line.repeat(19) + "x".repeat(100);
+    expect(posted.length).toBe(2019);
+    const r = normalizeDecision("aenderung", posted);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.changeText).not.toContain("\r");
+    expect(r.changeText).toBe(`${"x".repeat(99)}\n`.repeat(19) + "x".repeat(100));
+    expect(r.changeText!.length).toBe(CHANGE_TEXT_MAX);
+  });
+  it("turns a lone CR into LF", () => {
+    expect(normalizeDecision("aenderung", "Satz eins\rSatz zwei")).toEqual({
+      ok: true,
+      decision: "aenderung",
+      changeText: "Satz eins\nSatz zwei",
+    });
+  });
+  it("gives too_long above 2000 characters, also with CRLF line breaks", () => {
+    const tooLong = { ok: false, code: "too_long", error: CHANGE_TEXT_TOO_LONG_MESSAGE };
+    expect(normalizeDecision("aenderung", "x".repeat(2001))).toEqual(tooLong);
+    expect(normalizeDecision("aenderung", line.repeat(19) + "x".repeat(101))).toEqual(tooLong);
+  });
+  it("gives empty for whitespace, only line breaks or no text", () => {
+    const empty = { ok: false, code: "empty", error: CHANGE_TEXT_EMPTY_MESSAGE };
+    for (const text of ["   ", "\r\n", "\r\n\r\n", " \r\n\t\r ", "", null, undefined, 42]) {
+      expect(normalizeDecision("aenderung", text)).toEqual(empty);
+    }
+  });
+  it("gives unknown_decision for anything but the two decisions", () => {
+    for (const d of ["live", "", null, undefined, "Freigegeben"]) {
+      expect(normalizeDecision(d, "Text")).toEqual({ ok: false, code: "unknown_decision", error: "Unbekannte Entscheidung." });
+    }
+  });
+  it("keeps the change-text messages word for word", () => {
+    expect(CHANGE_TEXT_EMPTY_MESSAGE).toBe("Bitte beschreiben Sie, was wir ändern sollen.");
+    expect(CHANGE_TEXT_TOO_LONG_MESSAGE).toBe("Bitte fassen Sie die Änderung in höchstens 2000 Zeichen.");
   });
 });
 

@@ -1,14 +1,21 @@
 import type { Metadata } from "next";
-import { Card, CardContent, Label, Textarea } from "@eins/ui";
 import { loadApprovalForLink } from "@/server/content-approval";
 import { getStorage } from "@/server/storage";
 import { rateLimit } from "@/server/rate-limit";
 import { getTrustedClientIp } from "@/lib/client-ip";
-import { APPROVAL_DECISION_LABELS, CHANGE_TEXT_MAX, LINK_EXPIRED_MESSAGE, formatApprovalDue } from "@/lib/content-approval";
+import {
+  APPROVAL_DECISION_LABELS,
+  CHANGE_TEXT_EMPTY_MESSAGE,
+  CHANGE_TEXT_TOO_LONG_MESSAGE,
+  LINK_EXPIRED_MESSAGE,
+  formatApprovalDue,
+} from "@/lib/content-approval";
 import { KI_LABEL, hasKiLabel } from "@/lib/content-gate";
 import { formatDateTime } from "@/lib/formatting";
-import { DecisionSubmitButton } from "@/app/(portal)/inhalte/_components/DecisionSubmitButton";
-import { ScrollHint } from "@/app/_components/ScrollHint";
+import { POST_STATUS } from "@/app/(portal)/inhalte/_lib/view";
+import { DECISION_BAND } from "../_lib/sizes";
+import { Decision } from "../_components/Decision";
+import { CaptionWell, Facts, Frame, Notice, Outcome, PostCard, PostHead, PostTile } from "../_components/parts";
 
 /**
  * Public one-click approval page (D7, D8): /freigabe/<token> from the batch
@@ -16,6 +23,12 @@ import { ScrollHint } from "@/app/_components/ScrollHint";
  * stored). GET only shows the post, so mail scanners that open links decide
  * nothing; the decision is a POST to /api/freigabe/<token>. Outside the
  * (portal) group, so no session is required and no other route is opened.
+ *
+ * Mostly opened on a phone to look at one post and decide. Inhalte's "Zur
+ * Freigabe" without the portal around it: the post as a raised tile, the
+ * title, the text in a well of one height, the two buttons under it. The
+ * result, an error and the change field all take the place of something, so
+ * the post and the buttons stand still in every state (DESIGN.md section 10).
  */
 
 export const dynamic = "force-dynamic";
@@ -27,37 +40,18 @@ export const metadata: Metadata = {
 };
 
 const ERRORS: Record<string, string> = {
-  text: "Bitte beschreiben Sie, was wir ändern sollen.",
+  text: CHANGE_TEXT_EMPTY_MESSAGE,
+  zu_lang: CHANGE_TEXT_TOO_LONG_MESSAGE,
   abgelaufen: LINK_EXPIRED_MESSAGE,
   zu_viele: "Zu viele Versuche. Bitte warten Sie eine Minute und versuchen Sie es erneut.",
   ungueltig: "Die Eingabe war ungültig. Bitte versuchen Sie es erneut.",
 };
 
+const VIDEO_ID = "freigabe-video";
+
 interface PageProps {
   params: Promise<{ token: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
-}
-
-function Shell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex min-h-dvh flex-col bg-bg-primary">
-      <main className="mx-auto w-full max-w-2xl flex-1 px-4 py-8 sm:px-6 sm:py-12">{children}</main>
-      <footer className="px-6 pb-8 text-center text-sm text-fg-secondary">EINS · Freigabe Ihrer Beiträge</footer>
-    </div>
-  );
-}
-
-function Notice({ title, text }: { title: string; text: string }) {
-  return (
-    <Shell>
-      <Card>
-        <CardContent className="space-y-2 py-6">
-          <h1 className="text-2xl font-semibold">{title}</h1>
-          <p className="text-base text-fg-primary">{text}</p>
-        </CardContent>
-      </Card>
-    </Shell>
-  );
 }
 
 export default async function FreigabePage({ params, searchParams }: PageProps) {
@@ -78,115 +72,81 @@ export default async function FreigabePage({ params, searchParams }: PageProps) 
     );
   }
 
-  const error = typeof sp.fehler === "string" ? ERRORS[sp.fehler] ?? null : null;
+  const fehler = typeof sp.fehler === "string" ? sp.fehler : null;
+  const error = fehler ? ERRORS[fehler] ?? null : null;
   const assetUrl = view.asset ? await getStorage().urlFor(view.asset.storageKey, { expiresInSeconds: 3600 }) : null;
   const isVideo = view.asset ? view.asset.kind === "video" || (view.asset.mimeType ?? "").startsWith("video/") : false;
   const open = !view.decision;
   const withdrawn = open && view.itemStatus !== "zur_freigabe";
+  const decidable = open && !withdrawn && !view.expired;
+  const ki =
+    view.aiContent || view.usesClone || hasKiLabel(view.caption)
+      ? `Der Beitrag ist mit KI erstellt und trägt den Hinweis „${KI_LABEL}“.${view.usesClone ? " In diesem Beitrag erscheint Ihr KI-Klon." : ""}`
+      : null;
+  const well = <CaptionWell caption={view.caption} />;
 
   return (
-    <Shell>
-      <div className="space-y-6">
-        <header className="space-y-1">
-          <p className="text-base text-fg-secondary">{view.practiceName}</p>
-          <h1 className="text-3xl font-semibold">{view.title}</h1>
-          <p className="text-base text-fg-secondary">{view.format}</p>
-        </header>
-
-        {error && (
-          <p
-            role="alert"
-            className="rounded-md border border-[var(--tone-bad-border)] bg-[var(--tone-bad-bg)] px-4 py-3 text-base text-tone-bad"
-          >
-            {error}
-          </p>
-        )}
-
-        {view.decision && (
-          <div
-            role="status"
-            className="space-y-1 rounded-md border border-[var(--tone-good-border)] bg-[var(--tone-good-bg)] px-4 py-3 text-base"
-          >
-            <p className="font-medium">
-              {APPROVAL_DECISION_LABELS[view.decision.decision]} am {formatDateTime(view.decision.decidedAt)}
-              {view.decision.decidedVia === "portal" ? " im Portal" : ""}.
-            </p>
-            {view.decision.changeText && (
-              <p className="whitespace-pre-wrap break-words">Ihr Änderungswunsch: {view.decision.changeText}</p>
-            )}
-            <p className="text-fg-secondary">
-              {view.decision.decision === "freigegeben"
-                ? "Danke. Der Beitrag kann jetzt veröffentlicht werden."
-                : "Danke. EINS überarbeitet den Beitrag und schickt ihn erneut zur Freigabe."}
-            </p>
-          </div>
-        )}
-
-        <Card>
-          <CardContent className="space-y-4 py-6">
-            {assetUrl &&
-              (isVideo ? (
-                <video src={assetUrl} controls playsInline preload="metadata" className="w-full rounded-md bg-black" />
-              ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={assetUrl} alt={view.title} className="w-full rounded-md" />
-              ))}
-            {view.caption ? (
-              <div>
-                <p className="text-sm text-fg-secondary">Beitragstext</p>
-                <p className="mt-1 whitespace-pre-wrap break-words text-base">{view.caption}</p>
-              </div>
+    <Frame>
+      <PostCard>
+        <PostTile
+          practiceName={view.practiceName}
+          title={view.title}
+          file={assetUrl ? { url: assetUrl, isVideo, id: isVideo ? VIDEO_ID : undefined } : null}
+        />
+        <div className="min-w-0">
+          <PostHead format={view.format} title={view.title} />
+          <div className="mt-4">
+            {decidable ? (
+              <Decision
+                action={`/api/freigabe/${token}`}
+                well={well}
+                videoId={assetUrl && isVideo ? VIDEO_ID : null}
+                startChanging={fehler === "text" || fehler === "zu_lang"}
+                error={error}
+                emptyError={CHANGE_TEXT_EMPTY_MESSAGE}
+              />
             ) : (
-              <p className="text-base text-fg-secondary">Dieser Beitrag hat keinen Text.</p>
+              <>
+                {well}
+                <div className={DECISION_BAND}>
+                  {view.decision ? (
+                    <Outcome
+                      dot={POST_STATUS[view.decision.decision].dot}
+                      note={
+                        <>
+                          <p className="text-sm leading-5 text-fg-secondary">
+                            {view.decision.decision === "freigegeben"
+                              ? "Danke. Der Beitrag kann jetzt veröffentlicht werden."
+                              : "Danke. EINS überarbeitet den Beitrag und schickt ihn erneut zur Freigabe."}
+                          </p>
+                          {view.decision.changeText && (
+                            <p className="elev-inset mt-3 whitespace-pre-wrap break-words rounded-[var(--r-panel)] bg-[var(--well)] px-4 py-3 text-[15px] leading-6 text-fg-primary">
+                              <span className="text-fg-secondary">Ihr Änderungswunsch:</span> {view.decision.changeText}
+                            </p>
+                          )}
+                        </>
+                      }
+                    >
+                      {APPROVAL_DECISION_LABELS[view.decision.decision]} am {formatDateTime(view.decision.decidedAt)}
+                      {view.decision.decidedVia === "portal" ? " im Portal" : ""}.
+                    </Outcome>
+                  ) : (
+                    <Outcome>
+                      {withdrawn ? "EINS hat diesen Beitrag zurückgeholt. Sie müssen nichts tun." : LINK_EXPIRED_MESSAGE}
+                    </Outcome>
+                  )}
+                </div>
+              </>
             )}
-            {(view.aiContent || view.usesClone || hasKiLabel(view.caption)) && (
-              <p className="text-sm text-fg-primary">
-                Der Beitrag ist mit KI erstellt und trägt den Hinweis „{KI_LABEL}“.
-                {view.usesClone ? " In diesem Beitrag erscheint Ihr KI-Klon." : ""}
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        {withdrawn ? (
-          <p className="text-base text-fg-primary">
-            EINS hat diesen Beitrag zurückgeholt. Sie müssen nichts tun.
-          </p>
-        ) : open && view.expired ? (
-          <p className="text-base text-fg-primary">{LINK_EXPIRED_MESSAGE}</p>
-        ) : open ? (
-          <section className="space-y-4">
-            <p className="text-base text-fg-primary">
-              Ohne Ihre Freigabe geht kein Beitrag online. Bitte geben Sie den Beitrag bis {formatApprovalDue(view.dueAt)}{" "}
-              frei oder beschreiben Sie, was wir ändern sollen.
-            </p>
-            <form method="post" action={`/api/freigabe/${token}`}>
-              <input type="hidden" name="decision" value="freigegeben" />
-              <DecisionSubmitButton size="md">Freigeben</DecisionSubmitButton>
-            </form>
-            <form method="post" action={`/api/freigabe/${token}`} className="space-y-2">
-              <input type="hidden" name="decision" value="aenderung" />
-              <Label htmlFor="changeText">Änderung wünschen</Label>
-              <ScrollHint>
-                <Textarea
-                  id="changeText"
-                  name="changeText"
-                  rows={4}
-                  required
-                  maxLength={CHANGE_TEXT_MAX}
-                  placeholder="Was sollen wir ändern?"
-                />
-              </ScrollHint>
-              <DecisionSubmitButton size="md" variant="outline">
-                Änderung wünschen
-              </DecisionSubmitButton>
-            </form>
-            <p className="text-sm text-fg-secondary">
+          </div>
+          <Facts due={decidable ? formatApprovalDue(view.dueAt) : null} ki={ki} />
+          {decidable && (
+            <p className="mt-3 text-sm leading-5 text-fg-secondary">
               Es gilt die erste Entscheidung, hier oder im Portal unter Inhalte.
             </p>
-          </section>
-        ) : null}
-      </div>
-    </Shell>
+          )}
+        </div>
+      </PostCard>
+    </Frame>
   );
 }

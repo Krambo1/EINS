@@ -10,7 +10,7 @@ import type { DashboardRange } from "@/lib/dashboard-range";
 import type { DashboardPost } from "@/server/queries/content-dashboard";
 import { FORMAT_ICON, POST_STATUS } from "../../inhalte/_lib/view";
 import { StatusDot } from "../../inhalte/_components/parts";
-import { CONTROL, DashCard, RAISED_CONTROL, TABLE_HEAD_BAND } from "./dash-ui";
+import { CONTROL, DashCard, RAISED_CONTROL, TABLE_HEAD_BAND, WASH_AREA, WASH_ROW } from "./dash-ui";
 import { RANGE_SENTENCE_START } from "./range-text";
 
 /** A post of the card with its preview already resolved (signed or Mux). */
@@ -117,27 +117,30 @@ export function InhalteCard({
           played videos" and the Inhalte page: the head band names the fixed
           number columns. Below lg (the card is 470 px wide beside the sidebar
           at md) Frame.io's mobile list, the number with its word on the
-          right. */}
-      <div className="relative h-[calc(4*5rem+3px)] lg:h-[calc(2.25rem+4*5rem+3px)] xl:hidden">
+          right. A slot is 6rem: 88 px of grey (12 px around a two-line
+          title with its status line) and 4 px white above and below inside
+          the hairlines (WASH_ROW). */}
+      <div className="relative h-[calc(4*6rem+3px)] lg:h-[calc(2.25rem+4*6rem+3px)] xl:hidden">
         {empty ? (
           <Note>{empty}</Note>
         ) : (
           <div className="flex h-full flex-col">
             <div
               aria-hidden
-              className={cn("hidden shrink-0 items-center gap-x-4 px-2 lg:grid", TABLE_HEAD_BAND, ROW_COLUMNS)}
+              className={cn("hidden shrink-0 items-center gap-x-4 lg:grid", TABLE_HEAD_BAND, WASH_AREA, ROW_COLUMNS)}
             >
               <span>Beitrag</span>
               <span className="text-right">Anfragen</span>
               <span className="text-right">Gewonnen</span>
             </div>
-            <ul className="scroll-shadows -mx-2 min-h-0 flex-1 divide-y divide-border px-2 [--scroll-bg:var(--surface-tile)] lg:mt-1">
+            <ul className="scroll-shadows -mx-3 min-h-0 flex-1 divide-y divide-border px-3 [--scroll-bg:var(--surface-tile)] lg:mt-1">
               {shown.map((p) => (
-                <li key={p.id}>
+                <li key={p.id} className={WASH_ROW}>
                   <Link
                     href={hrefOf(p, waitingIds)}
                     className={cn(
-                      "flex min-h-[5rem] items-center gap-3 rounded-[var(--r-panel)] px-2 py-2 transition-colors hover:bg-[var(--hover-wash)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent lg:grid lg:gap-x-4",
+                      "flex min-h-[5.5rem] items-center gap-3 rounded-[var(--r-panel)] py-3 transition-colors hover:bg-[var(--hover-wash)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent lg:grid lg:gap-x-4",
+                      WASH_AREA,
                       ROW_COLUMNS
                     )}
                   >

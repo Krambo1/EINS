@@ -1,3 +1,7 @@
+// Copy for the offer cards and the budget note. Wording follows
+// docs/umbau-ki-organisch/KANON.md (sections 3, 4, 8, 9). Card ids are internal
+// keys for the card visuals in components/sections/system.tsx and stay stable.
+
 export type OfferCard = {
   id:
     | "medienproduktion"
@@ -15,26 +19,30 @@ export type OfferCard = {
 export const OFFER_CARDS: OfferCard[] = [
   {
     id: "medienproduktion",
-    title: "Medienproduktion",
+    title: "KI-Videos mit Ihrem Klon",
     teaser:
-      "Videos, Animationen und Fotos in Ihrer Praxis, mit Ihrem Team. Patienten bauen Vertrauen auf, bevor sie anrufen.",
+      "Medizinisch seriöse Videos, in denen Ihr KI-Klon die Fragen beantwortet, die Patientinnen sich nicht zu stellen trauen. Sie müssen nie vor die Kamera.",
     bullets: [
-      "Voller Produktionstag in Ihrer Praxis für Ihre profitabelste Behandlung (z. B. Facelift, Liposuktion, Lippenunterspritzung, Kryolipolyse).",
-      "Exklusives Strategie-Meeting: Zielgruppen, Positionierung, USPs und Tonalität.",
-      "Hochauflösendes Hauptvideo mit medizinischer Videoanimation. Erklärt komplexe Eingriffe verständlich und vertrauensbildend: Ablauf, Ausfallzeit, realistische Ergebnisse.",
-      "20 hochwertige Fotos für Website, Anzeigen und soziale Medien: Praxis, Team, Behandlungsräume, Technologie. Professionelle Premium-Nachbearbeitung, sofort einsetzbar.",
-      "Eigene Bibliothek an 2D-Animationen, maßgeschneidert auf Ihre Praxis: Faltenunterspritzung, Lippenunterspritzung, Botox, Hyaluron-Filler, Kryolipolyse, HIFU, Laser-Behandlungen, Körperformung.",
+      "Sie nehmen einmal wenige Minuten Video und Stimme mit dem Handy auf. Daraus entsteht Ihr KI-Klon.",
+      "Videos für Ihre profitabelste Behandlung (z. B. Facelift, Liposuktion, Lippenunterspritzung, Kryolipolyse): Ihr Klon erklärt Ablauf, Ausfallzeit und was Patientinnen realistisch erwarten dürfen.",
+      "Erklär-Animationen zeigen komplexe Eingriffe verständlich und vertrauensbildend: Faltenunterspritzung, Lippenunterspritzung, Botox, Hyaluron-Filler, Kryolipolyse, HIFU, Laser-Behandlungen, Körperformung.",
+      "Bildmaterial für Website, Zielseite und soziale Medien.",
       "Reduziert Patientenangst vor dem ersten Kontakt durch visuelle Aufklärung der Behandlungsschritte. Besonders wirksam für erklärungsbedürftige Eingriffe.",
+      "Themen, Tonfall und was Ihr Klon nie sagen darf, legen Sie fest.",
+      "Erlaubt ist KI rund um den Arzt: Animation, Erklärvideos, Bildmaterial, dazu Ihr Klon als einzige künstliche Person. Keine KI-erzeugten Patientinnen, keine KI-erzeugten Behandlungsergebnisse, keine Vorher-Nachher-Darstellungen.",
+      "Jedes Video ist als KI-generiert gekennzeichnet, wie es das Gesetz verlangt. Kein Beitrag geht ohne Ihre Freigabe raus.",
     ],
   },
   {
     id: "rechtspruefung",
-    title: "Rechtsprüfung der Werbung",
+    title: "Rechtsprüfung Ihrer Beiträge und Anzeigen",
     teaser:
-      "KI-gestützte Prüfung jeder Werbebotschaft gegen typische HWG-Abmahnmuster. Schutz vor den teuersten Fallen.",
+      "KI-gestützte Prüfung jedes Beitrags und jeder Anzeige gegen typische HWG-Abmahnmuster. Schutz vor den teuersten Fallen.",
     bullets: [
-      "KI-gestützte Prüfung aller Werbebotschaften, Anzeigentexte und Video-Scripts gegen die typischen HWG-Abmahnmuster.",
+      "KI-gestützte Prüfung aller Beiträge, Anzeigentexte und Video-Skripte gegen die typischen HWG-Abmahnmuster.",
+      "Die Prüfung gilt für organische Beiträge genauso wie für bezahlte Anzeigen.",
       "Erfasst Vorher-Nachher-Logik, Heilsversprechen, Lockangebote, Superlative und Verharmlosung.",
+      "Kennzeichnung als KI-generiert im Video und im Beitragstext.",
       "Schutz vor den häufigsten Abmahnfallen des Heilmittelwerbegesetzes und ärztlichen Berufsrechts.",
       "Grenzfälle werden zur anwaltlichen Einzelfallprüfung eskaliert.",
     ],
@@ -43,28 +51,28 @@ export const OFFER_CARDS: OfferCard[] = [
     id: "landingpages",
     title: "Maßgeschneiderte Ziel-Websites",
     teaser:
-      "Eigene Ziel-Websites für hochpreisige Behandlungen, ausschließlich für bezahlte Anzeigen gebaut.",
+      "Eigene Ziel-Websites für hochpreisige Behandlungen: das Ziel Ihres Profil-Links und Ihrer Anzeigen.",
     bullets: [
-      "Eigene Ziel-Websites für hochpreisige Behandlungen, ausschließlich für bezahlte Anzeigen gebaut.",
+      "Eigene Ziel-Websites für hochpreisige Behandlungen. Der Profil-Link Ihrer Kanäle führt hierhin, später auch Ihre Anzeigen.",
       "Voroptimierte Vorlagen für Faltenbehandlung, Lippenunterspritzung, Kryolipolyse, Laser-Behandlungen, Facelift.",
       "Keine Navigation, kein Ablenkungsmenü, einziges Ziel: Beratungsanfrage.",
-      "Vertrauenselemente sichtbar: Bewertungen, Zertifikate, HWG-konforme Vorher-Nachher-Dokumentation, Arzt-Profil, verwendete Technologien und Produkte.",
+      "Vertrauenselemente sichtbar: Bewertungen, Zertifikate, Arzt-Profil, verwendete Technologien und Produkte.",
       "DSGVO-konforme Formularlogik mit maximal 5 Feldern. Mobiloptimiert, unter 2 Sekunden Ladezeit.",
     ],
   },
   {
     id: "social-ads",
-    title: "Anzeigen auf sozialen Medien",
+    title: "Reichweite: organisch zuerst, Anzeigen optional",
     teaser:
-      "Anzeigen auf Instagram, Facebook und Google, gezielt in Ihrer Region. Sie sehen täglich, was jeder Euro an Anfragen bringt.",
+      "Wir veröffentlichen Ihre Beiträge organisch auf den Kanälen Ihrer Praxis. Sobald sichtbar ist, welche Beiträge Anfragen bringen, setzen wir bezahlte Anzeigen auf Meta und Google genau dahinter.",
     bullets: [
-      "Anzeigen auf Instagram, Facebook und Google, gezielt in Ihrer Region.",
-      "Erreicht Menschen, die gerade nach Faltenbehandlung, Lippenunterspritzung oder Körperformung suchen.",
-      "Sie sehen täglich, was jeder Euro an Anfragen bringt.",
-      "Tägliche Kampagnensteuerung & Optimierung durch das EINS-Optimierungsteam.",
+      "Zuerst organisch: Ihre freigegebenen Beiträge laufen auf den Kanälen Ihrer Praxis, der Profil-Link führt zu Ihrer Zielseite.",
+      "Dann Anzeigen: Sobald sichtbar ist, welche Beiträge Anfragen bringen, setzen wir bezahlte Anzeigen auf Instagram, Facebook und Google genau dahinter, gezielt in Ihrer Region.",
+      "Zu Beginn brauchen Sie kein Werbebudget. Ab der ersten qualifizierten Anfrage schlagen wir konkret vor, welches Werbebudget hinter welche Beiträge und Behandlungen gehört.",
       "Volle Werbebudget-Kontrolle: jeder Euro live einsehbar, direkt an Meta und Google gezahlt.",
-      "Laufende Strecken-Optimierung, von der Anzeige über die Ziel-Website bis zur Anfrage.",
-      "Monatliche Auswertung mit kompakter Übersicht aller relevanten Kennzahlen.",
+      "Die Betreuung der Anzeigen ist im Preis enthalten: tägliche Steuerung und Optimierung durch das EINS-Optimierungsteam.",
+      "Wir bewerten Beiträge und Anzeigen nach behandelten Patienten, nicht nach Klicks.",
+      "Monatliche Auswertung im Portal: welche Beiträge und Anzeigen liefen, welche gestoppt wurden, wie viele Anfragen kamen und wie viele Behandlungen daraus wurden.",
     ],
   },
   {
@@ -76,7 +84,7 @@ export const OFFER_CARDS: OfferCard[] = [
       "Kontinuierlicher Aufbau echter 5-Sterne-Bewertungen auf Google und Jameda, damit eine einzelne negative Stimme nicht den Ausschlag gibt.",
       "Hält Ihre Praxis sicher über der 4-Sterne-Schwelle, ab der die meisten Patienten überhaupt erst anfragen.",
       "Strukturierte Erfassung von Patientenstimmen für Website, Anzeigen und Ziel-Websites.",
-      "Organische Beiträge auf sozialen Medien begleiten die bezahlten Kampagnen und halten Ihre Praxis sichtbar.",
+      "Organische Beiträge auf den Kanälen Ihrer Praxis halten Sie sichtbar, bevor und während Anzeigen laufen.",
     ],
   },
   {
@@ -94,11 +102,18 @@ export const OFFER_CARDS: OfferCard[] = [
     id: "begleitung",
     title: "Strategische Begleitung",
     teaser:
-      "Regelmäßige Strategie-Meetings, technischer Support und ein erprobter Vertriebsleitfaden für Ihr Praxisteam.",
+      "Monatliche Strategie-Meetings, technischer Support und ein erprobter Vertriebsleitfaden für Ihr Praxisteam.",
     bullets: [
-      "Regelmäßige Strategie-Meetings mit Ihrem dedizierten EINS-Ansprechpartner.",
+      "Monatliche Strategie-Meetings, direkt mit dem Gründer.",
       "Vertriebsleitfaden für Ihr Praxisteam: erprobte Skripte für die Annahme qualifizierter Anfragen.",
       "Technischer Support für Portal, Ziel-Websites und Anfrage-Strecken: direkter Draht statt Servicewarteschleife.",
     ],
   },
 ];
+
+// Note under the cards (components/sections/offer.tsx). Wording: KANON section 4.
+export const BUDGET_NOTE = {
+  label: "Wichtig zu wissen",
+  title: "Zu Beginn brauchen Sie kein Werbebudget.",
+  body: "Wir starten organisch. Sobald wir sehen, welche Beiträge Anfragen bringen, schlagen wir vor, wie viel Werbebudget dahinter gehört. Das Budget zahlen Sie direkt an Meta und Google.",
+};

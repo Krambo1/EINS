@@ -54,12 +54,18 @@ const OLD_MODEL = [
 ];
 
 describe("Asset-Liefer-Checkliste catalog", () => {
-  it("keeps unique ids and the counts (33 Punkte, 22 Pflicht, 5 Blocker)", () => {
+  it("keeps unique ids and the counts (31 Punkte, 20 Pflicht, 5 Blocker)", () => {
     const ids = ALL_CHECKLIST_ITEMS.map((i) => i.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toHaveLength(33);
-    expect(REQUIRED_CHECKLIST_IDS).toHaveLength(22);
+    expect(ids).toHaveLength(31);
+    expect(REQUIRED_CHECKLIST_IDS).toHaveLength(20);
     expect(BLOCKER_CHECKLIST_IDS).toEqual(["A1", "A2", "A3", "A4", "A5"]);
+  });
+
+  it("retires C6 and E5 (asked twice) and E2's Einzugsgebiet field", () => {
+    expect(CHECKLIST_ITEMS_BY_ID.has("C6")).toBe(false);
+    expect(CHECKLIST_ITEMS_BY_ID.has("E5")).toBe(false);
+    expect(CHECKLIST_ITEMS_BY_ID.get("E2")?.fields?.map((f) => f.key)).toEqual(["standorte"]);
   });
 
   it("organic start: the ad accounts (B3, B4) are not Pflicht", () => {
@@ -126,11 +132,17 @@ describe("Asset-Liefer-Checkliste catalog", () => {
 });
 
 describe("Discovery-Fragebogen catalog", () => {
-  it("keeps unique question ids, 26 Fragen, 19 Pflicht", () => {
+  it("keeps unique question ids, 21 Fragen, 17 Pflicht", () => {
     const ids = ALL_DISCOVERY_QUESTIONS.map((q) => q.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toHaveLength(26);
-    expect(REQUIRED_DISCOVERY_IDS).toHaveLength(19);
+    expect(ids).toHaveLength(21);
+    expect(REQUIRED_DISCOVERY_IDS).toHaveLength(17);
+  });
+
+  it("retires A6, C4, D6, E3 and F2 without reusing the ids", () => {
+    for (const id of ["A6", "C4", "D6", "E3", "F2"]) {
+      expect(DISCOVERY_QUESTIONS_BY_ID.has(id)).toBe(false);
+    }
   });
 
   it("F1 (Werbebudget) is optional and has no minimum or recommended floor", () => {
@@ -143,13 +155,13 @@ describe("Discovery-Fragebogen catalog", () => {
     expect(customBudgetError({ F1: "kein Werbebudget zu Beginn" })).toBeNull();
   });
 
-  it("Block D states the 48 Werkstunden rule: no guarantee condition", () => {
-    const d = DISCOVERY_BLOCKS.find((b) => b.key === "D");
-    expect(d?.why).toContain("48 Werkstunden");
-    expect(d?.why).toContain("keine Bedingung der Garantie");
-    expect(d?.why).toContain("von der Praxis nicht beantwortet");
-    expect(d?.why).toContain("bezahlten Anzeigen pausieren");
-    expect(d?.why).not.toMatch(/Garantie (entfällt|verfällt)|Pflicht/);
+  it("the 48 Werkstunden rule stands in Was danach zählt: no guarantee condition", () => {
+    // Block D of the Fragebogen dropped it on 2026-10-30; the Checkliste keeps it.
+    const rule = ABSCHLUSS_HINWEIS.points.find((p) => p.includes("48 Werkstunden"));
+    expect(rule).toContain("keine Bedingung der Garantie");
+    expect(rule).toContain("von der Praxis nicht beantwortet");
+    expect(rule).toContain("bezahlten Anzeigen pausieren");
+    expect(rule).not.toMatch(/Garantie (entfällt|verfällt)|Pflicht/);
   });
 
   it("keeps the Ausgangswerte question (C2, Anfragen pro Monat)", () => {

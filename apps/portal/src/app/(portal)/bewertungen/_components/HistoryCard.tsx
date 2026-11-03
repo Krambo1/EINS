@@ -59,8 +59,9 @@ export function HistoryCard({ rows }: { rows: Awaited<ReturnType<typeof listRevi
       }
       className="[--delay:80ms]"
     >
-      <div className="-mx-2">
-        <div aria-hidden className={cn("grid items-center gap-x-3 px-2 sm:gap-x-4", TABLE_HEAD_BAND, COLUMNS)}>
+      {/* The band 12 px past the columns at the sides (DESIGN.md section 5), the rows under it. */}
+      <div className="-mx-3">
+        <div aria-hidden className={cn("grid items-center gap-x-3 px-3 sm:gap-x-4", TABLE_HEAD_BAND, COLUMNS)}>
           <span>Datum</span>
           <span>Plattform</span>
           <span className="text-right">Sterne</span>
@@ -84,7 +85,7 @@ export function HistoryCard({ rows }: { rows: Awaited<ReturnType<typeof listRevi
               return (
                 <li
                   key={r.id}
-                  className={cn("grid items-center gap-x-3 px-2 text-[15px] leading-5 text-fg-primary sm:gap-x-4", HISTORY_ROW_HEIGHT, COLUMNS)}
+                  className={cn("grid items-center gap-x-3 px-3 text-[15px] leading-5 text-fg-primary sm:gap-x-4", HISTORY_ROW_HEIGHT, COLUMNS)}
                 >
                   <span className="tabular-nums">{formatDate(r.recordedAt)}</span>
                   <span className="min-w-0">{platformLabelNode(r.platform as Platform)}</span>

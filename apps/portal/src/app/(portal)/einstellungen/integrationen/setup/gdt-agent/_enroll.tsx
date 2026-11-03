@@ -1,92 +1,97 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Input, Label } from "@eins/ui";
+import { Button, cn } from "@eins/ui";
+import { showActionFlash } from "@/app/(portal)/_components/flash-event";
+import { CardBody, CardFoot, Field, PRIMARY_BUTTON, TextInput } from "../../../_components/settings-ui";
+import { ONE_LINE } from "../../../_lib/sizes";
 import { issueAgentEnrollmentAction } from "../../actions";
-import { Copy, Check } from "lucide-react";
+import { CopyButton } from "../_copy-button";
+import { CODE_WELL, FINGERPRINT_HINT, ONCE, OWNER_ONLY } from "./_copy";
 
-export function GdtAgentEnroll() {
+/**
+ * The code card's body and foot. What it does is unchanged: the optional
+ * computer name goes to the same action, the code comes back once and is
+ * shown only in this browser until the page is left. The code now has a
+ * well of its own that keeps its size whether a code is in it or not, the
+ * install command sits under it, and a refusal goes to the toast. Without
+ * the Inhaber role the empty well says so (the action refuses those roles).
+ */
+export function GdtAgentEnroll({ canIssue }: { canIssue: boolean }) {
   const [busy, setBusy] = useState(false);
   const [token, setToken] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [fingerprint, setFingerprint] = useState("");
 
   async function generate() {
     setBusy(true);
-    setError(null);
     setToken(null);
+    let error: string | null = null;
     try {
       const r = await issueAgentEnrollmentAction({
         expectedFingerprint: fingerprint.trim() || undefined,
       });
       if (!r.ok) {
-        setError(r.error);
+        error = r.error;
       } else {
         setToken(r.token);
       }
     } catch {
-      setError("Keine Verbindung. Bitte versuchen Sie es noch einmal.");
+      error = "Keine Verbindung. Bitte versuchen Sie es noch einmal.";
     } finally {
       setBusy(false);
     }
-  }
-
-  async function copy() {
-    if (!token) return;
-    await navigator.clipboard.writeText(token);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    if (error) showActionFlash({ tone: "bad", title: "Kein Code erzeugt", description: error });
   }
 
   return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <Label htmlFor="fingerprint">
-          Name des Praxisrechners (optional)
-        </Label>
-        <Input
-          id="fingerprint"
-          placeholder="z.B. PRAXIS-PC-01"
-          value={fingerprint}
-          onChange={(e) => setFingerprint(e.target.value)}
-        />
-        <p className="text-sm text-fg-secondary">
-          Wenn Sie den Namen des Praxisrechners kennen, tragen Sie ihn ein.
-          Der Code funktioniert dann nur auf genau diesem Gerät. Das schützt gegen
-          Code-Diebstahl.
-        </p>
-      </div>
-
-      <Button onClick={generate} disabled={busy}>
-        Einrichtungs-Code erzeugen
-      </Button>
-
-      {error && (
-        <p className="text-sm text-tone-bad">{error}</p>
-      )}
-
-      {token && (
-        <div className="space-y-3 rounded-md border bg-bg-secondary p-3">
-          <p className="text-sm font-medium">
-            Dieser Code wird nur jetzt angezeigt.
+    <>
+      <CardBody className="space-y-5">
+        <Field label="Name des Praxisrechners (optional)" htmlFor="fingerprint">
+          <TextInput
+            id="fingerprint"
+            placeholder="z.B. PRAXIS-PC-01"
+            value={fingerprint}
+            onChange={(e) => setFingerprint(e.target.value)}
+            aria-describedby="fingerprint-hint"
+            className="md:w-[calc(50%-0.5rem)]"
+          />
+          <p id="fingerprint-hint" className="mt-1.5 text-sm leading-5 text-fg-secondary">
+            {FINGERPRINT_HINT}
           </p>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 overflow-x-auto rounded bg-bg-primary p-2 font-mono text-sm">
-              {token}
-            </code>
-            <Button size="sm" variant="outline" onClick={copy} aria-label="Code kopieren">
-              {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-            </Button>
-          </div>
-          <details className="text-sm">
-            <summary className="cursor-pointer font-medium">Befehl für die Installation anzeigen</summary>
-            <pre className="mt-2 overflow-x-auto rounded bg-bg-primary p-2">
-              {`eins-agent --enroll ${token}`}
-            </pre>
-          </details>
+        </Field>
+        <div
+          aria-live="polite"
+          className={cn(
+            CODE_WELL,
+            "elev-inset flex flex-col justify-center gap-2 rounded-[var(--r-control)] bg-[var(--well)] p-3"
+          )}
+        >
+          {token ? (
+            <>
+              <div className="flex items-center gap-2">
+                <code className={cn(ONE_LINE, "min-w-0 flex-1 font-mono text-[15px] text-fg-primary [--scroll-bg:var(--well)]")}>
+                  {token}
+                </code>
+                <CopyButton value={token} label="Code kopieren" />
+              </div>
+              <div className="flex items-center gap-2">
+                <code className={cn(ONE_LINE, "min-w-0 flex-1 font-mono text-sm text-fg-secondary [--scroll-bg:var(--well)]")}>
+                  {`eins-agent --enroll ${token}`}
+                </code>
+                <CopyButton value={`eins-agent --enroll ${token}`} label="Befehl für die Installation kopieren" />
+              </div>
+              <p className="text-sm font-medium leading-5 text-fg-primary">Dieser Code wird nur jetzt angezeigt.</p>
+            </>
+          ) : (
+            <p className="text-sm leading-5 text-fg-secondary">{canIssue ? ONCE : OWNER_ONLY}</p>
+          )}
         </div>
-      )}
-    </div>
+      </CardBody>
+      <CardFoot>
+        <Button className={PRIMARY_BUTTON} onClick={generate} disabled={busy} aria-busy={busy}>
+          Einrichtungs-Code erzeugen
+        </Button>
+      </CardFoot>
+    </>
   );
 }

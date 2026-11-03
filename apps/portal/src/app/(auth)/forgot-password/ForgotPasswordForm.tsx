@@ -5,13 +5,14 @@ import { useActionState, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { AuthToast } from "../_components/AuthToast";
 import {
+  AuthBody,
+  AuthField,
   AuthHeader,
-  AuthLabel,
   CheckInbox,
-  PendingDots,
-  authCtaClass,
+  PendingStatus,
   authFieldClass,
-  authTextLinkClass,
+  authPrimaryClass,
+  authQuietClass,
 } from "../_components/auth-ui";
 import {
   requestPasswordResetAction,
@@ -21,9 +22,18 @@ import {
 function SubmitButton() {
   const { pending } = useFormStatus();
   return (
-    <button type="submit" disabled={pending} aria-busy={pending} className={authCtaClass}>
-      {pending ? <PendingDots label="Wird gesendet" /> : "Link senden"}
-    </button>
+    <>
+      <button
+        type="submit"
+        data-auth-primary
+        disabled={pending}
+        aria-busy={pending}
+        className={authPrimaryClass}
+      >
+        Link senden
+      </button>
+      <PendingStatus pending={pending} label="Wird gesendet" />
+    </>
   );
 }
 
@@ -51,39 +61,31 @@ export function ForgotPasswordForm() {
 
   return (
     <div>
-      <AuthHeader title="Passwort zurücksetzen.">
-        Geben Sie die E-Mail-Adresse Ihres Zugangs ein. Wir schicken Ihnen
-        einen Link, mit dem Sie ein neues Passwort wählen.
-      </AuthHeader>
-      <form action={action} onSubmit={() => setClosedFor(state)} className="space-y-6">
-        <div>
-          <AuthLabel htmlFor="email" className="mb-2">
-            E-Mail
-          </AuthLabel>
-          <input
-            id="email"
-            name="email"
-            type="email"
-            autoComplete="username email"
-            autoCapitalize="none"
-            spellCheck={false}
-            inputMode="email"
-            required
-            autoFocus
-            placeholder="name@praxis.de"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className={authFieldClass}
-          />
-        </div>
-        <SubmitButton />
-      </form>
-      <p className="mt-6 text-center text-sm text-fg-secondary">
-        Doch wieder eingefallen?{" "}
-        <Link href="/login" className={authTextLinkClass}>
+      <AuthHeader title="Passwort zurücksetzen" />
+      <AuthBody>
+        <form action={action} onSubmit={() => setClosedFor(state)} className="space-y-4">
+          <AuthField label="E-Mail" htmlFor="email">
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autoComplete="username email"
+              autoCapitalize="none"
+              spellCheck={false}
+              inputMode="email"
+              required
+              autoFocus
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className={authFieldClass}
+            />
+          </AuthField>
+          <SubmitButton />
+        </form>
+        <Link href="/login" className={authQuietClass}>
           Zur Anmeldung
         </Link>
-      </p>
+      </AuthBody>
       {error && (
         <AuthToast tone="bad" onClose={() => setClosedFor(state)}>
           {error}
