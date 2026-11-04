@@ -32,8 +32,8 @@ describe("worker schedule registry", () => {
     expect(map[QUEUES.retreatmentReminderTick]).toBe("0 8 * * *");
     // 0101: late approval batches become a Verzug, hourly.
     expect(map[QUEUES.contentApprovalVerzug]).toBe("25 * * * *");
-    // Demo Praxis: monthly, before the 05:00 reports.
-    expect(map[QUEUES.demoRefresh]).toBe("30 4 1 * *");
+    // Demo Praxis: weekly.
+    expect(map[QUEUES.demoRefresh]).toBe("30 4 * * 0");
   });
 
   it("registers one fan-out dispatcher per per-clinic queue", () => {

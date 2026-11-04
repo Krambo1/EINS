@@ -4,7 +4,7 @@
  * demo was seeded once (2026-06-01) and its data only aged since; the portal
  * looked empty because nothing fell inside "30 Tage" any more.
  *
- * Used by the worker's monthly `demo-refresh` job and by
+ * Used by the weekly `demo-refresh` step (cron and worker) and by
  * `scripts/refresh-demo-data.ts` for a run by hand.
  *
  * Prod-safe, unlike src/db/seed.ts:

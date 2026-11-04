@@ -30,7 +30,7 @@ import { mailDeletionFailures } from "../_lib/deletion-alert";
  *   5. Retention (L-4, lib/retention.ts): spam, click ids, archived
  *      Praxen, old unbooked Anfragen, sessions, tokens, send log. Daily.
  *   6. Sunday (Berlin): audit / token purge
- *   7. 1st of the month (Berlin): renews the demo Praxis (db/refresh-demo.ts)
+ *   7. Sunday (Berlin): renews the demo Praxis (db/refresh-demo.ts)
  *   8. PVS CSV imports confirmed but not processed (C8, also in morning)
  *   9. A failed deletion step (5, 6) mails team@eins.ag, once per run
  *      (_lib/deletion-alert.ts). Outside the time budget, so a purge skipped
@@ -99,9 +99,6 @@ export async function GET(request: NextRequest) {
 
   if (isBerlinSunday(today)) {
     await run.step("purge-audit", () => processPurgeAudit({ skipRetention: true }));
-  }
-
-  if (today.endsWith("-01")) {
     await run.step("demo-refresh", () => processDemoRefresh());
   }
 

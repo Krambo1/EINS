@@ -67,7 +67,7 @@ export const QUEUES = {
   retreatmentReminderTick: "retreatment-reminder-tick",
   /** Beiträge: hourly, late approval batches become a Verzug in the Garantie-Uhr. */
   contentApprovalVerzug: "content-approval-verzug",
-  /** Demo Praxis: monthly, renews its activity so the dashboard stays filled. */
+  /** Demo Praxis: weekly, renews its activity so the dashboard stays filled. */
   demoRefresh: "demo-refresh",
 } as const;
 

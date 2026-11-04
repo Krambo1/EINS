@@ -35,7 +35,7 @@ vi.mock("@/worker/processors/pvs-csv-ingest", () => ({ catchUpPvsCsvIngest: noop
 vi.mock("@/worker/processors/purge-retention", () => ({ processPurgeRetention: m.purgeRetention }));
 vi.mock("@/worker/processors/purge-audit", () => ({ processPurgeAudit: m.purgeAudit }));
 vi.mock("@/worker/processors/demo-refresh", () => ({ processDemoRefresh: m.demoRefresh }));
-// Sunday 01.11.2026, so the weekly audit purge and the monthly demo refresh run too.
+// Sunday 01.11.2026, so the weekly audit purge and demo refresh run too.
 vi.mock("@/worker/processors/berlin-days", () => ({
   berlinToday: () => "2026-11-01",
   berlinYesterday: () => "2026-10-31",
@@ -54,7 +54,7 @@ beforeEach(() => {
   m.demoRefresh.mockReset().mockResolvedValue(undefined);
 });
 
-describe("GET /api/cron/daily on the 1st of the month", () => {
+describe("GET /api/cron/daily on a Sunday", () => {
   it("renews the demo Praxis once", async () => {
     await GET(request());
     expect(m.demoRefresh).toHaveBeenCalledTimes(1);

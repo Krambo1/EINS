@@ -58,9 +58,9 @@ export const PLATFORM_SCHEDULES: readonly PlatformSchedule[] = [
   // Beiträge: hourly at :25, late approval batches become an (unnotified)
   // Verzug in the Garantie-Uhr; decided batches close theirs.
   { queue: QUEUES.contentApprovalVerzug, cron: "25 * * * *" },
-  // Demo Praxis: fresh activity on the 1st at 04:30 UTC, before the 05:00
-  // monthly reports, so the dashboard never ages into empty periods.
-  { queue: QUEUES.demoRefresh, cron: "30 4 1 * *" },
+  // Demo Praxis: fresh activity every Sunday at 04:30 UTC, so "30 Tage" keeps
+  // at least three weeks of data.
+  { queue: QUEUES.demoRefresh, cron: "30 4 * * 0" },
 ];
 
 function yesterdayIso(): string {

@@ -3,7 +3,7 @@ import { refreshDemoPraxis } from "@/db/refresh-demo";
 import { bossConnectionString } from "@/lib/env";
 
 /**
- * Monthly: renews the demo Praxis's activity, so "Praxis Dr. Demo" does not
+ * Weekly: renews the demo Praxis's activity, so "Praxis Dr. Demo" does not
  * age into an empty dashboard again. Touches that one Praxis only; what it
  * replaces and keeps: db/refresh-demo.ts. Production runs it from
  * /api/cron/daily (the worker is off there); the worker schedule is for when

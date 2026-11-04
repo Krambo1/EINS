@@ -1,5 +1,5 @@
 /**
- * Renews the demo Praxis's activity by hand. The worker does this every month
+ * Renews the demo Praxis's activity by hand. This also runs every Sunday
  * (`demo-refresh`); what it touches and keeps: src/db/refresh-demo.ts.
  *
  * Any database other than localhost needs DEMO_REFRESH_ALLOW_PROD=1.
