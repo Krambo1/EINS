@@ -12,8 +12,8 @@ import {
  * dispatcher model (one dispatcher per per-clinic job instead of N repeatables).
  */
 describe("worker schedule registry", () => {
-  it("registers the 12 platform-wide schedules with their crons", () => {
-    expect(PLATFORM_SCHEDULES).toHaveLength(12);
+  it("registers the 13 platform-wide schedules with their crons", () => {
+    expect(PLATFORM_SCHEDULES).toHaveLength(13);
     const map = Object.fromEntries(PLATFORM_SCHEDULES.map((s) => [s.queue, s.cron]));
     expect(map[QUEUES.slaCheck]).toBe("*/15 * * * *");
     expect(map[QUEUES.refreshOauth]).toBe("*/15 * * * *");
@@ -32,6 +32,8 @@ describe("worker schedule registry", () => {
     expect(map[QUEUES.retreatmentReminderTick]).toBe("0 8 * * *");
     // 0101: late approval batches become a Verzug, hourly.
     expect(map[QUEUES.contentApprovalVerzug]).toBe("25 * * * *");
+    // Demo Praxis: monthly, before the 05:00 reports.
+    expect(map[QUEUES.demoRefresh]).toBe("30 4 1 * *");
   });
 
   it("registers one fan-out dispatcher per per-clinic queue", () => {

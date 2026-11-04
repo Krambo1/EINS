@@ -57,6 +57,7 @@ import { processAnomalyScan } from "./processors/anomaly-scan";
 import { processRetreatmentRefresh } from "./processors/retreatment-refresh";
 import { processRetreatmentReminderTick } from "./processors/retreatment-reminder";
 import { processContentApprovalVerzug } from "./processors/content-approval-verzug";
+import { processDemoRefresh } from "./processors/demo-refresh";
 
 /**
  * Worker entry point — run as `pnpm worker`. Always-on (Fly `eins-worker`,
@@ -150,6 +151,7 @@ const QUEUE_DEFS: QueueDef[] = [
     name: QUEUES.contentApprovalVerzug,
     handler: wrap("content-approval-verzug", processContentApprovalVerzug),
   },
+  { name: QUEUES.demoRefresh, handler: wrap("demo-refresh", processDemoRefresh) },
 ];
 
 /** createQueue options (queue policy) for a processor queue. */
