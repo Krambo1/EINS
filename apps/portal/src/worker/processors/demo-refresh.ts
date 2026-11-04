@@ -5,7 +5,9 @@ import { bossConnectionString } from "@/lib/env";
 /**
  * Monthly: renews the demo Praxis's activity, so "Praxis Dr. Demo" does not
  * age into an empty dashboard again. Touches that one Praxis only; what it
- * replaces and keeps: db/refresh-demo.ts.
+ * replaces and keeps: db/refresh-demo.ts. Production runs it from
+ * /api/cron/daily (the worker is off there); the worker schedule is for when
+ * it is switched on. A second run on the same day does no harm.
  *
  * Own connection on the direct endpoint, not the shared client: that one
  * caps each statement at 15 s and is shared with every other job, and this

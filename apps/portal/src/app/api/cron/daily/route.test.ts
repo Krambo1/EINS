@@ -7,6 +7,7 @@ const m = vi.hoisted(() => ({
   send: vi.fn(async (_mail: SendEmailInput) => {}),
   purgeRetention: vi.fn(async () => ({})),
   purgeAudit: vi.fn(async () => ({})),
+  demoRefresh: vi.fn(async () => {}),
 }));
 
 vi.mock("@/db/client", () => {
@@ -33,7 +34,8 @@ vi.mock("@/worker/processors/ai-score", () => ({ processAiScore: noop() }));
 vi.mock("@/worker/processors/pvs-csv-ingest", () => ({ catchUpPvsCsvIngest: noop() }));
 vi.mock("@/worker/processors/purge-retention", () => ({ processPurgeRetention: m.purgeRetention }));
 vi.mock("@/worker/processors/purge-audit", () => ({ processPurgeAudit: m.purgeAudit }));
-// Sunday 01.11.2026, so the weekly audit purge runs too.
+vi.mock("@/worker/processors/demo-refresh", () => ({ processDemoRefresh: m.demoRefresh }));
+// Sunday 01.11.2026, so the weekly audit purge and the monthly demo refresh run too.
 vi.mock("@/worker/processors/berlin-days", () => ({
   berlinToday: () => "2026-11-01",
   berlinYesterday: () => "2026-10-31",
@@ -49,6 +51,14 @@ beforeEach(() => {
   m.send.mockClear();
   m.purgeRetention.mockReset().mockResolvedValue({});
   m.purgeAudit.mockReset().mockResolvedValue({});
+  m.demoRefresh.mockReset().mockResolvedValue(undefined);
+});
+
+describe("GET /api/cron/daily on the 1st of the month", () => {
+  it("renews the demo Praxis once", async () => {
+    await GET(request());
+    expect(m.demoRefresh).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("GET /api/cron/daily deletion alert", () => {
