@@ -5,22 +5,28 @@
  */
 
 /**
- * Where the card stands: anchored at the top, never centred, so a card that
- * grows (the password step, the Postfach screen) grows downward only. 16 px
- * from the phone's edges; from sm max(4 rem, 12 vh) from the top, 108 px on
- * a 1440 x 900 screen.
+ * Where the card stands: in the middle of the screen, phone and desktop
+ * (Karam, 2026-11-03; before it was anchored at the top). 16 px from the
+ * phone's edges and at least 16 px (32 px from sm) above and below, so a tall
+ * card on a short screen scrolls instead of being cut.
  */
-export const AUTH_MAIN = "flex justify-center px-4 pb-4 pt-4 sm:pt-[max(4rem,12vh)]";
+export const AUTH_MAIN = "flex flex-1 items-center justify-center px-4 py-4 sm:py-8";
 
 /**
  * Datenschutz and Impressum, right under the card rather than at the
  * screen's foot, where the toast (16 px from the phone's bottom edge) would
  * cover them until it is closed.
  */
-export const AUTH_LEGAL = "flex justify-center px-4 pb-10";
+export const AUTH_LEGAL = "flex justify-center pt-3";
 
-/** One card width for every sign-in page, admin included. */
-export const AUTH_COLUMN = "w-full max-w-[400px]";
+/**
+ * One card width for every sign-in page, admin included. The column is as
+ * tall as the sign-in card at its password step (with Google) and the legal
+ * links, and the card sits at its top: centring the column, not the card,
+ * keeps the logo and the title where they are when the password field
+ * appears, and the card grows downward into the reserved room.
+ */
+export const AUTH_COLUMN = "flex min-h-[520px] w-full max-w-[400px] flex-col";
 
 /** The portal's card: on the canvas, soft shadow, 20 px inside (24 from md). */
 export const AUTH_CARD =

@@ -1,5 +1,13 @@
 @import "@eins/ui/styles.css";
 
+/* A sideways pull on the page never turns into the browser's "back" (Chrome
+   adds one); on the phone a swipe to the right opens the nav instead
+   (useSwipeDrawer). Only the x axis: pull-to-refresh stays. */
+html,
+body {
+  overscroll-behavior-x: none;
+}
+
 /* Portal layers, back to front. The page canvas is the floor; cards stand on
    it with a soft shadow; whatever is "on" (the active nav entry, the selected
    period) is raised above its card; tracks are pressed into it. Derived from
@@ -271,6 +279,15 @@
 .anim-wipe {
   animation: portal-wipe 650ms var(--ease-out) backwards;
   animation-delay: var(--delay, 0ms);
+}
+
+/* Content that replaces a skeleton is there at once (the handoff script in
+   app/layout.tsx marks it for a second). Zero time instead of no animation:
+   when the mark goes, the same animation is simply over, nothing restarts. */
+[data-no-entrance]:is(.anim-rise, .anim-bar-y, .anim-bar-x, .anim-ghost, .anim-wipe, .roll-strip, .animate-fade-in),
+[data-no-entrance] :is(.anim-rise, .anim-bar-y, .anim-bar-x, .anim-ghost, .anim-wipe, .roll-strip, .animate-fade-in) {
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
 }
 
 /* Rolling digits (RollingNumber): the hidden digit holds width and baseline,

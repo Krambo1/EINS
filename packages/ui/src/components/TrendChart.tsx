@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
 import { stableId } from "../lib/stableId";
 
@@ -339,11 +340,12 @@ function SingleSeriesTrendChart({
   ariaLabel,
 }: TrendChartProps) {
   const [activeIdx, setActiveIdx] = React.useState<number | null>(null);
-  // Plot width, read on pointer move: the compact hover card goes left of the
-  // crosshair only when it has no room on the right.
-  const [plotWidth, setPlotWidth] = React.useState(0);
+  // The plot's place on screen, read on pointer move. The compact hover card
+  // is drawn in the page's top layer (fixed, in a portal), so no card with
+  // overflow-hidden around the chart can cut it off.
+  const [plotRect, setPlotRect] = React.useState<PlotRect | null>(null);
   const tipRef = React.useRef<HTMLDivElement>(null);
-  const [tipWidth, setTipWidth] = React.useState(120);
+  const [tipSize, setTipSize] = React.useState({ w: 120, h: 38 });
   const linePathOf = curve === "straight" ? straightPath : monotoneCubicPath;
   // Compact hover card: "13. Okt.", with the year only when it is not this year.
   const fmtDateTip = React.useMemo(
@@ -469,10 +471,27 @@ function SingleSeriesTrendChart({
     };
   }, [data, comparisonData, height, linePathOf]);
 
-  // Width of the compact hover card, measured after each move, before paint.
+  // Size of the compact hover card, measured after each move, before paint.
   React.useLayoutEffect(() => {
-    if (tipRef.current) setTipWidth(tipRef.current.offsetWidth);
+    const el = tipRef.current;
+    if (!el) return;
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    setTipSize((s) => (s.w === w && s.h === h ? s : { w, h }));
   }, [activeIdx]);
+
+  // The card is placed from the plot's rect at the last move; a scroll or a
+  // resize would leave it behind, so it closes until the pointer moves again.
+  React.useEffect(() => {
+    if (activeIdx === null || tooltip !== "compact") return;
+    const close = () => setActiveIdx(null);
+    window.addEventListener("scroll", close, { capture: true, passive: true });
+    window.addEventListener("resize", close);
+    return () => {
+      window.removeEventListener("scroll", close, { capture: true });
+      window.removeEventListener("resize", close);
+    };
+  }, [activeIdx, tooltip]);
 
   if (!geom) {
     return (
@@ -505,7 +524,11 @@ function SingleSeriesTrendChart({
     const idx = Math.round(ratio * (data.length - 1));
     const clamped = Math.max(0, Math.min(data.length - 1, idx));
     setActiveIdx(clamped);
-    setPlotWidth(rect.width);
+    setPlotRect((r) =>
+      r && r.left === rect.left && r.top === rect.top && r.width === rect.width && r.height === rect.height
+        ? r
+        : { left: rect.left, top: rect.top, width: rect.width, height: rect.height }
+    );
   };
 
   const handlePointerLeave = () => setActiveIdx(null);
@@ -532,9 +555,8 @@ function SingleSeriesTrendChart({
     activeComparisonPoint != null
       ? (activeComparisonPoint.y / Math.max(1, height)) * 100
       : 0;
-  // The compact card needs its own width plus a 12 px gap beside the crosshair.
-  const roomRight = plotWidth * (1 - activePct / 100);
-  const tipOnLeft = roomRight < tipWidth + 12 && plotWidth - roomRight > roomRight;
+  const tipPos =
+    activeIdx !== null && plotRect ? compactTipPosition(plotRect, activePct, tipSize) : null;
 
   const xTickIdx = showAxes || showGrid ? pickTickIndices(data.length, 5) : [];
   // Y-axis tick fractions from bottom (0) to top (max). 5 ticks → quarters.
@@ -703,19 +725,16 @@ function SingleSeriesTrendChart({
           )}
 
           {/* Compact hover card: a row per line, mark + short date + value.
-              It sits beside the crosshair at the point's height (Triple
-              Whale), on the left once the point is past the middle, and
-              stays inside the chart's height. Half its height: 19 px for
-              one row, 31 px for two. */}
-          {activeIdx !== null && activeData && tooltip === "compact" && (
+              It keeps one height and only follows the crosshair sideways
+              (Triple Whale): in a tall chart at the top of the plot beside
+              the crosshair, over a small line above the plot. Drawn fixed in
+              a portal and kept 8 px inside the screen, so neither a card's
+              overflow-hidden nor the screen edge cuts it. */}
+          {activeIdx !== null && activeData && tooltip === "compact" && tipPos && createPortal(
             <div
               ref={tipRef}
-              className="pointer-events-none absolute z-10 flex flex-col gap-1 whitespace-nowrap rounded-[10px] bg-bg-primary py-2 pl-2.5 pr-3 shadow-[0_0_0_1px_rgba(16,16,26,0.07),0_10px_24px_-10px_rgba(16,16,26,0.3)]"
-              style={{
-                left: `${activePct}%`,
-                top: `min(max(${activeYPct.toFixed(1)}%, ${activeComparisonData ? 31 : 19}px), calc(100% - ${activeComparisonData ? 31 : 19}px))`,
-                transform: `translate(${tipOnLeft ? "calc(-100% - 12px)" : "12px"}, -50%)`,
-              }}
+              className="pointer-events-none fixed z-[200] flex flex-col gap-1 whitespace-nowrap rounded-[10px] bg-bg-primary py-2 pl-2.5 pr-3 shadow-[0_0_0_1px_rgba(16,16,26,0.07),0_10px_24px_-10px_rgba(16,16,26,0.3)]"
+              style={{ left: tipPos.left, top: tipPos.top }}
             >
               <div className="flex items-center gap-2">
                 <span
@@ -747,7 +766,8 @@ function SingleSeriesTrendChart({
                   </span>
                 </div>
               )}
-            </div>
+            </div>,
+            document.body
           )}
 
           {/* Tooltip — clamped so it doesn't overflow the chart edges */}
@@ -824,6 +844,48 @@ function SingleSeriesTrendChart({
       )}
     </div>
   );
+}
+
+interface PlotRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/** Plots at least this tall carry the compact card inside, at their top. */
+const COMPACT_INSIDE_MIN_HEIGHT = 120;
+const TIP_GAP = 12;
+const SCREEN_MARGIN = 8;
+
+/**
+ * Where the compact hover card stands, in screen pixels. Its height never
+ * changes with the point: a tall plot holds it at its top, beside the
+ * crosshair (left of it once the right side lacks room); a small line gets it
+ * centred above the plot, or below when the plot is at the top of the screen.
+ * Either way it stays 8 px inside the screen.
+ */
+function compactTipPosition(
+  plot: PlotRect,
+  activePct: number,
+  tip: { w: number; h: number }
+): { left: number; top: number } {
+  const vw = typeof window === "undefined" ? Infinity : window.innerWidth;
+  const x = plot.left + (plot.width * activePct) / 100;
+  let left: number;
+  let top: number;
+  if (plot.height >= COMPACT_INSIDE_MIN_HEIGHT) {
+    const roomRight = vw - SCREEN_MARGIN - x;
+    const onLeft = roomRight < tip.w + TIP_GAP && x - plot.left > plot.left + plot.width - x;
+    left = onLeft ? x - TIP_GAP - tip.w : x + TIP_GAP;
+    top = plot.top + 4;
+  } else {
+    left = x - tip.w / 2;
+    top = plot.top - tip.h - TIP_GAP;
+    if (top < SCREEN_MARGIN) top = plot.top + plot.height + TIP_GAP;
+  }
+  left = Math.max(SCREEN_MARGIN, Math.min(left, vw - SCREEN_MARGIN - tip.w));
+  return { left, top };
 }
 
 function formatTooltipDate(raw: string, fmt: Intl.DateTimeFormat): string {

@@ -32,6 +32,16 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
+/**
+ * Watches the page for a skeleton (an `.animate-pulse` part, or anything
+ * marked `data-skeleton`) leaving the DOM. The nodes added in the same batch
+ * are the content that replaced it: they get `data-no-entrance` for a second,
+ * which plays their entrance animations in zero time. Lifting the mark later
+ * does not restart them, because only the timing changes, never the name.
+ */
+const SKELETON_HANDOFF =
+  "try{(function(){var S='.animate-pulse,[data-skeleton]',A='data-no-entrance';new MutationObserver(function(rs){var gone=false,added=[];for(var i=0;i<rs.length;i++){var r=rs[i],j,n;for(j=0;j<r.removedNodes.length;j++){n=r.removedNodes[j];if(n.nodeType===1&&(n.matches(S)||n.querySelector(S)))gone=true;}for(j=0;j<r.addedNodes.length;j++){n=r.addedNodes[j];if(n.nodeType===1)added.push(n);}}if(!gone||!added.length)return;added.forEach(function(n){n.setAttribute(A,'');});setTimeout(function(){added.forEach(function(n){n.removeAttribute(A);});},1000);}).observe(document.documentElement,{childList:true,subtree:true});})();}catch(e){}";
+
 export default function RootLayout({
   children,
 }: {
@@ -51,6 +61,12 @@ export default function RootLayout({
               "try{var t=localStorage.getItem('eins-portal-theme');if(t==='dark'&&/^admin\\./i.test(location.hostname))document.documentElement.setAttribute('data-theme','dark');}catch(e){}",
           }}
         />
+        {/* Content that takes a skeleton's place appears at once, without
+            its entrance (globals.css, "data-no-entrance"): a card that fades
+            in from nothing after a skeleton read as the page vanishing and
+            coming back. Runs from the first byte, so the streamed swap of a
+            full page load is caught too, not only client navigations. */}
+        <script dangerouslySetInnerHTML={{ __html: SKELETON_HANDOFF }} />
       </head>
       <body className="min-h-dvh bg-bg-primary text-fg-primary antialiased">
         <AppEffects />

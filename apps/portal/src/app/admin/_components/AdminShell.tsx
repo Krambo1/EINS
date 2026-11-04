@@ -28,6 +28,7 @@ import { TopProgressBar } from "@/app/(portal)/_components/TopProgressBar";
 import { GlobalSearch } from "@/app/(portal)/_components/GlobalSearch";
 import { ThemeToggle } from "@/app/_components/ThemeToggle";
 import { EinsLogo } from "@/app/_components/EinsLogo";
+import { useSwipeDrawer } from "@/app/_components/useSwipeDrawer";
 import type { AdminAttention, PendingOperations } from "@/server/queries/admin";
 
 // Lazy-load the dialog so cmdk + the admin index + icons don't ship on every
@@ -265,61 +266,8 @@ export function AdminShell({ email, pendingCounts, attention, children }: AdminS
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Edge-swipe: right-swipe from the left edge opens the drawer; left-swipe
-  // closes it. Mobile only.
-  useEffect(() => {
-    const mq = window.matchMedia("(max-width: 767px)");
-    const EDGE = 28;
-    const THRESHOLD = 60;
-    let startX = 0;
-    let startY = 0;
-    let tracking = false;
-
-    const onStart = (e: TouchEvent) => {
-      if (!mq.matches) return;
-      const t = e.touches[0];
-      if (!t) return;
-      if (mobileNavOpen) {
-        startX = t.clientX;
-        startY = t.clientY;
-        tracking = true;
-        return;
-      }
-      if (t.clientX > EDGE) return;
-      startX = t.clientX;
-      startY = t.clientY;
-      tracking = true;
-    };
-    const onMove = (e: TouchEvent) => {
-      if (!tracking) return;
-      const t = e.touches[0];
-      if (!t) return;
-      const dx = t.clientX - startX;
-      const dy = Math.abs(t.clientY - startY);
-      if (Math.abs(dx) <= dy) return;
-      if (!mobileNavOpen && dx > THRESHOLD) {
-        tracking = false;
-        setMobileNavOpen(true);
-      } else if (mobileNavOpen && -dx > THRESHOLD) {
-        tracking = false;
-        setMobileNavOpen(false);
-      }
-    };
-    const onEnd = () => {
-      tracking = false;
-    };
-
-    window.addEventListener("touchstart", onStart, { passive: true });
-    window.addEventListener("touchmove", onMove, { passive: true });
-    window.addEventListener("touchend", onEnd, { passive: true });
-    window.addEventListener("touchcancel", onEnd, { passive: true });
-    return () => {
-      window.removeEventListener("touchstart", onStart);
-      window.removeEventListener("touchmove", onMove);
-      window.removeEventListener("touchend", onEnd);
-      window.removeEventListener("touchcancel", onEnd);
-    };
-  }, [mobileNavOpen]);
+  // Swipe right anywhere opens the drawer, swipe left closes it. Mobile only.
+  useSwipeDrawer(mobileNavOpen, setMobileNavOpen);
 
   // Measure the active item + observe all items so the pill follows resizes.
   useEffect(() => {

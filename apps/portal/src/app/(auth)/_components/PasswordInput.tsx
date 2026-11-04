@@ -7,8 +7,9 @@ import {
   useRef,
   useState,
   type ComponentPropsWithoutRef,
+  type KeyboardEvent,
 } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { ArrowBigUpDash, Eye, EyeOff } from "lucide-react";
 import { cn } from "@eins/ui";
 import { AUTH_FOCUS, authFieldClass } from "./auth-ui";
 
@@ -29,8 +30,14 @@ import { AUTH_FOCUS, authFieldClass } from "./auth-ui";
 export const PasswordInput = forwardRef<
   HTMLInputElement,
   Omit<ComponentPropsWithoutRef<"input">, "type"> & { toggleLabel?: string }
->(function PasswordInput({ className, toggleLabel = "Passwort", ...props }, ref) {
+>(function PasswordInput({ className, toggleLabel = "Passwort", onKeyDown, onKeyUp, onBlur, ...props }, ref) {
   const [visible, setVisible] = useState(false);
+  // Caps Lock is a common cause of a "wrong" password. Shown inside the
+  // field, beside the eye, so nothing under it moves.
+  const [capsLock, setCapsLock] = useState(false);
+  const readCaps = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (typeof e.getModifierState === "function") setCapsLock(e.getModifierState("CapsLock"));
+  };
   const inputRef = useRef<HTMLInputElement>(null);
   useImperativeHandle(ref, () => inputRef.current as HTMLInputElement);
 
@@ -54,8 +61,31 @@ export const PasswordInput = forwardRef<
         spellCheck={false}
         autoCorrect="off"
         autoCapitalize="none"
-        className={cn(authFieldClass, "pr-11", className)}
+        onKeyDown={(e) => {
+          readCaps(e);
+          onKeyDown?.(e);
+        }}
+        onKeyUp={(e) => {
+          readCaps(e);
+          onKeyUp?.(e);
+        }}
+        onBlur={(e) => {
+          setCapsLock(false);
+          onBlur?.(e);
+        }}
+        className={cn(authFieldClass, capsLock ? "pr-[4.5rem]" : "pr-11", className)}
       />
+      {capsLock && (
+        <span
+          title="Feststelltaste ist an"
+          className="pointer-events-none absolute inset-y-0 right-11 flex w-7 items-center justify-center text-tone-warn"
+        >
+          <ArrowBigUpDash aria-hidden className="h-4 w-4" />
+        </span>
+      )}
+      <span role="status" className="sr-only">
+        {capsLock ? "Feststelltaste ist an" : ""}
+      </span>
       <button
         type="button"
         onClick={() => setVisible((v) => !v)}

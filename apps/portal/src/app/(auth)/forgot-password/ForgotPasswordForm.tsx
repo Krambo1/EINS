@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { useFormStatus } from "react-dom";
 import { AuthToast } from "../_components/AuthToast";
 import {
@@ -18,6 +18,7 @@ import {
   requestPasswordResetAction,
   type LoginActionState,
 } from "../login/actions";
+import { readRememberedEmail, rememberTypedEmail } from "../_lib/remembered-email";
 
 function SubmitButton() {
   const { pending } = useFormStatus();
@@ -45,6 +46,12 @@ export function ForgotPasswordForm() {
   const [closedFor, setClosedFor] = useState<LoginActionState>(undefined);
   // Controlled, so React's form reset after an error keeps the address.
   const [email, setEmail] = useState("");
+  // The address from the sign-in screen comes along, so "Passwort
+  // vergessen?" never means typing it again; with it filled in, Enter sends.
+  useEffect(() => {
+    const { email: known } = readRememberedEmail();
+    if (known) setEmail(known);
+  }, []);
 
   // Same answer for known and unknown addresses (enumeration defence).
   if (state?.ok) {
@@ -76,7 +83,10 @@ export function ForgotPasswordForm() {
               required
               autoFocus
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                setEmail(e.target.value);
+                rememberTypedEmail(e.target.value);
+              }}
               className={authFieldClass}
             />
           </AuthField>

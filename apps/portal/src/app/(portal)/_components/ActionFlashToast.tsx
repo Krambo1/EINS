@@ -8,17 +8,21 @@ import {
   ToastTitle,
   ToastDescription,
   ToastClose,
+  cn,
 } from "@eins/ui";
+import {
+  TOAST_CARD,
+  TOAST_CLOSE,
+  TOAST_TEXT,
+  TOAST_TITLE,
+  ToastIcon,
+} from "@/app/_components/toast-look";
 import type { FlashPayload } from "@/lib/flash";
 import { ACTION_FLASH_EVENT, type ClientFlash } from "./flash-event";
 
-// The shared Toast's tone colours are see-through, so the page showed
-// through it. Here the page colour lies under the tint (a background-image
-// paints over the background-color), wrapped at the call site.
-const SOLID_TONE: Record<FlashPayload["tone"], string> = {
-  good: "bg-bg-primary [background-image:linear-gradient(var(--tone-good-bg),var(--tone-good-bg))]",
-  bad: "bg-bg-primary [background-image:linear-gradient(var(--tone-bad-bg),var(--tone-bad-bg))]",
-};
+// The shared Toast's tone colours are see-through and set the text in red
+// or green on a tint, which was hard to read. Wrapped at the call site: a
+// solid white card with dark text, the tone only in the icon (toast-look).
 
 /**
  * Bottom-right toast that confirms every server action that ran on the
@@ -61,16 +65,18 @@ export function ActionFlashToast({ flash }: { flash: FlashPayload | null }) {
         <Toast
           key={shown.id}
           tone={shown.tone}
-          className={SOLID_TONE[shown.tone]}
+          className={TOAST_CARD}
           open={open}
           onOpenChange={setOpen}
-          // Longer with a button, so there is time to reach it.
-          duration={shown.action ? 8000 : 5000}
+          // Errors stay longer: they usually say what to do next. Longer
+          // with a button too, so there is time to reach it.
+          duration={shown.action || shown.tone === "bad" ? 8000 : 5000}
         >
-          <div className="grid gap-1">
-            <ToastTitle>{shown.title}</ToastTitle>
+          <ToastIcon tone={shown.tone} />
+          <div className="grid min-w-0 gap-1">
+            <ToastTitle className={TOAST_TITLE}>{shown.title}</ToastTitle>
             {shown.description && (
-              <ToastDescription>{shown.description}</ToastDescription>
+              <ToastDescription className={cn(TOAST_TEXT, "opacity-100")}>{shown.description}</ToastDescription>
             )}
             {shown.action && (
               <button
@@ -79,13 +85,13 @@ export function ActionFlashToast({ flash }: { flash: FlashPayload | null }) {
                   setOpen(false);
                   shown.action?.onClick();
                 }}
-                className="mt-1 justify-self-start rounded-[var(--r-small)] text-sm font-semibold underline underline-offset-4 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                className="mt-1 justify-self-start rounded-[var(--r-small)] text-sm font-semibold text-fg-primary underline underline-offset-4 hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fg-primary"
               >
                 {shown.action.label}
               </button>
             )}
           </div>
-          <ToastClose />
+          <ToastClose className={TOAST_CLOSE} />
         </Toast>
       )}
       {/* Full width with its own 16 px padding on the phone; the shared

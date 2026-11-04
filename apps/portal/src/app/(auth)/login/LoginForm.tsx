@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useActionState,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import { useFormStatus } from "react-dom";
 import { cn } from "@eins/ui";
 import { GoogleSignInButton } from "@/app/_components/GoogleSignInButton";
@@ -24,6 +31,11 @@ import {
   requestMagicLinkAction,
   type LoginActionState,
 } from "./actions";
+import {
+  readRememberedEmail,
+  rememberLastEmail,
+  rememberTypedEmail,
+} from "../_lib/remembered-email";
 
 const LINK_FORM_ID = "eins-login-link";
 
@@ -86,6 +98,7 @@ export function LoginForm({
   const hideCurrent = () => setClosed((c) => [...c, pwState, linkState]);
   const [editedAfter, setEditedAfter] = useState<unknown>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
 
   const current = lastSource === "link" ? linkState : pwState;
   const toastError = current && !current.ok && !closed.includes(current) ? current.error : null;
@@ -97,6 +110,22 @@ export function LoginForm({
     if (pwState && !pwState.ok && pwState !== initialState) passwordRef.current?.focus();
   }, [pwState, initialState]);
 
+  // An address typed on "Passwort vergessen" in this tab, or used here last
+  // on this device, is filled in, and the form starts at the password: the
+  // address is known, so there is nothing to type twice. The same for every
+  // address, so it reveals nothing about an account.
+  useEffect(() => {
+    const { email: known } = readRememberedEmail();
+    if (!known) return;
+    setEmail(known);
+    setStep("password");
+  }, []);
+
+  const changeEmail = (value: string) => {
+    setEmail(value);
+    rememberTypedEmail(value);
+  };
+
   const onSubmit = (e: FormEvent<HTMLFormElement>) => {
     if (step === "email") {
       // Native validation has already checked the address. No request here.
@@ -104,19 +133,29 @@ export function LoginForm({
       setStep("password");
       return;
     }
+    rememberLastEmail(email);
     hideCurrent();
     setLastSource("pw");
+  };
+
+  // Escape in the password step goes back to the address.
+  const onKeyDown = (e: KeyboardEvent<HTMLFormElement>) => {
+    if (e.key !== "Escape" || step !== "password" || e.defaultPrevented) return;
+    e.preventDefault();
+    setStep("email");
+    requestAnimationFrame(() => emailRef.current?.select());
   };
 
   const emailEmpty = email.trim() === "";
 
   return (
     <AuthBody>
-      <form action={pwAction} onSubmit={onSubmit} className="space-y-4">
+      <form action={pwAction} onSubmit={onSubmit} onKeyDown={onKeyDown} className="space-y-4">
         {next && <input type="hidden" name="next" value={next} />}
 
         <AuthField label="E-Mail" htmlFor="email">
           <input
+            ref={emailRef}
             id="email"
             name="email"
             type="email"
@@ -127,7 +166,7 @@ export function LoginForm({
             required
             autoFocus
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => changeEmail(e.target.value)}
             className={authFieldClass}
           />
         </AuthField>
@@ -172,6 +211,7 @@ export function LoginForm({
         disabled={linkPending || emailEmpty}
         aria-busy={linkPending}
         onClick={() => {
+          rememberLastEmail(email);
           hideCurrent();
           setLastSource("link");
         }}

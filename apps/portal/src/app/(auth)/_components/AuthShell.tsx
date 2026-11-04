@@ -7,10 +7,11 @@ import { AUTH_CARD, AUTH_COLUMN, AUTH_LEGAL, AUTH_LOGO_ROW, AUTH_MAIN } from "..
  * Page frame for every sign-in screen, clinic (/login, /login/link,
  * /forgot-password, /set-password) and admin (/admin/login and friends):
  * the portal's grey canvas with one portal card on it, the EINS logo heading
- * the card. The card is anchored at the top, so a card that grows (the
- * password step, the Postfach screen) grows downward and its title never
- * moves (DESIGN.md section 10). Datenschutz and Impressum follow right
- * under the card, out of the toast's way.
+ * the card. The card stands in the middle of the screen, phone and desktop
+ * (Karam, 2026-11-03); its column keeps the height of the password step, so
+ * the step from the address to the password grows the card downward and the
+ * logo and title stay put. Datenschutz and Impressum follow right under the
+ * card, out of the toast's way.
  *
  * Every light colour token is set again on the wrapper, the surfaces too
  * (--surface-tile and --well resolve at :root, so the dark theme's values
@@ -116,21 +117,20 @@ export function AuthShell({
             </div>
             {children}
           </div>
+          {!admin && (
+            <footer className={AUTH_LEGAL}>
+              <nav aria-label="Rechtliches" className="flex gap-4">
+                <a href={`${MARKETING_ORIGIN}/datenschutz`} target="_blank" rel="noopener noreferrer" className={LEGAL_LINK}>
+                  Datenschutz
+                </a>
+                <a href={`${MARKETING_ORIGIN}/impressum`} target="_blank" rel="noopener noreferrer" className={LEGAL_LINK}>
+                  Impressum
+                </a>
+              </nav>
+            </footer>
+          )}
         </div>
       </main>
-
-      {!admin && (
-        <footer className={AUTH_LEGAL}>
-          <nav aria-label="Rechtliches" className="flex gap-4">
-            <a href={`${MARKETING_ORIGIN}/datenschutz`} target="_blank" rel="noopener noreferrer" className={LEGAL_LINK}>
-              Datenschutz
-            </a>
-            <a href={`${MARKETING_ORIGIN}/impressum`} target="_blank" rel="noopener noreferrer" className={LEGAL_LINK}>
-              Impressum
-            </a>
-          </nav>
-        </footer>
-      )}
     </div>
   );
 }

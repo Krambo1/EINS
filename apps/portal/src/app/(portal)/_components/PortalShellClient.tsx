@@ -31,6 +31,7 @@ import { ImpersonationBanner } from "./ImpersonationBanner";
 import { UserMenu } from "./UserMenu";
 import { markSectionSeenAction } from "./nav-actions";
 import { EinsLogo } from "@/app/_components/EinsLogo";
+import { useSwipeDrawer } from "@/app/_components/useSwipeDrawer";
 
 interface NavSubItem {
   href: string;
@@ -369,6 +370,9 @@ export function PortalShellClient({
   useEffect(() => {
     setMobileNavOpen(false);
   }, [pathname]);
+
+  // A swipe to the right opens the drawer, to the left closes it (phone).
+  useSwipeDrawer(mobileNavOpen, setMobileNavOpen);
 
   // Lock body scroll while the drawer is open so the content beneath the
   // backdrop doesn't scroll under the finger.
